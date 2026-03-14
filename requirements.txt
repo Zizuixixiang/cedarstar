@@ -1,0 +1,28 @@
+# 项目依赖清单
+
+# 核心框架
+fastapi
+uvicorn
+
+# Discord 机器人
+discord.py
+
+# 向量数据库
+chromadb
+
+# 数据库
+psycopg2-binary  # SQLite support
+
+# 配置管理
+python-dotenv
+
+# HTTP 请求
+requests
+
+# 可选：如果需要 SQLite 支持
+# sqlite3 (Python 内置，无需安装)
+
+# 开发工具（可选）
+# pytest
+# black
+# flake8
