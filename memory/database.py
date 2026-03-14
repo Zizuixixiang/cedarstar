@@ -56,7 +56,8 @@ class MessageDatabase:
                         channel_id TEXT,
                         message_id TEXT,
                         is_summarized INTEGER DEFAULT 0,
-                        character_id TEXT
+                        character_id TEXT,
+                        platform TEXT DEFAULT 'discord'
                     )
                 """)
                 
@@ -124,7 +125,8 @@ class MessageDatabase:
     
     def save_message(self, role: str, content: str, session_id: str, 
                     user_id: Optional[str] = None, channel_id: Optional[str] = None, 
-                    message_id: Optional[str] = None, character_id: Optional[str] = None) -> int:
+                    message_id: Optional[str] = None, character_id: Optional[str] = None,
+                    platform: Optional[str] = None) -> int:
         """
         保存一条消息到数据库。
         
@@ -136,6 +138,7 @@ class MessageDatabase:
             channel_id: 频道ID（可选）
             message_id: 消息ID（可选）
             character_id: 角色ID（可选）
+            platform: 平台标识（可选），如 'discord', 'telegram'
             
         Returns:
             int: 插入的消息ID
@@ -148,14 +151,14 @@ class MessageDatabase:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    INSERT INTO messages (role, content, session_id, user_id, channel_id, message_id, character_id)
-                    VALUES (?, ?, ?, ?, ?, ?, ?)
-                """, (role, content, session_id, user_id, channel_id, message_id, character_id))
+                    INSERT INTO messages (role, content, session_id, user_id, channel_id, message_id, character_id, platform)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """, (role, content, session_id, user_id, channel_id, message_id, character_id, platform))
                 
                 message_id = cursor.lastrowid
                 conn.commit()
                 
-                logger.debug(f"保存消息成功: ID={message_id}, role={role}, session={session_id}")
+                logger.debug(f"保存消息成功: ID={message_id}, role={role}, session={session_id}, platform={platform}")
                 return message_id
                 
         except sqlite3.Error as e:
@@ -1134,7 +1137,8 @@ def get_database() -> MessageDatabase:
 # 便捷函数
 def save_message(role: str, content: str, session_id: str, 
                 user_id: Optional[str] = None, channel_id: Optional[str] = None, 
-                message_id: Optional[str] = None, character_id: Optional[str] = None) -> int:
+                message_id: Optional[str] = None, character_id: Optional[str] = None,
+                platform: Optional[str] = None) -> int:
     """
     保存消息的便捷函数。
     
@@ -1146,12 +1150,13 @@ def save_message(role: str, content: str, session_id: str,
         channel_id: 频道ID（可选）
         message_id: 消息ID（可选）
         character_id: 角色ID（可选）
+        platform: 平台标识（可选），如 'discord', 'telegram'
         
     Returns:
         int: 消息ID
     """
     db = get_database()
-    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id)
+    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id, platform)
 
 
 def get_recent_messages(session_id: str, limit: int = 20) -> List[Dict[str, Any]]:

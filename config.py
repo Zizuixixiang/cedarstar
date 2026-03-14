@@ -296,6 +296,23 @@ class Config:
         """
         return os.getenv("COHERE_API_KEY")
     
+    # Telegram 配置
+    @property
+    def TELEGRAM_BOT_TOKEN(self) -> Optional[str]:
+        """
+        获取 Telegram 机器人令牌。
+        
+        获取方式：https://t.me/BotFather
+        1. 与 BotFather 对话
+        2. 发送 /newbot 创建新机器人
+        3. 按提示设置名称和用户名
+        4. 获取 Token
+        
+        Returns:
+            Optional[str]: Telegram 机器人令牌，如果未设置则返回 None
+        """
+        return os.getenv("TELEGRAM_BOT_TOKEN")
+    
     # ChromaDB 本地存储配置
     @property
     def CHROMADB_PERSIST_DIR(self) -> str:

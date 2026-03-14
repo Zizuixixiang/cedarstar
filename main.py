@@ -3,9 +3,8 @@ CedarStar 项目主入口。
 
 负责初始化并启动所有组件，包括：
 1. Discord 机器人
-2. LLM 接口
-3. 记忆存储
-4. 日终跑批定时任务
+2. Telegram 机器人
+3. 日终跑批定时任务
 """
 
 import asyncio
@@ -38,6 +37,7 @@ def setup_logging():
     
     # 设置第三方库的日志级别
     logging.getLogger('discord').setLevel(logging.WARNING)
+    logging.getLogger('telegram').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('requests').setLevel(logging.WARNING)
 
@@ -45,6 +45,11 @@ def setup_logging():
 async def run_discord_bot():
     """
     运行 Discord 机器人。
+    
+    使用线程运行 Discord 机器人，避免阻塞主事件循环。
+    
+    Returns:
+        asyncio.Task: Discord 机器人任务
     """
     from bot.discord_bot import DiscordBot
     
@@ -54,23 +59,7 @@ async def run_discord_bot():
     try:
         bot = DiscordBot()
         
-        # 直接运行机器人（这是一个阻塞调用）
-        # 注意：discord.py 的 run() 方法是阻塞的，我们需要在单独的线程中运行它
-        # 或者使用 discord.py 的异步启动方式
-        
-        # 方法1：在线程中运行（简单但可能有问题）
-        # bot_task = asyncio.create_task(asyncio.to_thread(bot.run))
-        
-        # 方法2：直接运行（阻塞主线程）
-        # 由于 discord.py 的 run() 是阻塞的，我们在这里直接运行它
-        # 这会导致这个函数不会返回，所以我们需要调整架构
-        
-        # 简化：直接运行机器人，不返回任务
-        # 在实际部署中，可能需要更复杂的异步处理
-        logger.info("Discord 机器人将在主线程中运行...")
-        
-        # 由于 discord.py 的 run() 是阻塞的，我们无法在这里返回任务
-        # 所以我们将机器人运行放在单独的线程中
+        # 由于 discord.py 的 run() 是阻塞的，我们在单独的线程中运行它
         import threading
         
         def run_bot():
@@ -85,7 +74,6 @@ async def run_discord_bot():
         logger.info("Discord 机器人已启动（在后台线程中）")
         
         # 返回一个永远不会完成的任务，以保持异步循环运行
-        # 实际上，我们不需要返回任务，因为机器人已经在后台运行
         return asyncio.Future()  # 永远不会完成的 Future
         
     except Exception as e:
@@ -93,9 +81,52 @@ async def run_discord_bot():
         raise
 
 
+async def run_telegram_bot():
+    """
+    运行 Telegram 机器人。
+    
+    使用 python-telegram-bot v20+ 的异步启动方式：
+    app.initialize() + app.start() + app.updater.start_polling()
+    确保不阻塞主事件循环。
+    
+    Returns:
+        asyncio.Task: Telegram 机器人任务
+    """
+    from bot.telegram_bot import TelegramBot
+    
+    logger = logging.getLogger(__name__)
+    
+    try:
+        # 检查 Telegram 令牌是否设置
+        token = config.TELEGRAM_BOT_TOKEN
+        if not token:
+            logger.warning("TELEGRAM_BOT_TOKEN 未设置，跳过 Telegram 机器人启动")
+            # 返回一个已完成的任务
+            return asyncio.Future()
+        
+        logger.info("启动 Telegram 机器人...")
+        
+        # 创建 Telegram 机器人实例
+        bot = TelegramBot()
+        
+        # 使用 bot 的 run_async 方法
+        logger.info("使用异步模式启动 Telegram 机器人...")
+        telegram_task = await bot.run_async()
+        
+        return telegram_task
+        
+    except Exception as e:
+        logger.error(f"启动 Telegram 机器人失败: {e}")
+        # 如果 Telegram 机器人启动失败，返回一个已完成的任务
+        return asyncio.Future()
+
+
 async def run_daily_batch_scheduler():
     """
     运行日终跑批定时调度器。
+    
+    Returns:
+        asyncio.Task: 日终跑批定时调度器任务
     """
     from memory.daily_batch import schedule_daily_batch
     
@@ -116,6 +147,11 @@ async def run_daily_batch_scheduler():
 async def main_async():
     """
     异步主函数。
+    
+    并行启动三个任务：
+    1. Discord 机器人
+    2. Telegram 机器人
+    3. 日终跑批定时调度器
     """
     logger = logging.getLogger(__name__)
     
@@ -124,18 +160,24 @@ async def main_async():
         logger.info("验证配置...")
         validate_config()
         
+        # 并行启动三个任务
+        logger.info("并行启动三个任务...")
+        
         # 启动 Discord 机器人
-        bot_task = await run_discord_bot()
+        discord_task = asyncio.create_task(run_discord_bot())
+        
+        # 启动 Telegram 机器人
+        telegram_task = asyncio.create_task(run_telegram_bot())
         
         # 启动日终跑批定时调度器
-        scheduler_task = await run_daily_batch_scheduler()
+        scheduler_task = asyncio.create_task(run_daily_batch_scheduler())
         
         logger.info("所有组件启动完成")
         logger.info(f"当前时区: {pytz.timezone('Asia/Shanghai')}")
         logger.info(f"日终跑批触发时间: 每天 23:00 (Asia/Shanghai)")
         
         # 等待所有任务完成（实际上会一直运行）
-        await asyncio.gather(bot_task, scheduler_task)
+        await asyncio.gather(discord_task, telegram_task, scheduler_task)
         
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在关闭...")

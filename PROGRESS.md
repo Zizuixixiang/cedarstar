@@ -5,12 +5,13 @@
 | 文件/目录 | 作用描述 |
 |-----------|----------|
 | main.py | 项目主入口，负责初始化并启动所有组件 |
-| requirements.txt | 项目依赖清单，包含FastAPI、Discord.py等 |
+| requirements.txt | 项目依赖清单，包含FastAPI、Discord.py、python-telegram-bot等 |
 | .env | 环境变量配置文件（敏感信息存储） |
 | config.py | 配置管理模块，使用python-dotenv读取.env配置 |
-| bot/ | Discord 消息收发模块目录 |
+| bot/ | 机器人模块目录 |
 | bot/__init__.py | Bot模块初始化文件 |
 | bot/discord_bot.py | Discord机器人实现，接收消息→调用LLM→回复 |
+| bot/telegram_bot.py | Telegram机器人实现，复用消息缓冲逻辑，与平台对象解耦 |
 | llm/ | 大模型接口模块目录 |
 | llm/__init__.py | LLM模块初始化文件 |
 | llm/llm_interface.py | LLM接口实现，封装AI API调用 |
@@ -18,6 +19,11 @@
 | memory/__init__.py | Memory模块初始化文件 |
 | memory/database.py | 短期记忆数据库模块，使用SQLite存储对话消息 |
 | memory/micro_batch.py | 微批处理模块，实现日内微批处理逻辑 |
+| memory/context_builder.py | Context构建模块，组装完整的对话上下文 |
+| memory/daily_batch.py | 日终跑批处理模块，实现每日三步流水线处理 |
+| memory/vector_store.py | 向量存储模块，封装ChromaDB操作 |
+| memory/bm25_retriever.py | BM25关键词检索模块 |
+| memory/reranker.py | Reranker重排模块，使用Cohere API对检索结果重排序 |
 | tools/ | MCP插件工具箱目录 |
 | tools/__init__.py | Tools模块初始化文件 |
 | tools/location.py | 定位工具模块（占位实现） |
@@ -263,6 +269,29 @@
      - 替换原有的占位注释，实现完整的 Reranker 集成
   6. 更新requirements.txt添加 cohere 依赖
 
+- 2026-03-15: 实现 Telegram 机器人集成：
+  1. 安装 python-telegram-bot 依赖
+  2. 更新config.py添加 TELEGRAM_BOT_TOKEN 配置项
+  3. 更新.env添加 TELEGRAM_BOT_TOKEN 占位配置
+  4. 更新requirements.txt添加 python-telegram-bot 依赖
+  5. 创建bot/telegram_bot.py Telegram 机器人模块：
+     - TelegramBot: 处理 Telegram 事件，调用 LLM 生成回复
+     - 复用现有的消息缓冲逻辑，与平台对象解耦
+     - session_id 格式定为 telegram_{chat_id}，platform 字段写 telegram
+     - 消息处理流程完全复用：存 messages 表 → 触发微批检查 → context_builder 组装 → LLM 回复 → 发回 Telegram
+     - 支持命令：/start, /help, /model, /clear
+  6. 更新数据库支持 platform 字段：
+     - 在messages表中添加platform字段，默认值为'discord'
+     - 更新save_message函数支持platform参数
+     - 更新便捷函数save_message支持platform参数
+  7. 更新Discord bot调用save_message时添加platform="discord"
+  8. 重构main.py实现三任务并行启动：
+     - Discord 机器人（在后台线程中运行）
+     - Telegram 机器人（使用python-telegram-bot v20+的异步启动方式：app.initialize() + app.start() + app.updater.start_polling()）
+     - 日终跑批定时调度器
+     - 确保多端应用和定时任务能真正并行运行，互不阻塞
+  9. 更新Telegram bot的run方法，支持异步启动模式
+
 ## 六、验证方法与启动指南
 
 ### 验证方法
@@ -401,12 +430,20 @@ else:
 "
    ```
 
-10. **主程序集成测试**：
+10. **Telegram 机器人测试**：
+    ```bash
+    cd cedarstar
+    "D:\Environment_coding\Python312\python.exe" bot/telegram_bot.py
+    ```
+    会启动Telegram机器人（需要设置TELEGRAM_BOT_TOKEN环境变量）。
+    注意：这是一个长期运行的程序，按Ctrl+C可以停止。
+
+11. **主程序集成测试**：
     ```bash
     cd cedarstar
     "D:\Environment_coding\Python312\python.exe" main.py
     ```
-    会启动完整的CedarStar系统，包括Discord机器人和日终跑批定时调度器。
+    会启动完整的CedarStar系统，包括Discord机器人、Telegram机器人和日终跑批定时调度器。
     注意：这是一个长期运行的程序，按Ctrl+C可以停止。
 
 ### 启动完整系统
@@ -416,6 +453,10 @@ else:
 cd cedarstar
 "D:\Environment_coding\Python312\python.exe" main.py
 ```
+这会并行启动三个任务：
+- Discord 机器人（在后台线程中运行）
+- Telegram 机器人（使用异步 polling 模式）
+- 日终跑批定时调度器（每天23:00自动触发）
 
 **方法2：单独启动Discord机器人**（传统方式）
 ```bash
@@ -423,7 +464,13 @@ cd cedarstar
 "D:\Environment_coding\Python312\python.exe" bot/discord_bot.py
 ```
 
-**方法3：手动触发日终跑批处理**
+**方法3：单独启动Telegram机器人**
+```bash
+cd cedarstar
+"D:\Environment_coding\Python312\python.exe" bot/telegram_bot.py
+```
+
+**方法4：手动触发日终跑批处理**
 ```bash
 cd cedarstar
 "D:\Environment_coding\Python312\python.exe" -c "import sys; sys.path.insert(0, '.'); from memory.daily_batch import trigger_daily_batch_manual; trigger_daily_batch_manual()"
@@ -434,11 +481,13 @@ cd cedarstar
 1. **时区设置**：日终跑批处理使用东八区（Asia/Shanghai）时间，每天23:00自动触发
 2. **断点续跑**：如果某天的批处理失败，下次触发时会从失败的步骤继续执行
 3. **日志文件**：所有日志会同时输出到控制台和 `cedarstar.log` 文件
-4. **异步架构**：新的 `main.py` 使用异步架构，同时运行Discord机器人和日终跑批调度器
-5. **依赖安装**：需要安装 `pytz` 包来处理时区：
+4. **异步架构**：新的 `main.py` 使用异步架构，同时运行Discord机器人、Telegram机器人和日终跑批调度器
+5. **依赖安装**：需要安装以下依赖包：
    ```bash
-   "D:\Environment_coding\Python312\python.exe" -m pip install pytz
+   "D:\Environment_coding\Python312\python.exe" -m pip install pytz python-telegram-bot
    ```
+6. **Telegram 配置**：需要在 `.env` 文件中设置 `TELEGRAM_BOT_TOKEN`，否则 Telegram 机器人不会启动
+7. **并发要求**：Telegram 机器人使用 python-telegram-bot v20+ 的异步启动方式（`app.initialize() + app.start() + app.updater.start_polling()`），确保不阻塞主事件循环
 
 ### 启动Discord机器人
 

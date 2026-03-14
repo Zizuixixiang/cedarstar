@@ -286,7 +286,8 @@ class DiscordBot:
                 user_id=str(message.author.id),
                 channel_id=str(message.channel.id),
                 message_id=str(message.id),
-                character_id="sirius"
+                character_id="sirius",
+                platform="discord"
             )
             
             # 保存AI回复到数据库
@@ -297,7 +298,8 @@ class DiscordBot:
                 user_id=str(message.author.id),
                 channel_id=str(message.channel.id),
                 message_id=f"ai_{message.id}",
-                character_id="sirius"
+                character_id="sirius",
+                platform="discord"
             )
             
             logger.info(f"为用户 {message.author.name} 生成回复，context 消息数量: {len(messages)}")
