@@ -270,6 +270,43 @@ class Config:
         except ValueError:
             return 5
     
+    # 智谱 AI 配置（用于 Embedding）
+    @property
+    def ZHIPU_API_KEY(self) -> Optional[str]:
+        """
+        获取智谱 AI API 密钥。
+        
+        用于调用智谱 embedding-3 模型生成向量。
+        
+        Returns:
+            Optional[str]: 智谱 API 密钥，如果未设置则返回 None
+        """
+        return os.getenv("ZHIPU_API_KEY")
+    
+    # Cohere Rerank API 配置
+    @property
+    def COHERE_API_KEY(self) -> Optional[str]:
+        """
+        获取 Cohere Rerank API 密钥。
+        
+        用于调用 Cohere Rerank API 进行文档重排序。
+        
+        Returns:
+            Optional[str]: Cohere API 密钥，如果未设置则返回 None
+        """
+        return os.getenv("COHERE_API_KEY")
+    
+    # ChromaDB 本地存储配置
+    @property
+    def CHROMADB_PERSIST_DIR(self) -> str:
+        """
+        获取 ChromaDB 本地持久化目录。
+        
+        Returns:
+            str: ChromaDB 数据目录路径，默认为 cedarstar/chroma_db/
+        """
+        return os.getenv("CHROMADB_PERSIST_DIR", "chroma_db")
+    
     # 代理配置
     @property
     def HTTP_PROXY(self) -> Optional[str]:

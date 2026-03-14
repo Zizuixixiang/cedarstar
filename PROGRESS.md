@@ -214,6 +214,55 @@
      - 时区写死 Asia/Shanghai，触发时间23:00
      - 添加完整的日志配置和错误处理机制
 
+- 2026-03-14: 完成第四阶段 - 长期记忆向量检索：
+  1. 安装依赖：chromadb、jieba、zhipuai
+  2. 新建memory/vector_store.py，封装 ChromaDB 操作：
+     - ZhipuEmbedding: 智谱 embedding-3 模型客户端，支持文本向量化
+     - VectorStore: ChromaDB 管理器，提供 add_memory、search_memory、delete_memory 等操作
+     - 数据目录存在 cedarstar/chroma_db/
+     - 支持元数据包含 date、session_id、summary_type 等字段
+  3. 更新config.py添加 ZHIPU_API_KEY 配置项
+  4. 更新.env添加 ZHIPU_API_KEY 占位配置
+  5. 回填日终跑批 Step 3 的占位：
+     - daily_batch.py 里打分 ≥7 分的今日小传，调用 add_memory() 存入 ChromaDB
+     - doc_id 用 daily_{batch_date} 格式
+  6. 回填context_builder.py里 ChromaDB 召回的占位注释：
+     - 用用户当前输入调 search_memory()，取 top 5 结果
+     - 结果原样拼入 context，后续给 Reranker 用
+  7. 更新requirements.txt添加新依赖
+
+- 2026-03-15: 实现 BM25 关键词检索：
+  1. 安装 rank_bm25 依赖
+  2. 新建memory/bm25_retriever.py，实现 BM25 关键词检索：
+     - BM25Retriever: 使用 jieba 分词 + rank_bm25 实现 BM25 检索
+     - 检索数据来源是 ChromaDB 里存的全部记忆文本
+     - 实现缓存机制：模块加载时构建一次索引，提供 refresh_index() 方法更新索引
+     - search_bm25(query, top_k=5): 对用户输入分词后检索，返回 top 5 结果
+  3. 在vector_store.py中添加get_all_memories()方法，支持 BM25 检索器获取所有文档
+  4. 在daily_batch.py的 Step 3 中成功写入 ChromaDB 之后，调用 refresh_index() 更新 BM25 索引
+  5. 在context_builder.py中实现双路融合：
+     - 向量检索 top 5 + BM25 top 5，按 doc_id 去重，得到最多 10 条候选
+     - 添加占位注释等 Reranker 填充
+  6. 更新requirements.txt添加 rank_bm25 依赖
+
+- 2026-03-15: 实现 Reranker 重排功能：
+  1. 安装 cohere 依赖
+  2. 更新config.py添加 COHERE_API_KEY 配置项
+  3. 更新.env添加 COHERE_API_KEY 占位配置
+  4. 新建memory/reranker.py，实现异步 Reranker：
+     - Reranker: 使用 Cohere Rerank API 对检索结果进行重排序
+     - 支持异步网络调用，使用 cohere.AsyncClient 确保不阻塞事件循环
+     - rerank(query, candidates, top_n=2): 接收用户查询和双路检索返回的候选列表，调用 Cohere Rerank API（模型用 rerank-multilingual-v3.0，支持中文），返回重排后得分最高的 top_n 条
+  5. 更新context_builder.py实现并发执行逻辑和 Reranker 集成：
+     - 添加build_context_async()异步方法，支持 Reranker 重排序
+     - 添加_build_vector_search_section_async()异步方法，实现并发执行：
+       - 使用 asyncio.gather 并行执行向量检索和 BM25 检索
+       - 等待这两路都返回结果并完成合并去重（得到最多 10 条候选）后
+       - 再异步 await 调用 rerank() 取 top 2
+       - 将这 2 条作为最终的长期记忆注入 context
+     - 替换原有的占位注释，实现完整的 Reranker 集成
+  6. 更新requirements.txt添加 cohere 依赖
+
 ## 六、验证方法与启动指南
 
 ### 验证方法

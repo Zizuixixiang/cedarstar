@@ -10,6 +10,18 @@ discord.py
 # 向量数据库
 chromadb
 
+# 中文分词
+jieba
+
+# 智谱 AI (Embedding API)
+zhipuai
+
+# BM25 检索
+rank_bm25
+
+# Cohere Rerank API
+cohere
+
 # 数据库
 psycopg2-binary  # SQLite support
 

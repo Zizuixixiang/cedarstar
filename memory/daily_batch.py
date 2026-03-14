@@ -26,6 +26,12 @@ from config import config
 from llm.llm_interface import LLMInterface
 from memory.micro_batch import SummaryLLMInterface
 
+# 导入向量存储函数
+try:
+    from .vector_store import add_memory
+except ImportError:
+    from memory.vector_store import add_memory
+
 # 导入数据库函数
 try:
     from .database import (
@@ -328,7 +334,7 @@ class DailyBatchProcessor:
         """
         Step 3 - 价值打分与冷库归档。
         
-        让 LLM 给今日小传打1-10分的长期保留价值分，≥7分则将其向量化后存入 ChromaDB（占位，第四阶段填充），<7分跳过。
+        让 LLM 给今日小传打1-10分的长期保留价值分，≥7分则将其向量化后存入 ChromaDB，<7分跳过。
         
         Args:
             batch_date: 批处理日期
@@ -338,19 +344,108 @@ class DailyBatchProcessor:
         """
         try:
             # 1. 获取今日小传
-            # 这里需要查询今天的 daily 摘要
-            # 暂时简化：使用最后一条 daily 摘要
+            # 需要查询今天生成的 daily 摘要
+            # 这里简化：获取最后一条 daily 摘要作为今日小传
+            # 在实际应用中，应该按日期查询
+            from memory.database import get_recent_daily_summaries
+            
+            daily_summaries = get_recent_daily_summaries(limit=1)
+            if not daily_summaries:
+                logger.info(f"今日没有小传，跳过归档，日期: {batch_date}")
+                return True, None
+            
+            daily_summary = daily_summaries[0]
+            summary_text = daily_summary['summary_text']
+            summary_id = daily_summary['id']
+            
+            logger.info(f"获取到今日小传，ID: {summary_id}, 长度: {len(summary_text)}")
             
             # 2. 调用 LLM 进行价值打分
-            # 这里简化实现：假设得分为 5（中等价值）
-            score = 5
+            prompt = f"""请评估以下今日小传的长期保留价值，给出1-10分的评分（10分最高）：
+            
+今日小传内容：
+{summary_text}
+
+评分标准：
+1-3分：日常琐事，没有长期参考价值
+4-6分：有一定参考价值，但信息较为普通
+7-8分：有价值的信息，值得长期保留
+9-10分：非常重要的信息，对长期记忆有显著价值
+
+请只返回一个整数分数（1-10），不要有其他文字。"""
+            
+            try:
+                # 使用主 LLM 进行打分
+                score_response = self.llm.generate(prompt)
+                
+                # 提取分数
+                import re
+                score_match = re.search(r'\b([1-9]|10)\b', score_response)
+                if score_match:
+                    score = int(score_match.group(1))
+                else:
+                    # 如果没有找到有效分数，使用默认值
+                    score = 5
+                    logger.warning(f"无法从LLM响应中提取分数，使用默认值: {score}, 响应: {score_response}")
+                
+                logger.info(f"今日小传价值分: {score}/10")
+                
+            except Exception as e:
+                logger.error(f"LLM 价值打分失败: {e}")
+                # 如果打分失败，使用默认分数
+                score = 5
+                logger.info(f"使用默认分数: {score}")
             
             # 3. 根据分数决定是否归档
             if score >= 7:
-                logger.info(f"今日小传价值分: {score}，需要归档到 ChromaDB（占位）")
-                # TODO: 第四阶段实现 ChromaDB 归档
-                # 这里添加占位注释
-                pass
+                logger.info(f"今日小传价值分: {score}，需要归档到 ChromaDB")
+                
+                # 准备元数据
+                metadata = {
+                    "date": batch_date,
+                    "session_id": daily_summary.get('session_id', 'daily_batch'),
+                    "summary_type": "daily",
+                    "score": str(score),
+                    "summary_id": str(summary_id)
+                }
+                
+                # 生成文档ID
+                doc_id = f"daily_{batch_date}"
+                
+                # 存入 ChromaDB
+                success = add_memory(doc_id, summary_text, metadata)
+                
+                if success:
+                    logger.info(f"今日小传已成功归档到 ChromaDB，ID: {doc_id}")
+                    
+                    # 更新 BM25 索引
+                    try:
+                        # 导入 BM25 检索器函数
+                        try:
+                            from .bm25_retriever import add_document_to_bm25, refresh_bm25_index
+                        except ImportError:
+                            from memory.bm25_retriever import add_document_to_bm25, refresh_bm25_index
+                        
+                        # 方法1：直接添加文档到 BM25 索引
+                        bm25_success = add_document_to_bm25(doc_id, summary_text, metadata)
+                        if bm25_success:
+                            logger.info(f"文档已添加到 BM25 索引，ID: {doc_id}")
+                        else:
+                            logger.warning(f"文档添加到 BM25 索引失败，将尝试刷新索引")
+                            # 方法2：刷新整个索引
+                            refresh_success = refresh_bm25_index()
+                            if refresh_success:
+                                logger.info("BM25 索引刷新成功")
+                            else:
+                                logger.warning("BM25 索引刷新失败")
+                        
+                    except Exception as e:
+                        logger.error(f"更新 BM25 索引失败: {e}")
+                        # 不因为 BM25 索引更新失败而影响整体流程
+                        
+                else:
+                    logger.error(f"今日小传归档到 ChromaDB 失败，ID: {doc_id}")
+                    return False, "ChromaDB 归档失败"
             else:
                 logger.info(f"今日小传价值分: {score}，跳过归档")
             
