@@ -59,3 +59,450 @@
 2026-03-14 23:28:42,089 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
 2026-03-14 23:28:42,089 - bot.discord_bot - INFO - 已加入 1 个服务器
 2026-03-14 23:30:18,543 - __main__ - INFO - 程序已终止
+2026-03-15 01:05:22,491 - __main__ - INFO - ============================================================
+2026-03-15 01:05:22,491 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:05:22,491 - __main__ - INFO - 启动时间: 2026-03-15 01:05:22
+2026-03-15 01:05:22,491 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:05:22,491 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:05:22,492 - __main__ - INFO - ============================================================
+2026-03-15 01:05:22,493 - __main__ - INFO - 验证配置...
+2026-03-15 01:05:22,493 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:05:22,494 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:05:22,579 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:05:22,579 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:05:26,289 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:05:26,290 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:05:26,290 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:05:26,290 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:05:26,290 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:05:26,291 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:05:26,291 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:05:26,291 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:05:26,295 - discord.client - INFO - logging in using static token
+2026-03-15 01:05:26,305 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:05:26,305 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:05:26,305 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:05:26,305 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78874 秒
+2026-03-15 01:05:26,305 - __main__ - ERROR - 主程序运行失败: No module named 'telegram'
+2026-03-15 01:05:26,307 - __main__ - ERROR - 程序运行失败: No module named 'telegram'
+2026-03-15 01:08:57,657 - __main__ - INFO - ============================================================
+2026-03-15 01:08:57,658 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:08:57,658 - __main__ - INFO - 启动时间: 2026-03-15 01:08:57
+2026-03-15 01:08:57,658 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:08:57,658 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:08:57,658 - __main__ - INFO - ============================================================
+2026-03-15 01:08:57,661 - __main__ - INFO - 验证配置...
+2026-03-15 01:08:57,662 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:08:57,662 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:08:57,777 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:08:57,777 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:09:00,109 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:09:00,110 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:09:00,110 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:09:00,110 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:09:00,110 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:09:00,110 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:09:00,110 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:09:00,112 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:09:00,113 - discord.client - INFO - logging in using static token
+2026-03-15 01:09:00,335 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:09:00,335 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:09:00,335 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:09:00,335 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:09:02,615 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:09:02,618 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:09:02,618 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:09:02,618 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:09:02,619 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78657 秒
+2026-03-15 01:09:04,413 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 1eb53e46d1622fbfb3e097ae3d146599).
+2026-03-15 01:09:06,460 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-15 01:09:06,461 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-15 01:09:06,461 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-15 01:09:08,261 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:09:08,655 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:09:08,655 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:09:52,801 - __main__ - INFO - ============================================================
+2026-03-15 01:09:52,802 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:09:52,804 - __main__ - INFO - 启动时间: 2026-03-15 01:09:52
+2026-03-15 01:09:52,805 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:09:52,805 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:09:52,805 - __main__ - INFO - ============================================================
+2026-03-15 01:09:52,807 - __main__ - INFO - 验证配置...
+2026-03-15 01:09:52,808 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:09:52,808 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:09:52,906 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:09:52,906 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:09:55,329 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:09:55,330 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:09:55,330 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:09:55,330 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:09:55,332 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:09:55,332 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:09:55,332 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:09:55,332 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:09:55,334 - discord.client - INFO - logging in using static token
+2026-03-15 01:09:55,634 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:09:55,635 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:09:55,636 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:09:55,636 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:09:57,304 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:09:57,306 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:09:57,306 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:09:57,307 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:09:57,307 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78603 秒
+2026-03-15 01:09:58,071 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: d4541bb59e9a3940f541bdc0d7d0ad85).
+2026-03-15 01:09:58,759 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:09:59,087 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:09:59,089 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:10:08,247 - __main__ - INFO - ============================================================
+2026-03-15 01:10:08,248 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:10:08,248 - __main__ - INFO - 启动时间: 2026-03-15 01:10:08
+2026-03-15 01:10:08,248 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:10:08,248 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:10:08,248 - __main__ - INFO - ============================================================
+2026-03-15 01:10:08,249 - __main__ - INFO - 验证配置...
+2026-03-15 01:10:08,249 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:10:08,249 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:10:08,303 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:10:08,304 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:10:10,200 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:10:10,202 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:10:10,203 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:10:10,204 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:10:10,204 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:10:10,204 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:10:10,204 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:10:10,204 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:10:10,207 - discord.client - INFO - logging in using static token
+2026-03-15 01:10:10,372 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:10:10,372 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:10:10,372 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:10:10,373 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:10:11,835 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:10:11,837 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:10:11,837 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:10:11,838 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:10:11,838 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78588 秒
+2026-03-15 01:10:13,286 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:10:13,622 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:10:13,623 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:10:37,875 - __main__ - INFO - ============================================================
+2026-03-15 01:10:37,875 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:10:37,875 - __main__ - INFO - 启动时间: 2026-03-15 01:10:37
+2026-03-15 01:10:37,876 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:10:37,876 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:10:37,876 - __main__ - INFO - ============================================================
+2026-03-15 01:10:37,876 - __main__ - INFO - 验证配置...
+2026-03-15 01:10:37,877 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:10:37,877 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:10:37,942 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:10:37,942 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:10:39,699 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:10:39,700 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:10:39,701 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:10:39,701 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:10:39,703 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:10:39,703 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:10:39,703 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:10:39,704 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:10:39,706 - discord.client - INFO - logging in using static token
+2026-03-15 01:10:39,962 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:10:39,962 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:10:39,963 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:10:39,963 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:10:41,442 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:10:41,443 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:10:41,443 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:10:41,443 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:10:41,443 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78559 秒
+2026-03-15 01:10:42,458 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 820e0d32d4aa0cc257a584ba0dad3c68).
+2026-03-15 01:10:42,894 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:10:43,224 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:10:43,225 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:16:26,224 - __main__ - INFO - ============================================================
+2026-03-15 01:16:26,224 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:16:26,224 - __main__ - INFO - 启动时间: 2026-03-15 01:16:26
+2026-03-15 01:16:26,224 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:16:26,224 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:16:26,224 - __main__ - INFO - ============================================================
+2026-03-15 01:16:26,225 - __main__ - INFO - 验证配置...
+2026-03-15 01:16:26,225 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:16:26,227 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:16:26,351 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:16:26,351 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:16:28,265 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:16:28,265 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:16:28,265 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:16:28,266 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:16:28,266 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:16:28,267 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:16:28,267 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:16:28,268 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:16:28,271 - discord.client - INFO - logging in using static token
+2026-03-15 01:16:28,454 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:16:28,454 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:16:28,454 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:16:28,454 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:16:30,081 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:16:30,082 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:16:30,082 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:16:30,083 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:16:30,083 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78210 秒
+2026-03-15 01:16:31,082 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: bd590ae24398e1d504c3ff678f401fe7).
+2026-03-15 01:16:31,521 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:16:31,849 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:16:31,851 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:16:33,096 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-15 01:16:33,096 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-15 01:16:33,096 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-15 01:16:33,291 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:16:33,292 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=3
+2026-03-15 01:16:33,793 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-15 01:16:33,794 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:16:33,795 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-15 01:16:34,445 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-15 01:16:34,457 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-15 01:16:34,457 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-15 01:16:35,110 - jieba - DEBUG - Dumping model to file cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-15 01:16:35,162 - jieba - DEBUG - Loading model cost 0.704 seconds.
+2026-03-15 01:16:35,162 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-15 01:16:37,745 - memory.bm25_retriever - INFO - BM25 索引构建完成（初始为空）
+2026-03-15 01:16:37,745 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-15 01:16:37,745 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:16:49,958 - memory.database - ERROR - 保存消息失败: table messages has no column named platform
+2026-03-15 01:16:49,959 - bot.telegram_bot - ERROR - 生成回复时出错: table messages has no column named platform
+2026-03-15 01:16:49,959 - bot.telegram_bot - ERROR - table messages has no column named platform
+Traceback (most recent call last):
+  File "D:\Workspace\PythonProject\cedarstar\bot\telegram_bot.py", line 250, in _generate_reply
+    save_message(
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 1159, in save_message
+    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id, platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 153, in save_message
+    cursor.execute("""
+sqlite3.OperationalError: table messages has no column named platform
+2026-03-15 01:16:49,963 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:16:51,619 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-15 01:16:51,620 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=2
+2026-03-15 01:16:52,118 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-15 01:16:52,119 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:16:54,619 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:17:05,448 - memory.database - ERROR - 保存消息失败: table messages has no column named platform
+2026-03-15 01:17:05,448 - bot.telegram_bot - ERROR - 生成回复时出错: table messages has no column named platform
+2026-03-15 01:17:05,448 - bot.telegram_bot - ERROR - table messages has no column named platform
+Traceback (most recent call last):
+  File "D:\Workspace\PythonProject\cedarstar\bot\telegram_bot.py", line 250, in _generate_reply
+    save_message(
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 1159, in save_message
+    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id, platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 153, in save_message
+    cursor.execute("""
+sqlite3.OperationalError: table messages has no column named platform
+2026-03-15 01:17:05,451 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:17:07,068 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-15 01:17:15,784 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:17:23,507 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:17:23,508 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=3
+2026-03-15 01:17:25,127 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-15 01:17:25,128 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:17:27,565 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:17:36,136 - memory.database - ERROR - 保存消息失败: table messages has no column named platform
+2026-03-15 01:17:36,136 - bot.telegram_bot - ERROR - 生成回复时出错: table messages has no column named platform
+2026-03-15 01:17:36,136 - bot.telegram_bot - ERROR - table messages has no column named platform
+Traceback (most recent call last):
+  File "D:\Workspace\PythonProject\cedarstar\bot\telegram_bot.py", line 250, in _generate_reply
+    save_message(
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 1159, in save_message
+    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id, platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 153, in save_message
+    cursor.execute("""
+sqlite3.OperationalError: table messages has no column named platform
+2026-03-15 01:17:36,139 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:17:37,754 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-15 01:17:46,471 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:17:56,807 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:18:07,141 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:18:17,475 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:18:27,816 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:18:29,622 - __main__ - INFO - 程序已终止
+2026-03-15 01:19:12,238 - __main__ - INFO - ============================================================
+2026-03-15 01:19:12,238 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:19:12,239 - __main__ - INFO - 启动时间: 2026-03-15 01:19:12
+2026-03-15 01:19:12,239 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:19:12,239 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:19:12,239 - __main__ - INFO - ============================================================
+2026-03-15 01:19:12,239 - __main__ - INFO - 验证配置...
+2026-03-15 01:19:12,240 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:19:12,240 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:19:12,297 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:19:12,298 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:19:14,147 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:19:14,148 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:19:14,148 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:19:14,148 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:19:14,149 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:19:14,149 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:19:14,149 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:19:14,150 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:19:14,150 - discord.client - INFO - logging in using static token
+2026-03-15 01:19:14,329 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:19:14,331 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:19:14,331 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:19:14,331 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:19:15,842 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:19:15,844 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:19:15,844 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:19:15,844 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:19:15,844 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 78044 秒
+2026-03-15 01:19:17,210 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 1022767fb13d4962a512752563d70f39).
+2026-03-15 01:19:17,322 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:19:17,662 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:19:17,663 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:19:19,219 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-15 01:19:19,219 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-15 01:19:19,219 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-15 01:19:24,105 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:19:24,106 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=3
+2026-03-15 01:19:25,762 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-15 01:19:25,763 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:19:25,765 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-15 01:19:25,857 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-15 01:19:25,862 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-15 01:19:25,863 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-15 01:19:25,863 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-15 01:19:26,579 - jieba - DEBUG - Loading model cost 0.716 seconds.
+2026-03-15 01:19:26,579 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-15 01:19:29,029 - memory.bm25_retriever - INFO - BM25 索引构建完成（初始为空）
+2026-03-15 01:19:29,029 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-15 01:19:29,029 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:19:37,696 - memory.database - ERROR - 保存消息失败: table messages has no column named platform
+2026-03-15 01:19:37,696 - bot.telegram_bot - ERROR - 生成回复时出错: table messages has no column named platform
+2026-03-15 01:19:37,696 - bot.telegram_bot - ERROR - table messages has no column named platform
+Traceback (most recent call last):
+  File "D:\Workspace\PythonProject\cedarstar\bot\telegram_bot.py", line 250, in _generate_reply
+    save_message(
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 1159, in save_message
+    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id, platform)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Workspace\PythonProject\cedarstar\memory\database.py", line 153, in save_message
+    cursor.execute("""
+sqlite3.OperationalError: table messages has no column named platform
+2026-03-15 01:19:37,700 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:19:39,373 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-15 01:19:48,040 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:19:58,372 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:20:00,640 - __main__ - INFO - 程序已终止
+2026-03-15 01:22:13,974 - __main__ - INFO - ============================================================
+2026-03-15 01:22:13,974 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:22:13,974 - __main__ - INFO - 启动时间: 2026-03-15 01:22:13
+2026-03-15 01:22:13,974 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:22:13,975 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:22:13,975 - __main__ - INFO - ============================================================
+2026-03-15 01:22:13,977 - __main__ - INFO - 验证配置...
+2026-03-15 01:22:13,977 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:22:13,977 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:22:14,035 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:22:14,035 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:22:15,495 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:22:15,496 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:22:15,497 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:22:15,497 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:22:15,497 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:22:15,497 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:22:15,497 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:22:15,497 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:22:15,499 - discord.client - INFO - logging in using static token
+2026-03-15 01:22:15,656 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:22:15,657 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:22:15,657 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:22:15,657 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:22:16,976 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:22:16,977 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:22:16,977 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:22:16,977 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:22:16,977 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 77863 秒
+2026-03-15 01:22:18,375 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: a33ed92ffd94f3bad56c38555b15c57e).
+2026-03-15 01:22:18,442 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:22:18,781 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:22:18,783 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:22:20,385 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-15 01:22:20,385 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-15 01:22:20,385 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-15 01:22:30,226 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:22:33,467 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:22:33,468 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=3
+2026-03-15 01:22:35,088 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-15 01:22:35,088 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:22:35,091 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-15 01:22:35,157 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-15 01:22:35,161 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-15 01:22:35,161 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-15 01:22:35,162 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-15 01:22:35,738 - jieba - DEBUG - Loading model cost 0.578 seconds.
+2026-03-15 01:22:35,740 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-15 01:22:38,195 - memory.bm25_retriever - INFO - BM25 索引构建完成（初始为空）
+2026-03-15 01:22:38,195 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-15 01:22:38,195 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:22:46,845 - bot.telegram_bot - INFO - 为 Telegram 用户 8624126581 生成回复，context 消息数量: 2
+2026-03-15 01:22:46,849 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:22:48,479 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-15 01:22:57,187 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:22:58,196 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:22:58,198 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-15 01:22:59,807 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-15 01:22:59,808 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:23:02,326 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:23:11,496 - bot.telegram_bot - INFO - 为 Telegram 用户 8624126581 生成回复，context 消息数量: 4
+2026-03-15 01:23:11,501 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:23:13,152 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-15 01:23:21,841 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:23:32,020 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-15 01:23:32,177 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:23:34,535 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-15 01:23:42,517 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:23:48,760 - bot.discord_bot - INFO - 为用户 tt2368_32831 生成回复，context 消息数量: 6
+2026-03-15 01:23:52,858 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:23:56,097 - __main__ - INFO - 程序已终止
+2026-03-15 01:24:33,276 - __main__ - INFO - ============================================================
+2026-03-15 01:24:33,276 - __main__ - INFO - CedarStar 项目启动
+2026-03-15 01:24:33,276 - __main__ - INFO - 启动时间: 2026-03-15 01:24:33
+2026-03-15 01:24:33,276 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-15 01:24:33,277 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-15 01:24:33,277 - __main__ - INFO - ============================================================
+2026-03-15 01:24:33,278 - __main__ - INFO - 验证配置...
+2026-03-15 01:24:33,278 - __main__ - INFO - 并行启动三个任务...
+2026-03-15 01:24:33,278 - __main__ - INFO - 所有组件启动完成
+2026-03-15 01:24:33,342 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-15 01:24:33,342 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-15 01:24:35,266 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-15 01:24:35,267 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-15 01:24:35,268 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-15 01:24:35,268 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:24:35,268 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-15 01:24:35,269 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-15 01:24:35,269 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-15 01:24:35,269 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-15 01:24:35,270 - discord.client - INFO - logging in using static token
+2026-03-15 01:24:35,507 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-15 01:24:35,508 - bot.telegram_bot - INFO - Telegram 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-15 01:24:35,508 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-15 01:24:35,508 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-15 01:24:37,074 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-15 01:24:37,075 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-15 01:24:37,076 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-15 01:24:37,076 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-15 01:24:37,076 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 77723 秒
+2026-03-15 01:24:38,131 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 6b13aefdaa80c0568a7e52f57c604a7d).
+2026-03-15 01:24:38,533 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-15 01:24:38,868 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-15 01:24:38,869 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-15 01:24:40,142 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-15 01:24:40,142 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-15 01:24:40,142 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-15 01:24:50,320 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:25:00,659 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:25:10,995 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:25:21,333 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 01:25:24,237 - __main__ - INFO - 程序已终止

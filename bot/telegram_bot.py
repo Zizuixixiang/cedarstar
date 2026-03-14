@@ -325,9 +325,9 @@ class TelegramBot:
             
             logger.info("Telegram 机器人已启动（异步 polling 模式）")
             
-            # 保持运行（不调用 idle，由主程序控制）
-            # 返回一个永远不会完成的任务
-            return asyncio.Future()  # 永远不会完成的 Future
+            # 保持运行直到收到停止信号
+            stop_event = asyncio.Event()
+            await stop_event.wait()
             
         except Exception as e:
             logger.error(f"启动 Telegram 机器人时出错: {e}")
