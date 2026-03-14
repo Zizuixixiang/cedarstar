@@ -232,6 +232,44 @@ class Config:
         except ValueError:
             return 50
     
+    # System Prompt 配置
+    @property
+    def SYSTEM_PROMPT(self) -> str:
+        """
+        获取系统提示词。
+        
+        Returns:
+            str: 系统提示词，默认为通用助手提示词
+        """
+        return os.getenv("SYSTEM_PROMPT", "你是一个友善且有帮助的AI助手。")
+    
+    # Context 构建配置
+    @property
+    def CONTEXT_MAX_RECENT_MESSAGES(self) -> int:
+        """
+        获取 context 构建时最多包含的最近消息数。
+        
+        Returns:
+            int: 最大最近消息数，默认为 40
+        """
+        try:
+            return int(os.getenv("CONTEXT_MAX_RECENT_MESSAGES", "40"))
+        except ValueError:
+            return 40
+    
+    @property
+    def CONTEXT_MAX_DAILY_SUMMARIES(self) -> int:
+        """
+        获取 context 构建时最多包含的每日摘要数。
+        
+        Returns:
+            int: 最大每日摘要数，默认为 5
+        """
+        try:
+            return int(os.getenv("CONTEXT_MAX_DAILY_SUMMARIES", "5"))
+        except ValueError:
+            return 5
+    
     # 代理配置
     @property
     def HTTP_PROXY(self) -> Optional[str]:
@@ -337,5 +375,6 @@ if __name__ == "__main__":
         print(f"LLM 模型: {config.LLM_MODEL_NAME}")
         print(f"调试模式: {config.DEBUG}")
         print(f"代理配置: {config.proxy_dict}")
+        print(f"System Prompt: {config.SYSTEM_PROMPT[:50]}...")
     except ValueError as e:
         print(f"配置验证失败: {e}")

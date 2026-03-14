@@ -160,6 +160,60 @@
      - 在保存消息后异步触发微批处理检查
      - 使用asyncio.create_task确保不阻塞主流程
 
+- 2026-03-14: 实现 context 组装逻辑：
+  1. 在database.py中添加新的查询函数：
+     - get_all_active_memory_cards: 获取所有激活的记忆卡片（全局查询）
+     - get_recent_daily_summaries: 获取最近的每日摘要（全局查询）
+     - get_today_chunk_summaries: 获取今天的所有 chunk 摘要（全局查询）
+     - get_unsummarized_messages_desc: 获取指定会话中最新的未摘要消息列表（用于 context 构建）
+  2. 在config.py中添加新的配置项：
+     - SYSTEM_PROMPT: 系统提示词配置
+     - CONTEXT_MAX_RECENT_MESSAGES: context 构建时最多包含的最近消息数（默认40）
+     - CONTEXT_MAX_DAILY_SUMMARIES: context 构建时最多包含的每日摘要数（默认5）
+  3. 创建memory/context_builder.py context 构建模块：
+     - ContextBuilder: 负责组装完整的对话上下文
+     - build_context: 便捷函数，按照优先级从上到下拼装：
+       1. system prompt：从配置读取，保持原样
+       2. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
+       3. daily summary：查询 summaries 表中 summary_type='daily'，按 created_at 倒序取最近 5 条，然后翻转为正序（按时间从老到新）后拼入
+       4. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
+       5. 最近消息：查询当前 session_id 下 is_summarized=0 的消息，按 created_at 倒序取 40 条，再正序排列后拼入
+     - 组装完成后返回一个结构，包含 system prompt 和 messages 数组，直接可以传给 LLM API
+  4. 在llm/llm_interface.py中添加generate_with_context方法：
+     - 支持使用完整的 messages 数组生成回复
+     - 专门用于 context builder 构建的完整消息数组
+  5. 修改discord_bot.py集成新的 context 构建逻辑：
+     - 替换原有的历史消息获取逻辑
+     - 使用 context builder 构建完整的对话上下文
+     - 调用 generate_with_context 方法生成回复
+     - ChromaDB 召回那层现在先留空（加一个占位注释），等第四阶段再填
+
+- 2026-03-14: 实现日终跑批处理逻辑：
+  1. 创建memory/daily_batch.py日终跑批处理模块：
+     - DailyBatchProcessor: 日终跑批处理器类，负责执行每日的三步流水线处理
+     - schedule_daily_batch: 定时调度日终跑批处理，每天东八区（Asia/Shanghai）晚上23:00自动触发
+     - trigger_daily_batch_manual: 手动触发日终跑批处理的便捷函数
+     - 实现断点续跑逻辑：每次触发前先查 daily_batch_log 表，已完成的步骤直接跳过，从未完成的步骤继续
+  2. 实现 Step 1 - 生成今日小传：
+     - 取今天所有 summary_type='chunk' 的摘要记录，加上今天剩余 is_summarized=0 的原始消息
+     - 调用 SUMMARY 模型生成一份今日小传，写入 summaries 表 summary_type='daily'
+     - 写入成功后再删除今天的 chunk 记录，并将这批剩余原始消息的 is_summarized 批量更新为 1
+     - step1_status 更新为1
+  3. 实现 Step 2 - 更新记忆卡片（Upsert）：
+     - 把今日小传内容发给 LLM，判断是否包含属于以下7个维度的新信息：
+       preferences / interaction_patterns / current_status / goals / relationships / key_events / rules
+     - 有新信息则查 memory_cards 表，没有对应维度就 INSERT，有就合并重写后 UPDATE
+     - interaction_patterns 维度特别说明：只记录有具体对话支撑的行为观察，不做性格定论，新旧矛盾时并存保留并注明日期
+     - step2_status 更新为1
+  4. 实现 Step 3 - 价值打分与冷库归档：
+     - 让 LLM 给今日小传打1-10分的长期保留价值分
+     - ≥7分则将其向量化后存入 ChromaDB（占位，第四阶段填充），<7分跳过
+     - step3_status 更新为1
+  5. 在main.py里集成定时任务调度：
+     - 重构main.py为异步主函数，支持同时运行Discord机器人和日终跑批定时调度器
+     - 时区写死 Asia/Shanghai，触发时间23:00
+     - 添加完整的日志配置和错误处理机制
+
 ## 六、验证方法与启动指南
 
 ### 验证方法
@@ -227,8 +281,114 @@ if messages:
 
 # 清理测试数据
 db.clear_session_messages(test_session)
-print('微批处理数据库函数测试完成')
+    print('微批处理数据库函数测试完成')
 "
+   ```
+
+6. **Context 构建器测试**：
+   ```bash
+   cd cedarstar
+   "D:\Environment_coding\Python312\python.exe" memory/context_builder.py
+   ```
+   会测试 context 构建器的基本功能，包括构建完整的对话上下文。
+
+7. **完整集成测试**：
+   ```bash
+   cd cedarstar
+   "D:\Environment_coding\Python312\python.exe" -c "
+import sys
+sys.path.insert(0, '.')
+from memory.context_builder import build_context
+from memory.database import get_database
+
+# 创建测试数据
+db = get_database()
+test_session = 'integration_test_session'
+
+# 清理测试数据
+db.clear_session_messages(test_session)
+
+# 保存测试消息
+for i in range(5):
+    db.save_message('user', f'测试用户消息 {i+1}', test_session)
+    db.save_message('assistant', f'测试助手回复 {i+1}', test_session)
+
+# 测试 context 构建
+context = build_context(test_session, '你好，这是一个集成测试消息')
+print(f'Context 构建成功:')
+print(f'  System Prompt 长度: {len(context[\"system_prompt\"])}')
+print(f'  Messages 数量: {len(context[\"messages\"])}')
+print(f'  第一个消息角色: {context[\"messages\"][0][\"role\"] if context[\"messages\"] else \"无消息\"}')
+
+# 清理测试数据
+db.clear_session_messages(test_session)
+print('集成测试完成')
+"
+   ```
+
+8. **日终跑批处理测试**：
+   ```bash
+   cd cedarstar
+   "D:\Environment_coding\Python312\python.exe" memory/daily_batch.py
+   ```
+   会测试日终跑批处理器的初始化和基本功能。
+
+9. **手动触发日终跑批测试**：
+   ```bash
+   cd cedarstar
+   "D:\Environment_coding\Python312\python.exe" -c "
+import sys
+sys.path.insert(0, '.')
+from memory.daily_batch import trigger_daily_batch_manual
+
+# 手动触发日终跑批处理
+print('手动触发日终跑批处理...')
+success = trigger_daily_batch_manual()
+
+if success:
+    print('日终跑批处理执行成功')
+else:
+    print('日终跑批处理执行失败（可能是配置问题或没有数据）')
+"
+   ```
+
+10. **主程序集成测试**：
+    ```bash
+    cd cedarstar
+    "D:\Environment_coding\Python312\python.exe" main.py
+    ```
+    会启动完整的CedarStar系统，包括Discord机器人和日终跑批定时调度器。
+    注意：这是一个长期运行的程序，按Ctrl+C可以停止。
+
+### 启动完整系统
+
+**方法1：使用新的主程序入口**（推荐）
+```bash
+cd cedarstar
+"D:\Environment_coding\Python312\python.exe" main.py
+```
+
+**方法2：单独启动Discord机器人**（传统方式）
+```bash
+cd cedarstar
+"D:\Environment_coding\Python312\python.exe" bot/discord_bot.py
+```
+
+**方法3：手动触发日终跑批处理**
+```bash
+cd cedarstar
+"D:\Environment_coding\Python312\python.exe" -c "import sys; sys.path.insert(0, '.'); from memory.daily_batch import trigger_daily_batch_manual; trigger_daily_batch_manual()"
+```
+
+### 注意事项
+
+1. **时区设置**：日终跑批处理使用东八区（Asia/Shanghai）时间，每天23:00自动触发
+2. **断点续跑**：如果某天的批处理失败，下次触发时会从失败的步骤继续执行
+3. **日志文件**：所有日志会同时输出到控制台和 `cedarstar.log` 文件
+4. **异步架构**：新的 `main.py` 使用异步架构，同时运行Discord机器人和日终跑批调度器
+5. **依赖安装**：需要安装 `pytz` 包来处理时区：
+   ```bash
+   "D:\Environment_coding\Python312\python.exe" -m pip install pytz
    ```
 
 ### 启动Discord机器人

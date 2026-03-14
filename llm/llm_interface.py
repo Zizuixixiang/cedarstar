@@ -332,6 +332,67 @@ class LLMInterface:
         history.append({"role": "assistant", "content": response.content})
         
         return response.content, history
+    
+    def generate_with_context(self, messages: List[Dict[str, str]]) -> str:
+        """
+        使用完整的 messages 数组生成回复。
+        
+        这个方法专门用于 context builder 构建的完整消息数组。
+        
+        Args:
+            messages: 完整的消息数组，包含 system、user、assistant 消息
+            
+        Returns:
+            str: 模型生成的文本内容
+            
+        Raises:
+            ValueError: 如果 API 密钥未设置
+            requests.exceptions.RequestException: 如果 API 调用失败
+        """
+        if not self.api_key:
+            raise ValueError("LLM_API_KEY 未设置，无法调用 LLM API")
+        
+        # 准备请求
+        headers = self._prepare_headers()
+        
+        # 根据模型类型准备不同的负载
+        if "claude" in self.model_name.lower():
+            endpoint = f"{self.api_base}/messages"
+            payload = self._prepare_anthropic_payload(messages)
+            parse_func = self._parse_anthropic_response
+        else:
+            endpoint = f"{self.api_base}/chat/completions"
+            payload = self._prepare_openai_payload(messages)
+            parse_func = self._parse_openai_response
+        
+        # 发送请求
+        logger.debug(f"调用 LLM API (with context): {endpoint}, 模型: {self.model_name}")
+        logger.debug(f"消息数量: {len(messages)}")
+        
+        try:
+            response = requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                timeout=self.timeout
+            )
+            response.raise_for_status()
+            
+            response_data = response.json()
+            logger.debug(f"LLM API 响应: {response.status_code}")
+            
+            llm_response = parse_func(response_data)
+            return llm_response.content
+            
+        except requests.exceptions.Timeout:
+            logger.error(f"LLM API 调用超时: {self.timeout}秒")
+            raise
+        except requests.exceptions.RequestException as e:
+            logger.error(f"LLM API 调用失败: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                logger.error(f"响应状态码: {e.response.status_code}")
+                logger.error(f"响应内容: {e.response.text}")
+            raise
 
 
 # 创建全局 LLM 接口实例

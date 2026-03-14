@@ -19,6 +19,9 @@ python-dotenv
 # HTTP 请求
 requests
 
+# 时区处理
+pytz
+
 # 可选：如果需要 SQLite 支持
 # sqlite3 (Python 内置，无需安装)
 

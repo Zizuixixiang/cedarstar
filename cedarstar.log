@@ -1,0 +1,61 @@
+2026-03-14 23:13:59,646 - __main__ - INFO - ============================================================
+2026-03-14 23:13:59,647 - __main__ - INFO - CedarStar 项目启动
+2026-03-14 23:13:59,647 - __main__ - INFO - 启动时间: 2026-03-14 23:13:59
+2026-03-14 23:13:59,647 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-14 23:13:59,647 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-14 23:13:59,647 - __main__ - INFO - ============================================================
+2026-03-14 23:13:59,648 - __main__ - INFO - 验证配置...
+2026-03-14 23:14:00,696 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-14 23:14:00,697 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-14 23:14:00,697 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-14 23:14:00,698 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-14 23:14:00,698 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-14 23:14:00,699 - __main__ - INFO - Discord 机器人将在主线程中运行...
+2026-03-14 23:14:00,699 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-14 23:14:00,699 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-14 23:14:00,699 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-14 23:14:00,704 - discord.client - INFO - logging in using static token
+2026-03-14 23:14:00,798 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-14 23:14:00,799 - __main__ - INFO - 所有组件启动完成
+2026-03-14 23:14:00,799 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-14 23:14:00,799 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-14 23:14:00,799 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-14 23:14:00,799 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-14 23:14:00,799 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 85559 秒
+2026-03-14 23:14:05,002 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 645bd8b9ca32b8756d569c8d395336d6).
+2026-03-14 23:14:07,008 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-14 23:14:07,008 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-14 23:14:07,008 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-14 23:16:13,629 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-14 23:16:13,631 - memory.database - INFO - 消息数据库初始化完成，路径: d:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-14 23:16:27,808 - bot.discord_bot - INFO - 为用户 tt2368_32831 生成回复，context 消息数量: 4
+2026-03-14 23:27:50,169 - __main__ - INFO - 程序已终止
+2026-03-14 23:28:36,453 - __main__ - INFO - ============================================================
+2026-03-14 23:28:36,453 - __main__ - INFO - CedarStar 项目启动
+2026-03-14 23:28:36,453 - __main__ - INFO - 启动时间: 2026-03-14 23:28:36
+2026-03-14 23:28:36,453 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-14 23:28:36,453 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-14 23:28:36,454 - __main__ - INFO - ============================================================
+2026-03-14 23:28:36,455 - __main__ - INFO - 验证配置...
+2026-03-14 23:28:37,225 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-14 23:28:37,226 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-14 23:28:37,227 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-14 23:28:37,227 - bot.discord_bot - INFO - Discord 机器人初始化完成，使用模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-14 23:28:37,227 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-14 23:28:37,227 - __main__ - INFO - Discord 机器人将在主线程中运行...
+2026-03-14 23:28:37,228 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-14 23:28:37,228 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-14 23:28:37,228 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-14 23:28:37,229 - discord.client - INFO - logging in using static token
+2026-03-14 23:28:37,306 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-14 23:28:37,306 - __main__ - INFO - 所有组件启动完成
+2026-03-14 23:28:37,306 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-14 23:28:37,307 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-14 23:28:37,307 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-14 23:28:37,307 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-14 23:28:37,307 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-15 23:00:00 执行，等待 84683 秒
+2026-03-14 23:28:40,077 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: bf0e4aef750aca321aa031da2c31d325).
+2026-03-14 23:28:42,089 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-14 23:28:42,089 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-14 23:28:42,089 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-14 23:30:18,543 - __main__ - INFO - 程序已终止

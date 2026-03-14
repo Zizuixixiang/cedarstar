@@ -21,8 +21,9 @@ from discord.ext import commands
 
 from config import config, validate_config
 from llm.llm_interface import LLMInterface
-from memory.database import save_message, get_recent_messages, clear_session_messages
+from memory.database import save_message, clear_session_messages
 from memory.micro_batch import trigger_micro_batch_check
+from memory.context_builder import build_context
 
 
 # 设置日志
@@ -248,6 +249,8 @@ class DiscordBot:
         """
         生成回复消息。
         
+        使用新的 context builder 构建完整的对话上下文。
+        
         Args:
             message: Discord 消息对象
             
@@ -261,17 +264,19 @@ class DiscordBot:
             # 清理消息内容（移除提及）
             content = message.clean_content
             
-            # 从数据库获取最近的对话历史
-            recent_messages = get_recent_messages(session_id, limit=config.MAX_HISTORY_MESSAGES)
+            # 使用 context builder 构建完整的对话上下文
+            context = build_context(session_id, content)
             
-            # 转换为LLM接口期望的格式
-            history = []
-            for msg in recent_messages:
-                role = "user" if msg['role'] == "user" else "assistant"
-                history.append({"role": role, "content": msg['content']})
+            # 提取 system prompt 和 messages
+            system_prompt = context.get("system_prompt", "")
+            messages = context.get("messages", [])
+            
+            # 如果没有构建出有效的 messages，使用最小化版本
+            if not messages:
+                messages = [{"role": "user", "content": content}]
             
             # 生成回复
-            reply, updated_history = self.llm.chat(content, history)
+            reply = self.llm.generate_with_context(messages)
             
             # 保存用户消息到数据库
             save_message(
@@ -295,7 +300,8 @@ class DiscordBot:
                 character_id="sirius"
             )
             
-            logger.info(f"为用户 {message.author.name} 生成回复，历史消息数量: {len(recent_messages) + 2}")
+            logger.info(f"为用户 {message.author.name} 生成回复，context 消息数量: {len(messages)}")
+            logger.debug(f"System prompt 长度: {len(system_prompt)}")
             
             # 异步触发微批处理检查
             asyncio.create_task(trigger_micro_batch_check(session_id))

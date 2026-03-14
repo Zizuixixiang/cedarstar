@@ -713,6 +713,197 @@ class MessageDatabase:
             logger.error(f"获取未摘要消息失败: {e}")
             raise
     
+    def get_all_active_memory_cards(self, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        获取所有激活的记忆卡片（全局查询）。
+        
+        Args:
+            limit: 最大返回数量，默认为 100
+            
+        Returns:
+            List[Dict[str, Any]]: 记忆卡片列表，按维度和更新时间排序
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, user_id, character_id, dimension, content, 
+                           updated_at, source_message_id, is_active
+                    FROM memory_cards
+                    WHERE is_active = 1
+                    ORDER BY dimension ASC, updated_at DESC
+                    LIMIT ?
+                """, (limit,))
+                
+                rows = cursor.fetchall()
+                
+                cards = []
+                for row in rows:
+                    card = {
+                        'id': row['id'],
+                        'user_id': row['user_id'],
+                        'character_id': row['character_id'],
+                        'dimension': row['dimension'],
+                        'content': row['content'],
+                        'updated_at': row['updated_at'],
+                        'source_message_id': row['source_message_id'],
+                        'is_active': bool(row['is_active'])
+                    }
+                    cards.append(card)
+                
+                logger.debug(f"获取所有激活记忆卡片: count={len(cards)}")
+                return cards
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取所有激活记忆卡片失败: {e}")
+            raise
+    
+    def get_recent_daily_summaries(self, limit: int = 5) -> List[Dict[str, Any]]:
+        """
+        获取最近的每日摘要（全局查询，按 created_at 倒序）。
+        
+        Args:
+            limit: 最大返回数量，默认为 5
+            
+        Returns:
+            List[Dict[str, Any]]: 每日摘要列表，按创建时间倒序
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, session_id, summary_text, start_message_id, end_message_id, 
+                           created_at, summary_type
+                    FROM summaries
+                    WHERE summary_type = 'daily'
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (limit,))
+                
+                rows = cursor.fetchall()
+                
+                summaries = []
+                for row in rows:
+                    summary = {
+                        'id': row['id'],
+                        'session_id': row['session_id'],
+                        'summary_text': row['summary_text'],
+                        'start_message_id': row['start_message_id'],
+                        'end_message_id': row['end_message_id'],
+                        'created_at': row['created_at'],
+                        'summary_type': row['summary_type']
+                    }
+                    summaries.append(summary)
+                
+                logger.debug(f"获取最近每日摘要: count={len(summaries)}")
+                return summaries
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取最近每日摘要失败: {e}")
+            raise
+    
+    def get_today_chunk_summaries(self) -> List[Dict[str, Any]]:
+        """
+        获取今天的所有 chunk 摘要（全局查询，不按 session_id 筛选）。
+        
+        返回按 created_at 正序排列的结果。
+        
+        Returns:
+            List[Dict[str, Any]]: 今天的 chunk 摘要列表，按创建时间正序
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                # 使用 date() 函数获取今天的日期
+                cursor.execute("""
+                    SELECT id, session_id, summary_text, start_message_id, end_message_id, 
+                           created_at, summary_type
+                    FROM summaries
+                    WHERE summary_type = 'chunk' 
+                      AND date(created_at) = date('now', 'localtime')
+                    ORDER BY created_at ASC
+                """)
+                
+                rows = cursor.fetchall()
+                
+                summaries = []
+                for row in rows:
+                    summary = {
+                        'id': row['id'],
+                        'session_id': row['session_id'],
+                        'summary_text': row['summary_text'],
+                        'start_message_id': row['start_message_id'],
+                        'end_message_id': row['end_message_id'],
+                        'created_at': row['created_at'],
+                        'summary_type': row['summary_type']
+                    }
+                    summaries.append(summary)
+                
+                logger.debug(f"获取今天的 chunk 摘要: count={len(summaries)}")
+                return summaries
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取今天的 chunk 摘要失败: {e}")
+            raise
+    
+    def get_unsummarized_messages_desc(self, session_id: str, limit: int = 40) -> List[Dict[str, Any]]:
+        """
+        获取指定会话中最新的未摘要消息列表（用于 context 构建）。
+        
+        按消息创建时间倒序获取 limit 条，然后返回时翻转为正序。
+        
+        Args:
+            session_id: 会话ID
+            limit: 最大返回数量，默认为 40
+            
+        Returns:
+            List[Dict[str, Any]]: 消息列表，按创建时间正序排列（最旧的在前）
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                # 先按时间倒序取最新的 limit 条
+                cursor.execute("""
+                    SELECT id, role, content, created_at, session_id, user_id, channel_id
+                    FROM messages
+                    WHERE session_id = ? AND is_summarized = 0
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                """, (session_id, limit))
+                
+                rows = cursor.fetchall()
+                
+                messages = []
+                for row in rows:
+                    message = {
+                        'id': row['id'],
+                        'role': row['role'],
+                        'content': row['content'],
+                        'created_at': row['created_at'],
+                        'session_id': row['session_id'],
+                        'user_id': row['user_id'],
+                        'channel_id': row['channel_id']
+                    }
+                    messages.append(message)
+                
+                # 翻转为正序（最旧的在前）
+                messages.reverse()
+                
+                logger.debug(f"获取会话 {session_id} 的最新未摘要消息（正序）: {len(messages)} 条")
+                return messages
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取最新未摘要消息失败: {e}")
+            raise
+    
     def save_daily_batch_log(self, batch_date: str, step1_status: int = 0, 
                            step2_status: int = 0, step3_status: int = 0,
                            error_message: Optional[str] = None) -> bool:
@@ -1220,6 +1411,60 @@ def get_unsummarized_messages_by_session(session_id: str, limit: int = 50) -> Li
     """
     db = get_database()
     return db.get_unsummarized_messages_by_session(session_id, limit)
+
+
+def get_all_active_memory_cards(limit: int = 100) -> List[Dict[str, Any]]:
+    """
+    获取所有激活的记忆卡片的便捷函数。
+    
+    Args:
+        limit: 最大返回数量，默认为 100
+        
+    Returns:
+        List[Dict[str, Any]]: 记忆卡片列表
+    """
+    db = get_database()
+    return db.get_all_active_memory_cards(limit)
+
+
+def get_recent_daily_summaries(limit: int = 5) -> List[Dict[str, Any]]:
+    """
+    获取最近的每日摘要的便捷函数。
+    
+    Args:
+        limit: 最大返回数量，默认为 5
+        
+    Returns:
+        List[Dict[str, Any]]: 每日摘要列表
+    """
+    db = get_database()
+    return db.get_recent_daily_summaries(limit)
+
+
+def get_today_chunk_summaries() -> List[Dict[str, Any]]:
+    """
+    获取今天的所有 chunk 摘要的便捷函数。
+    
+    Returns:
+        List[Dict[str, Any]]: 今天的 chunk 摘要列表
+    """
+    db = get_database()
+    return db.get_today_chunk_summaries()
+
+
+def get_unsummarized_messages_desc(session_id: str, limit: int = 40) -> List[Dict[str, Any]]:
+    """
+    获取指定会话中最新的未摘要消息列表的便捷函数（用于 context 构建）。
+    
+    Args:
+        session_id: 会话ID
+        limit: 最大返回数量，默认为 40
+        
+    Returns:
+        List[Dict[str, Any]]: 消息列表，按创建时间正序排列
+    """
+    db = get_database()
+    return db.get_unsummarized_messages_desc(session_id, limit)
 
 
 if __name__ == "__main__":
