@@ -292,6 +292,27 @@
      - 确保多端应用和定时任务能真正并行运行，互不阻塞
   9. 更新Telegram bot的run方法，支持异步启动模式
 
+- 2026-03-15: 实现后端准备工作：
+  1. **平台常量定义**：
+     - 在config.py中添加Platform类，定义平台常量：TELEGRAM, DISCORD, BATCH, SYSTEM, RIKKAHUB
+     - 所有写入platform字段的地方必须引用这个常量，不允许直接写字符串字面量
+  2. **日志入库**：
+     - 在database.py中创建logs表：id, created_at, level, platform, message, stack_trace
+     - 创建memory/async_log_handler.py异步日志处理器
+     - 使用queue.Queue和后台独立线程实现真正的异步非阻塞入库
+     - 架构防坑：Python原生logging.Handler.emit是同步的，使用独立线程不卡住主事件循环
+  3. **Token用量记录**：
+     - 在database.py中创建token_usage表：id, created_at, platform, prompt_tokens, completion_tokens, total_tokens, model
+     - 在llm_interface.py中添加token使用量保存功能
+     - 每次LLM调用拿到响应后，从返回的usage字段取数据异步写入数据库
+     - 支持异步保存，不阻塞主事件循环
+  4. **思维链存储**：
+     - 在messages表新增thinking字段（TEXT，可为空）
+     - 在database.py初始化逻辑中加入ALTER TABLE ADD COLUMN语句以平滑升级已有数据库
+     - 在llm_interface.py中添加思维链内容提取功能
+     - 支持DeepSeek R1的reasoning_content字段和Gemini的thinking字段
+     - 调用LLM时，如果响应里包含思维链内容，提取并存入thinking字段
+
 ## 六、验证方法与启动指南
 
 ### 验证方法

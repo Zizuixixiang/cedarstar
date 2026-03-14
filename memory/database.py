@@ -57,9 +57,17 @@ class MessageDatabase:
                         message_id TEXT,
                         is_summarized INTEGER DEFAULT 0,
                         character_id TEXT,
-                        platform TEXT DEFAULT 'discord'
+                        platform TEXT DEFAULT 'discord',
+                        thinking TEXT
                     )
                 """)
+                
+                # 检查并添加 thinking 字段（如果不存在）
+                cursor.execute("PRAGMA table_info(messages)")
+                columns = [col[1] for col in cursor.fetchall()]
+                if 'thinking' not in columns:
+                    cursor.execute("ALTER TABLE messages ADD COLUMN thinking TEXT")
+                    logger.debug("messages 表添加 thinking 字段")
                 
                 # 创建 memory_cards 表
                 cursor.execute("""
@@ -101,6 +109,31 @@ class MessageDatabase:
                     )
                 """)
                 
+                # 创建 logs 表
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS logs (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        level TEXT NOT NULL,
+                        platform TEXT,
+                        message TEXT NOT NULL,
+                        stack_trace TEXT
+                    )
+                """)
+                
+                # 创建 token_usage 表
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS token_usage (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        platform TEXT,
+                        prompt_tokens INTEGER DEFAULT 0,
+                        completion_tokens INTEGER DEFAULT 0,
+                        total_tokens INTEGER DEFAULT 0,
+                        model TEXT
+                    )
+                """)
+                
                 # 创建索引以提高查询性能
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_messages_session_id 
@@ -113,6 +146,14 @@ class MessageDatabase:
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_summaries_session_id
                     ON summaries (session_id, created_at)
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_logs_created_at
+                    ON logs (created_at)
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_token_usage_created_at
+                    ON token_usage (created_at)
                 """)
                 
                 conn.commit()
@@ -1089,6 +1130,108 @@ class MessageDatabase:
                 
         except sqlite3.Error as e:
             logger.error(f"更新批处理步骤状态失败: {e}")
+            raise
+    
+    def save_log(self, level: str, message: str, platform: Optional[str] = None, 
+                stack_trace: Optional[str] = None) -> int:
+        """
+        保存日志到数据库。
+        
+        Args:
+            level: 日志级别（INFO/WARNING/ERROR）
+            message: 日志消息
+            platform: 平台标识（可选）
+            stack_trace: 堆栈跟踪信息（可选）
+            
+        Returns:
+            int: 插入的日志ID
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT INTO logs (level, platform, message, stack_trace)
+                    VALUES (?, ?, ?, ?)
+                """, (level, platform, message, stack_trace))
+                
+                log_id = cursor.lastrowid
+                conn.commit()
+                
+                logger.debug(f"保存日志成功: ID={log_id}, level={level}, platform={platform}")
+                return log_id
+                
+        except sqlite3.Error as e:
+            logger.error(f"保存日志失败: {e}")
+            raise
+    
+    def save_token_usage(self, prompt_tokens: int, completion_tokens: int, 
+                        total_tokens: int, model: str, platform: Optional[str] = None) -> int:
+        """
+        保存token使用量到数据库。
+        
+        Args:
+            prompt_tokens: 提示token数
+            completion_tokens: 完成token数
+            total_tokens: 总token数
+            model: 模型名称
+            platform: 平台标识（可选）
+            
+        Returns:
+            int: 插入的token使用记录ID
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT INTO token_usage (platform, prompt_tokens, completion_tokens, total_tokens, model)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (platform, prompt_tokens, completion_tokens, total_tokens, model))
+                
+                usage_id = cursor.lastrowid
+                conn.commit()
+                
+                logger.debug(f"保存token使用量成功: ID={usage_id}, model={model}, total_tokens={total_tokens}")
+                return usage_id
+                
+        except sqlite3.Error as e:
+            logger.error(f"保存token使用量失败: {e}")
+            raise
+    
+    def update_message_with_thinking(self, message_id: int, thinking: str) -> bool:
+        """
+        更新消息的思维链内容。
+        
+        Args:
+            message_id: 消息ID
+            thinking: 思维链内容
+            
+        Returns:
+            bool: 更新是否成功
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    UPDATE messages 
+                    SET thinking = ?
+                    WHERE id = ?
+                """, (thinking, message_id))
+                
+                updated = cursor.rowcount > 0
+                conn.commit()
+                
+                if updated:
+                    logger.debug(f"更新消息思维链成功: message_id={message_id}")
+                else:
+                    logger.warning(f"更新消息思维链失败: message_id={message_id} 不存在")
+                
+                return updated
+                
+        except sqlite3.Error as e:
+            logger.error(f"更新消息思维链失败: {e}")
             raise
 
 

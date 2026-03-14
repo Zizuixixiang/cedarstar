@@ -382,6 +382,20 @@ class Config:
         return proxies
 
 
+# 平台常量定义
+class Platform:
+    """
+    平台常量定义。
+    
+    所有写入 platform 字段的地方必须引用这个常量，不允许直接写字符串字面量。
+    """
+    TELEGRAM = "telegram"
+    DISCORD = "discord"
+    BATCH = "batch"
+    SYSTEM = "system"
+    RIKKAHUB = "rikkahub"
+
+
 # 创建全局配置实例
 config = Config()
 
