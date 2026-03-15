@@ -21,7 +21,7 @@ from discord.ext import commands
 
 from config import config, validate_config
 from llm.llm_interface import LLMInterface
-from memory.database import save_message, clear_session_messages
+from memory.database import save_message, get_database
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
 
@@ -60,16 +60,21 @@ class DiscordBot:
             proxy=proxy_config.get('http') if proxy_config else None
         )
         
-        # 创建 LLM 接口
-        self.llm = LLMInterface()
-        
+        # 注意：LLMInterface 不在这里固化，而是每次请求时动态创建，以支持热更新
         # 存储对话历史（按用户ID和频道ID）
         self.conversation_histories = {}
+        
+        # 消息缓冲区：key 为 session_id，value 为消息列表
+        self.message_buffers = {}
+        # 缓冲定时器：key 为 session_id，value 为 asyncio.Task
+        self.buffer_timers = {}
+        # 缓冲锁：防止并发问题
+        self.buffer_locks = {}
         
         # 设置事件处理器
         self._setup_handlers()
         
-        logger.info(f"Discord 机器人初始化完成，使用模型: {self.llm.model_name}")
+        logger.info("Discord 机器人初始化完成")
         if proxy_config:
             logger.info(f"代理配置: {proxy_config}")
     
@@ -93,14 +98,36 @@ class DiscordBot:
             logger.info(f"机器人 ID: {self.bot.user.id}")
             logger.info(f"已加入 {len(self.bot.guilds)} 个服务器")
             
+            # 通知 dashboard 模块：Discord 已上线
+            try:
+                from api.dashboard import set_bot_online
+                set_bot_online("discord", True)
+                logger.info("已更新 Discord 在线状态 → True")
+            except Exception as e:
+                logger.warning(f"更新 Discord 在线状态失败: {e}")
+            
             # 设置机器人状态
             activity = discord.Game(name="与用户聊天")
             await self.bot.change_presence(activity=activity)
+
+        @self.bot.event
+        async def on_disconnect():
+            """机器人断开连接时触发。"""
+            try:
+                from api.dashboard import set_bot_online
+                set_bot_online("discord", False)
+                logger.info("已更新 Discord 在线状态 → False")
+            except Exception as e:
+                logger.warning(f"更新 Discord 离线状态失败: {e}")
         
         @self.bot.event
         async def on_message(message):
             """
             收到消息时触发。
+            
+            使用消息缓冲逻辑：收到消息后等待 buffer_delay 配置的时间（默认5秒），
+            期间如果同一 session 有新消息进来就重置计时器，
+            超时后才将缓冲区内所有消息合并成一条处理。
             
             Args:
                 message: Discord 消息对象
@@ -113,23 +140,9 @@ class DiscordBot:
             is_mentioned = self.bot.user in message.mentions
             is_dm = isinstance(message.channel, discord.DMChannel)
             
-            # 如果消息提及机器人或是在私聊中，则回复
+            # 如果消息提及机器人或是在私聊中，则将消息加入缓冲区
             if is_mentioned or is_dm:
-                # 显示"正在输入"状态
-                async with message.channel.typing():
-                    # 生成回复
-                    reply = await self._generate_reply(message)
-                    
-                    # 发送回复
-                    if reply:
-                        # 如果回复太长，分割成多个消息
-                        if len(reply) > 2000:
-                            chunks = self._split_message(reply)
-                            for chunk in chunks:
-                                await message.channel.send(chunk)
-                                await asyncio.sleep(0.5)  # 避免速率限制
-                        else:
-                            await message.channel.send(reply)
+                await self._add_to_buffer(message)
             
             # 处理命令
             await self.bot.process_commands(message)
@@ -168,11 +181,13 @@ class DiscordBot:
             Args:
                 ctx: 命令上下文
             """
+            # 动态创建以读取最新激活配置
+            current_llm = LLMInterface()
             model_info = (
-                f"🤖 **当前模型**: {self.llm.model_name}\n"
-                f"📊 **最大 token**: {self.llm.max_tokens}\n"
-                f"🌡️ **温度**: {self.llm.temperature}\n"
-                f"⏱️ **超时**: {self.llm.timeout}秒"
+                f"🤖 **当前模型**: {current_llm.model_name}\n"
+                f"📊 **最大 token**: {current_llm.max_tokens}\n"
+                f"🌡️ **温度**: {current_llm.temperature}\n"
+                f"⏱️ **超时**: {current_llm.timeout}秒"
             )
             await ctx.send(model_info)
         
@@ -245,6 +260,185 @@ class DiscordBot:
         
         return parts
     
+    async def _add_to_buffer(self, message: discord.Message):
+        """
+        将消息添加到缓冲区，并启动/重置缓冲定时器。
+        
+        Args:
+            message: Discord 消息对象
+        """
+        # 创建会话ID（用户ID + 频道ID）
+        session_id = f"{message.author.id}_{message.channel.id}"
+        
+        # 清理消息内容（移除提及）
+        content = message.clean_content
+        
+        # 确保有锁对象
+        if session_id not in self.buffer_locks:
+            self.buffer_locks[session_id] = asyncio.Lock()
+        
+        async with self.buffer_locks[session_id]:
+            # 将消息添加到缓冲区
+            if session_id not in self.message_buffers:
+                self.message_buffers[session_id] = []
+            
+            self.message_buffers[session_id].append({
+                "message": message,
+                "content": content,
+                "timestamp": asyncio.get_event_loop().time()
+            })
+            
+            logger.debug(f"消息添加到缓冲区: session_id={session_id}, 缓冲区大小={len(self.message_buffers[session_id])}")
+            
+            # 取消现有的定时器（如果有）
+            if session_id in self.buffer_timers:
+                self.buffer_timers[session_id].cancel()
+                logger.debug(f"取消现有定时器: session_id={session_id}")
+            
+            # 启动新的定时器
+            self.buffer_timers[session_id] = asyncio.create_task(
+                self._process_buffer(session_id)
+            )
+    
+    async def _process_buffer(self, session_id: str):
+        """
+        处理缓冲区中的消息。
+        
+        等待 buffer_delay 秒后，将缓冲区中的所有消息合并处理。
+        
+        Args:
+            session_id: 会话ID
+        """
+        try:
+            # 从数据库获取缓冲延迟时间
+            db = get_database()
+            buffer_delay_str = db.get_config("buffer_delay", "5")
+            try:
+                buffer_delay = int(buffer_delay_str)
+            except ValueError:
+                buffer_delay = 5  # 默认值
+                
+            logger.debug(f"开始缓冲等待: session_id={session_id}, 延迟={buffer_delay}秒")
+            await asyncio.sleep(buffer_delay)
+            
+            # 确保有锁对象
+            if session_id not in self.buffer_locks:
+                self.buffer_locks[session_id] = asyncio.Lock()
+            
+            async with self.buffer_locks[session_id]:
+                # 检查缓冲区是否还有消息
+                if session_id not in self.message_buffers or not self.message_buffers[session_id]:
+                    logger.debug(f"缓冲区为空，跳过处理: session_id={session_id}")
+                    return
+                
+                # 获取缓冲区中的所有消息
+                buffer_messages = self.message_buffers[session_id]
+                
+                # 清空缓冲区
+                self.message_buffers[session_id] = []
+                
+                # 删除定时器
+                if session_id in self.buffer_timers:
+                    del self.buffer_timers[session_id]
+                
+                logger.info(f"处理缓冲区消息: session_id={session_id}, 消息数量={len(buffer_messages)}")
+                
+                # 合并所有消息内容
+                combined_content = "\n".join([msg["content"] for msg in buffer_messages])
+                
+                # 使用第一条消息作为基础消息对象
+                base_message = buffer_messages[0]["message"]
+                
+                # 显示"正在输入"状态
+                async with base_message.channel.typing():
+                    # 生成回复
+                    reply = await self._generate_reply_from_buffer(base_message, combined_content, session_id)
+                    
+                    # 发送回复
+                    if reply:
+                        # 如果回复太长，分割成多个消息
+                        if len(reply) > 2000:
+                            chunks = self._split_message(reply)
+                            for chunk in chunks:
+                                await base_message.channel.send(chunk)
+                                await asyncio.sleep(0.5)  # 避免速率限制
+                        else:
+                            await base_message.channel.send(reply)
+        
+        except asyncio.CancelledError:
+            logger.debug(f"缓冲定时器被取消: session_id={session_id}")
+        except Exception as e:
+            logger.error(f"处理缓冲区时出错: session_id={session_id}, 错误={e}")
+            logger.exception(e)
+    
+    async def _generate_reply_from_buffer(self, base_message: discord.Message, combined_content: str, session_id: str) -> Optional[str]:
+        """
+        从缓冲区合并的消息生成回复。
+        
+        Args:
+            base_message: 基础消息对象（第一条消息）
+            combined_content: 合并后的消息内容
+            session_id: 会话ID
+            
+        Returns:
+            Optional[str]: 生成的回复，如果生成失败则返回 None
+        """
+        try:
+            # 使用 context builder 构建完整的对话上下文
+            context = build_context(session_id, combined_content)
+            
+            # 提取 system prompt 和 messages
+            system_prompt = context.get("system_prompt", "")
+            messages = context.get("messages", [])
+            
+            # 如果没有构建出有效的 messages，使用最小化版本
+            if not messages:
+                messages = [{"role": "user", "content": combined_content}]
+            
+            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
+            llm = LLMInterface()
+            reply = llm.generate_with_context(messages)
+            
+            # 保存用户消息到数据库（合并后的消息）
+            save_message(
+                session_id=session_id,
+                role="user",
+                content=combined_content,
+                user_id=str(base_message.author.id),
+                channel_id=str(base_message.channel.id),
+                message_id=str(base_message.id),
+                character_id="sirius",
+                platform="discord"
+            )
+            
+            # 保存AI回复到数据库
+            save_message(
+                session_id=session_id,
+                role="assistant",
+                content=reply,
+                user_id=str(base_message.author.id),
+                channel_id=str(base_message.channel.id),
+                message_id=f"ai_{base_message.id}",
+                character_id="sirius",
+                platform="discord"
+            )
+            
+            logger.info(f"为缓冲区生成回复: session_id={session_id}, context 消息数量={len(messages)}")
+            logger.debug(f"System prompt 长度: {len(system_prompt)}")
+            
+            # 异步触发微批处理检查
+            asyncio.create_task(trigger_micro_batch_check(session_id))
+            
+            return reply
+            
+        except ValueError as e:
+            logger.error(f"LLM 配置错误: {e}")
+            return "抱歉，LLM 配置有问题，请检查 API 密钥设置。"
+        except Exception as e:
+            logger.error(f"生成回复时出错: {e}")
+            logger.exception(e)  # 记录完整异常堆栈
+            return "抱歉，生成回复时出错了，请稍后再试。"
+    
     async def _generate_reply(self, message: discord.Message) -> Optional[str]:
         """
         生成回复消息。
@@ -275,8 +469,9 @@ class DiscordBot:
             if not messages:
                 messages = [{"role": "user", "content": content}]
             
-            # 生成回复
-            reply = self.llm.generate_with_context(messages)
+            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
+            llm = LLMInterface()
+            reply = llm.generate_with_context(messages)
             
             # 保存用户消息到数据库
             save_message(

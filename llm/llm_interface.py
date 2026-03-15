@@ -62,23 +62,45 @@ class LLMInterface:
     封装 AI API 调用，提供统一的接口。
     """
     
-    def __init__(self, model_name: Optional[str] = None):
+    def __init__(self, model_name: Optional[str] = None, config_type: str = 'chat'):
         """
         初始化 LLM 接口。
         
+        优先从数据库激活的 api_config 读取配置；若数据库无激活配置，
+        则回退到 .env / config.py 中的环境变量。
+        
         Args:
-            model_name: 模型名称，如果为 None 则使用 config 中的默认值
+            model_name: 模型名称，覆盖自动检测（可选）
+            config_type: 配置类型，'chat' 或 'summary'
         """
-        self.model_name = model_name or config.LLM_MODEL_NAME
-        self.api_key = config.LLM_API_KEY
-        self.api_base = config.LLM_API_BASE
+        # 尝试从数据库激活配置读取
+        db_cfg = self._load_active_config(config_type)
+        
+        if db_cfg:
+            self.model_name = model_name or db_cfg.get('model') or config.LLM_MODEL_NAME
+            self.api_key = db_cfg.get('api_key') or config.LLM_API_KEY
+            self.api_base = db_cfg.get('base_url') or config.LLM_API_BASE
+            logger.info(f"LLMInterface 使用数据库激活配置: [{db_cfg.get('name')}] "
+                        f"config_type={config_type}, model={self.model_name}, base_url={self.api_base}")
+        else:
+            # 回退到环境变量
+            if config_type == 'summary':
+                self.model_name = model_name or config.SUMMARY_MODEL_NAME
+                self.api_key = config.SUMMARY_API_KEY or config.LLM_API_KEY
+                self.api_base = config.SUMMARY_API_BASE or config.LLM_API_BASE
+            else:
+                self.model_name = model_name or config.LLM_MODEL_NAME
+                self.api_key = config.LLM_API_KEY
+                self.api_base = config.LLM_API_BASE
+            logger.info(f"LLMInterface 使用环境变量配置: config_type={config_type}, model={self.model_name}")
+        
         self.timeout = config.LLM_TIMEOUT
         self.max_tokens = config.LLM_MAX_TOKENS
         self.temperature = config.LLM_TEMPERATURE
         
         # 验证配置
         if not self.api_key:
-            logger.warning("LLM_API_KEY 未设置，LLM 功能可能无法正常工作")
+            logger.warning("API Key 未设置，LLM 功能可能无法正常工作")
         
         # 设置默认 API 基础 URL
         if not self.api_base:
@@ -89,6 +111,17 @@ class LLMInterface:
             else:
                 self.api_base = "https://api.openai.com/v1"
                 logger.warning(f"未知模型 {self.model_name}，使用 OpenAI API 作为默认")
+
+    @staticmethod
+    def _load_active_config(config_type: str = 'chat') -> Optional[Dict[str, Any]]:
+        """从数据库读取指定类型的激活 api_config。"""
+        try:
+            from memory.database import get_database
+            db = get_database()
+            return db.get_active_api_config(config_type)
+        except Exception as e:
+            logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
+            return None
     
     def _prepare_headers(self) -> Dict[str, str]:
         """

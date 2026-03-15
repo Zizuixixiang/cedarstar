@@ -232,6 +232,22 @@ class Config:
         except ValueError:
             return 50
     
+    @property
+    def MESSAGE_BUFFER_DELAY(self) -> int:
+        """
+        获取消息缓冲延迟时间（秒）。
+        
+        收到消息后等待此时间，期间如果同一 session 有新消息进来就重置计时器，
+        超时后才将缓冲区内所有消息合并成一条处理。
+        
+        Returns:
+            int: 缓冲延迟时间，默认为 5 秒
+        """
+        try:
+            return int(os.getenv("MESSAGE_BUFFER_DELAY", "5"))
+        except ValueError:
+            return 5
+    
     # System Prompt 配置
     @property
     def SYSTEM_PROMPT(self) -> str:

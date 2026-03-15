@@ -134,6 +134,26 @@ class MessageDatabase:
                     )
                 """)
                 
+                # 创建 config 表（用于存储助手配置）
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS config (
+                        key TEXT PRIMARY KEY,
+                        value TEXT NOT NULL,
+                        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
+                # 创建 longterm_memories 表（Mini App 展示用镜像表）
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS longterm_memories (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        content TEXT NOT NULL,
+                        chroma_doc_id TEXT,
+                        score INTEGER DEFAULT 5,
+                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                
                 # 创建索引以提高查询性能
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS idx_messages_session_id 
@@ -256,6 +276,54 @@ class MessageDatabase:
                 
         except sqlite3.Error as e:
             logger.error(f"获取消息失败: {e}")
+            raise
+    
+    def get_all_messages(self) -> List[Dict[str, Any]]:
+        """
+        获取所有消息（用于历史查询）。
+        
+        Returns:
+            List[Dict[str, Any]]: 消息列表，包含完整字段
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # 设置行工厂，返回字典形式的结果
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, role, content, created_at, session_id, 
+                           user_id, channel_id, message_id, character_id, 
+                           platform, thinking, is_summarized
+                    FROM messages
+                    ORDER BY created_at DESC
+                """)
+                
+                rows = cursor.fetchall()
+                
+                messages = []
+                for row in rows:
+                    message = {
+                        'id': row['id'],
+                        'role': row['role'],
+                        'content': row['content'],
+                        'created_at': row['created_at'],
+                        'session_id': row['session_id'],
+                        'user_id': row['user_id'],
+                        'channel_id': row['channel_id'],
+                        'message_id': row['message_id'],
+                        'character_id': row['character_id'],
+                        'platform': row['platform'],
+                        'thinking': row['thinking'],
+                        'is_summarized': bool(row['is_summarized'])
+                    }
+                    messages.append(message)
+                
+                logger.debug(f"获取所有消息，数量: {len(messages)}")
+                return messages
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取所有消息失败: {e}")
             raise
     
     def clear_session_messages(self, session_id: str) -> int:
@@ -1165,6 +1233,46 @@ class MessageDatabase:
             logger.error(f"保存日志失败: {e}")
             raise
     
+    def get_all_logs(self) -> List[Dict[str, Any]]:
+        """
+        获取所有日志（用于日志查询）。
+        
+        Returns:
+            List[Dict[str, Any]]: 日志列表，包含完整字段
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                # 设置行工厂，返回字典形式的结果
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT id, created_at, level, platform, message, stack_trace
+                    FROM logs
+                    ORDER BY created_at DESC
+                """)
+                
+                rows = cursor.fetchall()
+                
+                logs = []
+                for row in rows:
+                    log = {
+                        'id': row['id'],
+                        'created_at': row['created_at'],
+                        'level': row['level'],
+                        'platform': row['platform'],
+                        'message': row['message'],
+                        'stack_trace': row['stack_trace']
+                    }
+                    logs.append(log)
+                
+                logger.debug(f"获取所有日志，数量: {len(logs)}")
+                return logs
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取所有日志失败: {e}")
+            raise
+    
     def save_token_usage(self, prompt_tokens: int, completion_tokens: int, 
                         total_tokens: int, model: str, platform: Optional[str] = None) -> int:
         """
@@ -1233,6 +1341,517 @@ class MessageDatabase:
         except sqlite3.Error as e:
             logger.error(f"更新消息思维链失败: {e}")
             raise
+    
+    def get_config(self, key: str, default: Optional[str] = None) -> Optional[str]:
+        """
+        获取配置值。
+        
+        Args:
+            key: 配置键名
+            default: 默认值（如果配置不存在）
+            
+        Returns:
+            Optional[str]: 配置值，如果不存在则返回默认值
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    SELECT value FROM config WHERE key = ?
+                """, (key,))
+                
+                result = cursor.fetchone()
+                if result:
+                    return result[0]
+                else:
+                    return default
+                
+        except sqlite3.Error as e:
+            logger.error(f"获取配置失败: {e}")
+            return default
+    
+    def set_config(self, key: str, value: str) -> bool:
+        """
+        设置配置值。
+        
+        Args:
+            key: 配置键名
+            value: 配置值
+            
+        Returns:
+            bool: 设置是否成功
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                
+                cursor.execute("""
+                    INSERT OR REPLACE INTO config (key, value, updated_at)
+                    VALUES (?, ?, CURRENT_TIMESTAMP)
+                """, (key, value))
+                
+                conn.commit()
+                logger.debug(f"设置配置成功: {key}={value}")
+                return True
+                
+        except sqlite3.Error as e:
+            logger.error(f"设置配置失败: {e}")
+            return False
+    
+    def get_all_configs(self) -> Dict[str, str]:
+        """
+        获取所有配置。
+
+        Returns:
+            Dict[str, str]: 配置字典，键值对形式
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                cursor.execute("""
+                    SELECT key, value FROM config
+                """)
+
+                configs = {}
+                for row in cursor.fetchall():
+                    configs[row[0]] = row[1]
+
+                logger.debug(f"获取所有配置成功: {len(configs)} 条")
+                return configs
+
+        except sqlite3.Error as e:
+            logger.error(f"获取所有配置失败: {e}")
+            return {}
+
+    # ==========================================
+    # persona_configs CRUD
+    # ==========================================
+
+    def get_all_persona_configs(self) -> List[Dict[str, Any]]:
+        """获取所有人设配置列表（仅返回 id, name, created_at, updated_at）。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, name, created_at, updated_at FROM persona_configs ORDER BY id ASC"
+                )
+                return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"获取人设列表失败: {e}")
+            return []
+
+    def get_persona_config(self, persona_id: int) -> Optional[Dict[str, Any]]:
+        """获取单个人设配置详情。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT * FROM persona_configs WHERE id = ?", (persona_id,)
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"获取人设详情失败: {e}")
+            return None
+
+    def save_persona_config(self, data: Dict[str, Any]) -> int:
+        """新增人设配置，返回新插入的 id。"""
+        fields = [
+            'name', 'char_name', 'char_personality', 'char_speech_style', 
+            'user_name', 'user_body', 'user_habits',
+            'user_likes_dislikes', 'user_values', 'user_hobbies', 'user_taboos',
+            'user_nsfw', 'user_other', 'system_rules'
+        ]
+        cols = ', '.join(fields)
+        placeholders = ', '.join(['?'] * len(fields))
+        values = [data.get(f, '') for f in fields]
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"INSERT INTO persona_configs ({cols}) VALUES ({placeholders})",
+                    values
+                )
+                conn.commit()
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"新增人设失败: {e}")
+            return -1
+
+    def update_persona_config(self, persona_id: int, data: Dict[str, Any]) -> bool:
+        """更新人设配置。"""
+        allowed = {
+            'name', 'char_name', 'char_personality', 'char_speech_style',
+            'user_name', 'user_body', 'user_habits',
+            'user_likes_dislikes', 'user_values', 'user_hobbies', 'user_taboos',
+            'user_nsfw', 'user_other', 'system_rules'
+        }
+        update_data = {k: v for k, v in data.items() if k in allowed}
+        if not update_data:
+            return False
+        set_clause = ', '.join([f"{k} = ?" for k in update_data.keys()])
+        values = list(update_data.values()) + [persona_id]
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"UPDATE persona_configs SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    values
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"更新人设失败: {e}")
+            return False
+
+    def delete_persona_config(self, persona_id: int) -> bool:
+        """删除人设配置。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM persona_configs WHERE id = ?", (persona_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"删除人设失败: {e}")
+            return False
+
+    # ==========================================
+    # api_configs CRUD
+    # ==========================================
+
+    def _ensure_api_configs_table(self, cursor):
+        """确保 api_configs 表存在，并自动补全缺失字段。"""
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS api_configs (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                api_key TEXT NOT NULL,
+                base_url TEXT NOT NULL,
+                model TEXT,
+                persona_id INTEGER,
+                is_active INTEGER DEFAULT 0,
+                config_type TEXT DEFAULT 'chat',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        # 检查并补全可能缺失的字段（兼容旧数据库）
+        cursor.execute("PRAGMA table_info(api_configs)")
+        existing_cols = {row[1] for row in cursor.fetchall()}
+        migrations = [
+            ("model", "TEXT"),
+            ("persona_id", "INTEGER"),
+            ("is_active", "INTEGER DEFAULT 0"),
+            ("config_type", "TEXT DEFAULT 'chat'"),
+        ]
+        for col, col_def in migrations:
+            if col not in existing_cols:
+                cursor.execute(f"ALTER TABLE api_configs ADD COLUMN {col} {col_def}")
+
+    def get_all_api_configs(self, config_type: Optional[str] = None) -> List[Dict[str, Any]]:
+        """获取所有 API 配置列表，带关联人设名称。可按 config_type 过滤。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                if config_type:
+                    cursor.execute("""
+                        SELECT a.id, a.name, a.api_key, a.base_url, a.model,
+                               a.persona_id, a.is_active, a.config_type,
+                               a.created_at, a.updated_at,
+                               p.name AS persona_name
+                        FROM api_configs a
+                        LEFT JOIN persona_configs p ON a.persona_id = p.id
+                        WHERE a.config_type = ?
+                        ORDER BY a.id ASC
+                    """, (config_type,))
+                else:
+                    cursor.execute("""
+                        SELECT a.id, a.name, a.api_key, a.base_url, a.model,
+                               a.persona_id, a.is_active, a.config_type,
+                               a.created_at, a.updated_at,
+                               p.name AS persona_name
+                        FROM api_configs a
+                        LEFT JOIN persona_configs p ON a.persona_id = p.id
+                        ORDER BY a.id ASC
+                    """)
+                return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"获取 API 配置列表失败: {e}")
+            return []
+
+    def get_api_config(self, config_id: int) -> Optional[Dict[str, Any]]:
+        """获取单个 API 配置。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                cursor.execute("SELECT * FROM api_configs WHERE id = ?", (config_id,))
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"获取 API 配置失败: {e}")
+            return None
+
+    def save_api_config(self, data: Dict[str, Any]) -> int:
+        """新增 API 配置，返回新 id。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                cursor.execute("""
+                    INSERT INTO api_configs (name, api_key, base_url, model, persona_id, config_type)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    data.get('name', ''),
+                    data.get('api_key', ''),
+                    data.get('base_url', ''),
+                    data.get('model'),
+                    data.get('persona_id'),
+                    data.get('config_type', 'chat'),
+                ))
+                conn.commit()
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"新增 API 配置失败: {e}")
+            return -1
+
+    def update_api_config(self, config_id: int, data: Dict[str, Any]) -> bool:
+        """更新 API 配置。"""
+        allowed = {'name', 'api_key', 'base_url', 'model', 'persona_id', 'config_type'}
+        update_data = {k: v for k, v in data.items() if k in allowed}
+        if not update_data:
+            return False
+        set_clause = ', '.join([f"{k} = ?" for k in update_data.keys()])
+        values = list(update_data.values()) + [config_id]
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                cursor.execute(
+                    f"UPDATE api_configs SET {set_clause}, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    values
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"更新 API 配置失败: {e}")
+            return False
+
+    def delete_api_config(self, config_id: int) -> bool:
+        """删除 API 配置。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                cursor.execute("DELETE FROM api_configs WHERE id = ?", (config_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"删除 API 配置失败: {e}")
+            return False
+
+    def activate_api_config(self, config_id: int) -> bool:
+        """激活指定配置（同类型内唯一激活：先清除同类型所有激活，再设置指定条目）。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                # 查出该条目的 config_type
+                cursor.execute("SELECT config_type FROM api_configs WHERE id = ?", (config_id,))
+                row = cursor.fetchone()
+                if not row:
+                    return False
+                cfg_type = row[0] or 'chat'
+                # 只清除同类型的激活状态
+                cursor.execute(
+                    "UPDATE api_configs SET is_active = 0 WHERE config_type = ?",
+                    (cfg_type,)
+                )
+                cursor.execute(
+                    "UPDATE api_configs SET is_active = 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (config_id,)
+                )
+                conn.commit()
+                return True
+        except sqlite3.Error as e:
+            logger.error(f"激活 API 配置失败: {e}")
+            return False
+
+    def get_active_api_config(self, config_type: str = 'chat') -> Optional[Dict[str, Any]]:
+        """获取指定类型的激活配置。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                self._ensure_api_configs_table(cursor)
+                cursor.execute(
+                    "SELECT * FROM api_configs WHERE config_type = ? AND is_active = 1 LIMIT 1",
+                    (config_type,)
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"获取激活 API 配置失败: {e}")
+            return None
+
+    # ==========================================
+    # longterm_memories CRUD
+    # ==========================================
+
+    def create_longterm_memory(self, content: str, chroma_doc_id: Optional[str] = None, score: int = 5) -> int:
+        """新增一条长期记忆镜像记录，返回新 id。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    INSERT INTO longterm_memories (content, chroma_doc_id, score)
+                    VALUES (?, ?, ?)
+                """, (content, chroma_doc_id, score))
+                conn.commit()
+                return cursor.lastrowid
+        except sqlite3.Error as e:
+            logger.error(f"新增长期记忆失败: {e}")
+            raise
+
+    def get_longterm_memories(self, keyword: str = "", page: int = 1, page_size: int = 20) -> Dict[str, Any]:
+        """查询长期记忆（支持关键词搜索和分页）。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                if keyword:
+                    count_sql = "SELECT COUNT(*) FROM longterm_memories WHERE content LIKE ?"
+                    data_sql = """
+                        SELECT id, content, chroma_doc_id, score, created_at
+                        FROM longterm_memories WHERE content LIKE ?
+                        ORDER BY created_at DESC LIMIT ? OFFSET ?
+                    """
+                    like = f"%{keyword}%"
+                    cursor.execute(count_sql, (like,))
+                    total = cursor.fetchone()[0]
+                    offset = (page - 1) * page_size
+                    cursor.execute(data_sql, (like, page_size, offset))
+                else:
+                    cursor.execute("SELECT COUNT(*) FROM longterm_memories")
+                    total = cursor.fetchone()[0]
+                    offset = (page - 1) * page_size
+                    cursor.execute("""
+                        SELECT id, content, chroma_doc_id, score, created_at
+                        FROM longterm_memories ORDER BY created_at DESC LIMIT ? OFFSET ?
+                    """, (page_size, offset))
+
+                items = [dict(row) for row in cursor.fetchall()]
+                total_pages = max(1, (total + page_size - 1) // page_size)
+
+                return {
+                    "items": items,
+                    "total_items": total,
+                    "total_pages": total_pages,
+                    "current_page": page,
+                    "page_size": page_size,
+                }
+        except sqlite3.Error as e:
+            logger.error(f"查询长期记忆失败: {e}")
+            raise
+
+    def get_longterm_memory(self, memory_id: int) -> Optional[Dict[str, Any]]:
+        """获取单条长期记忆（用于删除时获取 chroma_doc_id）。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, content, chroma_doc_id, score, created_at FROM longterm_memories WHERE id = ?",
+                    (memory_id,)
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error(f"获取长期记忆失败: {e}")
+            return None
+
+    def delete_longterm_memory(self, memory_id: int) -> bool:
+        """删除长期记忆镜像记录。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute("DELETE FROM longterm_memories WHERE id = ?", (memory_id,))
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"删除长期记忆失败: {e}")
+            return False
+
+    # ==========================================
+    # token_usage 统计
+    # ==========================================
+
+    def get_token_usage_stats(self, start_date, platform: Optional[str] = None) -> Dict[str, Any]:
+        """
+        统计从 start_date 开始的 token 使用量。
+
+        Returns:
+            {
+                total_tokens, prompt_tokens, completion_tokens, call_count,
+                by_platform: {telegram: N, discord: N}
+            }
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+
+                start_str = start_date.strftime('%Y-%m-%d %H:%M:%S') if hasattr(start_date, 'strftime') else str(start_date)
+
+                base_cond = "WHERE created_at >= ?"
+                params = [start_str]
+                if platform:
+                    base_cond += " AND platform = ?"
+                    params.append(platform)
+
+                # 总量
+                cursor.execute(f"""
+                    SELECT SUM(total_tokens), SUM(prompt_tokens), SUM(completion_tokens), COUNT(*)
+                    FROM token_usage {base_cond}
+                """, params)
+                row = cursor.fetchone()
+                total = row[0] or 0
+                prompt = row[1] or 0
+                completion = row[2] or 0
+                count = row[3] or 0
+
+                # 按平台分
+                cursor.execute(f"""
+                    SELECT platform, SUM(total_tokens)
+                    FROM token_usage {base_cond}
+                    GROUP BY platform
+                """, params)
+                by_platform = {}
+                for r in cursor.fetchall():
+                    if r[0]:
+                        by_platform[r[0]] = r[1] or 0
+
+                return {
+                    'total_tokens': total,
+                    'prompt_tokens': prompt,
+                    'completion_tokens': completion,
+                    'call_count': count,
+                    'by_platform': by_platform,
+                }
+        except sqlite3.Error as e:
+            logger.error(f"获取 token 统计失败: {e}")
+            return {
+                'total_tokens': 0, 'prompt_tokens': 0,
+                'completion_tokens': 0, 'call_count': 0, 'by_platform': {}
+            }
 
 
 # 创建全局数据库实例
