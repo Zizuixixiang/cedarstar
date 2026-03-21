@@ -346,7 +346,7 @@ cedarstar/                          # 项目根目录
 |------|------|----------|
 | `/api/dashboard` | `dashboard.py` | Bot 在线状态、记忆概览、批处理日志 |
 | `/api/persona` | `persona.py` | 人设配置 CRUD + system prompt 预览 |
-| `/api/memory` | `memory.py` | 记忆卡片 CRUD + 长期记忆（创建先 Chroma 后 SQLite；删除先 SQLite 后 Chroma；列表含 `is_orphan`） |
+| `/api/memory` | `memory.py` | 记忆卡片 CRUD + 长期记忆 + `temporal-states` / `relationship-timeline`（长期记忆列表合并 Chroma 元数据，见下） |
 | `/api/history` | `history.py` | 对话历史查询（过滤+分页） |
 | `/api/logs` | `logs.py` | 系统日志查询（过滤+分页） |
 | `/api/config` | `config.py` | 运行参数读写（buffer_delay、chunk_threshold 等） |
@@ -356,7 +356,8 @@ cedarstar/                          # 项目根目录
 - API 层不包含业务逻辑，直接调用 `memory.database` 的方法
 - `dashboard.py` 维护一个进程内共享的 `_bot_status` 字典，由 bot 的 `on_ready`/`on_disconnect` 事件写入
 - `settings.py` 的 API Key 在返回时脱敏（只显示末4位）
-- `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写 SQLite；`DELETE /longterm/{id}` 先删 SQLite 再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列）
+- `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写 SQLite；`DELETE /longterm/{id}` 先删 SQLite 再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列），并按 `chroma_doc_id` 批量读取 Chroma 元数据附加 `hits`、`halflife_days`、`last_access_ts`（孤儿行三项为 `null`）
+- `memory.py` 时效状态：`GET/POST /temporal-states`、`DELETE /temporal-states/{id}`（将 `is_active` 置 0）；`GET /relationship-timeline` 返回全表按 `created_at` 倒序（只读）
 
 ---
 
@@ -372,7 +373,7 @@ cedarstar/                          # 项目根目录
 |------|------|-------------|
 | Dashboard（控制台概览） | `/` | `/api/dashboard/status` `/api/dashboard/memory-overview` `/api/dashboard/batch-log` |
 | Persona（人设配置） | `/persona` | `/api/persona` |
-| Memory（记忆管理） | `/memory` | `/api/memory/cards` `/api/memory/longterm` |
+| Memory（记忆管理） | `/memory` | `/api/memory/cards` `/api/memory/longterm` `/api/memory/temporal-states` `/api/memory/relationship-timeline` |
 | History（对话历史） | `/history` | `/api/history` |
 | Logs（系统日志） | `/logs` | `/api/logs` |
 | Config（助手配置） | `/config` | `/api/config/config` |
@@ -608,7 +609,9 @@ Mini App 用户在 Settings 页面切换激活 API 配置
 
 > 此表是 ChromaDB 的 SQLite 镜像，用于 Mini App 展示，两者通过 `chroma_doc_id` 关联。
 
-**API 说明：** `GET /api/memory/longterm` 返回的每条 `items[]` 在表字段之外会多一个布尔字段 `is_orphan`：当 `chroma_doc_id` 为空或仅空白时为 `true`（历史双写失败遗留），便于前端提示；新通过 Mini App 创建的长期记忆在正常路径下恒为 `false`。
+**API 说明：** `GET /api/memory/longterm` 返回的每条 `items[]` 在表字段之外包含：
+- `is_orphan`（布尔）：当 `chroma_doc_id` 为空或仅空白时为 `true`（历史双写失败遗留）；新通过 Mini App 创建的长期记忆在正常路径下恒为 `false`。
+- `hits`、`halflife_days`、`last_access_ts`：来自 Chroma 文档元数据（与 `memory/vector_store.py` 写入规则一致）；当 `is_orphan` 为 `true` 时三项均为 `null`。`last_access_ts` 为 Unix 时间戳（秒，浮点）。
 
 ---
 
@@ -918,13 +921,13 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 
 ---
 
-### 7.3 🟢 轻微：`Memory.jsx` — 长期记忆 `is_orphan` 可选展示
+### 7.3 ✅ 已增强：`Memory.jsx` — Tab 与长期记忆展示
 
 **页面名称：** Memory（记忆管理）
 
-**说明：** 后端 `GET /api/memory/longterm` 已为每条记录返回 `is_orphan`（`chroma_doc_id` 为空时为 `true`，多为历史双写失败遗留，见 §6.7）。当前前端若未使用该字段，不影响功能；建议在长期记忆列表上对 `is_orphan` 为真的条目显示提示（如「未同步到向量库」），便于用户识别。
+**说明（2026-03-21 任务 7）：** 页面分为四个 Tab：记忆卡片、长期记忆、时效状态（`temporal_states` 列表/新增/软删除）、关系时间线（`relationship_timeline` 只读倒序）。长期记忆每条展示 Chroma 侧 `hits`、`halflife_days`、`last_access_ts`，并对 `is_orphan` 显示提示文案。
 
-**对应接口：** `GET /api/memory/longterm`
+**对应接口：** `GET /api/memory/cards`、`GET/POST/DELETE /api/memory/*`（见 §7.4 表）
 
 ---
 
@@ -934,7 +937,7 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 
 | 页面 | 调用的 API 接口 |
 |------|---------------|
-| **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{id}` |
+| **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{id}`、`GET/POST /api/memory/temporal-states`、`DELETE /api/memory/temporal-states/{id}`、`GET /api/memory/relationship-timeline` |
 | **History.jsx** | `GET /api/history`（支持 platform / keyword / date_from / date_to / page / page_size 参数） |
 | **Logs.jsx** | `GET /api/logs`（支持 platform / level / keyword / page / page_size 参数） |
 | **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |

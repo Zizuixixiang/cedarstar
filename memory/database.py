@@ -1733,6 +1733,66 @@ class MessageDatabase:
             logger.error(f"查询 relationship_timeline 失败: {e}")
             return []
 
+    def list_temporal_states_all(self) -> List[Dict[str, Any]]:
+        """全部 temporal_states，按 created_at 倒序（管理端）。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, state_content, action_rule, expire_at, is_active, created_at
+                    FROM temporal_states
+                    ORDER BY datetime(created_at) DESC
+                    """
+                )
+                return [dict(r) for r in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"查询 temporal_states 全表失败: {e}")
+            return []
+
+    def insert_temporal_state(
+        self,
+        state_content: str,
+        action_rule: Optional[str] = None,
+        expire_at: Optional[str] = None,
+    ) -> str:
+        """插入一条 temporal_states，返回主键 id（UUID hex）。"""
+        eid = uuid.uuid4().hex
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO temporal_states (id, state_content, action_rule, expire_at, is_active)
+                    VALUES (?, ?, ?, ?, 1)
+                    """,
+                    (eid, state_content, action_rule or "", expire_at),
+                )
+                conn.commit()
+                return eid
+        except sqlite3.Error as e:
+            logger.error(f"插入 temporal_states 失败: {e}")
+            raise
+
+    def list_relationship_timeline_all_desc(self) -> List[Dict[str, Any]]:
+        """全部 relationship_timeline，按 created_at 倒序。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, created_at, event_type, content, source_summary_id
+                    FROM relationship_timeline
+                    ORDER BY datetime(created_at) DESC
+                    """
+                )
+                return [dict(r) for r in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"查询 relationship_timeline 全表失败: {e}")
+            return []
+
     def save_log(self, level: str, message: str, platform: Optional[str] = None, 
                 stack_trace: Optional[str] = None) -> int:
         """
@@ -2647,6 +2707,22 @@ def get_all_active_temporal_states() -> List[Dict[str, Any]]:
 def get_recent_relationship_timeline(limit: int = 3) -> List[Dict[str, Any]]:
     """按 created_at 倒序取 relationship_timeline 前 limit 条。"""
     return get_database().get_recent_relationship_timeline(limit)
+
+
+def list_temporal_states_all() -> List[Dict[str, Any]]:
+    return get_database().list_temporal_states_all()
+
+
+def insert_temporal_state(
+    state_content: str,
+    action_rule: Optional[str] = None,
+    expire_at: Optional[str] = None,
+) -> str:
+    return get_database().insert_temporal_state(state_content, action_rule, expire_at)
+
+
+def list_relationship_timeline_all_desc() -> List[Dict[str, Any]]:
+    return get_database().list_relationship_timeline_all_desc()
 
 
 def insert_relationship_timeline_event(

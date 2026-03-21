@@ -324,6 +324,23 @@ class VectorStore:
         except Exception as e:
             logger.error(f"update_memory_hits 失败: {e}")
             return 0
+
+    def get_metadatas_by_doc_ids(self, doc_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+        """按 doc_id 批量读取 Chroma metadata，缺失的 id 不会出现在结果中。"""
+        if not doc_ids:
+            return {}
+        unique_ids = list(dict.fromkeys(doc_ids))
+        try:
+            got = self.collection.get(ids=unique_ids, include=["metadatas"])
+            ids_out = got.get("ids") or []
+            metas = got.get("metadatas") or []
+            out: Dict[str, Dict[str, Any]] = {}
+            for i, uid in enumerate(ids_out):
+                out[uid] = dict(metas[i] or {})
+            return out
+        except Exception as e:
+            logger.error(f"get_metadatas_by_doc_ids 失败: {e}")
+            return {}
     
     def search_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -583,6 +600,12 @@ def update_memory_hits(uid_list: List[str]) -> int:
     """对给定 doc_id 列表执行 hits+1 并刷新 last_access_ts，返回成功更新条数。"""
     store = get_vector_store()
     return store.update_memory_hits(uid_list)
+
+
+def get_memory_metadatas_by_doc_ids(doc_ids: List[str]) -> Dict[str, Dict[str, Any]]:
+    """批量读取长期记忆 Chroma 元数据（hits、halflife_days、last_access_ts 等）。"""
+    store = get_vector_store()
+    return store.get_metadatas_by_doc_ids(doc_ids)
 
 
 def garbage_collect_stale_memories(

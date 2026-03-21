@@ -34,6 +34,12 @@ class LongTermMemoryCreate(BaseModel):
     content: str
 
 
+class TemporalStateCreate(BaseModel):
+    state_content: str
+    action_rule: Optional[str] = None
+    expire_at: Optional[str] = None
+
+
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
     return {"success": success, "data": data, "message": message}
 
@@ -54,6 +60,56 @@ def _annotate_longterm_query_result(result: Dict[str, Any]) -> Dict[str, Any]:
         d = dict(row) if isinstance(row, dict) else row
         cid = d.get("chroma_doc_id")
         d = {**d, "is_orphan": _is_chroma_doc_id_missing(cid)}
+        items_out.append(d)
+    return {**result, "items": items_out}
+
+
+def _safe_int(val: Any, default: int = 0) -> int:
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _annotate_longterm_chroma_stats(result: Dict[str, Any]) -> Dict[str, Any]:
+    """为每条长期记忆附加 Chroma 元数据：hits、halflife_days、last_access_ts（孤儿行为 null）。"""
+    from memory.vector_store import get_memory_metadatas_by_doc_ids
+
+    items = result.get("items", [])
+    doc_ids = [
+        i.get("chroma_doc_id")
+        for i in items
+        if not _is_chroma_doc_id_missing(i.get("chroma_doc_id"))
+    ]
+    meta_by_id = get_memory_metadatas_by_doc_ids(doc_ids) if doc_ids else {}
+    items_out: List[Dict[str, Any]] = []
+    for row in items:
+        d = dict(row) if isinstance(row, dict) else row
+        cid = d.get("chroma_doc_id")
+        if _is_chroma_doc_id_missing(cid):
+            d = {
+                **d,
+                "hits": None,
+                "halflife_days": None,
+                "last_access_ts": None,
+            }
+        else:
+            md = meta_by_id.get(cid) or {}
+            lat = md.get("last_access_ts")
+            last_ts: Optional[float] = None
+            if lat is not None:
+                try:
+                    last_ts = float(lat)
+                except (TypeError, ValueError):
+                    last_ts = None
+            d = {
+                **d,
+                "hits": _safe_int(md.get("hits"), 0),
+                "halflife_days": _safe_int(md.get("halflife_days"), 30),
+                "last_access_ts": last_ts,
+            }
         items_out.append(d)
     return {**result, "items": items_out}
 
@@ -155,6 +211,7 @@ async def get_longterm_memories(
         db = get_database()
         result = db.get_longterm_memories(keyword=keyword, page=page, page_size=page_size)
         result = _annotate_longterm_query_result(result)
+        result = _annotate_longterm_chroma_stats(result)
         return create_response(True, result, "获取长期记忆成功")
     except Exception as e:
         logger.error(f"获取长期记忆失败: {e}")
@@ -266,3 +323,74 @@ async def delete_longterm_memory(memory_id: int):
             )
     
     return create_response(True, {"memory_id": memory_id}, "长期记忆删除成功")
+
+
+# ==========================================
+# 时效状态 temporal_states（管理端）
+# ==========================================
+
+
+@router.get("/temporal-states")
+async def list_temporal_states():
+    """列出全部 temporal_states（含已停用），按 created_at 倒序。"""
+    from memory.database import list_temporal_states_all
+
+    try:
+        rows = list_temporal_states_all()
+        return create_response(True, rows, "获取时效状态成功")
+    except Exception as e:
+        logger.error(f"获取时效状态失败: {e}")
+        return create_response(False, None, f"获取时效状态失败: {str(e)}")
+
+
+@router.post("/temporal-states")
+async def create_temporal_state(body: TemporalStateCreate):
+    """新增一条 temporal_states（is_active=1）。"""
+    from memory.database import insert_temporal_state
+
+    content = (body.state_content or "").strip()
+    if not content:
+        return create_response(False, None, "state_content 不能为空")
+    try:
+        eid = insert_temporal_state(
+            state_content=content,
+            action_rule=(body.action_rule or "").strip() or None,
+            expire_at=(body.expire_at or "").strip() or None,
+        )
+        return create_response(True, {"id": eid}, "创建时效状态成功")
+    except Exception as e:
+        logger.error(f"创建时效状态失败: {e}")
+        return create_response(False, None, f"创建时效状态失败: {str(e)}")
+
+
+@router.delete("/temporal-states/{state_id}")
+async def soft_delete_temporal_state(state_id: str):
+    """手动软删除：将 is_active 置 0。"""
+    from memory.database import deactivate_temporal_states_by_ids
+
+    try:
+        n = deactivate_temporal_states_by_ids([state_id])
+        if n:
+            return create_response(True, {"id": state_id}, "已停用该时效状态")
+        return create_response(False, None, "记录不存在或已停用")
+    except Exception as e:
+        logger.error(f"停用时效状态失败: {e}")
+        return create_response(False, None, f"停用时效状态失败: {str(e)}")
+
+
+# ==========================================
+# 关系时间线 relationship_timeline（只读全表）
+# ==========================================
+
+
+@router.get("/relationship-timeline")
+async def list_relationship_timeline_all():
+    """全部关系时间线，按 created_at 倒序。"""
+    from memory.database import list_relationship_timeline_all_desc
+
+    try:
+        rows = list_relationship_timeline_all_desc()
+        return create_response(True, rows, "获取关系时间线成功")
+    except Exception as e:
+        logger.error(f"获取关系时间线失败: {e}")
+        return create_response(False, None, f"获取关系时间线失败: {str(e)}")

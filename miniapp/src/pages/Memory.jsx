@@ -20,6 +20,46 @@ const DIMENSION_MAP = {
   rules: '规则'
 };
 
+const EVENT_TYPE_MAP = {
+  milestone: '里程碑',
+  emotional_shift: '情感转折',
+  conflict: '冲突',
+  daily_warmth: '日常温情'
+};
+
+const MEMORY_TABS = [
+  { id: 'cards', label: '记忆卡片' },
+  { id: 'longterm', label: '长期记忆' },
+  { id: 'temporal', label: '时效状态' },
+  { id: 'timeline', label: '关系时间线' }
+];
+
+function getTemporalDisplayStatus(row) {
+  const activeFlag = Number(row.is_active) === 1;
+  let beforeExpire = true;
+  if (row.expire_at) {
+    const t = new Date(row.expire_at).getTime();
+    if (!Number.isNaN(t) && t <= Date.now()) {
+      beforeExpire = false;
+    }
+  }
+  if (activeFlag && beforeExpire) {
+    return { label: '生效中', className: 'temporal-status-active' };
+  }
+  return { label: '已过期', className: 'temporal-status-expired' };
+}
+
+function formatLastAccessTs(ts) {
+  if (ts == null || ts === '') {
+    return '—';
+  }
+  const n = Number(ts);
+  if (Number.isNaN(n)) {
+    return '—';
+  }
+  return new Date(n * 1000).toLocaleString('zh-CN');
+}
+
 /**
  * Toast 提示组件
  */
@@ -193,6 +233,153 @@ function AddMemoryModal({ onClose, onSubmit }) {
 }
 
 /**
+ * 新增时效状态弹窗
+ */
+function AddTemporalStateModal({ onClose, onSubmit }) {
+  const [stateContent, setStateContent] = useState('');
+  const [actionRule, setActionRule] = useState('');
+  const [expireAt, setExpireAt] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  const handleSubmit = async () => {
+    if (!stateContent.trim() || submitting) {
+      return;
+    }
+    setSubmitting(true);
+    try {
+      await onSubmit({
+        state_content: stateContent.trim(),
+        action_rule: actionRule.trim() || null,
+        expire_at: expireAt.trim() || null
+      });
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-container">
+        <div className="modal-title">新增时效状态</div>
+        <div className="modal-section">
+          <div className="modal-label">状态内容（state_content）</div>
+          <textarea
+            className="edit-textarea"
+            style={{ minHeight: '100px' }}
+            value={stateContent}
+            onChange={(e) => setStateContent(e.target.value)}
+            placeholder="描述当前时效状态…"
+            autoFocus
+            disabled={submitting}
+          />
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">行为规则（action_rule，可选）</div>
+          <textarea
+            className="edit-textarea"
+            style={{ minHeight: '80px' }}
+            value={actionRule}
+            onChange={(e) => setActionRule(e.target.value)}
+            placeholder="可选：相关行为或动作规则"
+            disabled={submitting}
+          />
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">到期时间（expire_at，可选）</div>
+          <input
+            type="datetime-local"
+            className="search-input"
+            value={expireAt}
+            onChange={(e) => setExpireAt(e.target.value)}
+            disabled={submitting}
+          />
+        </div>
+        <div className="modal-actions">
+          <button className="modal-button cancel" type="button" onClick={onClose} disabled={submitting}>
+            取消
+          </button>
+          <button
+            className="modal-button confirm"
+            type="button"
+            onClick={handleSubmit}
+            disabled={!stateContent.trim() || submitting}
+          >
+            {submitting ? '提交中…' : '提交'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 时效状态列表项
+ */
+function TemporalStateItem({ row, addToast, onRefresh }) {
+  const [showConfirm, setShowConfirm] = useState(false);
+  const status = getTemporalDisplayStatus(row);
+  const expireLabel = row.expire_at
+    ? new Date(row.expire_at).toLocaleString('zh-CN')
+    : '未设置';
+
+  const runDelete = async () => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/memory/temporal-states/${encodeURIComponent(row.id)}`, {
+        method: 'DELETE'
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        addToast(data.message || '停用失败', 'error');
+        return;
+      }
+      addToast('已停用该时效状态', 'success');
+      setShowConfirm(false);
+      onRefresh();
+    } catch (e) {
+      console.error(e);
+      addToast(e.message || '操作失败', 'error');
+    }
+  };
+
+  if (showConfirm) {
+    return (
+      <div className="modal-overlay">
+        <div className="modal-container confirm-modal">
+          <div className="modal-title">确认停用</div>
+          <div className="confirm-message">将该时效状态设为停用（is_active=0）？</div>
+          <div className="modal-actions">
+            <button className="modal-button cancel" type="button" onClick={() => setShowConfirm(false)}>
+              取消
+            </button>
+            <button className="modal-button delete" type="button" onClick={runDelete}>
+              确认停用
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="temporal-item">
+      <div className="temporal-item-head">
+        <span className={`temporal-status-pill ${status.className}`}>{status.label}</span>
+        {Number(row.is_active) === 1 && (
+          <button className="delete-button" type="button" onClick={() => setShowConfirm(true)}>
+            软删除
+          </button>
+        )}
+      </div>
+      <div className="temporal-content">{row.state_content || '（无内容）'}</div>
+      {row.action_rule ? <div className="temporal-action-rule">规则：{row.action_rule}</div> : null}
+      <div className="temporal-meta">
+        <span>到期：{expireLabel}</span>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 记忆卡片组件
  */
 function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
@@ -263,6 +450,17 @@ function LongTermMemoryItem({ memory, onDelete }) {
   return (
     <div className="memory-item">
       <div className="memory-summary">{memory.content}</div>
+      {memory.is_orphan ? (
+        <div className="memory-orphan-hint">未同步到向量库（is_orphan）</div>
+      ) : null}
+      <div className="memory-detail-row">
+        <span>引用次数 hits：{memory.hits != null ? memory.hits : '—'}</span>
+        <span>半衰期 halflife_days：{memory.halflife_days != null ? memory.halflife_days : '—'}</span>
+      </div>
+      <div className="memory-detail-row memory-detail-row-single">
+        最近访问 last_access_ts：
+        {formatLastAccessTs(memory.last_access_ts)}
+      </div>
       <div className="memory-meta">
         <span>归档: {new Date(memory.created_at).toLocaleDateString('zh-CN')}</span>
         <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
@@ -282,6 +480,11 @@ function LongTermMemoryItem({ memory, onDelete }) {
 function SkeletonLoader() {
   return (
     <div className="memory-container">
+      <div className="memory-tabs skeleton-tabs">
+        {[1, 2, 3, 4].map((i) => (
+          <div key={i} className="skeleton-line short" style={{ width: '88px', height: '36px' }} />
+        ))}
+      </div>
       {/* 记忆卡片骨架屏 */}
       <div>
         <div className="section-title">
@@ -340,6 +543,13 @@ function Memory() {
   const [deletingDimension, setDeletingDimension] = useState(null);
   
   const [showAddModal, setShowAddModal] = useState(false);
+  const [showTemporalAddModal, setShowTemporalAddModal] = useState(false);
+  
+  const [activeTab, setActiveTab] = useState('cards');
+  const [temporalStates, setTemporalStates] = useState([]);
+  const [temporalLoading, setTemporalLoading] = useState(false);
+  const [timelineEvents, setTimelineEvents] = useState([]);
+  const [timelineLoading, setTimelineLoading] = useState(false);
   
   // 搜索和分页
   const [searchKeyword, setSearchKeyword] = useState('');
@@ -437,6 +647,58 @@ function Memory() {
     }
   }, [addToast]);
   
+  const loadTemporalStates = useCallback(async () => {
+    setTemporalLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/memory/temporal-states`);
+      if (!response.ok) {
+        throw new Error('获取时效状态失败');
+      }
+      const data = await response.json();
+      if (data.success) {
+        setTemporalStates(Array.isArray(data.data) ? data.data : []);
+      } else {
+        throw new Error(data.message || '获取失败');
+      }
+    } catch (error) {
+      console.error('加载时效状态失败:', error);
+      setTemporalStates([]);
+      addToast(error.message || '加载时效状态失败', 'error');
+    } finally {
+      setTemporalLoading(false);
+    }
+  }, [addToast]);
+  
+  const loadRelationshipTimeline = useCallback(async () => {
+    setTimelineLoading(true);
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/memory/relationship-timeline`);
+      if (!response.ok) {
+        throw new Error('获取关系时间线失败');
+      }
+      const data = await response.json();
+      if (data.success) {
+        setTimelineEvents(Array.isArray(data.data) ? data.data : []);
+      } else {
+        throw new Error(data.message || '获取失败');
+      }
+    } catch (error) {
+      console.error('加载关系时间线失败:', error);
+      setTimelineEvents([]);
+      addToast(error.message || '加载关系时间线失败', 'error');
+    } finally {
+      setTimelineLoading(false);
+    }
+  }, [addToast]);
+  
+  useEffect(() => {
+    if (activeTab === 'temporal') {
+      loadTemporalStates();
+    } else if (activeTab === 'timeline') {
+      loadRelationshipTimeline();
+    }
+  }, [activeTab, loadTemporalStates, loadRelationshipTimeline]);
+  
   // 初始化加载数据
   useEffect(() => {
     const loadAllData = async () => {
@@ -451,8 +713,11 @@ function Memory() {
     loadAllData();
   }, [loadMemoryCards, loadLongTermMemories]);
   
-  // 搜索防抖
+  // 搜索防抖（仅在长期记忆 Tab 时触发请求）
   useEffect(() => {
+    if (activeTab !== 'longterm') {
+      return undefined;
+    }
     if (searchTimeoutRef.current) {
       clearTimeout(searchTimeoutRef.current);
     }
@@ -466,7 +731,7 @@ function Memory() {
         clearTimeout(searchTimeoutRef.current);
       }
     };
-  }, [searchKeyword, loadLongTermMemories]);
+  }, [searchKeyword, loadLongTermMemories, activeTab]);
   
   // 处理编辑记忆卡片
   const handleEditCard = (dimension) => {
@@ -673,6 +938,28 @@ function Memory() {
     }
   };
   
+  const handleAddTemporalState = async (payload) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/memory/temporal-states`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || '创建时效状态失败');
+      }
+      addToast('时效状态已创建', 'success');
+      setShowTemporalAddModal(false);
+      loadTemporalStates();
+    } catch (error) {
+      console.error('新增时效状态失败:', error);
+      addToast(error.message || '操作失败', 'error');
+    }
+  };
+  
   if (loading) {
     return <SkeletonLoader />;
   }
@@ -718,84 +1005,171 @@ function Memory() {
         />
       )}
       
-      {/* 记忆卡片区块 */}
-      <div>
-        <div className="section-title">
-          <span>📓 记忆卡片</span>
-        </div>
-        <div className="memory-cards-grid">
-          {Object.keys(DIMENSION_MAP).map(dimension => (
-            <MemoryCard
-              key={dimension}
-              dimension={dimension}
-              content={memoryCards[dimension]?.content}
-              updatedAt={memoryCards[dimension]?.updated_at}
-              onEdit={handleEditCard}
-              onDelete={handleDeleteCard}
-            />
-          ))}
-        </div>
+      {showTemporalAddModal && (
+        <AddTemporalStateModal
+          onClose={() => setShowTemporalAddModal(false)}
+          onSubmit={handleAddTemporalState}
+        />
+      )}
+      
+      <div className="memory-tabs" role="tablist">
+        {MEMORY_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            className={`memory-tab ${activeTab === tab.id ? 'active' : ''}`}
+            onClick={() => setActiveTab(tab.id)}
+          >
+            {tab.label}
+          </button>
+        ))}
       </div>
       
-      {/* 长期记忆区块 */}
-      <div className="longterm-section">
-        <div className="section-title">
-          <span>📚 长期记忆库</span>
-          <button className="add-button" onClick={() => setShowAddModal(true)}>
-            + 手动新增
-          </button>
-        </div>
-        
-        <div className="longterm-header">
-          <input
-            type="text"
-            className="search-input"
-            placeholder="搜索长期记忆..."
-            value={searchKeyword}
-            onChange={(e) => setSearchKeyword(e.target.value)}
-          />
-        </div>
-        
-        <div className="memory-list">
-          {longTermMemories.length === 0 ? (
-            <div className="empty-state">
-              <div className="empty-state-icon">📝</div>
-              <div className="empty-state-text">暂无长期记忆记录</div>
-            </div>
-          ) : (
-            longTermMemories.map(memory => (
-              <LongTermMemoryItem
-                key={memory.id}
-                memory={memory}
-                onDelete={handleDeleteMemory}
+      {activeTab === 'cards' && (
+        <div>
+          <div className="section-title">
+            <span>📓 记忆卡片</span>
+          </div>
+          <div className="memory-cards-grid">
+            {Object.keys(DIMENSION_MAP).map((dimension) => (
+              <MemoryCard
+                key={dimension}
+                dimension={dimension}
+                content={memoryCards[dimension]?.content}
+                updatedAt={memoryCards[dimension]?.updated_at}
+                onEdit={handleEditCard}
+                onDelete={handleDeleteCard}
               />
-            ))
-          )}
+            ))}
+          </div>
         </div>
-        
-        {/* 分页控件 */}
-        {longTermMemories.length > 0 && (
-          <div className="pagination">
-            <button
-              className="pagination-button"
-              onClick={handlePrevPage}
-              disabled={currentPage <= 1}
-            >
-              上一页
-            </button>
-            <span className="pagination-info">
-              第 {currentPage} 页 / 共 {totalPages} 页
-            </span>
-            <button
-              className="pagination-button"
-              onClick={handleNextPage}
-              disabled={currentPage >= totalPages}
-            >
-              下一页
+      )}
+      
+      {activeTab === 'longterm' && (
+        <div className="longterm-section">
+          <div className="section-title">
+            <span>📚 长期记忆库</span>
+            <button className="add-button" type="button" onClick={() => setShowAddModal(true)}>
+              + 手动新增
             </button>
           </div>
-        )}
-      </div>
+          
+          <div className="longterm-header">
+            <input
+              type="text"
+              className="search-input"
+              placeholder="搜索长期记忆..."
+              value={searchKeyword}
+              onChange={(e) => setSearchKeyword(e.target.value)}
+            />
+          </div>
+          
+          <div className="memory-list">
+            {longTermMemories.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-icon">📝</div>
+                <div className="empty-state-text">暂无长期记忆记录</div>
+              </div>
+            ) : (
+              longTermMemories.map((memory) => (
+                <LongTermMemoryItem
+                  key={memory.id}
+                  memory={memory}
+                  onDelete={handleDeleteMemory}
+                />
+              ))
+            )}
+          </div>
+          
+          {longTermMemories.length > 0 && (
+            <div className="pagination">
+              <button
+                className="pagination-button"
+                type="button"
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+              >
+                上一页
+              </button>
+              <span className="pagination-info">
+                第 {currentPage} 页 / 共 {totalPages} 页
+              </span>
+              <button
+                className="pagination-button"
+                type="button"
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+              >
+                下一页
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      
+      {activeTab === 'temporal' && (
+        <div className="temporal-section">
+          <div className="section-title">
+            <span>⏱ 时效状态</span>
+            <button className="add-button" type="button" onClick={() => setShowTemporalAddModal(true)}>
+              + 新增
+            </button>
+          </div>
+          {temporalLoading ? (
+            <div className="tab-loading">加载中…</div>
+          ) : temporalStates.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">⏱</div>
+              <div className="empty-state-text">暂无时效状态</div>
+            </div>
+          ) : (
+            <div className="memory-list">
+              {temporalStates.map((row) => (
+                <TemporalStateItem
+                  key={row.id}
+                  row={row}
+                  addToast={addToast}
+                  onRefresh={loadTemporalStates}
+                />
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+      
+      {activeTab === 'timeline' && (
+        <div className="timeline-section">
+          <div className="section-title">
+            <span>💞 关系时间线</span>
+          </div>
+          {timelineLoading ? (
+            <div className="tab-loading">加载中…</div>
+          ) : timelineEvents.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon">📅</div>
+              <div className="empty-state-text">暂无关系时间线记录</div>
+            </div>
+          ) : (
+            <div className="timeline-list">
+              {timelineEvents.map((ev) => (
+                <div key={ev.id} className="timeline-item">
+                  <div className="timeline-item-head">
+                    <span className="timeline-time">
+                      {ev.created_at ? new Date(ev.created_at).toLocaleString('zh-CN') : '—'}
+                    </span>
+                    <span className="timeline-type-badge">
+                      {EVENT_TYPE_MAP[ev.event_type] || ev.event_type}
+                    </span>
+                  </div>
+                  <div className="timeline-content-text">{ev.content || '—'}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
