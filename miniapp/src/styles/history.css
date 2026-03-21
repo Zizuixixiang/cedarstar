@@ -558,28 +558,30 @@
     box-sizing: border-box;
   }
 
-  /* 平台筛选按钮组：取消横向滚动，改为均分宽度 */
+  /* 平台筛选按钮组：改为 2x2 网格布局，适应长文字 */
   .platform-tabs {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
     width: 100%;
-    justify-content: space-between;
-    gap: 0;
     padding: 0;
     overflow-x: hidden;
     box-sizing: border-box;
+    height: auto; /* 移除固定高度，允许网格自然撑开 */
   }
 
-  /* 强制按钮均分 */
+  /* 按钮样式适配 */
   .platform-tabs .tab-button {
-    flex: 1;
+    width: 100%;
     min-width: 0;
     text-align: center;
-    padding: 6px 0;
+    padding: 8px 0; /* 增加点击热区 */
     font-size: 12px;
     margin: 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
+    box-sizing: border-box;
   }
 
   /* 修复表单输入框溢出 */
