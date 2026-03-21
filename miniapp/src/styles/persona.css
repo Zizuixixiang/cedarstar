@@ -457,3 +457,46 @@
   width: 100%;
   border-radius: 10px;
 }
+
+/* ========================================
+   移动端响应式布局
+   ======================================== */
+@media screen and (max-width: 767px) {
+  /* 主内容区改为上下堆叠 */
+  .persona-body {
+    flex-direction: column;
+  }
+
+  /* 左侧编辑区释放宽度 */
+  .persona-editor {
+    width: 100%;
+    border-right: none;
+    border-bottom: 1px solid rgba(109, 89, 122, 0.08);
+    padding: 16px;
+  }
+
+  /* 右侧预览区释放宽度，取消粘性定位 */
+  .persona-preview {
+    width: 100%;
+    position: static; /* 取消 sticky */
+    max-height: none; /* 移除高度限制 */
+    padding: 16px;
+    margin-top: 20px; /* 增加上下区块间距 */
+  }
+
+  /* 底部操作栏适配 */
+  .persona-footer {
+    flex-direction: column;
+    gap: 16px;
+    align-items: stretch;
+    padding: 16px;
+  }
+
+  .footer-left {
+    justify-content: space-between;
+  }
+
+  .footer-right {
+    justify-content: flex-end;
+  }
+}
