@@ -32,6 +32,22 @@ cedarstar/
 └── ARCHITECTURE.md      # 完整目录树与模块说明
 ```
 
+## 运行 Mini App（开发界面）
+
+在项目根目录下进入前端目录，安装依赖并启动 Vite 开发服务器：
+
+```powershell
+cd miniapp
+npm install
+npm run dev
+```
+
+浏览器打开终端中提示的本地地址（一般为 [http://localhost:5173](http://localhost:5173)；端口被占用时 Vite 可能使用 5174 等）。
+
+**后端：** [`miniapp/vite.config.js`](miniapp/vite.config.js) 将 `/api` 代理到 `http://localhost:8000`，需先在项目根目录启动后端（例如 `python main.py`），管理界面中的接口请求才会成功。
+
+**其他脚本：** `npm run build` 为生产构建；`npm run preview` 为预览构建产物。
+
 ## 规划中，暂未实现
 
 以下文件目前仅为占位或空实现，**规划中，暂未实现**：

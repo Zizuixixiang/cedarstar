@@ -6032,3 +6032,1241 @@ aiohttp.client_exceptions.ClientProxyConnectionError: Cannot connect to host loc
 2026-03-16 23:16:49,910 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
 2026-03-16 23:34:12,937 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
 2026-03-16 23:34:14,762 - discord.gateway - INFO - Shard ID None has successfully RESUMED session dc54566a7a50f2151a6ebfc2f9155384.
+2026-03-21 21:48:56,444 - __main__ - INFO - ============================================================
+2026-03-21 21:48:56,445 - __main__ - INFO - CedarStar 项目启动
+2026-03-21 21:48:56,445 - __main__ - INFO - 启动时间: 2026-03-21 21:48:56
+2026-03-21 21:48:56,445 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-21 21:48:56,446 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-21 21:48:56,446 - __main__ - INFO - ============================================================
+2026-03-21 21:48:56,448 - __main__ - INFO - 验证配置...
+2026-03-21 21:48:56,448 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-21 21:48:58,616 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-21 21:48:58,632 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-21 21:48:58,637 - memory.vector_store - ERROR - 获取所有记忆文档失败: Collection expecting embedding with dimension of 2048, got 1024
+2026-03-21 21:48:58,638 - memory.bm25_retriever - INFO - ChromaDB 中暂无文档，BM25 索引初始化为空（后续可通过 refresh_index() 更新）
+2026-03-21 21:48:58,638 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-21 21:48:58,638 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-21 21:48:58,640 - memory.vector_store - ERROR - 获取所有记忆文档失败: Collection expecting embedding with dimension of 2048, got 1024
+2026-03-21 21:48:58,640 - memory.bm25_retriever - INFO - ChromaDB 中没有文档，BM25 索引为空
+2026-03-21 21:48:58,640 - __main__ - INFO - 并行启动四个任务...
+2026-03-21 21:48:58,640 - __main__ - INFO - 所有组件启动完成
+2026-03-21 21:49:02,088 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-21 21:49:02,089 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-21 21:49:02,089 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 21:49:02,724 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-21 21:49:02,724 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-21 21:49:02,725 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 21:49:02,752 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-21 21:49:02,753 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-21 21:49:02,754 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-21 21:49:02,754 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-21 21:49:02,755 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-21 21:49:02,756 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-21 21:49:02,756 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-21 21:49:02,756 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-21 21:49:02,758 - discord.client - INFO - logging in using static token
+2026-03-21 21:49:03,050 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-21 21:49:03,050 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-21 21:49:03,050 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-21 21:49:03,051 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-21 21:49:04,575 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-21 21:49:04,576 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-21 21:49:04,578 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-21 21:49:04,578 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-21 21:49:04,579 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 21:49:04,753 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-21 21:49:04,754 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 21:49:04,754 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-21 21:49:04,755 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-21 23:00:00 执行，等待 4255 秒
+2026-03-21 21:49:06,247 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-21 21:49:06,563 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 3bb71dab1aa2840f9e95d42dec2b166b).
+2026-03-21 21:49:06,574 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-21 21:49:06,575 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-21 21:49:06,575 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-21 21:49:08,647 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-21 21:49:08,647 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-21 21:49:08,647 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-21 21:49:08,648 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-21 21:49:17,671 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:49:17,673 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=2
+2026-03-21 21:49:22,670 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 21:49:24,328 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 21:49:24,329 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 21:49:24,332 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-21 21:49:24,333 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-21 21:49:24,940 - jieba - DEBUG - Loading model cost 0.608 seconds.
+2026-03-21 21:49:24,940 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-21 21:49:27,609 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-21 21:49:27,611 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 21:49:52,893 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=42
+2026-03-21 21:49:52,899 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:49:54,587 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 21:50:03,251 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:13,626 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:23,955 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:25,088 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:25,089 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=7
+2026-03-21 21:50:26,565 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:26,567 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 21:50:28,093 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:28,095 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 21:50:29,125 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:29,127 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 21:50:34,139 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=4
+2026-03-21 21:50:34,797 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:50:34,799 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=6
+2026-03-21 21:50:35,772 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 21:50:35,773 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 21:50:38,348 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-21 21:50:38,351 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 21:50:55,165 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=42
+2026-03-21 21:50:55,171 - memory.micro_batch - INFO - 会话 telegram_8624126581 触发微批处理，未摘要消息: 50 条
+2026-03-21 21:50:55,173 - memory.micro_batch - INFO - 开始处理会话 telegram_8624126581 的微批处理，消息数量: 50
+2026-03-21 21:50:55,174 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Qwen/Qwen2.5-72B-Instruct
+2026-03-21 21:51:03,143 - memory.micro_batch - INFO - 摘要保存成功，ID: 6, 会话: telegram_8624126581
+2026-03-21 21:51:03,156 - memory.micro_batch - INFO - 微批处理完成，会话: telegram_8624126581, 摘要ID: 6, 标记消息: 50 条
+2026-03-21 21:51:03,157 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:51:04,815 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 21:51:09,821 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 21:51:11,556 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 21:51:11,558 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 21:51:14,115 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-21 21:51:14,116 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 21:51:28,288 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=2
+2026-03-21 21:51:28,323 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:51:30,031 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 21:51:38,678 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:51:49,021 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:51:59,351 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:52:09,695 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:52:20,030 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:52:30,366 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:52:40,707 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:52:51,051 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:53:01,387 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:53:11,723 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:53:22,059 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:53:32,399 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:53:42,764 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:53:53,107 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:54:03,489 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:54:13,823 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:54:24,208 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:54:34,580 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:54:44,929 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:54:55,260 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:55:05,636 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:55:15,993 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:55:26,324 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:55:36,658 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:55:46,991 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:55:57,366 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:56:07,708 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:56:18,072 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:56:28,431 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:56:38,765 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:56:49,139 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:56:59,543 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:57:09,922 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:57:20,279 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:57:30,627 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 21:57:39,900 - __main__ - INFO - 程序已终止
+2026-03-21 22:00:38,167 - __main__ - INFO - ============================================================
+2026-03-21 22:00:38,167 - __main__ - INFO - CedarStar 项目启动
+2026-03-21 22:00:38,167 - __main__ - INFO - 启动时间: 2026-03-21 22:00:38
+2026-03-21 22:00:38,167 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-21 22:00:38,169 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-21 22:00:38,169 - __main__ - INFO - ============================================================
+2026-03-21 22:00:38,172 - __main__ - INFO - 验证配置...
+2026-03-21 22:00:38,173 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-21 22:00:39,606 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-21 22:00:39,610 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-21 22:00:39,615 - memory.bm25_retriever - INFO - ChromaDB 中暂无文档，BM25 索引初始化为空（后续可通过 refresh_index() 更新）
+2026-03-21 22:00:39,616 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-21 22:00:39,616 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-21 22:00:39,618 - memory.bm25_retriever - INFO - ChromaDB 中没有文档，BM25 索引为空
+2026-03-21 22:00:39,618 - __main__ - INFO - 并行启动四个任务...
+2026-03-21 22:00:39,618 - __main__ - INFO - 所有组件启动完成
+2026-03-21 22:00:39,686 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-21 22:00:39,686 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-21 22:00:39,686 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:00:39,951 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-21 22:00:39,951 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-21 22:00:39,952 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:00:39,957 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-21 22:00:39,957 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-21 22:00:39,957 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-21 22:00:39,957 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-21 22:00:39,958 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-21 22:00:39,958 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-21 22:00:39,958 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-21 22:00:39,958 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-21 22:00:39,959 - discord.client - INFO - logging in using static token
+2026-03-21 22:00:40,149 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-21 22:00:40,149 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-21 22:00:40,149 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-21 22:00:40,149 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-21 22:00:41,520 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-21 22:00:41,521 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-21 22:00:41,522 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-21 22:00:41,524 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-21 22:00:41,524 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:00:41,581 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-21 22:00:41,582 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:00:41,583 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-21 22:00:41,583 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-21 23:00:00 执行，等待 3558 秒
+2026-03-21 22:00:42,969 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: e964927500136dbb486a13db5ece2354).
+2026-03-21 22:00:43,015 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-21 22:00:43,342 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-21 22:00:43,343 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-21 22:00:43,343 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-21 22:00:44,982 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-21 22:00:44,983 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-21 22:00:44,983 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-21 22:00:44,983 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-21 22:00:54,782 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:01:00,462 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:01:00,464 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-21 22:01:05,482 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 22:01:05,849 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:01:05,850 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=7
+2026-03-21 22:01:07,089 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 22:01:07,089 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 22:01:07,092 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-21 22:01:07,094 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-21 22:01:07,667 - jieba - DEBUG - Loading model cost 0.574 seconds.
+2026-03-21 22:01:07,667 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-21 22:01:10,258 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-21 22:01:10,261 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:01:35,534 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=4
+2026-03-21 22:01:35,542 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:01:35,870 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:01:37,208 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 22:01:37,211 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 22:01:37,212 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 22:01:37,212 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 22:01:37,213 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=1
+2026-03-21 22:01:42,216 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=5
+2026-03-21 22:01:42,711 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 22:01:42,712 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 22:01:45,629 - memory.bm25_retriever - WARNING - BM25 索引未构建或为空，返回空结果
+2026-03-21 22:01:45,634 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:02:01,132 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=6
+2026-03-21 22:02:01,137 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:02:02,927 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 22:02:11,463 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:02:21,806 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:02:32,170 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:02:42,499 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:02:52,829 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:03:03,159 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:03:13,487 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:03:23,815 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:03:34,149 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:03:44,514 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:03:54,885 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:04:05,214 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:04:15,542 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:04:25,870 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:04:36,201 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:04:46,537 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:04:56,877 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:05:07,248 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:05:17,553 - __main__ - INFO - 程序已终止
+2026-03-21 22:41:20,343 - __main__ - INFO - ============================================================
+2026-03-21 22:41:20,345 - __main__ - INFO - CedarStar 项目启动
+2026-03-21 22:41:20,345 - __main__ - INFO - 启动时间: 2026-03-21 22:41:20
+2026-03-21 22:41:20,345 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-21 22:41:20,345 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-21 22:41:20,345 - __main__ - INFO - ============================================================
+2026-03-21 22:41:20,347 - __main__ - INFO - 验证配置...
+2026-03-21 22:41:20,347 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-21 22:41:21,722 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-21 22:41:21,724 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-21 22:41:21,786 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-21 22:41:21,787 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-21 22:41:22,356 - jieba - DEBUG - Loading model cost 0.569 seconds.
+2026-03-21 22:41:22,357 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-21 22:41:22,358 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 6 条文档
+2026-03-21 22:41:22,358 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-21 22:41:22,358 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-21 22:41:22,363 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 6
+2026-03-21 22:41:22,364 - __main__ - INFO - 并行启动四个任务...
+2026-03-21 22:41:22,364 - __main__ - INFO - 所有组件启动完成
+2026-03-21 22:41:22,434 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-21 22:41:22,434 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-21 22:41:22,435 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:41:22,711 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-21 22:41:22,712 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-21 22:41:22,713 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:41:22,720 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-21 22:41:22,721 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-21 22:41:22,721 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-21 22:41:22,721 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-21 22:41:22,721 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-21 22:41:22,722 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-21 22:41:22,722 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-21 22:41:22,722 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-21 22:41:22,723 - discord.client - INFO - logging in using static token
+2026-03-21 22:41:22,942 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-21 22:41:22,942 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-21 22:41:22,942 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-21 22:41:22,942 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-21 22:41:24,297 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-21 22:41:24,298 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-21 22:41:24,298 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-21 22:41:24,299 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-21 22:41:24,300 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:41:24,358 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-21 22:41:24,359 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:41:24,361 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-21 22:41:24,362 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-21 23:00:00 执行，等待 1116 秒
+2026-03-21 22:41:25,553 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 36f96d7f0201f58ebb1a5703096c69b4).
+2026-03-21 22:41:26,395 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-21 22:41:26,709 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-21 22:41:26,710 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-21 22:41:26,710 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-21 22:41:27,556 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-21 22:41:27,556 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-21 22:41:27,556 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-21 22:41:27,556 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-21 22:41:38,131 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:41:42,220 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:41:42,222 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=8
+2026-03-21 22:41:46,524 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:41:46,526 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=6
+2026-03-21 22:41:51,524 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=2
+2026-03-21 22:41:53,105 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 22:41:53,105 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 22:41:55,600 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:42:08,638 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=8
+2026-03-21 22:42:08,672 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:42:11,412 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 22:42:19,003 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:42:29,911 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:42:38,813 - __main__ - INFO - 程序已终止
+2026-03-21 22:45:21,553 - __main__ - INFO - ============================================================
+2026-03-21 22:45:21,553 - __main__ - INFO - CedarStar 项目启动
+2026-03-21 22:45:21,553 - __main__ - INFO - 启动时间: 2026-03-21 22:45:21
+2026-03-21 22:45:21,553 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-21 22:45:21,554 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-21 22:45:21,554 - __main__ - INFO - ============================================================
+2026-03-21 22:45:21,554 - asyncio - DEBUG - Using proactor: IocpProactor
+2026-03-21 22:45:21,555 - __main__ - INFO - 验证配置...
+2026-03-21 22:45:21,556 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-21 22:45:23,045 - chromadb.config - DEBUG - Starting component System
+2026-03-21 22:45:23,045 - chromadb.config - DEBUG - Starting component Posthog
+2026-03-21 22:45:23,064 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-21 22:45:23,066 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-21 22:45:23,119 - memory.vector_store - DEBUG - 获取所有记忆文档完成，数量: 6
+2026-03-21 22:45:23,119 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-21 22:45:23,121 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-21 22:45:23,807 - jieba - DEBUG - Loading model cost 0.688 seconds.
+2026-03-21 22:45:23,807 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-21 22:45:23,809 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 6 条文档
+2026-03-21 22:45:23,809 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-21 22:45:23,809 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-21 22:45:23,812 - memory.vector_store - DEBUG - 获取所有记忆文档完成，数量: 6
+2026-03-21 22:45:23,814 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 6
+2026-03-21 22:45:23,814 - __main__ - INFO - 并行启动四个任务...
+2026-03-21 22:45:23,815 - __main__ - INFO - 所有组件启动完成
+2026-03-21 22:45:23,889 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-21 22:45:23,889 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-21 22:45:23,890 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:45:24,129 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-21 22:45:24,130 - memory.database - DEBUG - 数据库表初始化完成
+2026-03-21 22:45:24,130 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-21 22:45:24,132 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:45:24,138 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-21 22:45:24,138 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-21 22:45:24,138 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-21 22:45:24,139 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-21 22:45:24,139 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-21 22:45:24,139 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-21 22:45:24,140 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-21 22:45:24,140 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-21 22:45:24,140 - asyncio - DEBUG - Using proactor: IocpProactor
+2026-03-21 22:45:24,142 - discord.client - INFO - logging in using static token
+2026-03-21 22:45:24,406 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-21 22:45:24,406 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-21 22:45:24,407 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-21 22:45:24,407 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-21 22:45:25,945 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-21 22:45:25,946 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-21 22:45:25,947 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-21 22:45:25,948 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-21 22:45:25,949 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:45:26,031 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-21 22:45:26,032 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:45:26,033 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-21 22:45:26,033 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-21 23:00:00 执行，等待 874 秒
+2026-03-21 22:45:26,043 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:45:26,302 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B84247A0>
+2026-03-21 22:45:26,303 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:45:26,303 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:26,303 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:45:26,303 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:26,304 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:45:26,304 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:45:26,305 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x00000207B844C8D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:45:27,132 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B24288C0>
+2026-03-21 22:45:27,133 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:27,134 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:27,135 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:45:27,135 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:27,135 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:27,459 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:45:27 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'320'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:45:27,460 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-21 22:45:27,461 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:45:27,461 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:45:27,461 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:45:27,462 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:45:27,463 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:27,464 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:27,464 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:45:27,464 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:27,464 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:27,574 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 5b8acd928f689b4980e877643e00308f).
+2026-03-21 22:45:27,789 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:45:27 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'68'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:45:27,789 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-21 22:45:27,789 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:45:27,789 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:45:27,790 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:45:27,790 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:45:27,791 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-21 22:45:27,793 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-21 22:45:27,795 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:45:28,066 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B858CA40>
+2026-03-21 22:45:28,066 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:45:28,067 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:28,067 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:45:28,067 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:28,068 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:45:28,068 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:45:28,068 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x00000207B844D150> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:45:28,896 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B858CC50>
+2026-03-21 22:45:28,896 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:28,898 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:28,898 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:45:28,898 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:28,898 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:29,580 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-21 22:45:29,580 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-21 22:45:29,581 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-21 22:45:29,581 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-21 22:45:39,238 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:45:38 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:45:39,239 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:45:39,239 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:45:39,240 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:45:39,240 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:45:39,240 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:45:39,243 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:39,243 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:39,243 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:45:39,244 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:39,244 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:49,565 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:45:49 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:45:49,566 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:45:49,566 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:45:49,567 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:45:49,567 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:45:49,568 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:45:49,569 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:49,569 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:49,569 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:45:49,570 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:49,570 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:59,901 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:45:59 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:45:59,902 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:45:59,902 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:45:59,902 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:45:59,902 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:45:59,902 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:45:59,904 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:45:59,905 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:45:59,905 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:45:59,905 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:45:59,905 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:10,239 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:09 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:10,239 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:10,239 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:10,240 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:10,240 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:10,241 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:10,242 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:10,243 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:10,243 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:10,244 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:10,244 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:20,604 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:20 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:20,604 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:20,604 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:20,604 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:20,605 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:20,605 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:20,607 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:20,608 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:20,608 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:20,608 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:20,608 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:30,934 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:30 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:30,934 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:30,935 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:30,935 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:30,936 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:30,936 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:30,938 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:30,939 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:30,939 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:30,940 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:30,940 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:41,264 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:41 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:41,264 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:41,264 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:41,265 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:41,265 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:41,266 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:41,268 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:41,270 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:41,270 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:41,270 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:41,270 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:51,591 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:51 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:51,593 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:51,593 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:51,593 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:51,594 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:51,595 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:51,599 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:51,602 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:51,603 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:51,605 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:51,605 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:54,883 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:54 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'311'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:54,883 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:54,883 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:54,884 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:54,884 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:54,884 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:54,885 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-21 22:46:54,885 - bot.telegram_bot - DEBUG - 消息添加到缓冲区: session_id=telegram_8624126581, 缓冲区大小=1
+2026-03-21 22:46:54,886 - bot.telegram_bot - DEBUG - 开始缓冲等待: session_id=telegram_8624126581, 延迟=5秒
+2026-03-21 22:46:54,887 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:54,888 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:54,888 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:54,888 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:54,888 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:57,435 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:46:57 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'311'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:46:57,435 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:46:57,436 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:46:57,436 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:46:57,436 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:46:57,437 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:46:57,437 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-21 22:46:57,438 - bot.telegram_bot - DEBUG - 消息添加到缓冲区: session_id=telegram_8624126581, 缓冲区大小=2
+2026-03-21 22:46:57,438 - bot.telegram_bot - DEBUG - 取消现有定时器: session_id=telegram_8624126581
+2026-03-21 22:46:57,438 - bot.telegram_bot - DEBUG - 缓冲定时器被取消: session_id=telegram_8624126581
+2026-03-21 22:46:57,440 - bot.telegram_bot - DEBUG - 开始缓冲等待: session_id=telegram_8624126581, 延迟=5秒
+2026-03-21 22:46:57,442 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:46:57,443 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:46:57,443 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:46:57,443 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:46:57,443 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:02,447 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=2
+2026-03-21 22:47:02,448 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:47:02,700 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B85A8EC0>
+2026-03-21 22:47:02,700 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:47:02,702 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:02,702 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:47:02,702 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:02,703 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:47:02,703 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:47:02,703 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x00000207B844C8D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:47:03,530 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B85A9B50>
+2026-03-21 22:47:03,533 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:03,535 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:03,535 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:47:03,535 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:03,535 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:04,030 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:47:03 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'25'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:47:04,031 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 22:47:04,031 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:47:04,032 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:47:04,033 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:47:04,034 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:47:04,035 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 22:47:04,037 - memory.database - DEBUG - 获取所有激活记忆卡片: count=5
+2026-03-21 22:47:04,039 - memory.database - DEBUG - 获取最近每日摘要: count=2
+2026-03-21 22:47:04,042 - memory.database - DEBUG - 获取今天的 chunk 摘要: count=1
+2026-03-21 22:47:06,473 - memory.vector_store - DEBUG - 成功获取文本向量，长度: 1024
+2026-03-21 22:47:06,477 - memory.vector_store - DEBUG - 记忆搜索完成，查询: 我叫南杉
+记住了吗..., 结果数量: 5
+2026-03-21 22:47:06,478 - memory.bm25_retriever - DEBUG - BM25 检索完成，查询: '我叫南杉
+记住了吗...'，找到 1 条结果
+2026-03-21 22:47:06,479 - memory.database - DEBUG - 获取会话 telegram_8624126581 的最新未摘要消息（正序）: 8 条
+2026-03-21 22:47:06,479 - memory.context_builder - DEBUG - 获取最近消息: session=telegram_8624126581, count=8
+2026-03-21 22:47:06,479 - memory.context_builder - DEBUG - Context 构建完成: session=telegram_8624126581, system_prompt_length=1394, messages_count=10
+2026-03-21 22:47:06,482 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:47:06,482 - llm.llm_interface - DEBUG - 调用 LLM API (with context): https://api.siliconflow.cn/v1/chat/completions, 模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:47:06,482 - llm.llm_interface - DEBUG - 消息数量: 10
+2026-03-21 22:47:26,460 - llm.llm_interface - DEBUG - LLM API 响应: 200
+2026-03-21 22:47:26,479 - memory.database - DEBUG - 保存消息成功: ID=200, role=user, session=telegram_8624126581, platform=telegram
+2026-03-21 22:47:26,493 - memory.database - DEBUG - 保存消息成功: ID=201, role=assistant, session=telegram_8624126581, platform=telegram
+2026-03-21 22:47:26,493 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=10
+2026-03-21 22:47:26,494 - bot.telegram_bot - DEBUG - System prompt 长度: 1394
+2026-03-21 22:47:26,497 - memory.vector_store - DEBUG - update_memory_hits: 未找到任何匹配的 doc_id
+2026-03-21 22:47:26,498 - memory.database - DEBUG - 会话 telegram_8624126581 未摘要消息数量: 10
+2026-03-21 22:47:26,500 - memory.micro_batch - DEBUG - 会话 telegram_8624126581 未摘要消息数量: 10, 阈值: 50
+2026-03-21 22:47:26,501 - memory.micro_batch - DEBUG - 会话 telegram_8624126581 未达到微批处理阈值
+2026-03-21 22:47:26,506 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:47:07 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:47:26,507 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:47:26,508 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:47:26,508 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:47:26,509 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:47:26,509 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:47:26,510 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:47:26,513 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:26,514 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:26,514 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:47:26,515 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:26,516 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:26,763 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B8125070>
+2026-03-21 22:47:26,763 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:47:26,764 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:26,765 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:47:26,765 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:26,765 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:47:26,766 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:47:26,767 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x00000207B844C8D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:47:27,597 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x00000207B858E5A0>
+2026-03-21 22:47:27,598 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:27,599 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:27,599 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:47:27,600 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:27,600 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:28,111 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:47:27 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'424'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:47:28,112 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 22:47:28,112 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:47:28,112 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:47:28,112 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:47:28,112 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:47:36,845 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:47:36 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:47:36,845 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:47:36,845 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:47:36,846 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:47:36,846 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:47:36,846 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:47:36,847 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:36,848 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:36,848 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:47:36,849 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:36,849 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:47,171 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:47:46 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:47:47,171 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:47:47,173 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:47:47,173 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:47:47,174 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:47:47,174 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:47:47,175 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:47,176 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:47,176 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:47:47,177 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:47,177 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:57,497 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:47:57 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:47:57,497 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:47:57,498 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:47:57,498 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:47:57,498 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:47:57,499 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:47:57,500 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:47:57,500 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:47:57,500 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:47:57,501 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:47:57,501 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:48:00,762 - httpcore.http11 - DEBUG - receive_response_headers.failed exception=CancelledError()
+2026-03-21 22:48:00,763 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:48:00,764 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:48:00,764 - __main__ - INFO - 程序已终止
+2026-03-21 22:52:48,510 - __main__ - INFO - ============================================================
+2026-03-21 22:52:48,511 - __main__ - INFO - CedarStar 项目启动
+2026-03-21 22:52:48,511 - __main__ - INFO - 启动时间: 2026-03-21 22:52:48
+2026-03-21 22:52:48,511 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-21 22:52:48,511 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-21 22:52:48,512 - __main__ - INFO - ============================================================
+2026-03-21 22:52:48,512 - asyncio - DEBUG - Using proactor: IocpProactor
+2026-03-21 22:52:48,513 - __main__ - INFO - 验证配置...
+2026-03-21 22:52:48,513 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-21 22:52:49,851 - chromadb.config - DEBUG - Starting component System
+2026-03-21 22:52:49,852 - chromadb.config - DEBUG - Starting component Posthog
+2026-03-21 22:52:49,872 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-21 22:52:49,873 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-21 22:52:49,930 - memory.vector_store - DEBUG - 获取所有记忆文档完成，数量: 6
+2026-03-21 22:52:49,930 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-21 22:52:49,932 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-21 22:52:50,477 - jieba - DEBUG - Loading model cost 0.546 seconds.
+2026-03-21 22:52:50,477 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-21 22:52:50,478 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 6 条文档
+2026-03-21 22:52:50,478 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-21 22:52:50,478 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-21 22:52:50,480 - memory.vector_store - DEBUG - 获取所有记忆文档完成，数量: 6
+2026-03-21 22:52:50,481 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 6
+2026-03-21 22:52:50,481 - __main__ - INFO - 并行启动四个任务...
+2026-03-21 22:52:50,481 - __main__ - INFO - 所有组件启动完成
+2026-03-21 22:52:50,553 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-21 22:52:50,553 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-21 22:52:50,553 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:52:50,839 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-21 22:52:50,839 - memory.database - DEBUG - 数据库表初始化完成
+2026-03-21 22:52:50,839 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-21 22:52:50,841 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:52:50,858 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-21 22:52:50,858 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-21 22:52:50,859 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-21 22:52:50,859 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-21 22:52:50,859 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-21 22:52:50,859 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-21 22:52:50,859 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-21 22:52:50,861 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-21 22:52:50,861 - asyncio - DEBUG - Using proactor: IocpProactor
+2026-03-21 22:52:50,862 - discord.client - INFO - logging in using static token
+2026-03-21 22:52:51,050 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-21 22:52:51,050 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-21 22:52:51,050 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-21 22:52:51,050 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-21 22:52:52,431 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-21 22:52:52,432 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-21 22:52:52,432 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-21 22:52:52,433 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-21 22:52:52,434 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 22:52:52,491 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-21 22:52:52,492 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:52:52,493 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-21 22:52:52,493 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-21 23:00:00 执行，等待 428 秒
+2026-03-21 22:52:52,501 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:52:52,784 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E355D30>
+2026-03-21 22:52:52,785 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:52:52,787 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:52:52,787 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:52:52,789 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:52:52,789 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:52:52,790 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:52:52,790 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C32E7589D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:52:54,087 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E82D8B0>
+2026-03-21 22:52:54,088 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:52:54,088 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:52:54,089 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:52:54,089 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:52:54,089 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:52:54,181 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 1d7275993a7b440ce97477d5fe3fb87d).
+2026-03-21 22:52:54,419 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:52:54 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'320'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:52:54,421 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-21 22:52:54,421 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:52:54,422 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:52:54,422 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:52:54,422 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:52:54,424 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:52:54,425 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:52:54,426 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:52:54,426 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:52:54,426 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:52:54,755 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:52:54 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'68'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:52:54,755 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-21 22:52:54,755 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:52:54,756 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:52:54,756 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:52:54,756 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:52:54,757 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-21 22:52:54,757 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-21 22:52:54,758 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:52:55,030 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E89CA10>
+2026-03-21 22:52:55,030 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:52:55,031 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:52:55,031 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:52:55,031 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:52:55,032 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:52:55,032 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:52:55,032 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C32E758D50> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:52:55,853 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E89D280>
+2026-03-21 22:52:55,853 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:52:55,854 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:52:55,854 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:52:55,855 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:52:55,855 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:52:56,191 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-21 22:52:56,192 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-21 22:52:56,192 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-21 22:52:56,192 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-21 22:53:06,173 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:05 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:06,174 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:53:06,174 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:06,174 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:06,175 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:06,175 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:06,176 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:06,177 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:06,177 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:06,178 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:06,178 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:15,109 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:14 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'359'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:15,110 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:53:15,110 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:15,111 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:15,111 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:15,111 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:15,112 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=12
+2026-03-21 22:53:15,113 - bot.telegram_bot - DEBUG - 消息添加到缓冲区: session_id=telegram_8624126581, 缓冲区大小=1
+2026-03-21 22:53:15,114 - bot.telegram_bot - DEBUG - 开始缓冲等待: session_id=telegram_8624126581, 延迟=5秒
+2026-03-21 22:53:15,115 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:15,116 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:15,116 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:15,117 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:15,117 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:20,140 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 22:53:20,142 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:53:20,406 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E876570>
+2026-03-21 22:53:20,406 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:20,406 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:20,406 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:20,406 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:20,406 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:20,406 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:53:20,409 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C32E7589D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:53:20,437 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:20 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'323'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:20,437 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:53:20,437 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:20,438 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:20,439 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:20,439 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:20,440 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=6
+2026-03-21 22:53:20,440 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:20,442 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:20,442 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:20,442 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:20,442 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:21,242 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E876EA0>
+2026-03-21 22:53:21,243 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:21,244 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:21,244 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:21,244 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:21,244 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:22,176 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:21 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'25'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:22,176 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 22:53:22,176 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:22,176 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:22,176 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:22,176 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:22,178 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 22:53:22,179 - memory.database - DEBUG - 获取所有激活记忆卡片: count=5
+2026-03-21 22:53:22,181 - memory.database - DEBUG - 获取最近每日摘要: count=2
+2026-03-21 22:53:22,182 - memory.database - DEBUG - 获取今天的 chunk 摘要: count=1
+2026-03-21 22:53:24,713 - memory.vector_store - DEBUG - 成功获取文本向量，长度: 1024
+2026-03-21 22:53:24,717 - memory.vector_store - DEBUG - 记忆搜索完成，查询: 我刚吃完幽门螺旋杆菌的药..., 结果数量: 5
+2026-03-21 22:53:24,717 - memory.bm25_retriever - DEBUG - BM25 检索完成，查询: '我刚吃完幽门螺旋杆菌的药...'，找到 0 条结果
+2026-03-21 22:53:24,718 - memory.context_builder - DEBUG - 长期记忆注入: 1 条, 首条uid预览: ### 相关记忆 1 (向量检索，分数: 0.51)
+日期: 2026-03-21 | 类型: daily_event | 来源: 用户dail...频道bat
+2026-03-21 22:53:24,719 - memory.database - DEBUG - 获取会话 telegram_8624126581 的最新未摘要消息（正序）: 10 条
+2026-03-21 22:53:24,719 - memory.context_builder - DEBUG - 获取最近消息: session=telegram_8624126581, count=10
+2026-03-21 22:53:24,720 - memory.context_builder - DEBUG - Context 构建完成: session=telegram_8624126581, system_prompt_length=1260, messages_count=12
+2026-03-21 22:53:24,721 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:53:24,721 - llm.llm_interface - DEBUG - 调用 LLM API (with context): https://api.siliconflow.cn/v1/chat/completions, 模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:53:24,721 - llm.llm_interface - DEBUG - 消息数量: 12
+2026-03-21 22:53:39,397 - llm.llm_interface - DEBUG - LLM API 响应: 200
+2026-03-21 22:53:39,409 - memory.database - DEBUG - 保存消息成功: ID=202, role=user, session=telegram_8624126581, platform=telegram
+2026-03-21 22:53:39,423 - memory.database - DEBUG - 保存消息成功: ID=203, role=assistant, session=telegram_8624126581, platform=telegram
+2026-03-21 22:53:39,425 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=12
+2026-03-21 22:53:39,425 - bot.telegram_bot - DEBUG - System prompt 长度: 1260
+2026-03-21 22:53:39,455 - memory.database - DEBUG - 会话 telegram_8624126581 未摘要消息数量: 12
+2026-03-21 22:53:39,457 - memory.micro_batch - DEBUG - 会话 telegram_8624126581 未摘要消息数量: 12, 阈值: 50
+2026-03-21 22:53:39,457 - memory.micro_batch - DEBUG - 会话 telegram_8624126581 未达到微批处理阈值
+2026-03-21 22:53:39,458 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:22 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'311'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:39,459 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:53:39,459 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:39,459 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:39,459 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:39,460 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:53:39,460 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:39,462 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:39,463 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:39,463 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:39,464 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:39,464 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:39,737 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E877A10>
+2026-03-21 22:53:39,738 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:39,738 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:39,738 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:39,738 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:39,739 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:39,739 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:53:39,739 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C32E7589D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:53:44,768 - httpcore.proxy - DEBUG - start_tls.failed exception=ConnectTimeout(TimeoutError())
+2026-03-21 22:53:44,769 - bot.telegram_bot - ERROR - 处理缓冲区时出错: session_id=telegram_8624126581, 错误=Timed out
+2026-03-21 22:53:44,769 - bot.telegram_bot - ERROR - Timed out
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http_proxy.py", line 316, in handle_async_request
+    stream = await stream.start_tls(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 376, in start_tls
+    return await self._stream.start_tls(ssl_context, server_hostname, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_backends\anyio.py", line 67, in start_tls
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectTimeout
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
+    res = await self._client.request(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectTimeout
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Workspace\PythonProject\cedarstar\bot\message_buffer.py", line 107, in _process_buffer
+    await self._flush_callback(session_id, combined_content, buffer_messages)
+  File "D:\Workspace\PythonProject\cedarstar\bot\telegram_bot.py", line 269, in _flush_buffered_messages
+    await base_message.reply_text(reply)
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_message.py", line 2068, in reply_text
+    return await self.get_bot().send_message(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 3115, in send_message
+    return await super().send_message(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 1122, in send_message
+    return await self._send_message(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 629, in _send_message
+    result = await super()._send_message(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 819, in _send_message
+    result = await self._post(
+             ^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 703, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 369, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 732, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
+    code, payload = await self.do_request(
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 296, in do_request
+    raise TimedOut from err
+telegram.error.TimedOut: Timed out
+2026-03-21 22:53:44,942 - bot.telegram_bot - DEBUG - 消息添加到缓冲区: session_id=telegram_8624126581, 缓冲区大小=1
+2026-03-21 22:53:44,942 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-21 22:53:44,942 - bot.telegram_bot - DEBUG - 消息添加到缓冲区: session_id=telegram_8624126581, 缓冲区大小=2
+2026-03-21 22:53:44,942 - bot.telegram_bot - DEBUG - 取消现有定时器: session_id=telegram_8624126581
+2026-03-21 22:53:44,943 - bot.telegram_bot - DEBUG - 开始缓冲等待: session_id=telegram_8624126581, 延迟=5秒
+2026-03-21 22:53:49,786 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:49 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:49,786 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:53:49,786 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:49,786 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:49,787 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:49,788 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:49,789 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:49,789 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:49,789 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:49,790 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:49,790 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:49,966 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=2
+2026-03-21 22:53:49,967 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:53:50,218 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E877B00>
+2026-03-21 22:53:50,219 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:50,220 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:50,220 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:50,220 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:50,220 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:53:50,220 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:53:50,221 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C32E7589D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:53:51,069 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E82C830>
+2026-03-21 22:53:51,070 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:51,070 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:53:51,070 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:53:51,070 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:53:51,070 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:53:51,965 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:51 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'25'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:53:51,965 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 22:53:51,965 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:53:51,966 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:53:51,966 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:53:51,966 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:53:51,967 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 22:53:51,968 - memory.database - DEBUG - 获取所有激活记忆卡片: count=5
+2026-03-21 22:53:51,970 - memory.database - DEBUG - 获取最近每日摘要: count=2
+2026-03-21 22:53:51,971 - memory.database - DEBUG - 获取今天的 chunk 摘要: count=1
+2026-03-21 22:53:54,473 - memory.vector_store - DEBUG - 成功获取文本向量，长度: 1024
+2026-03-21 22:53:54,477 - memory.vector_store - DEBUG - 记忆搜索完成，查询: 下个月要复查
+知道了吗..., 结果数量: 5
+2026-03-21 22:53:54,479 - memory.bm25_retriever - DEBUG - BM25 检索完成，查询: '下个月要复查
+知道了吗...'，找到 0 条结果
+2026-03-21 22:53:54,479 - memory.context_builder - DEBUG - 长期记忆注入: 1 条, 首条uid预览: ### 相关记忆 1 (向量检索，分数: 0.52)
+日期: 2026-03-21 | 类型: daily_event | 来源: 用户dail...频道bat
+2026-03-21 22:53:54,482 - memory.database - DEBUG - 获取会话 telegram_8624126581 的最新未摘要消息（正序）: 12 条
+2026-03-21 22:53:54,482 - memory.context_builder - DEBUG - 获取最近消息: session=telegram_8624126581, count=12
+2026-03-21 22:53:54,483 - memory.context_builder - DEBUG - Context 构建完成: session=telegram_8624126581, system_prompt_length=1257, messages_count=14
+2026-03-21 22:53:54,484 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:53:54,484 - llm.llm_interface - DEBUG - 调用 LLM API (with context): https://api.siliconflow.cn/v1/chat/completions, 模型: Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 22:53:54,484 - llm.llm_interface - DEBUG - 消息数量: 14
+2026-03-21 22:54:09,572 - llm.llm_interface - DEBUG - LLM API 响应: 200
+2026-03-21 22:54:09,591 - memory.database - DEBUG - 保存消息成功: ID=204, role=user, session=telegram_8624126581, platform=telegram
+2026-03-21 22:54:09,606 - memory.database - DEBUG - 保存消息成功: ID=205, role=assistant, session=telegram_8624126581, platform=telegram
+2026-03-21 22:54:09,606 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=14
+2026-03-21 22:54:09,606 - bot.telegram_bot - DEBUG - System prompt 长度: 1257
+2026-03-21 22:54:09,611 - memory.database - DEBUG - 会话 telegram_8624126581 未摘要消息数量: 14
+2026-03-21 22:54:09,611 - memory.micro_batch - DEBUG - 会话 telegram_8624126581 未摘要消息数量: 14, 阈值: 50
+2026-03-21 22:54:09,611 - memory.micro_batch - DEBUG - 会话 telegram_8624126581 未达到微批处理阈值
+2026-03-21 22:54:09,612 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:53:59 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:54:09,613 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:54:09,613 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:54:09,613 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:54:09,613 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:54:09,614 - httpcore.connection - DEBUG - connect_tcp.started host='localhost' port=7897 local_address=None timeout=5.0 socket_options=None
+2026-03-21 22:54:09,615 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:54:09,616 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:09,618 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:54:09,618 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:54:09,619 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:54:09,619 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:09,888 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E89D250>
+2026-03-21 22:54:09,889 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:54:09,889 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:54:09,889 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'CONNECT']>
+2026-03-21 22:54:09,889 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:54:09,890 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'CONNECT']>
+2026-03-21 22:54:09,890 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'Connection established', [])
+2026-03-21 22:54:09,890 - httpcore.proxy - DEBUG - start_tls.started ssl_context=<ssl.SSLContext object at 0x000001C32E7589D0> server_hostname='api.telegram.org' timeout=5.0
+2026-03-21 22:54:11,634 - httpcore.proxy - DEBUG - start_tls.complete return_value=<httpcore._backends.anyio.AnyIOStream object at 0x000001C32E8BF2C0>
+2026-03-21 22:54:11,635 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:11,635 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:54:11,635 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:54:11,635 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:54:11,636 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:12,202 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:54:11 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'1389'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:54:12,203 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 22:54:12,203 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:54:12,203 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:54:12,204 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:54:12,204 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:54:19,980 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:54:19 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:54:19,981 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:54:19,981 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:54:19,981 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:54:19,982 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:54:19,982 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:54:19,983 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:19,983 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:54:19,984 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:54:19,985 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:54:19,985 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:30,312 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Server', b'nginx/1.18.0'), (b'Date', b'Sat, 21 Mar 2026 14:54:30 GMT'), (b'Content-Type', b'application/json'), (b'Content-Length', b'23'), (b'Connection', b'keep-alive'), (b'Strict-Transport-Security', b'max-age=31536000; includeSubDomains; preload'), (b'Access-Control-Allow-Origin', b'*'), (b'Access-Control-Allow-Methods', b'GET, POST, OPTIONS'), (b'Access-Control-Expose-Headers', b'Content-Length,Content-Type,Date,Server,Connection')])
+2026-03-21 22:54:30,313 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 22:54:30,314 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-03-21 22:54:30,315 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-03-21 22:54:30,317 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:54:30,318 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:54:30,321 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:30,323 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-03-21 22:54:30,324 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-03-21 22:54:30,326 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-03-21 22:54:30,326 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-03-21 22:54:36,375 - httpcore.http11 - DEBUG - receive_response_headers.failed exception=CancelledError()
+2026-03-21 22:54:36,377 - httpcore.http11 - DEBUG - response_closed.started
+2026-03-21 22:54:36,378 - httpcore.http11 - DEBUG - response_closed.complete
+2026-03-21 22:54:36,380 - __main__ - INFO - 程序已终止
+2026-03-21 23:08:30,369 - __main__ - INFO - ============================================================
+2026-03-21 23:08:30,369 - __main__ - INFO - CedarStar 项目启动
+2026-03-21 23:08:30,371 - __main__ - INFO - 启动时间: 2026-03-21 23:08:30
+2026-03-21 23:08:30,371 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-21 23:08:30,371 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-21 23:08:30,371 - __main__ - INFO - ============================================================
+2026-03-21 23:08:30,372 - __main__ - INFO - 验证配置...
+2026-03-21 23:08:30,373 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-21 23:08:31,794 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-21 23:08:31,797 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-21 23:08:31,855 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-21 23:08:31,856 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-21 23:08:32,552 - jieba - DEBUG - Loading model cost 0.697 seconds.
+2026-03-21 23:08:32,553 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-21 23:08:32,554 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 1 条文档
+2026-03-21 23:08:32,555 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-21 23:08:32,555 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-21 23:08:32,559 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 1
+2026-03-21 23:08:32,559 - __main__ - INFO - 并行启动四个任务...
+2026-03-21 23:08:32,559 - __main__ - INFO - 所有组件启动完成
+2026-03-21 23:08:32,723 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-21 23:08:32,723 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-21 23:08:32,723 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 23:08:33,078 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-21 23:08:33,078 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-21 23:08:33,081 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 23:08:33,098 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-21 23:08:33,101 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-21 23:08:33,101 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-21 23:08:33,102 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-21 23:08:33,102 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-21 23:08:33,102 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-21 23:08:33,102 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-21 23:08:33,102 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-21 23:08:33,103 - discord.client - INFO - logging in using static token
+2026-03-21 23:08:33,388 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-21 23:08:33,388 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-21 23:08:33,388 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-21 23:08:33,389 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-21 23:08:34,906 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-21 23:08:34,908 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-21 23:08:34,908 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-21 23:08:34,910 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-21 23:08:34,910 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-21 23:08:34,981 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-21 23:08:34,985 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 23:08:34,986 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-21 23:08:34,986 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-22 23:00:00 执行，等待 85885 秒
+2026-03-21 23:08:36,503 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 983d5de29367aa5e7db83af8e901626d).
+2026-03-21 23:08:36,944 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-21 23:08:37,264 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-21 23:08:37,264 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-21 23:08:37,265 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-21 23:08:38,685 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-21 23:08:38,685 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-21 23:08:38,685 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-21 23:08:38,685 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-21 23:08:48,670 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:08:58,992 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:09:09,318 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:09:19,657 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:09:30,378 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:09:40,702 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:09:51,030 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:10:01,361 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:10:11,690 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:10:22,024 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:10:32,353 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:10:42,683 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:10:53,014 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:11:03,339 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:11:13,672 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:11:23,999 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:11:34,326 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:11:44,651 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:11:54,981 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:12:05,367 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:12:15,722 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:12:26,046 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:12:36,367 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:12:46,689 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:12:57,018 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:13:07,345 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:13:17,668 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:13:27,991 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:13:38,317 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:13:48,641 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:13:58,971 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:14:09,304 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:14:19,631 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:14:29,954 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:14:40,285 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:14:50,607 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:15:00,929 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:15:11,262 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:15:21,600 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:15:30,368 - memory.vector_store - INFO - 记忆删除成功，ID: manual_3
+2026-03-21 23:15:31,935 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:15:42,260 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:15:52,587 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:16:02,916 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:16:13,250 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:16:23,579 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:16:33,903 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:16:44,230 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:16:54,554 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:17:04,878 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:17:15,206 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:17:25,534 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:17:35,857 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:17:46,184 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:17:56,508 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:18:06,835 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:18:17,164 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:18:22,977 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:18:22,979 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-21 23:18:27,981 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 23:18:29,774 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 23:18:29,776 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 23:18:32,323 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 23:18:48,700 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=16
+2026-03-21 23:18:48,704 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:18:48,706 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=8
+2026-03-21 23:18:51,671 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 23:18:56,692 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 23:18:58,503 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 23:18:58,505 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 23:19:01,170 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 23:19:14,733 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=18
+2026-03-21 23:19:14,740 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:19:15,071 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:19:15,073 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=10
+2026-03-21 23:19:16,340 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 23:19:21,357 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-03-21 23:19:22,930 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-21 23:19:22,931 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-21 23:19:25,521 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-03-21 23:19:40,061 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=20
+2026-03-21 23:19:40,069 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:19:41,702 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-21 23:19:50,395 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:20:00,720 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:20:11,049 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:20:21,376 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:20:32,079 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:20:42,401 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:20:52,742 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:21:03,074 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:21:13,401 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:21:23,739 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:21:34,069 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:21:44,394 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:21:54,718 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-21 23:22:05,056 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"

@@ -143,9 +143,11 @@ class ZhipuEmbedding:
                 "Content-Type": "application/json"
             }
             
+            # embedding-3 默认 2048 维；与 Chroma / 全库约定一致须显式指定 1024
             data = {
                 "model": self.model,
-                "input": processed_text
+                "input": processed_text,
+                "dimensions": 1024,
             }
             
             response = requests.post(

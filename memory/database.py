@@ -116,7 +116,7 @@ def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
     for sql in index_statements:
         cursor.execute(sql)
 
-    logger.debug("数据库 schema 迁移（索引/列）已执行")
+    logger.info("数据库 schema 迁移（索引/列）已执行")
 
 
 class MessageDatabase:

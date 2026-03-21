@@ -433,6 +433,7 @@ print('集成测试完成')
    会测试日终跑批处理器的初始化和基本功能。
 
 9. **手动触发日终跑批测试**：
+   `DailyBatchProcessor` 构造器**无数据库参数**；同步入口为 `trigger_daily_batch_manual`，异步为 `asyncio.run(DailyBatchProcessor().run_daily_batch(...))`。完整命令与 `daily_batch_log` / Chroma 验收示例见 **`ARCHITECTURE.md` §4.2（手动触发与验收）**。
    ```bash
    cd cedarstar
    "D:\Environment_coding\Python312\python.exe" -c "

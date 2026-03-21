@@ -238,7 +238,7 @@ cedarstar/                          # 项目根目录
 **边界：**
 - 所有数据库操作都通过此模块，其他模块不直接操作 SQLite
 - 提供 `get_database()` 单例工厂函数
-- 管理 12 张核心数据表（及日志/统计等表）的 CRUD 操作；启动时由 `migrate_database_schema()` 幂等补齐列与索引
+- 管理 12 张核心数据表（及日志/统计等表）的 CRUD 操作；启动时由 `migrate_database_schema()` 幂等补齐列与索引（每次初始化成功执行后，`memory.database` 打 **INFO** 日志：`数据库 schema 迁移（索引/列）已执行`）
 - Context 只读：`get_all_active_temporal_states()`（`temporal_states.is_active=1` 全量）、`get_recent_relationship_timeline(limit)`（数据库按 `created_at` 倒序取前 `limit` 条；`context_builder` 注入前对关系时间线再按 `created_at` 正序排列）
 
 #### 3.4.2 `context_builder.py` — Context 组装
@@ -300,12 +300,14 @@ cedarstar/                          # 项目根目录
 
 #### 3.4.5 `vector_store.py` — 向量存储
 
-**职责：** 封装 ChromaDB 操作，使用智谱 AI `embedding-3` 模型（1024维）生成向量。
+**职责：** 封装 ChromaDB 操作，使用智谱 AI `embedding-3` 模型生成向量；**工程约定为 1024 维**（与占位零向量、检索逻辑一致）。
 
 **边界：**
 - 日终由 `daily_batch` 全量写入当日小传（及可选事件片段）；手工长期记忆仍通过 Mini App 写入
 - 提供 `add_memory()` / `search_memory()` / `delete_memory()` / `update_memory_hits()` 便捷函数
 - 集合名称固定为 `cedarstar_memories`
+- **智谱 API 与维度：** `embedding-3` 在 HTTP 请求体中**若不传 `dimensions`，默认返回 2048 维**。`vector_store.ZhipuEmbedding` **必须**在调用 `/embeddings` 时显式传入 **`dimensions: 1024`**，否则首次 `collection.add` 会把 Chroma 集合固定为 2048，而查询与其它路径仍按 1024 维构造向量，会出现 `Collection expecting embedding with dimension of 2048, got 1024`（或同类维度不匹配），`get_all_memories`、BM25 `refresh_index` 也会异常。
+- **旧库 / 误建成 2048 的集合：** 若本地 `chroma_db` 已按错误维度写入，**处理（推荐）：先停止占用 Chroma 的进程**，备份后**删除** `chroma_db` 目录，确保代码已带 `dimensions: 1024` 后再启动并重新跑批写入。旧架构向量与当前 metadata / 双轨约定不一致时，重建通常比就地迁移更干净；SQLite `longterm_memories` 中历史行可能变为 Chroma 侧「孤儿」，由 Mini App `is_orphan` 提示，可按需清理或重新录入。
 - **写入 metadata（Chroma）：** 在 `date` / `session_id` / `summary_type` 等调用方字段之外，`add_memory()` 会统一写入 `base_score`（float，可由调用方传入或从旧字段 `score` 推导，默认 5.0）、`halflife_days`（int，默认 30）、`hits`（int，新文档恒为 0）、`last_access_ts`（float，当前 Unix 时间戳），并保留 `created_at`（ISO 字符串）
 - **doc_id 约定：** 日终主文档为 `daily_{batch_date}`（`build_daily_summary_doc_id`）；同一日多条事件片段为 `daily_{batch_date}_event_0`、`daily_{batch_date}_event_1`…（`build_daily_event_doc_id`）；Mini App 手工长期记忆仍为 `manual_{uuid}`
 - **`update_memory_hits(uid_list)`：** 仅按 `doc_id` 列表 `get` 再 `update`，逐条 `hits+1` 并刷新 `last_access_ts`，不用 metadata `where` 查询
@@ -457,6 +459,35 @@ asyncio 定时器（每天 23:00 Asia/Shanghai）
   ├─────────────────────────────────────────────────────┤
   │  Step 5：Chroma GC（衰减 + 90 天未访问 + 无子节点）   │
   └─────────────────────────────────────────────────────┘
+```
+
+**手动触发与验收（以 `memory/daily_batch.py` 为准）**
+
+- `DailyBatchProcessor` 仅 `__init__(self)`，**不接受**数据库参数；跑批内通过 `memory.database` 的模块级访问读写库。
+- `await DailyBatchProcessor().run_daily_batch(batch_date)`：`batch_date` 为 `None` 时用东八区当天（与定时任务一致）。
+- `trigger_daily_batch_manual(batch_date=None)`：同步封装，内部同样是 `DailyBatchProcessor()` + 事件循环里跑 `run_daily_batch`。
+
+在项目根目录执行示例（`python` 指向已安装依赖的解释器即可）：
+
+```bash
+# 跑「今天」
+python -c "import sys, asyncio; sys.path.insert(0, '.'); from memory.daily_batch import DailyBatchProcessor; asyncio.run(DailyBatchProcessor().run_daily_batch())"
+
+# 跑指定日（重跑 / 断点续跑验证）
+python -c "import sys, asyncio; sys.path.insert(0, '.'); from memory.daily_batch import DailyBatchProcessor; asyncio.run(DailyBatchProcessor().run_daily_batch('2026-03-21'))"
+
+# 与上等价的同步入口
+python -c "import sys; sys.path.insert(0, '.'); from memory.daily_batch import trigger_daily_batch_manual; trigger_daily_batch_manual()"
+```
+
+```bash
+# 查最近跑批状态（显式列名，对应五步 + 错误信息）
+python -c "import sqlite3; c=sqlite3.connect('cedarstar.db').cursor(); c.execute('SELECT batch_date, step1_status, step2_status, step3_status, step4_status, step5_status, error_message, updated_at FROM daily_batch_log ORDER BY batch_date DESC LIMIT 3'); [print(r) for r in c.fetchall()]"
+```
+
+```bash
+# 抽样向量库 metadata（预期含 hits、halflife_days、last_access_ts 等，见 §3.4.5）
+python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import get_vector_store; vs=get_vector_store(); r=vs.collection.get(limit=5, include=['metadatas']); [print(r['ids'][i], r['metadatas'][i]) for i in range(len(r['ids']))]"
 ```
 
 ### 4.3 Mini App 数据流
@@ -717,6 +748,8 @@ Mini App 用户在 Settings 页面切换激活 API 配置
 | `error_message` | TEXT | 错误信息 |
 | `created_at` | DATETIME | 创建时间 |
 | `updated_at` | DATETIME | 更新时间 |
+
+**逻辑字段顺序**（与 `save_daily_batch_log` / 代码中的读写一致）即上表从上到下的顺序。**若库由较早版本创建、后经 `ALTER TABLE` 追加 `step4_status` / `step5_status`，** SQLite 中 `SELECT *` 的**物理列顺序**可能为：`batch_date`，`step1_status`～`step3_status`，`error_message`，`created_at`，`updated_at`，`step4_status`，`step5_status`。验收与手工 `UPDATE` 时请写**显式列名**，勿依赖 `SELECT *` 的下标含义。
 
 **历史数据（三步时代已全完成、升级后 step4/step5 仍为 0）：** 服务启动时 `migrate_database_schema` 会**一次性**执行等价于下面的 `UPDATE`，并在 `config` 表写入键 `backfill_daily_batch_step45_legacy_v1`，之后不再执行。若需手工在 sqlite3 中修补，可执行：
 
