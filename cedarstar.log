@@ -8492,3 +8492,699 @@ telegram.error.TimedOut: Timed out
 2026-03-22 03:30:30,040 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
 2026-03-22 03:30:40,437 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
 2026-03-22 03:30:50,824 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:42:04,281 - __main__ - INFO - ============================================================
+2026-03-22 03:42:04,282 - __main__ - INFO - CedarStar 项目启动
+2026-03-22 03:42:04,282 - __main__ - INFO - 启动时间: 2026-03-22 03:42:04
+2026-03-22 03:42:04,282 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-22 03:42:04,282 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-22 03:42:04,282 - __main__ - INFO - ============================================================
+2026-03-22 03:42:04,284 - __main__ - INFO - 验证配置...
+2026-03-22 03:42:04,284 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-22 03:42:05,534 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-22 03:42:05,538 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-22 03:42:05,577 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-22 03:42:05,579 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-22 03:42:06,100 - jieba - DEBUG - Loading model cost 0.524 seconds.
+2026-03-22 03:42:06,101 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-22 03:42:06,101 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 1 条文档
+2026-03-22 03:42:06,101 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-22 03:42:06,101 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-22 03:42:06,105 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 1
+2026-03-22 03:42:06,105 - __main__ - INFO - 并行启动四个任务...
+2026-03-22 03:42:06,105 - __main__ - INFO - 所有组件启动完成
+2026-03-22 03:42:06,168 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-22 03:42:06,169 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-22 03:42:06,169 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-22 03:42:06,416 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-22 03:42:06,416 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-22 03:42:06,417 - llm.llm_interface - INFO - LLMInterface 使用数据库激活配置: [GG] config_type=chat, model=gemini-3.1-pro-preview, base_url=https://gcli.ggchan.dev/v1
+2026-03-22 03:42:06,424 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-22 03:42:06,425 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-22 03:42:06,425 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-22 03:42:06,425 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-22 03:42:06,425 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-22 03:42:06,426 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-22 03:42:06,427 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-22 03:42:06,427 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-22 03:42:06,429 - discord.client - INFO - logging in using static token
+2026-03-22 03:42:06,625 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-22 03:42:06,625 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-22 03:42:06,625 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-22 03:42:06,626 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-22 03:42:08,045 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-22 03:42:08,047 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-22 03:42:08,047 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-22 03:42:08,048 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-22 03:42:08,048 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-22 03:42:08,095 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-22 03:42:08,096 - llm.llm_interface - INFO - LLMInterface 使用数据库激活配置: [GG] config_type=chat, model=gemini-3.1-pro-preview, base_url=https://gcli.ggchan.dev/v1
+2026-03-22 03:42:08,098 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-22 03:42:08,098 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-22 23:00:00 执行，等待 69472 秒
+2026-03-22 03:42:09,706 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-22 03:42:10,107 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-22 03:42:10,108 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-22 03:42:10,108 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-22 03:42:10,186 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: a25e2a393ba2dc4c592c28a77871b209).
+2026-03-22 03:42:12,189 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-22 03:42:12,189 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-22 03:42:12,190 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-22 03:42:12,190 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-22 03:42:21,700 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:42:32,094 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:42:42,481 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:42:52,871 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:43:03,243 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:43:13,623 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:43:24,013 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:43:34,397 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:43:44,787 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:43:55,176 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:44:05,568 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:44:15,945 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:44:26,327 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:44:36,717 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:44:47,103 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:44:57,471 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:45:07,844 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:45:18,231 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:45:28,610 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:45:38,981 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:45:49,363 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:45:59,764 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:46:10,146 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:46:20,537 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:46:30,915 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:46:41,305 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:46:51,683 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:46:59,791 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:46:59,792 - telegram.ext.Updater - ERROR - Exception happened while polling for updates.
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http_proxy.py", line 343, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 136, in handle_async_request
+    raise exc
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 231, in _receive_event
+    raise RemoteProtocolError(msg)
+httpcore.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
+    res = await self._client.request(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 154, in do_action
+    action_cb_task.result()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 671, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 4860, in get_updates
+    await self._post(
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 703, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 369, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 732, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
+    code, payload = await self.do_request(
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 303, in do_request
+    raise NetworkError(f"httpx.{err.__class__.__name__}: {err}") from err
+telegram.error.NetworkError: httpx.RemoteProtocolError: Server disconnected without sending a response.
+2026-03-22 03:47:01,752 - discord.gateway - INFO - Shard ID None has successfully RESUMED session a25e2a393ba2dc4c592c28a77871b209.
+2026-03-22 03:47:12,649 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:47:23,083 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:47:33,506 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:47:43,925 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:47:54,367 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:48:04,779 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:48:15,181 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:48:25,594 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:48:35,976 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:48:46,393 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:48:56,915 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:49:07,343 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:49:17,755 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:49:28,144 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:49:38,583 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:49:49,006 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:49:59,402 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:50:09,821 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:50:20,223 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:50:30,702 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:50:41,136 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:50:51,580 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:51:01,997 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:51:12,413 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:51:22,872 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:51:33,302 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:51:43,717 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:51:54,156 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 03:52:01,411 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:52:01,415 - telegram.ext.Updater - ERROR - Exception happened while polling for updates.
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http_proxy.py", line 343, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 136, in handle_async_request
+    raise exc
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 231, in _receive_event
+    raise RemoteProtocolError(msg)
+httpcore.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
+    res = await self._client.request(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 154, in do_action
+    action_cb_task.result()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 671, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 4860, in get_updates
+    await self._post(
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 703, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 369, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 732, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
+    code, payload = await self.do_request(
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 303, in do_request
+    raise NetworkError(f"httpx.{err.__class__.__name__}: {err}") from err
+telegram.error.NetworkError: httpx.RemoteProtocolError: Server disconnected without sending a response.
+2026-03-22 03:52:06,680 - discord.client - ERROR - Attempting a reconnect in 0.26s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:52:06,705 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:52:07,679 - telegram.ext.Updater - ERROR - Exception happened while polling for updates.
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http_proxy.py", line 316, in handle_async_request
+    stream = await stream.start_tls(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 376, in start_tls
+    return await self._stream.start_tls(ssl_context, server_hostname, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_backends\anyio.py", line 67, in start_tls
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
+    res = await self._client.request(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 154, in do_action
+    action_cb_task.result()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 671, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 4860, in get_updates
+    await self._post(
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 703, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 369, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 732, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
+    code, payload = await self.do_request(
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 303, in do_request
+    raise NetworkError(f"httpx.{err.__class__.__name__}: {err}") from err
+telegram.error.NetworkError: httpx.ConnectError: 
+2026-03-22 03:52:11,978 - discord.client - ERROR - Attempting a reconnect in 2.90s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:52:11,983 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:52:20,144 - discord.client - ERROR - Attempting a reconnect in 2.97s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:52:20,149 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:52:28,136 - discord.client - ERROR - Attempting a reconnect in 2.24s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:52:28,140 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:52:35,666 - discord.client - ERROR - Attempting a reconnect in 20.25s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:52:35,669 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:53:01,189 - discord.client - ERROR - Attempting a reconnect in 42.47s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:53:01,194 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:53:48,924 - discord.client - ERROR - Attempting a reconnect in 69.93s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1462, in _start_tls_connection
+    tls_transport = await self._loop.start_tls(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 1314, in start_tls
+  File "asyncio\sslproto.py", line 581, in _on_handshake_complete
+ConnectionResetError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1705, in _create_proxy_connection
+    return await self._start_tls_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1495, in _start_tls_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-us-east1-b.discord.gg:443 ssl:default [None]
+2026-03-22 03:53:48,928 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:55:00,334 - discord.gateway - INFO - Shard ID None session has been invalidated.
+2026-03-22 03:55:00,620 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 03:55:07,387 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 6f40c5cd443dcfd369bcee60eb230a3c).
+2026-03-22 03:55:09,389 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-22 03:55:09,389 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-22 03:55:09,389 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-22 03:55:09,390 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True

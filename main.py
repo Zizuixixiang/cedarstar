@@ -38,7 +38,7 @@ app = FastAPI(
 _CORS_ALLOW_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
-    "https://man-xml-sets-grace.trycloudflare.com",
+    "https://adopted-bits-nations-reliable.trycloudflare.com",
     "https://cedarstar.pages.dev",
 ]
 # https://*.cedarstar.pages.dev（含多级子域）；apex 亦在上表与正则中均可匹配
