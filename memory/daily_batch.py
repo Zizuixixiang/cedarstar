@@ -26,7 +26,7 @@ current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from config import config
+from config import config, Platform
 from llm.llm_interface import LLMInterface
 from memory.micro_batch import SummaryLLMInterface
 
@@ -379,7 +379,10 @@ class DailyBatchProcessor:
         llm.timeout = sl.timeout
         base = int(getattr(sl, "max_tokens", 500) or 500)
         llm.max_tokens = min(2048, max(base, 900))
-        return llm.generate_simple(prompt).strip()
+        return llm.generate_with_context_and_tracking(
+            [{"role": "user", "content": prompt}],
+            platform=Platform.BATCH,
+        ).strip()
 
     @staticmethod
     def _parse_merged_content_json(raw: str) -> Optional[str]:
@@ -794,8 +797,10 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
 请只返回一个整数分数（1-10），不要有其他文字。"""
             
             try:
-                score_response = self.llm.generate(prompt)
-                score_text = score_response.content
+                score_text = self.llm.generate_with_context_and_tracking(
+                    [{"role": "user", "content": prompt}],
+                    platform=Platform.BATCH,
+                )
                 score_match = re.search(r'\b([1-9]|10)\b', score_text)
                 if score_match:
                     score = int(score_match.group(1))

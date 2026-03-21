@@ -9416,3 +9416,121 @@ aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway-u
 2026-03-22 04:49:06,831 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
 2026-03-22 04:49:06,831 - bot.discord_bot - INFO - 已加入 1 个服务器
 2026-03-22 04:49:06,832 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-22 06:13:33,439 - asyncio - ERROR - Exception in callback _ProactorBasePipeTransport._call_connection_lost(None)
+handle: <Handle _ProactorBasePipeTransport._call_connection_lost(None)>
+Traceback (most recent call last):
+  File "asyncio\events.py", line 88, in _run
+  File "asyncio\proactor_events.py", line 165, in _call_connection_lost
+ConnectionResetError: [WinError 10054] 远程主机强迫关闭了一个现有的连接。
+2026-03-22 06:13:33,453 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 06:13:34,964 - discord.gateway - INFO - Shard ID None session has been invalidated.
+2026-03-22 06:13:35,270 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-22 06:13:41,807 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: 1558a196a94df14113ca031674240f98).
+2026-03-22 06:13:43,816 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-22 06:13:43,816 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-22 06:13:43,816 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-22 06:13:43,817 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-22 06:39:29,423 - __main__ - INFO - 程序已终止
+2026-03-22 06:39:39,108 - __main__ - INFO - ============================================================
+2026-03-22 06:39:39,109 - __main__ - INFO - CedarStar 项目启动
+2026-03-22 06:39:39,109 - __main__ - INFO - 启动时间: 2026-03-22 06:39:39
+2026-03-22 06:39:39,109 - __main__ - INFO - Python 版本: 3.12.10 (tags/v3.12.10:0cc8128, Apr  8 2025, 12:21:36) [MSC v.1943 64 bit (AMD64)]
+2026-03-22 06:39:39,109 - __main__ - INFO - 工作目录: D:\Workspace\PythonProject\cedarstar
+2026-03-22 06:39:39,109 - __main__ - INFO - ============================================================
+2026-03-22 06:39:39,110 - __main__ - INFO - 验证配置...
+2026-03-22 06:39:39,110 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-03-22 06:39:42,652 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-03-22 06:39:42,655 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-03-22 06:39:42,708 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-03-22 06:39:42,709 - jieba - DEBUG - Loading model from cache C:\Users\shan\AppData\Local\Temp\jieba.cache
+2026-03-22 06:39:43,280 - jieba - DEBUG - Loading model cost 0.572 seconds.
+2026-03-22 06:39:43,280 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-03-22 06:39:43,281 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 1 条文档
+2026-03-22 06:39:43,281 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-03-22 06:39:43,281 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-03-22 06:39:43,284 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 1
+2026-03-22 06:39:43,285 - __main__ - INFO - 并行启动四个任务...
+2026-03-22 06:39:43,285 - __main__ - INFO - 所有组件启动完成
+2026-03-22 06:39:46,611 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-03-22 06:39:46,612 - __main__ - INFO - 日终跑批触发时间: 每天 23:00 (Asia/Shanghai)
+2026-03-22 06:39:46,612 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-22 06:39:47,081 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-03-22 06:39:47,081 - memory.database - INFO - 消息数据库初始化完成，路径: D:\Workspace\PythonProject\cedarstar\cedarstar.db
+2026-03-22 06:39:47,083 - llm.llm_interface - INFO - LLMInterface 使用数据库激活配置: [GG] config_type=chat, model=gemini-3.1-pro-preview, base_url=https://gcli.ggchan.dev/v1
+2026-03-22 06:39:47,090 - __main__ - INFO - 启动 Discord 机器人...
+2026-03-22 06:39:47,091 - discord.client - WARNING - PyNaCl is not installed, voice will NOT be supported
+2026-03-22 06:39:47,091 - discord.client - WARNING - davey is not installed, voice will NOT be supported
+2026-03-22 06:39:47,091 - bot.discord_bot - INFO - Discord 机器人初始化完成
+2026-03-22 06:39:47,092 - bot.discord_bot - INFO - 代理配置: {'http': 'http://localhost:7897', 'https': 'http://localhost:7897'}
+2026-03-22 06:39:47,092 - bot.discord_bot - INFO - 启动 Discord 机器人...
+2026-03-22 06:39:47,092 - __main__ - INFO - Discord 机器人已启动（在后台线程中）
+2026-03-22 06:39:47,093 - bot.discord_bot - INFO - 已设置代理环境变量: HTTP_PROXY=http://localhost:7897, HTTPS_PROXY=http://localhost:7897
+2026-03-22 06:39:47,094 - discord.client - INFO - logging in using static token
+2026-03-22 06:39:47,302 - __main__ - INFO - 启动 Telegram 机器人...
+2026-03-22 06:39:47,303 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-03-22 06:39:47,303 - __main__ - INFO - 使用异步模式启动 Telegram 机器人...
+2026-03-22 06:39:47,303 - bot.telegram_bot - INFO - 启动 Telegram 机器人...
+2026-03-22 06:39:48,635 - bot.telegram_bot - INFO - Telegram 机器人开始 polling...
+2026-03-22 06:39:48,636 - __main__ - INFO - 启动日终跑批定时调度器...
+2026-03-22 06:39:48,636 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-03-22 06:39:48,637 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-03-22 06:39:48,637 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-03-22 06:39:48,776 - memory.daily_batch - INFO - 日终跑批定时调度器启动
+2026-03-22 06:39:48,777 - llm.llm_interface - INFO - LLMInterface 使用数据库激活配置: [GG] config_type=chat, model=gemini-3.1-pro-preview, base_url=https://gcli.ggchan.dev/v1
+2026-03-22 06:39:48,777 - memory.daily_batch - INFO - 日终跑批处理器初始化完成
+2026-03-22 06:39:48,777 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-22 23:00:00 执行，等待 58811 秒
+2026-03-22 06:39:50,283 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getMe "HTTP/1.1 200 OK"
+2026-03-22 06:39:50,639 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/deleteWebhook "HTTP/1.1 200 OK"
+2026-03-22 06:39:50,640 - bot.telegram_bot - INFO - Telegram 机器人已启动（异步 polling 模式）
+2026-03-22 06:39:50,641 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-03-22 06:39:50,695 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: df0027a1176712ae89c8ef2bd0126be1).
+2026-03-22 06:39:52,121 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:39:52,122 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=3
+2026-03-22 06:39:52,123 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-22 06:39:52,123 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-22 06:39:52,702 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-22 06:39:52,702 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-22 06:39:52,702 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-22 06:39:52,703 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-22 06:39:55,786 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:39:55,787 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-22 06:40:00,438 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:40:00,439 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-03-22 06:40:10,793 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:40:15,442 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=5
+2026-03-22 06:40:17,116 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendChatAction "HTTP/1.1 200 OK"
+2026-03-22 06:40:17,117 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-03-22 06:40:19,689 - llm.llm_interface - INFO - LLMInterface 使用数据库激活配置: [GG] config_type=chat, model=gemini-3.1-pro-preview, base_url=https://gcli.ggchan.dev/v1
+2026-03-22 06:40:33,288 - bot.telegram_bot - INFO - 为缓冲区生成回复: session_id=telegram_8624126581, context 消息数量=26
+2026-03-22 06:40:33,293 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:40:34,996 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/sendMessage "HTTP/1.1 200 OK"
+2026-03-22 06:40:43,648 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:40:54,002 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:41:04,358 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:41:14,712 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:41:25,066 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:41:35,420 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:41:45,779 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:41:56,133 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:42:06,488 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:42:16,846 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:42:27,202 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:42:37,558 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:42:47,913 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:42:58,268 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:43:08,623 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:43:18,981 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:43:29,336 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:43:39,690 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:43:50,045 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:44:00,399 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:44:10,755 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:44:21,111 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:44:31,469 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:44:41,825 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:44:52,181 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:45:02,538 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:45:12,894 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:45:23,248 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:45:33,604 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-22 06:45:43,963 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"

@@ -325,7 +325,7 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
-            reply = llm.generate_with_context(messages)
+            reply = llm.generate_with_context_and_tracking(messages, platform=Platform.DISCORD)
             reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库（合并后的消息）
@@ -400,7 +400,7 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
-            reply = llm.generate_with_context(messages)
+            reply = llm.generate_with_context_and_tracking(messages, platform=Platform.DISCORD)
             reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库

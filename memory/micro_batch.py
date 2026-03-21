@@ -25,7 +25,7 @@ current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from config import config
+from config import config, Platform
 from llm.llm_interface import LLMInterface
 
 # 导入数据库函数
@@ -119,9 +119,12 @@ class SummaryLLMInterface:
         llm.max_tokens = self.max_tokens
         
         try:
-            response = llm.generate_simple(prompt)
-            logger.debug(f"摘要生成成功，长度: {len(response)} 字符")
-            return response.strip()
+            text = llm.generate_with_context_and_tracking(
+                [{"role": "user", "content": prompt}],
+                platform=Platform.BATCH,
+            ).strip()
+            logger.debug(f"摘要生成成功，长度: {len(text)} 字符")
+            return text
         except Exception as e:
             logger.error(f"摘要生成失败: {e}")
             raise
