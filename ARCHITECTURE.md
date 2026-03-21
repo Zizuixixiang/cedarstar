@@ -70,7 +70,7 @@ cedarstar/                          # 项目根目录
 │   ├── database.py                 # SQLite 数据库封装（MessageDatabase 类 + 全局单例 + 便捷函数）
 │   ├── context_builder.py          # Context 组装器（system + 时效状态 + 记忆卡片 + 关系时间线 + 摘要 + 折叠/精排长期记忆 + 近期消息）
 │   ├── micro_batch.py              # 微批处理（消息达阈值时异步生成 chunk 摘要）
-│   ├── daily_batch.py              # 日终跑批（每天 23:00 五步：时效结算→小传→卡片/时间轴→向量+事件→Chroma GC）
+│   ├── daily_batch.py              # 日终跑批（东八区 `daily_batch_hour` 整点，默认 23:00；五步：时效→小传→卡片/时间轴→向量→Chroma GC）
 │   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding + 增删查）
 │   ├── bm25_retriever.py           # BM25 关键词检索（jieba 分词 + rank_bm25，内存缓存索引）
 │   ├── reranker.py                 # Cohere Rerank 重排器（异步，对双路检索结果重排序）
@@ -101,7 +101,7 @@ cedarstar/                          # 项目根目录
 │       │   ├── Memory.jsx          # 记忆管理页（四 Tab；固定视口内高度 + 内容区独立滚动，见 §3.6）
 │       │   ├── History.jsx         # 对话历史页（聊天气泡布局 + 筛选，见 §3.6）
 │       │   ├── Logs.jsx            # 系统日志页（固定高度布局，支持过滤）
-│       │   ├── Config.jsx          # 助手配置页（运行参数调整，优化了移动端触控体验）
+│       │   ├── Config.jsx          # 助手配置页（三项运行参数：short_term_limit / buffer_delay / chunk_threshold）
 │       │   └── Settings.jsx        # 核心设置页（API 配置管理 + Token 统计）
 │       └── styles/                 # CSS 样式文件（每个页面对应一个 CSS 文件）
 │           ├── global.css          # 全局样式
@@ -159,9 +159,9 @@ cedarstar/                          # 项目根目录
 | `COHERE_API_KEY` | Cohere Rerank API 密钥 |
 | `DATABASE_URL` | SQLite 数据库路径 |
 | `CHROMADB_PERSIST_DIR` | ChromaDB 本地存储目录 |
-| `MICRO_BATCH_THRESHOLD` | 微批处理触发阈值（默认 50 条） |
-| `MESSAGE_BUFFER_DELAY` | 消息缓冲等待时间（默认 5 秒） |
-| `CONTEXT_MAX_RECENT_MESSAGES` | Context 中最近消息数（默认 40 条） |
+| `MICRO_BATCH_THRESHOLD` | 微批触发阈值**兜底**：当 SQLite `config.chunk_threshold` 未配置或无效时使用（默认 50 条） |
+| `MESSAGE_BUFFER_DELAY` | 消息缓冲等待时间（默认 5 秒）；**主路径**为 SQLite `config.buffer_delay`（见 `bot/message_buffer.py`） |
+| `CONTEXT_MAX_RECENT_MESSAGES` | Context 最近原文条数**兜底**：当 SQLite `config.short_term_limit` 未配置或无效时使用（默认 40 条） |
 | `CONTEXT_MAX_DAILY_SUMMARIES` | Context 中每日摘要数（默认 5 条） |
 
 ---
@@ -177,6 +177,7 @@ cedarstar/                          # 项目根目录
 - 不构建 prompt，通过 `memory.context_builder.build_context()` 获取完整上下文
 - 消息缓冲（`message_buffers` / `buffer_locks` / `buffer_timers`、`add_to_buffer`、读 `buffer_delay` 后合并）由 **`bot/message_buffer.py`** 的 `MessageBuffer` 统一实现；两 bot 仅实现 **flush 回调**（平台相关的 typing、生成、分片发送与入缓冲时的条目结构）
 - 助手原始回复若含 `[[used:uid]]`（可多个），由 **`bot/reply_citations.py`** 在存库与发送前：用正则 `\[\[used:(.*?)\]\]` 收集 uid 去重；若非空则 `asyncio.create_task` + `asyncio.to_thread` 异步调用 `memory.vector_store.update_memory_hits`（不阻塞）；再用 `re.sub(r'\[\[used:.*?\]\]', '', reply)` 清洗正文，**仅清洗后的文本**写入 `messages` 与发往平台
+- 主对话 LLM 调用使用 `LLMInterface.generate_with_context_and_tracking(messages, platform=...)`（Discord 为 `Platform.DISCORD`，Telegram 为 `Platform.TELEGRAM`），异步写入 `token_usage`（见 §3.3、§5.11）
 
 **消息缓冲机制：**
 ```
@@ -209,17 +210,19 @@ cedarstar/                          # 项目根目录
 - 支持 `config_type='chat'` 和 `config_type='summary'` 两种配置类型
 - 不维护对话历史状态（无状态）
 - 支持思维链内容提取（DeepSeek R1 的 `reasoning_content`、Gemini 的 `thinking`）
-- 异步记录 Token 使用量到 `token_usage` 表
+- **Token 统计：**仅当调用带 tracking 的方法且响应中含 `usage` 时，才会 `asyncio.create_task` 异步写入 `token_usage`（见 §5.11）。`generate` / `generate_simple` / `generate_with_context` / `chat` **不会**落库用量。
 
 **主要方法：**
 
 | 方法 | 说明 |
 |------|------|
-| `generate(prompt, system_prompt, history)` | 基础生成，返回 `LLMResponse` |
-| `generate_simple(prompt)` | 简化版，只返回文本 |
-| `generate_with_context(messages)` | 接收完整 messages 数组（context builder 输出格式） |
-| `generate_with_thinking(...)` | 生成并提取思维链内容 |
-| `chat(message, history)` | 维护历史的聊天接口 |
+| `generate(prompt, system_prompt, history)` | 基础生成，返回 `LLMResponse`（不记 token） |
+| `generate_simple(prompt)` | 简化版，只返回文本（不记 token） |
+| `generate_with_context(messages)` | 接收完整 messages 数组（不记 token；Bot 已改用下方 tracking 版） |
+| `generate_with_token_tracking(...)` | 单轮 prompt 生成并异步写 `token_usage` |
+| `generate_with_context_and_tracking(messages, platform=...)` | 完整 messages 生成，返回 `str`，并异步写 `token_usage` |
+| `generate_with_thinking(...)` | 生成并提取思维链内容，并异步写 `token_usage` |
+| `chat(message, history)` | 维护历史的聊天接口（不记 token） |
 
 **实例属性：**
 
@@ -256,7 +259,7 @@ cedarstar/                          # 项目根目录
 5. `daily_summaries`（最近 5 条 `summary_type='daily'` 的摘要，正序）
 6. `chunk_summaries`（今日所有 `summary_type='chunk'` 的摘要，正序）
 7. 长期记忆检索（ChromaDB top5 + BM25 top5，按 `doc_id` 去重后最多 10 条；**进入精排前**按 Chroma `metadata.parent_id` 做父子折叠——同一父文档（当日 `daily_*`）与下属 `*_event_*` 片段为一组，组内仅保留语义相似度最高的一条；注入 prompt 时每条正文前带 `[uid:<chroma_doc_id>]` 前缀，与回复末尾引用 `[[used:uid]]` 中的 `uid` 一致）
-8. 最近消息（当前 session 中 `is_summarized=0` 的最新 40 条，正序）
+8. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`）
 9. 当前用户消息
 
 **精排（仅异步路径）：** 并行双路检索并折叠后，对剩余候选调用 Cohere 得到语义相关分；对每条再算时间衰减复活分 `base_score × exp(-ln(2)/halflife_days × age_days) × (1 + 0.35×ln(1+hits))`（`age_days` 优先由 metadata `created_at` 推算，否则由 `last_access_ts`）；两路分数各自在当批候选内 min-max 归一化后按 **0.8×语义 + 0.2×衰减** 综合得分排序，取 top 2 写入 context。
@@ -268,15 +271,15 @@ cedarstar/                          # 项目根目录
 
 #### 3.4.3 `micro_batch.py` — 微批处理
 
-**职责：** 每次消息写入后异步检查，当 session 中 `is_summarized=0` 的消息达到阈值（默认 50 条）时，触发摘要生成。
+**职责：** 每次消息写入后异步检查，当 session 中 `is_summarized=0` 的消息达到阈值时触发摘要生成。阈值优先 SQLite `config.chunk_threshold`，否则环境变量 `MICRO_BATCH_THRESHOLD`（默认 50）。
 
 **流程：**
 ```
 消息写入 → trigger_micro_batch_check(session_id)
               ↓（达到阈值）
-         取出最早的 50 条未摘要消息
+         取出最早的「阈值」条未摘要消息
               ↓
-         调用 SUMMARY LLM 生成 chunk 摘要
+         `SummaryLLMInterface` → `LLMInterface.generate_with_context_and_tracking`（`platform=Platform.BATCH`）生成 chunk 摘要
               ↓
          写入 summaries 表（summary_type='chunk'）
               ↓
@@ -285,7 +288,7 @@ cedarstar/                          # 项目根目录
 
 #### 3.4.4 `daily_batch.py` — 日终跑批
 
-**职责：** 每天 23:00（Asia/Shanghai）执行五步流水线，支持断点续跑。
+**职责：** 每天在东八区 `config.daily_batch_hour` 整点（默认 23:00）执行五步流水线，支持断点续跑。
 
 **五步流水线：**
 
@@ -294,13 +297,13 @@ cedarstar/                          # 项目根目录
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | 将 Step 1 输出附在 prompt 开头，合并今日 chunk 摘要，调用 SUMMARY LLM 生成今日小传（`summary_type='daily'`） |
 | Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则调用模型合并去重后 `UPDATE`，合并失败时 fallback 为追加写入**；结束时再调 SUMMARY LLM 判断是否写入 `relationship_timeline`（含 Step 1 结算的时效事件），有则 `INSERT` |
-| Step 4 | 主 LLM 打分（1-10）；**全量**向量化入库（不再按分数跳过）。`halflife_days`：8–10→60，4–7→30，1–3→7。先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`，metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
-| Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — 仅当 `last_access_ts` 距今 ≥90 天、半衰期衰减得分 \<0.05、且无子文档以该 `doc_id` 为 `parent_id` 时物理删除 |
+| Step 4 | 主 LLM 打分（1-10，`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；**全量**向量化入库（不再按分数跳过）。`halflife_days`：8–10→600，4–7→200，1–3→30。先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`，metadata 含 `parent_id` 指向当日主文档；增量更新 BM25；事件拆分再走 SUMMARY 路径（同上，`BATCH`） |
+| Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — 闲置天数阈值优先 SQLite `gc_stale_days`（默认 180），半衰期衰减得分 \<0.05、且无子文档以该 `doc_id` 为 `parent_id` 时物理删除 |
 
 **Step 3 实现要点（与代码一致）：**
 - **维度 JSON：** 对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则。
 - **Upsert 行定位：** `get_latest_memory_card_for_dimension()`（不过滤 `is_active`），保证「全表 `is_active=0` 后重跑」仍更新同一逻辑行，而非误当作无记录而堆叠 `INSERT`。
-- **合并写回：** `_merge_memory_card_contents` 使用摘要模型配置的 `LLMInterface.generate_simple`（不经 `micro_batch` 的对话摘要模板）；合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
+- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom` 使用摘要模型配置的 `LLMInterface.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（不经 `SummaryLLMInterface.generate_summary` 的「对话摘要」模板包装）；合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
 
@@ -319,7 +322,7 @@ cedarstar/                          # 项目根目录
 - **写入 metadata（Chroma）：** 在 `date` / `session_id` / `summary_type` 等调用方字段之外，`add_memory()` 会统一写入 `base_score`（float，可由调用方传入或从旧字段 `score` 推导，默认 5.0）、`halflife_days`（int，默认 30）、`hits`（int，新文档恒为 0）、`last_access_ts`（float，当前 Unix 时间戳），并保留 `created_at`（ISO 字符串）
 - **doc_id 约定：** 日终主文档为 `daily_{batch_date}`（`build_daily_summary_doc_id`）；同一日多条事件片段为 `daily_{batch_date}_event_0`、`daily_{batch_date}_event_1`…（`build_daily_event_doc_id`）；Mini App 手工长期记忆仍为 `manual_{uuid}`
 - **`update_memory_hits(uid_list)`：** 仅按 `doc_id` 列表 `get` 再 `update`，逐条 `hits+1` 并刷新 `last_access_ts`，不用 metadata `where` 查询
-- **`garbage_collect_stale_memories()`：** 日终 Step 5 调用；衰减公式 `(base_score/10) * 0.5^(idle_days/halflife_days)`，与 90 天未访问、无 `parent_id` 子文档等条件组合后再 `delete`
+- **`garbage_collect_stale_memories()`：** 日终 Step 5 调用；衰减公式 `(base_score/10) * 0.5^(idle_days/halflife_days)`，与 `gc_stale_days` 天未访问、无 `parent_id` 子文档等条件组合后再 `delete`
 
 #### 3.4.6 `bm25_retriever.py` — BM25 检索
 
@@ -393,7 +396,7 @@ cedarstar/                          # 项目根目录
 | Config（助手配置） | `/config` | `/api/config/config` |
 | Settings（核心设置） | `/settings` | `/api/settings/api-configs` `/api/settings/token-usage` |
 
-**Dashboard 页（`Dashboard.jsx` / `dashboard.css`）：** 挂载时并发请求 §3.5 三个控制台接口。顶栏为 Discord/Telegram 在线、**对话**侧激活配置名与模型（`/status`，与 `get_active_api_config('chat')` 一致）、批处理结论（由同页已拉取的 `/batch-log` 最近一条的 `step1_status`～`step5_status` 推导）。下方为跑批日历与记忆库概览；概览数据来自 `/memory-overview`，含 `chromadb_count`、`longterm_score_threshold`、`short_term_limit`、`chunk_summary_count`（今日微批摘要条数）、`dimension_status`（七维度圆点）、`latest_daily_summary_time` 等，具体字段以 `api/dashboard.py` 为准。样式层含核心 KPI 大字、今日日历高亮、维度 Tooltip 等（纯前端，不改变接口）。
+**Dashboard 页（`Dashboard.jsx` / `dashboard.css`）：** 挂载时并发请求 §3.5 三个控制台接口。顶栏为 Discord/Telegram 在线、**对话**侧激活配置名与模型（`/status`，与 `get_active_api_config('chat')` 一致）、批处理结论（由同页已拉取的 `/batch-log` 最近一条的 `step1_status`～`step5_status` 推导）。下方为跑批日历与记忆库概览；概览数据来自 `/memory-overview`，含 `chromadb_count`、`short_term_limit`、`chunk_summary_count`（今日微批摘要条数）、`dimension_status`（七维度圆点）、`latest_daily_summary_time` 等，具体字段以 `api/dashboard.py` 为准。样式层含核心 KPI 大字、今日日历高亮、维度 Tooltip 等（纯前端，不改变接口）。
 
 **Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」与「摘要 API」为两个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=chat` 与 `?config_type=summary`，切换 Tab 时重新拉取。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表，若一致则仅刷新当前 Tab，避免在对话 Tab 下创建摘要配置后摘要列表仍为空。Tab 切换条样式与 Token 统计周期 Tab 同系的间距/分组（见 `settings.css` 中 `.config-tabs` / `.config-tab`）。移动端（<768px）已重构为竖向堆叠布局与 2x2 Token 网格，解决文字竖排与溢出问题。
 
@@ -461,7 +464,7 @@ cedarstar/                          # 项目根目录
 ### 4.2 日终跑批流程
 
 ```
-asyncio 定时器（每天 23:00 Asia/Shanghai）
+asyncio 定时器（东八区 `daily_batch_hour` 整点，默认 23:00）
         │
         ▼
   memory/daily_batch.py
@@ -476,10 +479,10 @@ asyncio 定时器（每天 23:00 Asia/Shanghai）
   │  Step 3：记忆卡片 Upsert + relationship_timeline      │
   │    SummaryLLMInterface（维度 JSON + 时间轴 JSON）     │
   ├─────────────────────────────────────────────────────┤
-  │  Step 4：打分 + 全量 Chroma（主文档 + 可选事件片段）  │
+  │  Step 4：主 LLM 打分（`Platform.BATCH`）+ 全量 Chroma   │
   │    vector_store.add_memory / bm25 增量                │
   ├─────────────────────────────────────────────────────┤
-  │  Step 5：Chroma GC（衰减 + 90 天未访问 + 无子节点）   │
+  │  Step 5：Chroma GC（衰减 + gc_stale_days 未访问 + 无子节点） │
   └─────────────────────────────────────────────────────┘
 ```
 
@@ -682,10 +685,14 @@ Mini App 用户在 Settings 页面切换激活 API 配置
 
 **当前配置项：**
 - `buffer_delay`：消息缓冲延迟（秒）
-- `chunk_threshold`：微批处理阈值（条数）
-- `short_term_limit`：Context 中最近消息数
-- `longterm_score_threshold`：长期记忆归档分数阈值
-- `reranker_top_n`：Reranker 返回结果数
+- `chunk_threshold`：微批处理阈值（条数）；`memory/micro_batch.py` 优先读库，缺省则用环境变量 `MICRO_BATCH_THRESHOLD`
+- `short_term_limit`：Context 中最近原文消息条数；`memory/context_builder.py` 优先读库，缺省则用环境变量 `CONTEXT_MAX_RECENT_MESSAGES`
+- `context_max_daily_summaries`：注入 `daily` 摘要条数（默认 5）；`context_builder` 优先读库，缺省则用环境变量 `CONTEXT_MAX_DAILY_SUMMARIES`
+- `context_max_longterm`：长期记忆最终注入条数（默认 3）；`context_builder` 精排/同步路径截断
+- `daily_batch_hour`：东八区日终跑批整点小时 0–23（默认 23）；`memory/daily_batch.py` 定时循环每次睡眠前读库
+- `relationship_timeline_limit`：关系时间线注入条数（默认 3）
+- `gc_stale_days`：Step 5 Chroma GC 闲置天数阈值（默认 180）
+- `retrieval_top_k`：向量与 BM25 各路召回候选数（默认 5）
 
 **API 响应元数据：** `GET` / `PUT` `/api/config/config` 成功时，返回体中的 `data` 除上述键外另含 `_meta: { updated_at: string | null }`，值为这些键在 `config` 表中的 `MAX(updated_at)`（SQLite 时间字符串，前端解析时需注意这是 UTC 时间，需转为本地时区），用于 Mini App「上次保存时间」；`_meta` 不是配置项，不参与 `PUT` 写回。实现：`memory/database.py` 的 `get_config_max_updated_at_for_keys`、`api/config.py` 的 `_payload_with_meta`。
 
@@ -753,7 +760,7 @@ Mini App 用户在 Settings 页面切换激活 API 配置
 |------|------|------|
 | `id` | INTEGER PK | 自增主键 |
 | `created_at` | TIMESTAMP | 记录时间 |
-| `platform` | TEXT | 平台标识 |
+| `platform` | TEXT | 调用来源：`config.Platform` 常量，常见值 `discord` / `telegram` / `batch`（日终与微批摘要等）；可为空 |
 | `prompt_tokens` | INTEGER | 输入 Token 数 |
 | `completion_tokens` | INTEGER | 输出 Token 数 |
 | `total_tokens` | INTEGER | 总 Token 数 |
@@ -817,23 +824,17 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 2. 从 `messages` 表查询当批日期的 `(user_id, character_id)` 列表（无记录时兜底 `default_user/sirius`）
 3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）
 4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
-5. **Upsert：** `get_latest_memory_card_for_dimension` 取该用户/角色/维度最近一条（**含 `is_active=0`**）；有则 `_merge_memory_card_contents`（摘要模型 `generate_simple`）合并去重，`update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
+5. **Upsert：** `get_latest_memory_card_for_dimension` 取该用户/角色/维度最近一条（**含 `is_active=0`**）；有则 `_merge_memory_card_contents`（`_call_summary_llm_custom` → `generate_with_context_and_tracking`，`platform=BATCH`）合并去重，`update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
 6. 单维度 `try/except + continue`，互不拖累
-7. 维度分析仍走 `summary_llm.generate_summary`（经 micro_batch 摘要模板包装）；**合并**走 `_call_summary_llm_custom`（直连 `generate_simple`，避免模板干扰）
+7. 维度分析仍走 `summary_llm.generate_summary`（内部为 `generate_with_context_and_tracking`，`platform=BATCH`，经摘要模板包装）；**合并**走 `_call_summary_llm_custom`（不经该模板，避免干扰）
 
 ---
 
-### 6.4 ✅ 已修复：`daily_batch.py` Step3 打分逻辑 Bug
+### 6.4 ✅ 已修复 / 已演进：`daily_batch.py` Step 4 小传打分
 
-**问题：** `_step3_score_and_archive()` 中调用 `self.llm.generate(prompt)` 返回的是 `LLMResponse` 对象，但代码直接对其做正则匹配，应该取 `.content` 属性再匹配。
+**问题（历史）：** 小传归档前价值打分路径曾把 `self.llm.generate(prompt)` 的返回值（`LLMResponse`）误当作字符串做正则，应先取 `.content`。
 
-**修复（2026-03-21）：** 在 `generate()` 调用后增加 `score_text = score_response.content`，后续正则匹配和日志输出均改为使用 `score_text`。
-
-```python
-score_response = self.llm.generate(prompt)   # 返回 LLMResponse 对象
-score_text = score_response.content           # ✅ 取 .content 属性
-score_match = re.search(r'\b([1-9]|10)\b', score_text)
-```
+**修复与后续：** 已改为先使用 `score_text = score_response.content` 再匹配；当前实现为 **`_step4_archive_daily_and_events`** 中 `score_text = self.llm.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（返回 `str`），并异步写入 `token_usage`。
 
 ---
 
@@ -963,6 +964,8 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 1. 失败时不将本地默认值当作已加载数据：`config` 保持 `null`，页面顶部红色错误区（`role="alert"`）展示原因，并提供「重新加载」。成功时从 `data.data` 中解构出 `_meta`，其余键与 `DEFAULT_CONFIG` 合并为表单状态（勿把 `_meta` 写入 `config` 状态）。「上次保存时间」使用 `_meta.updated_at`（库内助手相关 key 的最近落库时间，见 §5.7），**不得**在每次 `GET` 成功时用 `new Date()` 冒充。`PUT` 成功后同样优先用响应中的 `_meta.updated_at` 更新展示，无则客户端兜底 `new Date()`。  
 2. 「重置默认值」说明文案：悬停 Tooltip + 按钮 `title`（与后端/数据库默认值可能不一致）；确认弹窗内保留二次说明。
 3. 移动端（<768px）配置项采用上下堆叠布局，释放文字与滑块宽度。
+
+**演进：** 助手运行参数与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐，当前仅 **`short_term_limit`、`buffer_delay`、`chunk_threshold`** 三项（已移除仅落库、未接运行时的旧键）；其中 `short_term_limit` / `chunk_threshold` 分别由 `context_builder` / `micro_batch` 优先读库，缺省再回退环境变量（见 §5.7、§3.4.2、§3.4.3）。
 
 **对应接口：** `GET /api/config/config`、`PUT /api/config/config`（响应 `data` 形状见 §5.7）
 

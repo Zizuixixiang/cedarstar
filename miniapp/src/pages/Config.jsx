@@ -1,19 +1,23 @@
 /**
  * 助手配置页面
- * 提供五个核心参数的滑块 + 数字输入框双向联动配置
+ * 运行参数滑块 + 数字输入框双向联动，与 /api/config/config 对齐
  */
 
 import { useState, useEffect, useCallback } from 'react';
 import { apiUrl } from '../apiBase';
 import '../styles/config.css';
 
-// 配置项默认值
+// 配置项默认值（与 api/config.py DEFAULT_CONFIG 一致，供合并与重置）
 const DEFAULT_CONFIG = {
   short_term_limit: 40,
-  buffer_delay: 15,
+  buffer_delay: 5,
   chunk_threshold: 50,
-  longterm_score_threshold: 7,
-  reranker_top_n: 2
+  context_max_daily_summaries: 5,
+  context_max_longterm: 3,
+  daily_batch_hour: 23,
+  relationship_timeline_limit: 3,
+  gc_stale_days: 180,
+  retrieval_top_k: 5,
 };
 
 // 配置项元数据
@@ -40,40 +44,77 @@ function mergeConfigApiPayload(payload) {
 
 const CONFIG_METADATA = [
   {
-    key: 'short_term_limit',
-    name: '短期记忆携带量',
-    description: '每次发给 AI 的最近原文消息条数',
-    min: 10,
-    max: 200
-  },
-  {
     key: 'buffer_delay',
     name: '消息缓冲延迟',
     description: '连发短消息的合并等待时间（秒）',
+    hint: '用户发消息后等待合并的秒数，调大可减少碎片消息',
     min: 3,
-    max: 100
+    max: 100,
+  },
+  {
+    key: 'short_term_limit',
+    name: '短期记忆携带量',
+    description: '每次发给 AI 的最近原文消息条数',
+    hint: '每次对话注入多少条近期原始消息',
+    min: 10,
+    max: 200,
   },
   {
     key: 'chunk_threshold',
     name: 'Chunk 触发阈值',
     description: '多少条消息触发一次日内微批总结',
+    hint: '累积多少条消息触发一次微批摘要压缩',
     min: 20,
-    max: 100
+    max: 100,
   },
   {
-    key: 'longterm_score_threshold',
-    name: '长期记忆价值阈值',
-    description: 'Daily 摘要打分多少分以上才归档',
+    key: 'context_max_daily_summaries',
+    name: '每日小传注入条数',
+    description: 'Context 中纳入的 summary_type=daily 条数',
+    hint: '注入最近几天的今日小传作为背景',
     min: 1,
-    max: 10
+    max: 30,
   },
   {
-    key: 'reranker_top_n',
-    name: 'Reranker 返回数量',
-    description: '重排后保留的记忆片段数量',
+    key: 'context_max_longterm',
+    name: '长期记忆注入条数',
+    description: '向量召回并经精排后最终注入的条数',
+    hint: '从向量库召回后最终注入几条长期记忆',
     min: 1,
-    max: 5
-  }
+    max: 10,
+  },
+  {
+    key: 'daily_batch_hour',
+    name: '日终跑批时刻',
+    description: '东八区每天触发的小时（0–23）',
+    hint: '每天几点触发日终跑批（24小时制，东八区）',
+    min: 0,
+    max: 23,
+  },
+  {
+    key: 'relationship_timeline_limit',
+    name: '关系时间线条数',
+    description: '注入 Context 的关系时间线事件条数',
+    hint: '注入最近几条关系时间线事件',
+    min: 1,
+    max: 20,
+  },
+  {
+    key: 'gc_stale_days',
+    name: 'GC 闲置天数',
+    description: '向量记忆多久未引用可参与 GC',
+    hint: '向量库中超过多少天未被引用的记忆才会被清理',
+    min: 30,
+    max: 730,
+  },
+  {
+    key: 'retrieval_top_k',
+    name: '双路召回每路条数',
+    description: '向量检索与 BM25 各自取的候选数',
+    hint: '向量检索和关键词检索各自捞多少条候选',
+    min: 1,
+    max: 20,
+  },
 ];
 
 /**
@@ -358,6 +399,9 @@ function Config() {
               <div className="config-info">
                 <div className="config-name">{item.name}</div>
                 <div className="config-desc">{item.description}</div>
+                {item.hint ? (
+                  <div className="config-hint">{item.hint}</div>
+                ) : null}
               </div>
 
               {/* 右侧：滑块 + 数字输入框 */}

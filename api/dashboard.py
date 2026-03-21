@@ -75,7 +75,6 @@ async def get_memory_overview():
     """
     获取记忆概览：
     - chromadb_count：从 longterm_memories 表 COUNT(*)
-    - longterm_score_threshold：从 config 表读取
     - short_term_limit：从 config 表读取
     - dimension_status：从 memory_cards 表查 is_active=1 的维度
     - chunk_summary_count：今日 chunk 摘要数量
@@ -97,12 +96,8 @@ async def get_memory_overview():
         pass
 
     # 2. 配置参数
-    longterm_score_threshold = 7
     short_term_limit = 40
     try:
-        val = db.get_config('longterm_score_threshold')
-        if val is not None:
-            longterm_score_threshold = int(val)
         val2 = db.get_config('short_term_limit')
         if val2 is not None:
             short_term_limit = int(val2)
@@ -143,7 +138,6 @@ async def get_memory_overview():
 
     return create_response(True, {
         "chromadb_count": longterm_count,
-        "longterm_score_threshold": longterm_score_threshold,
         "short_term_limit": short_term_limit,
         "dimension_status": dimension_status,
         "chunk_summary_count": chunk_count,

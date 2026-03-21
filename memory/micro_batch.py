@@ -31,22 +31,37 @@ from llm.llm_interface import LLMInterface
 # 导入数据库函数
 try:
     from .database import (
+        get_database,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
         save_summary,
-        mark_messages_as_summarized_by_ids
+        mark_messages_as_summarized_by_ids,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
     from memory.database import (
+        get_database,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
         save_summary,
-        mark_messages_as_summarized_by_ids
+        mark_messages_as_summarized_by_ids,
     )
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+
+def _micro_batch_threshold() -> int:
+    """微批触发条数：优先 config 表 chunk_threshold，否则环境变量 MICRO_BATCH_THRESHOLD。"""
+    try:
+        raw = get_database().get_config("chunk_threshold")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, int(str(raw).strip()))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 chunk_threshold 失败，使用环境变量: %s", e)
+    return config.MICRO_BATCH_THRESHOLD
 
 
 class SummaryLLMInterface:
@@ -145,7 +160,7 @@ async def check_and_process_micro_batch(session_id: str) -> bool:
     try:
         # 获取未摘要消息数量
         unsummarized_count = get_unsummarized_count_by_session(session_id)
-        threshold = config.MICRO_BATCH_THRESHOLD
+        threshold = _micro_batch_threshold()
         
         logger.debug(f"会话 {session_id} 未摘要消息数量: {unsummarized_count}, 阈值: {threshold}")
         
@@ -178,8 +193,8 @@ async def process_micro_batch(session_id: str) -> None:
         session_id: 会话ID
     """
     try:
-        threshold = config.MICRO_BATCH_THRESHOLD
-        
+        threshold = _micro_batch_threshold()
+
         # 1. 获取最早的未摘要消息
         messages = get_unsummarized_messages_by_session(session_id, limit=threshold)
         
@@ -286,7 +301,7 @@ def test_micro_batch() -> None:
     
     try:
         # 测试配置
-        print(f"微批处理阈值: {config.MICRO_BATCH_THRESHOLD}")
+        print(f"微批处理阈值: {_micro_batch_threshold()}")
         print(f"摘要模型: {config.SUMMARY_MODEL_NAME}")
         print(f"摘要 API 密钥: {'已设置' if config.SUMMARY_API_KEY else '未设置'}")
         

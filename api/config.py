@@ -34,8 +34,12 @@ DEFAULT_CONFIG = {
     "short_term_limit": 40,
     "buffer_delay": 5,
     "chunk_threshold": 50,
-    "longterm_score_threshold": 7,
-    "reranker_top_n": 2
+    "context_max_daily_summaries": 5,
+    "context_max_longterm": 3,
+    "daily_batch_hour": 23,
+    "relationship_timeline_limit": 3,
+    "gc_stale_days": 180,
+    "retrieval_top_k": 5,
 }
 
 # 内存缓存配置（从数据库加载）

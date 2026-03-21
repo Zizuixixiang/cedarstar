@@ -5,11 +5,11 @@ Context 构建模块。
 1. system prompt：从配置读取，保持原样
 2. temporal_states：is_active=1 的全部记录（在记忆卡片之前）
 3. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
-4. relationship_timeline：取最近 3 条（库内按倒序选取），注入 Context 时按 created_at 正序排列
-5. daily summary：查询 summaries 表中 summary_type='daily'，按 created_at 倒序取最近 5 条，然后翻转为正序（按时间从老到新）后拼入
+4. relationship_timeline：条数见 `relationship_timeline_limit`（库内选取），注入 Context 时按 created_at 正序排列
+5. daily summary：`context_max_daily_summaries`（优先）或环境变量决定条数，倒序取后翻为正序拼入
 6. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
-7. 向量检索：Chroma top5 + BM25 top5 去重；长期记忆在进入精排前按 parent_id 父子折叠；注入时每条带 [uid:doc_id] 前缀
-8. 最近消息：查询当前 session_id 下 is_summarized=0 的消息，按 created_at 倒序取 40 条，再正序排列后拼入
+7. 向量检索：各路 `retrieval_top_k` 条，去重合并，父子折叠后注入 `context_max_longterm` 条（异步路径经精排后再截断）
+8. 最近消息：`short_term_limit`（优先）或环境变量决定条数，再正序排列后拼入
 
 组装完成后返回一个结构，包含 system prompt 和 messages 数组，直接可以传给 LLM API。
 """
@@ -17,6 +17,7 @@ Context 构建模块。
 import logging
 import math
 import time
+from functools import partial
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
@@ -24,10 +25,11 @@ from config import config
 from memory.database import (
     get_all_active_memory_cards,
     get_all_active_temporal_states,
+    get_database,
     get_recent_relationship_timeline,
     get_recent_daily_summaries,
     get_today_chunk_summaries,
-    get_unsummarized_messages_desc
+    get_unsummarized_messages_desc,
 )
 
 # 导入向量存储函数
@@ -50,6 +52,72 @@ except ImportError:
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+
+def _short_term_recent_message_limit() -> int:
+    """最近原文条数：优先 config 表 short_term_limit，否则环境变量 CONTEXT_MAX_RECENT_MESSAGES。"""
+    try:
+        raw = get_database().get_config("short_term_limit")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, int(str(raw).strip()))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 short_term_limit 失败，使用环境变量: %s", e)
+    return config.CONTEXT_MAX_RECENT_MESSAGES
+
+
+def _context_max_daily_summaries_limit() -> int:
+    """每日小传注入条数：优先 config 表 context_max_daily_summaries，否则环境变量 CONTEXT_MAX_DAILY_SUMMARIES。"""
+    try:
+        raw = get_database().get_config("context_max_daily_summaries")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(100, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 context_max_daily_summaries 失败，使用环境变量: %s", e)
+    return max(1, min(100, config.CONTEXT_MAX_DAILY_SUMMARIES))
+
+
+def _context_max_longterm_count() -> int:
+    """长期记忆注入 Top N：优先 config 表 context_max_longterm，否则默认 3。"""
+    try:
+        raw = get_database().get_config("context_max_longterm")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(20, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 context_max_longterm 失败，使用默认 3: %s", e)
+    return 3
+
+
+def _relationship_timeline_limit() -> int:
+    """关系时间线条数：优先 config 表 relationship_timeline_limit，否则默认 3。"""
+    try:
+        raw = get_database().get_config("relationship_timeline_limit")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(50, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 relationship_timeline_limit 失败，使用默认 3: %s", e)
+    return 3
+
+
+def _retrieval_top_k() -> int:
+    """双路检索各路 top_k：优先 config 表 retrieval_top_k，否则默认 5。"""
+    try:
+        raw = get_database().get_config("retrieval_top_k")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(30, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 retrieval_top_k 失败，使用默认 5: %s", e)
+    return 5
+
 
 MEMORY_CITATION_DIRECTIVE = (
     "如果你在生成回复时参考了上述历史记忆，必须在回复文本末尾标注引用，格式为 [[used:uid]]，可以有多个。"
@@ -242,7 +310,7 @@ class ContextBuilder:
         1. system prompt
         2. temporal_states（is_active=1）
         3. memory_cards
-        4. relationship_timeline（最近 3 条，created_at 正序注入）
+        4. relationship_timeline（条数见库内配置，created_at 正序注入）
         5. daily summary
         6. chunk summary
         7. 向量检索（折叠 + [uid:doc_id]）
@@ -324,14 +392,14 @@ class ContextBuilder:
         1. system prompt
         2. temporal_states（is_active=1）
         3. memory_cards
-        4. relationship_timeline（最近 3 条，created_at 正序注入）
+        4. relationship_timeline（条数见库内配置，created_at 正序注入）
         5. daily summary
         6. chunk summary
-        7. 向量检索（折叠 → Cohere 全候选打分 → 语义×0.8+衰减×0.2 → top 2，[uid:doc_id]）
+        7. 向量检索（折叠 → Cohere 全候选打分 → 语义×0.8+衰减×0.2 → top N，[uid:doc_id]）
         8. 最近消息
         
         使用 asyncio.gather 并行执行向量检索和 BM25 检索，
-        合并去重并父子折叠后，对全量候选 await rerank()，再按融合分排序取 top 2。
+        合并去重并父子折叠后，对全量候选 await rerank()，再按融合分排序取 top N。
         
         Args:
             session_id: 会话ID
@@ -432,7 +500,7 @@ class ContextBuilder:
             return ""
 
     def _build_relationship_timeline_section(self) -> str:
-        """relationship_timeline：库内取最近 3 条，拼入前按 created_at 升序排列。"""
+        """relationship_timeline：库内取最近若干条（见 _relationship_timeline_limit），拼入前按 created_at 升序排列。"""
         type_labels = {
             "milestone": "里程碑",
             "emotional_shift": "情绪转折",
@@ -440,7 +508,9 @@ class ContextBuilder:
             "daily_warmth": "日常温情",
         }
         try:
-            rows = get_recent_relationship_timeline(limit=3)
+            rows = get_recent_relationship_timeline(
+                limit=_relationship_timeline_limit(),
+            )
             if not rows:
                 return ""
             rows = sorted(
@@ -537,14 +607,16 @@ class ContextBuilder:
         """
         构建 daily summary 部分。
         
-        查询 summaries 表中 summary_type='daily'，按 created_at 倒序取最近 5 条，
+        查询 summaries 表中 summary_type='daily'，按 created_at 倒序取若干条（见 _context_max_daily_summaries_limit），
         然后在代码中将其翻转为正序（按时间从老到新）。
         
         Returns:
             str: daily summary 部分的文本，如果没有则返回空字符串
         """
         try:
-            daily_summaries = get_recent_daily_summaries(limit=config.CONTEXT_MAX_DAILY_SUMMARIES)
+            daily_summaries = get_recent_daily_summaries(
+                limit=_context_max_daily_summaries_limit(),
+            )
             
             if not daily_summaries:
                 return ""
@@ -640,10 +712,15 @@ class ContextBuilder:
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
 
-            vector_results = search_memory(user_message, top_k=5)
-            bm25_results = search_bm25(user_message, top_k=5)
-            all_results = _merge_vector_bm25_dedupe(vector_results, bm25_results, 10)
+            tk = _retrieval_top_k()
+            vector_results = search_memory(user_message, top_k=tk)
+            bm25_results = search_bm25(user_message, top_k=tk)
+            all_results = _merge_vector_bm25_dedupe(
+                vector_results, bm25_results, max(1, 2 * tk)
+            )
             all_results = collapse_longterm_by_parent_id(all_results)
+            n_long = _context_max_longterm_count()
+            all_results = all_results[:n_long]
 
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
@@ -685,7 +762,7 @@ class ContextBuilder:
     async def _build_vector_search_section_async(self, user_message: str) -> str:
         """
         异步构建向量检索部分：并行双路检索 → 父子折叠 → Cohere 打分 →
-        语义归一化×0.8 + 时间衰减复活分归一化×0.2 综合排序 → 取 top 2；
+        语义归一化×0.8 + 时间衰减复活分归一化×0.2 综合排序 → 取 top N（见 _context_max_longterm_count）；
         每条正文前带 [uid:doc_id]。
         """
         try:
@@ -699,17 +776,25 @@ class ContextBuilder:
 
             import asyncio
 
+            tk = _retrieval_top_k()
+            n_long = _context_max_longterm_count()
             logger.debug(f"开始并行检索，查询: '{user_message[:50]}...'")
             loop = asyncio.get_event_loop()
-            vector_future = loop.run_in_executor(None, search_memory, user_message, 5)
-            bm25_future = loop.run_in_executor(None, search_bm25, user_message, 5)
+            vector_future = loop.run_in_executor(
+                None, partial(search_memory, user_message, tk)
+            )
+            bm25_future = loop.run_in_executor(
+                None, partial(search_bm25, user_message, tk)
+            )
             vector_results, bm25_results = await asyncio.gather(vector_future, bm25_future)
 
             logger.debug(
                 f"并行检索完成，向量结果: {len(vector_results)} 条，BM25 结果: {len(bm25_results)} 条"
             )
 
-            all_results = _merge_vector_bm25_dedupe(vector_results, bm25_results, 10)
+            all_results = _merge_vector_bm25_dedupe(
+                vector_results, bm25_results, max(1, 2 * tk)
+            )
             all_results = collapse_longterm_by_parent_id(all_results)
 
             if not all_results:
@@ -721,11 +806,11 @@ class ContextBuilder:
                 user_message, all_results, top_n=len(all_results)
             )
             if not reranked_results:
-                logger.debug("Reranker 未返回结果，使用折叠后候选前 2 条")
-                reranked_results = all_results[:2]
+                logger.debug("Reranker 未返回结果，使用折叠后候选前 %s 条", n_long)
+                reranked_results = all_results[:n_long]
 
             fused = fuse_rerank_with_time_decay(reranked_results)
-            top_results = fused[:2]
+            top_results = fused[:n_long]
 
             sections = []
             for i, result in enumerate(top_results):
@@ -767,7 +852,7 @@ class ContextBuilder:
         """
         构建最近消息部分。
         
-        查询当前 session_id 下 is_summarized=0 的消息，按 created_at 倒序取 40 条，
+        查询当前 session_id 下 is_summarized=0 的消息，按 created_at 倒序取若干条（见 short_term_limit），
         再正序排列后返回。
         
         Args:
@@ -778,8 +863,8 @@ class ContextBuilder:
         """
         try:
             recent_messages = get_unsummarized_messages_desc(
-                session_id, 
-                limit=config.CONTEXT_MAX_RECENT_MESSAGES
+                session_id,
+                limit=_short_term_recent_message_limit(),
             )
             
             if not recent_messages:

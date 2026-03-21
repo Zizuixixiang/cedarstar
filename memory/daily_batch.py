@@ -1,7 +1,7 @@
 """
 日终跑批处理模块。
 
-每天东八区（Asia/Shanghai）晚上23:00自动触发，执行五步流水线：
+每天东八区（Asia/Shanghai）在 `config.daily_batch_hour` 整点（默认 23）自动触发，执行五步流水线：
 Step 1 - 到期 temporal_states 结算并改写为客观过去时，供 Step 2 使用
 Step 2 - 生成今日小传（prompt 含 Step 1 输出）
 Step 3 - 记忆卡片 Upsert + 可选写入 relationship_timeline
@@ -51,6 +51,7 @@ except ImportError:
 # 导入数据库函数
 try:
     from .database import (
+        get_database,
         get_today_chunk_summaries,
         get_unsummarized_messages_by_session,
         save_summary,
@@ -74,6 +75,7 @@ try:
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
     from memory.database import (
+        get_database,
         get_today_chunk_summaries,
         get_unsummarized_messages_by_session,
         save_summary,
@@ -102,13 +104,41 @@ logger = logging.getLogger(__name__)
 TIMEZONE = pytz.timezone("Asia/Shanghai")
 
 
+def _daily_batch_trigger_hour() -> int:
+    """日终跑批触发小时（0–23）：优先 config 表 daily_batch_hour，否则默认 23。"""
+    try:
+        raw = get_database().get_config("daily_batch_hour")
+        if raw is not None and str(raw).strip() != "":
+            h = int(str(raw).strip())
+            if 0 <= h <= 23:
+                return h
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 daily_batch_hour 失败，使用默认 23: %s", e)
+    return 23
+
+
+def _gc_stale_days_threshold() -> float:
+    """Step 5 GC 闲置天数阈值：优先 config 表 gc_stale_days，否则默认 180。"""
+    try:
+        raw = get_database().get_config("gc_stale_days")
+        if raw is not None and str(raw).strip() != "":
+            return max(1.0, float(str(raw).strip()))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 gc_stale_days 失败，使用默认 180: %s", e)
+    return 180.0
+
+
 def _score_to_halflife_days(score: int) -> int:
-    """日终打分映射半衰期：8–10→60 天，4–7→30 天，1–3→7 天。"""
+    """日终打分映射半衰期：8–10→600 天，4–7→200 天，1–3→30 天。"""
     if score >= 8:
-        return 60
+        return 600
     if score >= 4:
-        return 30
-    return 7
+        return 200
+    return 30
 
 
 class DailyBatchProcessor:
@@ -905,10 +935,11 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             return False, str(e)
     
     async def _step5_chroma_gc(self, batch_date: str) -> Tuple[bool, Optional[str]]:
-        """Step 5 - Chroma 向量记忆 GC（衰减 + 90 天未访问 + 无子节点）。"""
+        """Step 5 - Chroma 向量记忆 GC（衰减 + 闲置天数阈值 + 无子节点）。"""
         try:
+            idle_days = _gc_stale_days_threshold()
             n = garbage_collect_stale_memories(
-                idle_days_threshold=90.0,
+                idle_days_threshold=idle_days,
                 strength_threshold=0.05,
                 scan_limit=10000,
             )
@@ -923,7 +954,7 @@ async def schedule_daily_batch():
     """
     定时调度日终跑批处理。
     
-    每天东八区（Asia/Shanghai）晚上23:00自动触发。
+    每天东八区（Asia/Shanghai）在 `daily_batch_hour` 整点自动触发（默认 23:00，读库热更新）。
     触发时：先将 batch_date 早于「最近7天」窗口且未完成的日志标记为 expired；
     再对窗口内未完成日期按 batch_date 升序串行执行 run_daily_batch(该日)；
     若当日未在上述补跑中执行，最后再 run_daily_batch() 跑今天。
@@ -937,10 +968,10 @@ async def schedule_daily_batch():
             # 获取当前时间（东八区）
             now = datetime.now(TIMEZONE)
             
-            # 计算到今晚23:00的时间差
-            target_time = now.replace(hour=23, minute=0, second=0, microsecond=0)
-            
-            # 如果现在已经过了23:00，则目标时间设为明天的23:00
+            hour = _daily_batch_trigger_hour()
+            # 计算到下一次触发整点的时间差
+            target_time = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+
             if now >= target_time:
                 target_time += timedelta(days=1)
             

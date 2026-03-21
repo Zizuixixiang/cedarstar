@@ -256,7 +256,18 @@ async def main_async():
         
         logger.info("所有组件启动完成")
         logger.info(f"当前时区: {pytz.timezone('Asia/Shanghai')}")
-        logger.info(f"日终跑批触发时间: 每天 23:00 (Asia/Shanghai)")
+        try:
+            from memory.database import get_database as _gdb
+            _h = _gdb().get_config("daily_batch_hour")
+            _hour = int(str(_h).strip()) if _h and str(_h).strip() != "" else 23
+            if not (0 <= _hour <= 23):
+                _hour = 23
+        except Exception:
+            _hour = 23
+        logger.info(
+            "日终跑批触发时间: 每天 %02d:00 (Asia/Shanghai)，可由 SQLite config.daily_batch_hour 调整",
+            _hour,
+        )
         logger.info(f"API 文档地址: http://localhost:8000/docs")
         
         # 等待所有任务完成（实际上会一直运行）

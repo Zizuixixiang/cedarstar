@@ -72,6 +72,14 @@
   line-height: 1.4;
 }
 
+.config-hint {
+  margin-top: 6px;
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--text-sub);
+  opacity: 0.72;
+}
+
 /* 右侧控件区 */
 .config-controls {
   display: flex;

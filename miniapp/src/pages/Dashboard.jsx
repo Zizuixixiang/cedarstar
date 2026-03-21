@@ -242,7 +242,6 @@ function MemoryOverviewCard({ data, loading }) {
 
   const {
     chromadb_count = 0,
-    longterm_score_threshold = 7,
     short_term_limit = 40,
     dimension_status = {},
     chunk_summary_count = 0,
@@ -276,9 +275,6 @@ function MemoryOverviewCard({ data, loading }) {
               <div className="metric-hero__label metric-hero__label--top">已收录片段数量</div>
               <div className="metric-hero__value">{chromadb_count}</div>
             </div>
-            <p className="metric-secondary metric-secondary--dark">
-              记忆打分阈值 <span className="number-tag">≥ {longterm_score_threshold} 分</span>
-            </p>
           </div>
         </div>
         
