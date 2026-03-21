@@ -133,6 +133,6 @@
 ## 前端开发注意事项
 
 - 开发服务器端口：`5173`（或 `5174`），Vite 已配置 `/api` 代理到 `http://localhost:8000`
-- 后端 CORS 已允许 `localhost:5173` 和 `localhost:5174`
+- 后端 CORS 见 `main.py`：`localhost:5173`/`5174`、Tunnel 与 `cedarstar.pages.dev`（含子域正则）；新前端源需同步改 `main.py`
 - 无 UI 组件库，纯 CSS，样式文件在 `miniapp/src/styles/` 下，每个页面对应一个 CSS 文件
 - 路由使用 React Router，配置在 `miniapp/src/router.jsx`

@@ -514,6 +514,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 ### 4.3 Mini App 数据流
 
+**CORS（`main.py`）：** `allow_origins` 含本地 Vite（`http://localhost:5173`、`5174`）、当前 Cloudflare Tunnel 前端源、以及 `https://cedarstar.pages.dev`；另设 `allow_origin_regex` 匹配 `https://*.cedarstar.pages.dev`（含多级子域）。部署新域名时需在 `main.py` 中同步扩展。
+
 ```
 浏览器（React Mini App）
         │  HTTP GET/POST/PUT/DELETE /api/...

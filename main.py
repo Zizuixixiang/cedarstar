@@ -34,10 +34,20 @@ app = FastAPI(
     version="0.1.0"
 )
 
-# 配置 CORS - 允许前端的两个端口
+# 配置 CORS：本地 Vite + Tunnel / Cloudflare Pages 前端
+_CORS_ALLOW_ORIGINS = [
+    "http://localhost:5173",
+    "http://localhost:5174",
+    "https://man-xml-sets-grace.trycloudflare.com",
+    "https://cedarstar.pages.dev",
+]
+# https://*.cedarstar.pages.dev（含多级子域）；apex 亦在上表与正则中均可匹配
+_CORS_PAGES_DEV_REGEX = r"^https://([\w-]+\.)*cedarstar\.pages\.dev$"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://localhost:5174"],
+    allow_origins=_CORS_ALLOW_ORIGINS,
+    allow_origin_regex=_CORS_PAGES_DEV_REGEX,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
