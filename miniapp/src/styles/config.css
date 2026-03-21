@@ -415,7 +415,7 @@
   transform: none;
 }
 
-@media (max-width: 640px) {
+@media (max-width: 767px) {
   .config-footer-bar {
     flex-direction: column;
     align-items: stretch;
@@ -454,6 +454,45 @@
   .config-reset-wrap:hover .config-reset-tooltip,
   .config-reset-wrap:focus-within .config-reset-tooltip {
     transform: translate(-50%, 0);
+  }
+
+  /* 配置项改为上下堆叠 */
+  .config-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  /* 释放文字区域宽度 */
+  .config-info {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* 滑块对齐优化：占满一行并两端对齐 */
+  .config-controls {
+    width: 100%;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+
+  /* 骨架屏也同步适配 */
+  .config-skeleton-item {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+
+  .config-skeleton-left,
+  .config-skeleton-right {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  .config-skeleton-right {
+    justify-content: space-between;
   }
 }
 
