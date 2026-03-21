@@ -588,18 +588,48 @@
     width: fit-content;
   }
 
-  /* 修复分页按钮变形 */
+  /* 统一气泡头部（平台徽章与时间）的格式 */
+  .message-header {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    box-sizing: border-box;
+    gap: 8px;
+  }
+
+  /* 助手消息：徽章在左，时间在右 */
+  .message-bubble.assistant .message-header {
+    justify-content: space-between;
+  }
+
+  /* 用户消息：徽章和时间紧凑地靠右对齐，或者使用 row-reverse 让徽章靠右 */
+  .message-bubble.user .message-header {
+    flex-direction: row-reverse;
+    justify-content: space-between;
+  }
+
+  /* 修复分页按钮变形与换行坠落 */
   .pagination {
     display: flex;
     flex-direction: row;
+    flex-wrap: nowrap; /* 强制不换行 */
     justify-content: center;
     align-items: center;
-    gap: 15px;
-    flex-wrap: wrap; /* 允许在极窄屏幕下换行 */
+    width: 100%;
+    gap: 10px; /* 稍微减小间距以适应不换行 */
+    box-sizing: border-box;
   }
 
   .pagination-button {
     height: auto;
-    padding: 8px 16px;
+    padding: 6px 12px; /* 减小 padding 以节省空间 */
+    flex-shrink: 0; /* 防止被挤压变形 */
+    white-space: nowrap; /* 防止文字换行 */
+  }
+
+  .pagination-info {
+    flex-shrink: 0;
+    white-space: nowrap;
+    font-size: 13px; /* 稍微缩小字体以适应同一行 */
   }
 }
