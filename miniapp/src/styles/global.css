@@ -156,6 +156,7 @@ h1, h2, h3, h4, h5, h6 {
   body {
     overflow-x: hidden;
     max-width: 100%;
+    /* 移除 overflow-y: hidden 防止 sticky 失效 */
   }
 
   #root,
@@ -163,16 +164,19 @@ h1, h2, h3, h4, h5, h6 {
     max-width: 100%;
     overflow-x: hidden;
     min-width: 0;
+    /* 移除 overflow-y: hidden 防止 sticky 失效 */
   }
 
   .main-content {
     margin-left: 0 !important;
-    padding: 8px 12px;
+    padding: 0; /* 移除 padding，由内部元素自己控制 */
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     overflow-x: hidden;
     min-width: 0;
+    /* 移除 min-height: 100vh，让内容自然撑开 */
+    min-height: auto;
   }
 
   /* Flex 子项默认 min-width:auto，会被 Memory 等宽内容撑破视口，必须允许收缩 */
@@ -183,16 +187,26 @@ h1, h2, h3, h4, h5, h6 {
     align-self: stretch;
     justify-content: flex-start;
     align-items: stretch;
+    padding: 8px 12px; /* 把 main-content 的 padding 移到这里 */
+    box-sizing: border-box;
   }
   
   .mobile-header {
     display: flex;
-    padding: 4px 0;
+    padding: 12px 16px; /* 增加内边距让其更舒适 */
     margin-bottom: 12px;
     width: 100%;
     max-width: 100%;
     box-sizing: border-box;
     min-width: 0;
+    /* 固定吸顶效果 */
+    position: sticky;
+    top: 0;
+    z-index: 80; /* 低于侧边栏遮罩(90)和侧边栏(100) */
+    background: var(--bg-gradient); /* 使用全局背景变量防穿模 */
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(109, 89, 122, 0.1); /* 加一条细线区分内容区 */
   }
 
   .mobile-menu-btn {

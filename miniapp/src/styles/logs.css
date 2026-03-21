@@ -441,6 +441,12 @@
 @media (max-width: 768px) {
   .logs-container {
     padding: 16px;
+    /* 底部防遮挡留白 */
+    padding-bottom: 80px;
+    /* 解除日志列表的高度封印，交还滚动权给页面 */
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
   }
   
   /* 控制父级容器宽度，防止撑破页面 */
@@ -487,13 +493,22 @@
     white-space: nowrap;
   }
 
-  /* 修复搜索框防溢出 */
+  /* 修复搜索框防溢出与撑起高度 */
   .search-input {
     width: 100%;
     min-width: 0;
     box-sizing: border-box;
+    min-height: 44px; /* 撑起搜索框高度 */
+    padding: 8px 12px;
   }
   
+  /* 取消内部滚动区域的高度限制 */
+  .logs-content-scroll-area {
+    height: auto !important;
+    max-height: none !important;
+    overflow-y: visible !important;
+  }
+
   .log-row {
     grid-template-columns: 1fr;
     gap: 8px;
