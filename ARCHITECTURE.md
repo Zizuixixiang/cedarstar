@@ -395,13 +395,13 @@ cedarstar/                          # 项目根目录
 
 **Dashboard 页（`Dashboard.jsx` / `dashboard.css`）：** 挂载时并发请求 §3.5 三个控制台接口。顶栏为 Discord/Telegram 在线、**对话**侧激活配置名与模型（`/status`，与 `get_active_api_config('chat')` 一致）、批处理结论（由同页已拉取的 `/batch-log` 最近一条的 `step1_status`～`step5_status` 推导）。下方为跑批日历与记忆库概览；概览数据来自 `/memory-overview`，含 `chromadb_count`、`longterm_score_threshold`、`short_term_limit`、`chunk_summary_count`（今日微批摘要条数）、`dimension_status`（七维度圆点）、`latest_daily_summary_time` 等，具体字段以 `api/dashboard.py` 为准。样式层含核心 KPI 大字、今日日历高亮、维度 Tooltip 等（纯前端，不改变接口）。
 
-**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」与「摘要 API」为两个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=chat` 与 `?config_type=summary`，切换 Tab 时重新拉取。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表，若一致则仅刷新当前 Tab，避免在对话 Tab 下创建摘要配置后摘要列表仍为空。Tab 切换条样式与 Token 统计周期 Tab 同系的间距/分组（见 `settings.css` 中 `.config-tabs` / `.config-tab`）。
+**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」与「摘要 API」为两个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=chat` 与 `?config_type=summary`，切换 Tab 时重新拉取。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表，若一致则仅刷新当前 Tab，避免在对话 Tab 下创建摘要配置后摘要列表仍为空。Tab 切换条样式与 Token 统计周期 Tab 同系的间距/分组（见 `settings.css` 中 `.config-tabs` / `.config-tab`）。移动端（<768px）已重构为竖向堆叠布局与 2x2 Token 网格，解决文字竖排与溢出问题。
 
 **Persona 页（`Persona.jsx` / `persona.css`）：** 右侧 System Prompt 预览区使用 `position: sticky`（配合 `align-self: flex-start`、`max-height` 与预览正文区域内部滚动），主内容区纵向滚动时预览与「复制全文」仍留在视口内，便于对照长表单编辑。
 
 **Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 120px)`（可按主内容区 padding 微调）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据（hits、halflife 等）用 **`.memory-meta-chip`** 展示；顶部 Tab 使用 **`.memory-tabs button.memory-tab`** 暖橙选中样式。均为前端布局/样式，**接口与数据字段不变**。
 
-**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 可横向滚动，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（与窄屏一致），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐。**不改变** `/api/history` 参数与响应消费方式。
+**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。
 
 **API 根地址：** 各页通过 `src/apiBase.js` 的 `apiUrl()` 生成 `fetch` URL。环境变量 `VITE_API_BASE_URL` 未设置或为空时基底为空字符串，请求为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。
 
@@ -906,7 +906,7 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 
 **问题：** `GET /api/config/config` 失败或返回非成功时，页面将 `DEFAULT_CONFIG` 当作已加载数据展示，用户误以为即数据库真实值；「重置默认值」与后端 `config.py` 环境默认值可能不一致，缺少说明。
 
-**修复（2026-03-21）：** 失败时不在界面用本地默认值冒充服务端数据：顶部红色 `role="alert"` 错误区 +「重新加载」重试；成功拉取时剥离 `data._meta` 后合并参数键与 `DEFAULT_CONFIG`（见 §5.7、§7.2）。「重置默认值」的说明以悬停 Tooltip（`config.css` 中 `.config-reset-tooltip`）及按钮 `title` 呈现。详见 §7.2。
+**修复（2026-03-21）：** 失败时不在界面用本地默认值冒充服务端数据：顶部红色 `role="alert"` 错误区 +「重新加载」重试；成功拉取时剥离 `data._meta` 后合并参数键与 `DEFAULT_CONFIG`（见 §5.7、§7.2）。「重置默认值」的说明以悬停 Tooltip（`config.css` 中 `.config-reset-tooltip`）及按钮 `title` 呈现。详见 §7.2。移动端（<768px）配置项采用上下堆叠布局，释放文字与滑块宽度。
 
 ---
 
@@ -962,6 +962,7 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 **修复（2026-03-21）：**  
 1. 失败时不将本地默认值当作已加载数据：`config` 保持 `null`，页面顶部红色错误区（`role="alert"`）展示原因，并提供「重新加载」。成功时从 `data.data` 中解构出 `_meta`，其余键与 `DEFAULT_CONFIG` 合并为表单状态（勿把 `_meta` 写入 `config` 状态）。「上次保存时间」使用 `_meta.updated_at`（库内助手相关 key 的最近落库时间，见 §5.7），**不得**在每次 `GET` 成功时用 `new Date()` 冒充。`PUT` 成功后同样优先用响应中的 `_meta.updated_at` 更新展示，无则客户端兜底 `new Date()`。  
 2. 「重置默认值」说明文案：悬停 Tooltip + 按钮 `title`（与后端/数据库默认值可能不一致）；确认弹窗内保留二次说明。
+3. 移动端（<768px）配置项采用上下堆叠布局，释放文字与滑块宽度。
 
 **对应接口：** `GET /api/config/config`、`PUT /api/config/config`（响应 `data` 形状见 §5.7）
 
