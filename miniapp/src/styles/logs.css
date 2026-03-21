@@ -443,13 +443,55 @@
     padding: 16px;
   }
   
+  /* 控制父级容器宽度，防止撑破页面 */
+  .filter-bar {
+    width: 100%;
+    overflow: hidden;
+    box-sizing: border-box;
+    padding: 16px;
+  }
+
   .filter-row {
     flex-direction: column;
     gap: 16px;
+    width: 100%;
+    box-sizing: border-box;
   }
   
   .filter-group {
     min-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* 筛选按钮横向滚动 */
+  .segmented-buttons {
+    display: flex;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    width: 100%;
+    box-sizing: border-box;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .segmented-buttons::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 防止按钮被挤压变形 */
+  .segmented-button {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+
+  /* 修复搜索框防溢出 */
+  .search-input {
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
   }
   
   .log-row {
