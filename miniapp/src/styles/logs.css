@@ -222,11 +222,11 @@
 }
 
 .log-row.error {
-  background-color: rgba(224, 112, 112, 0.04);
+  background-color: rgba(239, 68, 68, 0.03); /* 极低透明度，避免大面积撞色 */
 }
 
 .log-row.error:hover {
-  background-color: rgba(224, 112, 112, 0.08);
+  background-color: rgba(239, 68, 68, 0.06);
 }
 
 /* 时间戳 */
@@ -237,78 +237,69 @@
   white-space: nowrap;
 }
 
-/* 级别标签 */
+/* 级别标签 (主要信息：柔和背景色块) */
 .level-tag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
-  border-radius: 12px;
+  padding: 4px 10px;
+  border-radius: 6px; /* 统一圆角 */
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
   min-width: 60px;
   white-space: nowrap;
+  border: none; /* 取消刺眼的边框 */
 }
 
 .level-tag.error {
-  background-color: rgba(224, 112, 112, 0.15);
-  color: #E07070;
+  background-color: #fee2e2;
+  color: #ef4444;
 }
 
 .level-tag.warning {
-  background-color: rgba(244, 162, 97, 0.15);
-  color: #F4A261;
+  background-color: #ffedd5;
+  color: #f97316;
 }
 
 .level-tag.info {
-  background-color: rgba(129, 178, 154, 0.15);
-  color: #81B29A;
+  background-color: #e0f2fe;
+  color: #0ea5e9;
 }
 
 .level-tag.debug {
-  background-color: rgba(109, 89, 122, 0.15);
-  color: var(--text-main);
+  background-color: #f3f4f6;
+  color: #4b5563;
 }
 
 .level-tag.critical {
-  background-color: rgba(224, 112, 112, 0.25);
-  color: #E07070;
-  border: 1px solid rgba(224, 112, 112, 0.3);
+  background-color: #fecaca;
+  color: #dc2626;
 }
 
-/* 平台标签 */
+/* 平台标签 (次要信息：幽灵样式) */
 .platform-tag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 8px;
-  border-radius: 12px;
+  padding: 3px 9px; /* 减去边框的 1px，保持视觉大小一致 */
+  border-radius: 6px; /* 统一圆角 */
   font-size: 11px;
-  font-weight: 600;
-  min-width: 70px;
+  font-weight: 500; /* 稍微降低字重 */
+  min-width: 60px; /* 统一宽度 */
   white-space: nowrap;
+  background-color: transparent;
+  border: 1px solid #e5e7eb;
+  color: #6b7280;
 }
 
-.platform-tag.telegram {
-  background-color: rgba(0, 136, 204, 0.15);
-  color: #0088CC;
-}
-
-.platform-tag.discord {
-  background-color: rgba(88, 101, 242, 0.15);
-  color: #5865F2;
-}
-
-.platform-tag.batch {
-  background-color: rgba(244, 162, 97, 0.15);
-  color: #F4A261;
-}
-
+/* 移除平台专属颜色，统一使用幽灵样式 */
+.platform-tag.telegram,
+.platform-tag.discord,
+.platform-tag.batch,
 .platform-tag.system {
-  background-color: rgba(109, 89, 122, 0.15);
-  color: var(--text-main);
+  /* 统一由 .platform-tag 基础类控制 */
 }
 
 /* 消息内容 */
