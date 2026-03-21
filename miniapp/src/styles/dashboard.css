@@ -471,3 +471,84 @@
     justify-content: flex-start;
   }
 }
+
+/* 移动端专属缩放 (约 75% 比例) */
+@media screen and (max-width: 767px) {
+  .dashboard-container {
+    gap: 16px;
+  }
+
+  .health-card {
+    padding: 16px 12px;
+    gap: 12px;
+    border-radius: 16px;
+  }
+
+  .health-label {
+    font-size: 0.8rem;
+  }
+
+  .health-value {
+    font-size: 0.85rem;
+  }
+
+  .dashboard-card {
+    padding: 16px;
+    border-radius: 16px;
+  }
+
+  .card-title {
+    font-size: 1rem;
+    margin-bottom: 12px;
+  }
+
+  .metric-hero__value {
+    font-size: 1.6rem;
+  }
+
+  .metric-hero__label, .metric-secondary {
+    font-size: 0.75rem;
+  }
+
+  .batch-calendar-grid {
+    gap: 8px;
+    margin-top: 12px;
+  }
+
+  .calendar-day {
+    padding: 8px 4px;
+    gap: 6px;
+    border-radius: 8px;
+  }
+
+  .calendar-date {
+    font-size: 0.75rem;
+  }
+
+  .calendar-status {
+    width: 12px;
+    height: 12px;
+  }
+
+  .memory-overview-grid {
+    gap: 12px;
+  }
+
+  .section-title {
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+  }
+
+  .section-content {
+    font-size: 0.8rem;
+  }
+
+  .dimension-grid {
+    gap: 8px;
+  }
+
+  .dimension-dot {
+    width: 10px;
+    height: 10px;
+  }
+}

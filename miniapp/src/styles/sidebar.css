@@ -149,8 +149,8 @@
 @media screen and (max-width: 767px) {
   .sidebar {
     transform: translateX(-100%);
-    width: 240px !important; /* 移动端固定宽度 */
-    padding: 16px 10px; /* 稍微减小整体内边距 */
+    width: 180px !important; /* 240px -> 180px */
+    padding: 12px 8px;
   }
 
   .sidebar.mobile-open {
@@ -167,30 +167,31 @@
   }
 
   .sidebar.collapsed .nav-icon {
-    width: 24px; /* 移动端保持图标宽度 */
+    width: 20px; /* 移动端保持图标宽度 */
   }
 
-  /* 移动端精简侧边栏排版 */
+  /* 移动端精简侧边栏排版 (75% 缩放) */
   .sidebar-header {
-    margin-bottom: 20px;
-    min-height: 32px;
+    margin-bottom: 16px;
+    min-height: 28px;
   }
 
   .sidebar-logo {
-    font-size: 1rem;
+    font-size: 0.9rem;
   }
 
   .nav-item {
-    padding: 10px 12px; /* 减小上下内边距 */
+    padding: 8px 10px;
+    border-radius: 10px;
   }
 
   .nav-text {
-    font-size: 14px; /* 缩小字体 */
-    margin-left: 10px;
+    font-size: 13px;
+    margin-left: 8px;
   }
 
   .nav-icon {
-    font-size: 1.1rem;
-    width: 24px;
+    font-size: 1rem;
+    width: 20px;
   }
 }

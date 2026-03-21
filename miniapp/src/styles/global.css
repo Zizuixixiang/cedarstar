@@ -138,24 +138,30 @@ h1, h2, h3, h4, h5, h6 {
 @media screen and (max-width: 767px) {
   .main-content {
     margin-left: 0 !important;
-    padding: 12px 16px; /* 稍微减小顶部 padding */
+    padding: 8px 12px; /* 进一步缩小 padding */
   }
   
   .mobile-header {
     display: flex;
-    padding: 4px 0; /* 减小 Header 内边距 */
-    margin-bottom: 16px;
+    padding: 4px 0;
+    margin-bottom: 12px;
   }
 
   .mobile-menu-btn {
-    width: 32px;
-    height: 32px;
-    font-size: 20px; /* 汉堡菜单大小减小到 20px */
+    width: 28px;
+    height: 28px;
+    font-size: 18px;
     margin-right: 8px;
   }
 
   .mobile-logo {
-    font-size: 18px; /* 标题减小到 18px */
+    font-size: 16px;
+  }
+
+  /* 全局卡片缩放 */
+  .card {
+    padding: 20px;
+    border-radius: 16px;
   }
 }
 
