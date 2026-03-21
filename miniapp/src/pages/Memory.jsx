@@ -364,7 +364,8 @@ function TemporalStateItem({ row, addToast, onRefresh }) {
     <div className="temporal-item">
       <div className="temporal-item-head">
         <span className={`temporal-status-pill ${status.className}`}>{status.label}</span>
-        {Number(row.is_active) === 1 && (
+        {/* 仅「生效中」可手动停用；已到期仍 is_active=1 时显示「已过期」，由日终 Step1 结算，不再提供软删除 */}
+        {status.label === '生效中' && (
           <button className="delete-button" type="button" onClick={() => setShowConfirm(true)}>
             软删除
           </button>
@@ -453,9 +454,13 @@ function LongTermMemoryItem({ memory, onDelete }) {
       {memory.is_orphan ? (
         <div className="memory-orphan-hint">未同步到向量库（is_orphan）</div>
       ) : null}
-      <div className="memory-detail-row">
-        <span>引用次数 hits：{memory.hits != null ? memory.hits : '—'}</span>
-        <span>半衰期 halflife_days：{memory.halflife_days != null ? memory.halflife_days : '—'}</span>
+      <div className="memory-detail-row memory-detail-row--chroma-stats">
+        <span className="memory-meta-chip">
+          引用次数 hits：{memory.hits != null ? memory.hits : '—'}
+        </span>
+        <span className="memory-meta-chip">
+          半衰期 halflife_days：{memory.halflife_days != null ? memory.halflife_days : '—'}
+        </span>
       </div>
       <div className="memory-detail-row memory-detail-row-single">
         最近访问 last_access_ts：
@@ -485,40 +490,54 @@ function SkeletonLoader() {
           <div key={i} className="skeleton-line short" style={{ width: '88px', height: '36px' }} />
         ))}
       </div>
-      {/* 记忆卡片骨架屏 */}
-      <div>
-        <div className="section-title">
-          <div className="skeleton-line" style={{ width: '120px' }}></div>
-        </div>
-        <div className="skeleton-card-grid">
-          {[...Array(7)].map((_, i) => (
-            <div key={i} className="skeleton-card">
-              <div className="skeleton-line short"></div>
-              <div className="skeleton-line medium"></div>
-              <div className="skeleton-line" style={{ width: '40%' }}></div>
+      <div className="memory-content-scroll-area">
+        {/* 记忆卡片骨架屏 */}
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__emoji" aria-hidden="true">{'\u00a0'}</span>
+              <span className="memory-tab-header__title-text">
+                <span className="skeleton-line" style={{ width: '140px', height: '20px', display: 'inline-block', verticalAlign: 'middle' }} />
+              </span>
+            </h2>
+          </div>
+          <div className="skeleton-card-grid">
+            {[...Array(7)].map((_, i) => (
+              <div key={i} className="skeleton-card">
+                <div className="skeleton-line short"></div>
+                <div className="skeleton-line medium"></div>
+                <div className="skeleton-line" style={{ width: '40%' }}></div>
+              </div>
+            ))}
+          </div>
+        </>
+
+        {/* 长期记忆骨架屏 */}
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__emoji" aria-hidden="true">{'\u00a0'}</span>
+              <span className="memory-tab-header__title-text">
+                <span className="skeleton-line" style={{ width: '140px', height: '20px', display: 'inline-block', verticalAlign: 'middle' }} />
+              </span>
+            </h2>
+            <div className="memory-tab-header__actions">
+              <div className="skeleton-line" style={{ width: '100px', height: '36px', borderRadius: 10 }} />
             </div>
-          ))}
-        </div>
-      </div>
-      
-      {/* 长期记忆骨架屏 */}
-      <div className="longterm-section">
-        <div className="section-title">
-          <div className="skeleton-line" style={{ width: '120px' }}></div>
-          <div className="skeleton-line" style={{ width: '100px' }}></div>
-        </div>
-        <div className="longterm-header">
-          <div className="skeleton-line" style={{ width: '100%' }}></div>
-          <div className="skeleton-line" style={{ width: '80px' }}></div>
-        </div>
-        <div className="memory-list">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="skeleton-card">
-              <div className="skeleton-line medium"></div>
-              <div className="skeleton-line short"></div>
-            </div>
-          ))}
-        </div>
+          </div>
+          <div className="longterm-header">
+            <div className="skeleton-line" style={{ width: '100%' }}></div>
+            <div className="skeleton-line" style={{ width: '80px' }}></div>
+          </div>
+          <div className="memory-list">
+            {[...Array(3)].map((_, i) => (
+              <div key={i} className="skeleton-card">
+                <div className="skeleton-line medium"></div>
+                <div className="skeleton-line short"></div>
+              </div>
+            ))}
+          </div>
+        </>
       </div>
     </div>
   );
@@ -1026,11 +1045,15 @@ function Memory() {
           </button>
         ))}
       </div>
-      
+
+      <div className="memory-content-scroll-area">
       {activeTab === 'cards' && (
-        <div>
-          <div className="section-title">
-            <span>📓 记忆卡片</span>
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__emoji" aria-hidden="true">📓</span>
+              <span className="memory-tab-header__title-text">记忆卡片</span>
+            </h2>
           </div>
           <div className="memory-cards-grid">
             {Object.keys(DIMENSION_MAP).map((dimension) => (
@@ -1044,18 +1067,23 @@ function Memory() {
               />
             ))}
           </div>
-        </div>
+        </>
       )}
       
       {activeTab === 'longterm' && (
-        <div className="longterm-section">
-          <div className="section-title">
-            <span>📚 长期记忆库</span>
-            <button className="add-button" type="button" onClick={() => setShowAddModal(true)}>
-              + 手动新增
-            </button>
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__emoji" aria-hidden="true">📚</span>
+              <span className="memory-tab-header__title-text">长期记忆库</span>
+            </h2>
+            <div className="memory-tab-header__actions">
+              <button className="add-button" type="button" onClick={() => setShowAddModal(true)}>
+                + 手动新增
+              </button>
+            </div>
           </div>
-          
+
           <div className="longterm-header">
             <input
               type="text"
@@ -1106,16 +1134,21 @@ function Memory() {
               </button>
             </div>
           )}
-        </div>
+        </>
       )}
-      
+
       {activeTab === 'temporal' && (
-        <div className="temporal-section">
-          <div className="section-title">
-            <span>⏱ 时效状态</span>
-            <button className="add-button" type="button" onClick={() => setShowTemporalAddModal(true)}>
-              + 新增
-            </button>
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__emoji" aria-hidden="true">⏱</span>
+              <span className="memory-tab-header__title-text">时效状态</span>
+            </h2>
+            <div className="memory-tab-header__actions">
+              <button className="add-button" type="button" onClick={() => setShowTemporalAddModal(true)}>
+                + 新增
+              </button>
+            </div>
           </div>
           {temporalLoading ? (
             <div className="tab-loading">加载中…</div>
@@ -1136,13 +1169,16 @@ function Memory() {
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
-      
+
       {activeTab === 'timeline' && (
-        <div className="timeline-section">
-          <div className="section-title">
-            <span>💞 关系时间线</span>
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__emoji" aria-hidden="true">💞</span>
+              <span className="memory-tab-header__title-text">关系时间线</span>
+            </h2>
           </div>
           {timelineLoading ? (
             <div className="tab-loading">加载中…</div>
@@ -1168,8 +1204,9 @@ function Memory() {
               ))}
             </div>
           )}
-        </div>
+        </>
       )}
+      </div>
     </div>
   );
 }

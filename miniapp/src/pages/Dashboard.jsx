@@ -40,8 +40,8 @@ function HealthCard({ data, loading, batchLogs }) {
       s4 === 1 &&
       s5 === 1;
     return allSuccess
-      ? { text: '全部成功', color: 'var(--status-green)' }
-      : { text: '存在失败', color: '#E07070' };
+      ? { text: '全部成功', color: 'var(--batch-success-text)' }
+      : { text: '存在失败', color: '#C94A4A' };
   };
 
   const batchStatus = getBatchStatus();
@@ -49,31 +49,28 @@ function HealthCard({ data, loading, batchLogs }) {
   return (
     <div className="health-card">
       <div className="health-item">
-        <span className="health-label">Discord 状态</span>
+        <span className="health-label">Discord</span>
         <div className="health-value">
           <span className={`status-dot ${discord_online ? 'online' : 'offline'}`}></span>
           {discord_online ? '活跃中' : '离线'}
         </div>
       </div>
-      
       <div className="health-item">
-        <span className="health-label">Telegram 状态</span>
+        <span className="health-label">Telegram</span>
         <div className="health-value">
           <span className={`status-dot ${telegram_online ? 'online' : 'offline'}`}></span>
           {telegram_online ? '活跃中' : '离线'}
         </div>
       </div>
-      
       <div className="health-item">
-        <span className="health-label">激活配置</span>
+        <span className="health-label">模型配置</span>
         <div className="health-value">
           {active_api_config || '未设置'} · {model_name || '未设置'}
         </div>
       </div>
-      
       <div className="health-item">
-        <span className="health-label">最近批处理</span>
-        <div className="health-value" style={{ color: batchStatus.color }}>
+        <span className="health-label">批处理</span>
+        <div className="health-value health-value--batch" style={{ color: batchStatus.color }}>
           {batchStatus.text}
         </div>
       </div>
@@ -105,16 +102,19 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
 
   const logs = data || [];
   
-  // 生成最近7天的数据
+  // 生成最近7天的数据（日期键与 batch 日志一致，使用本地日历日）
   const generateCalendarDays = () => {
     const days = [];
     const today = new Date();
-    
+    const pad = (n) => String(n).padStart(2, '0');
+    const toDateStr = (d) =>
+      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+
     for (let i = 6; i >= 0; i--) {
       const date = new Date(today);
       date.setDate(today.getDate() - i);
-      
-      const dateStr = date.toISOString().split('T')[0];
+
+      const dateStr = toDateStr(date);
       const logForDay = logs.find(log => (log.date || log.batch_date) === dateStr);
       
       let status = 'none';
@@ -128,11 +128,17 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
         status = hasFail ? 'failed' : 'success';
       }
       
+      const isToday =
+        date.getFullYear() === today.getFullYear() &&
+        date.getMonth() === today.getMonth() &&
+        date.getDate() === today.getDate();
+
       days.push({
         date: dateStr,
         displayDate: `${date.getMonth() + 1}/${date.getDate()}`,
         status,
-        log: logForDay
+        log: logForDay,
+        isToday
       });
     }
     
@@ -152,11 +158,13 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
         {calendarDays.map(day => (
           <div 
             key={day.date}
-            className={`calendar-day ${selectedDay === day.date ? 'selected' : ''}`}
+            className={`calendar-day ${selectedDay === day.date ? 'selected' : ''} ${day.isToday ? 'calendar-day--today' : ''}`}
             onClick={() => onDayClick(day.date)}
           >
             <div className="calendar-date">{day.displayDate}</div>
-            <div className={`calendar-status ${day.status}`}></div>
+            <div
+              className={`calendar-status ${day.status} ${day.isToday ? 'calendar-status--today-mark' : ''}`}
+            />
           </div>
         ))}
       </div>
@@ -266,8 +274,13 @@ function MemoryOverviewCard({ data, loading }) {
             <span>长期记忆库</span>
           </div>
           <div className="section-content">
-            <p>已收录片段数量 <span className="number-tag">{chromadb_count} 条</span></p>
-            <p style={{ marginTop: '8px' }}>记忆打分阈值 <span className="number-tag">≥ {longterm_score_threshold} 分</span></p>
+            <div className="metric-hero">
+              <div className="metric-hero__label metric-hero__label--top">已收录片段数量</div>
+              <div className="metric-hero__value">{chromadb_count}</div>
+            </div>
+            <p className="metric-secondary metric-secondary--dark">
+              记忆打分阈值 <span className="number-tag">≥ {longterm_score_threshold} 分</span>
+            </p>
           </div>
         </div>
         
@@ -275,30 +288,36 @@ function MemoryOverviewCard({ data, loading }) {
         <div className="memory-section">
           <div className="section-title">
             <span>实时感知</span>
-            <span className="number-tag">{short_term_limit} 条</span>
           </div>
           <div className="section-content">
-            <p style={{ marginBottom: '12px' }}>短期携带量 <span className="number-tag">{short_term_limit} 条</span></p>
-            
-            <div style={{ marginTop: '12px' }}>
-              <p style={{ fontSize: '0.85rem', color: 'var(--text-sub)', marginBottom: '8px' }}>
-                7个维度记忆卡片状态：
-              </p>
+            <div className="metric-hero metric-hero--tight">
+              <div className="metric-hero__label metric-hero__label--top">短期携带量（条）</div>
+              <div className="metric-hero__value">{short_term_limit}</div>
+            </div>
+
+            <p className="metric-secondary metric-secondary--dark metric-line--after-kpi">
+              今日微批摘要条数 <span className="number-tag">{chunk_summary_count} 条</span>
+            </p>
+
+            <div className="dimension-block">
+              <span className="visually-hidden">七个维度记忆卡片是否在库中激活，悬停圆点可查看维度名称</span>
               <div className="dimension-grid">
                 {dimensions.map(dim => (
                   <div key={dim.key} className="dimension-dot-container">
-                    <div 
+                    <div
                       className={`dimension-dot ${dimension_status[dim.key] ? 'filled' : 'empty'}`}
-                    ></div>
+                      title={dim.name}
+                      aria-label={dim.name}
+                    />
                     <div className="dimension-tooltip">{dim.name}</div>
                   </div>
                 ))}
               </div>
             </div>
-            
+
             {latest_daily_summary_time && (
-              <p style={{ marginTop: '12px', fontSize: '0.85rem' }}>
-                最近摘要: {new Date(latest_daily_summary_time).toLocaleDateString('zh-CN')}
+              <p className="metric-secondary metric-secondary--dark" style={{ marginTop: '12px', fontSize: '0.85rem' }}>
+                最近每日摘要时间: {new Date(latest_daily_summary_time).toLocaleString('zh-CN')}
               </p>
             )}
           </div>

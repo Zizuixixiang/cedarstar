@@ -15,7 +15,9 @@
   border: var(--border-card);
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
-  overflow: hidden;
+  /* 仅裁切横向，避免 overflow:hidden 切断右侧预览 position:sticky 相对视口吸顶 */
+  overflow-x: hidden;
+  overflow-y: visible;
   min-height: calc(100vh - 48px);
 }
 
@@ -97,7 +99,7 @@
 .persona-body {
   display: flex;
   flex: 1;
-  overflow: hidden;
+  overflow: visible;
   min-height: 0;
 }
 
@@ -112,15 +114,20 @@
   gap: 28px;
 }
 
-/* 右栏：预览区 40% */
+/* 右栏：预览区 40%（吸顶：长表单滚动时预览仍留在视口内） */
 .persona-preview {
   width: 40%;
   padding: 24px;
-  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 14px;
   background: rgba(255, 255, 255, 0.2);
+  position: sticky;
+  top: 20px;
+  align-self: flex-start;
+  max-height: calc(100vh - 40px);
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
 /* ========================================
@@ -295,6 +302,7 @@
 
 .preview-content {
   flex: 1;
+  min-height: 0;
   font-family: 'Courier New', Consolas, monospace;
   font-size: 0.8rem;
   line-height: 1.75;

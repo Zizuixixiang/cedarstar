@@ -110,13 +110,22 @@ def _get_config() -> Dict[str, Any]:
     return _config
 
 
+def _payload_with_meta(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+    """在配置字典上附加 _meta.updated_at（助手相关 key 在库中的最近更新时间）。"""
+    db = get_database()
+    ts = db.get_config_max_updated_at_for_keys(list(DEFAULT_CONFIG.keys()))
+    out = dict(config_dict)
+    out["_meta"] = {"updated_at": ts}
+    return out
+
+
 @router.get("/config")
 async def get_config():
     """
     获取当前所有配置参数。
     """
     config = _get_config()
-    return create_response(True, config)
+    return create_response(True, _payload_with_meta(config))
 
 
 @router.put("/config")
@@ -159,9 +168,9 @@ async def update_config(new_config: Dict[str, Any]):
     if updated:
         # 保存到数据库
         if _save_config_to_db(config):
-            # 更新内存缓存
-            _config = config
-            return create_response(True, config, "配置更新成功")
+            # _get_config() 会刷新全局缓存；附带 _meta 供前端展示真实落库时间
+            fresh = _get_config()
+            return create_response(True, _payload_with_meta(fresh), "配置更新成功")
         else:
             return create_response(False, None, "配置保存到数据库失败")
     else:

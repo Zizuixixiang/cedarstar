@@ -28,9 +28,9 @@ def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
 @router.get("/status")
 async def get_status():
     """
-    获取 bot 在线状态、当前激活 API 配置名、模型名。
+    获取 bot 在线状态、当前「对话 API」激活配置名、模型名。
     - bot_online：由 discord_bot / telegram_bot 的 on_ready 写入共享标志
-    - active_api_config / model_name：从 api_configs 表读取 is_active=1 的记录
+    - active_api_config / model_name：`config_type='chat'` 且 is_active=1 的一条（与 Bot / LLMInterface 对话路径一致，非摘要 API）
     """
     from memory.database import get_database
 
@@ -40,12 +40,11 @@ async def get_status():
     model_name = "未设置"
 
     try:
-        configs = db.get_all_api_configs()          # 正确方法名
-        active = next((c for c in configs if c.get('is_active')), None)
+        active = db.get_active_api_config("chat")
         if active:
-            active_config_name = active.get('name', '未设置')
-            model_name = active.get('model') or '未设置'
-    except Exception as e:
+            active_config_name = active.get("name", "未设置")
+            model_name = active.get("model") or "未设置"
+    except Exception:
         pass
 
     return create_response(True, {

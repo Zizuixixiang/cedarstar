@@ -10,6 +10,19 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  --batch-success-text: #3a6b47;
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 
 /* 系统健康档案卡片（顶部横向通栏） */
@@ -23,27 +36,38 @@
   box-shadow: var(--shadow-card);
   padding: 24px 32px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 32px;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
 }
 
 .health-item {
+  flex: 1;
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
 .health-label {
-  color: var(--text-sub);
+  color: var(--text-main);
   font-size: 0.9rem;
+  font-weight: 500;
   white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .health-value {
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text-main);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.health-value--batch {
+  font-weight: 700;
 }
 
 /* 状态指示器 */
@@ -133,6 +157,53 @@
   margin-left: 6px;
 }
 
+/* 核心指标大字 */
+.metric-hero {
+  margin-bottom: 12px;
+}
+
+.metric-hero--tight {
+  margin-bottom: 10px;
+}
+
+.metric-hero__value {
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.15;
+  color: var(--text-main);
+  letter-spacing: -0.02em;
+}
+
+.metric-hero__label {
+  margin-top: 6px;
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  font-weight: 400;
+}
+
+.metric-hero__label--top {
+  margin-top: 0;
+  margin-bottom: 8px;
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: #2e2a33;
+  letter-spacing: 0.02em;
+}
+
+.metric-secondary {
+  margin: 0;
+  font-size: 0.9rem;
+  color: var(--text-sub);
+}
+
+.metric-secondary--dark {
+  color: #3d3842;
+}
+
+.metric-line--after-kpi {
+  margin-bottom: 14px;
+}
+
 /* 跑批状态日历 */
 .calendar-day {
   display: flex;
@@ -155,6 +226,26 @@
 .calendar-date {
   font-size: 0.9rem;
   color: var(--text-sub);
+}
+
+.calendar-day--today {
+  background: rgba(255, 255, 255, 0.5);
+  border: 1px solid rgba(244, 162, 97, 0.42);
+  box-shadow: none;
+}
+
+.calendar-day--today .calendar-date {
+  font-weight: 700;
+  color: #3d3842;
+}
+
+.calendar-status--today-mark {
+  transform: scale(1.12);
+  box-shadow: 0 0 0 2px rgba(244, 162, 97, 0.35);
+}
+
+.calendar-day.selected {
+  box-shadow: 0 0 0 2px rgba(244, 162, 97, 0.55);
 }
 
 .calendar-status {
@@ -243,12 +334,16 @@
   font-size: 0.9rem;
 }
 
+.dimension-block {
+  margin-top: 0;
+}
+
 /* 维度状态指示器 */
 .dimension-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 12px;
-  margin-top: 12px;
+  margin-top: 0;
 }
 
 .dimension-dot {
@@ -367,13 +462,12 @@
   }
   
   .health-card {
-    flex-direction: column;
-    align-items: flex-start;
-    gap: 16px;
+    padding: 20px 16px;
+    flex-wrap: wrap;
   }
-  
+
   .health-item {
-    width: 100%;
-    justify-content: space-between;
+    flex: 1 1 45%;
+    justify-content: flex-start;
   }
 }

@@ -16,6 +16,27 @@ const DEFAULT_CONFIG = {
 };
 
 // 配置项元数据
+/** 解析后端 SQLite 风格或 ISO 时间字符串为本地 Date */
+function parseConfigUpdatedAt(ts) {
+  if (ts == null || typeof ts !== 'string' || !ts.trim()) return null;
+  const s = ts.trim();
+  // SQLite 的 CURRENT_TIMESTAMP 默认保存的是 UTC 时间
+  // 我们需要给字符串加上 'Z'，让浏览器知道这是 UTC 时间，从而正确转换为本地时区（东八区）
+  const normalized = s.includes('T') ? s : s.replace(' ', 'T');
+  const utcString = normalized.endsWith('Z') || normalized.includes('+') ? normalized : normalized + 'Z';
+  const d = new Date(utcString);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** 剥离 data._meta，合并参数并解析上次保存时间（来自库内 MAX(updated_at)，非「当前请求时刻」） */
+function mergeConfigApiPayload(payload) {
+  if (!payload || typeof payload !== 'object') return null;
+  const { _meta, ...rest } = payload;
+  const params = { ...DEFAULT_CONFIG, ...rest };
+  const lastSaved = _meta?.updated_at ? parseConfigUpdatedAt(_meta.updated_at) : null;
+  return { params, lastSaved };
+}
+
 const CONFIG_METADATA = [
   {
     key: 'short_term_limit',
@@ -119,10 +140,15 @@ function ConfigSkeleton() {
         ))}
 
         <div className="config-footer">
-          <div className="skeleton-line" style={{ width: '160px', height: '12px' }}></div>
-          <div className="config-buttons">
-            <div className="skeleton-number" style={{ width: '100px' }}></div>
-            <div className="skeleton-number" style={{ width: '130px' }}></div>
+          <div className="config-footer-bar config-footer-bar--skeleton">
+            <div className="config-footer-left">
+              <div className="skeleton-line" style={{ width: '88px', height: '10px' }} />
+              <div className="skeleton-line" style={{ width: '56px', height: '18px', marginTop: '8px' }} />
+            </div>
+            <div className="config-footer-actions">
+              <div className="skeleton-number" style={{ width: '100px', height: '38px' }} />
+              <div className="skeleton-number" style={{ width: '132px', height: '38px' }} />
+            </div>
           </div>
         </div>
       </div>
@@ -160,8 +186,11 @@ function Config() {
       const response = await fetch('/api/config/config');
       const data = await response.json();
       if (response.ok && data.success && data.data) {
-        setConfig({ ...DEFAULT_CONFIG, ...data.data });
-        setLastSaved(new Date());
+        const merged = mergeConfigApiPayload(data.data);
+        if (merged) {
+          setConfig(merged.params);
+          setLastSaved(merged.lastSaved);
+        }
       } else {
         setConfig(null);
         setLoadError(
@@ -228,9 +257,19 @@ function Config() {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        setLastSaved(new Date());
+        const merged = data.data ? mergeConfigApiPayload(data.data) : null;
+        if (merged) {
+          setConfig(merged.params);
+          // 保存成功后直接使用前端当前的本地时间，这样最准确且不会有时区问题
+          setLastSaved(new Date());
+        } else {
+          setLastSaved(new Date());
+        }
         setHasUnsavedChanges(false);
         showToast('✓ 配置已生效', 'success');
+        
+        // 强制重新获取最新配置，以确保获取到后端更新后的时间戳
+        fetchConfig();
       } else {
         throw new Error(data.message || '保存失败');
       }
@@ -330,15 +369,34 @@ function Config() {
                   value={config[item.key]}
                   onChange={e => handleConfigChange(item.key, e.target.value)}
                 />
-                <input
-                  type="number"
-                  className="config-number-input"
-                  min={item.min}
-                  max={item.max}
-                  value={config[item.key]}
-                  onChange={e => handleConfigChange(item.key, e.target.value)}
-                  onBlur={e => handleNumberBlur(item.key, e.target.value)}
-                />
+                <div className="config-number-wrapper">
+                  <button 
+                    className="config-stepper-btn" 
+                    onClick={() => handleConfigChange(item.key, config[item.key] - 1)}
+                    disabled={config[item.key] <= item.min}
+                    aria-label="减少"
+                  >
+                    -
+                  </button>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    className="config-number-input"
+                    min={item.min}
+                    max={item.max}
+                    value={config[item.key]}
+                    onChange={e => handleConfigChange(item.key, e.target.value)}
+                    onBlur={e => handleNumberBlur(item.key, e.target.value)}
+                  />
+                  <button 
+                    className="config-stepper-btn" 
+                    onClick={() => handleConfigChange(item.key, config[item.key] + 1)}
+                    disabled={config[item.key] >= item.max}
+                    aria-label="增加"
+                  >
+                    +
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -346,48 +404,44 @@ function Config() {
           </div>
         ))}
 
-        {/* 底部操作栏 */}
+        {/* 底部操作栏：左信息 / 右按钮组 */}
         <div className="config-footer">
-          <div className="config-last-saved">
-            {lastSaved
-              ? `上次保存时间：${lastSaved.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })}`
-              : '尚未保存'}
-          </div>
-
-          <div className="config-buttons">
-            <div
-              style={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'flex-start',
-                gap: '6px'
-              }}
-            >
-              <button
-                className="config-btn-secondary"
-                onClick={() => setShowConfirm(true)}
-                disabled={isSaving}
-              >
-                重置默认值
-              </button>
-              <span
-                style={{
-                  fontSize: '0.72rem',
-                  color: 'var(--text-sub)',
-                  lineHeight: 1.35,
-                  maxWidth: '15rem'
-                }}
-              >
-                重置为系统默认值，可能与当前数据库配置不同
+          <div className="config-footer-bar">
+            <div className="config-footer-left">
+              <span className="config-footer-saved-label">上次保存时间</span>
+              <span className="config-footer-saved-time">
+                {lastSaved
+                  ? lastSaved.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                  : '尚未保存'}
               </span>
             </div>
-            <button
-              className={`config-btn-primary${hasUnsavedChanges ? ' has-changes' : ''}`}
-              onClick={handleSave}
-              disabled={!hasUnsavedChanges || isSaving}
-            >
-              {isSaving ? '保存中…' : '保存并立即生效'}
-            </button>
+
+            <div className="config-footer-right">
+              <div className="config-footer-actions">
+                <span className="config-reset-wrap">
+                  <button
+                    type="button"
+                    className="config-btn-secondary config-btn-footer-secondary"
+                    onClick={() => setShowConfirm(true)}
+                    disabled={isSaving}
+                    title="重置为系统默认值，可能与当前数据库配置不同"
+                  >
+                    重置默认值
+                  </button>
+                  <span className="config-reset-tooltip" aria-hidden="true">
+                    重置为系统默认值，可能与当前数据库配置不同
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  className={`config-btn-primary config-btn-footer-primary${hasUnsavedChanges ? ' has-changes' : ''}`}
+                  onClick={handleSave}
+                  disabled={!hasUnsavedChanges || isSaving}
+                >
+                  {isSaving ? '保存中…' : '保存并立即生效'}
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>

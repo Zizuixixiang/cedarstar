@@ -1,6 +1,6 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-21  
+> 生成时间：2026-03-22
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -51,7 +51,7 @@ cedarstar/                          # 项目根目录
 │   ├── memory.py                   # 记忆管理接口（记忆卡片 + 长期记忆：先 Chroma 后 SQLite 写入，列表含 is_orphan）
 │   ├── history.py                  # 对话历史查询接口（支持平台/关键词/日期过滤+分页）
 │   ├── logs.py                     # 系统日志查询接口（支持平台/级别/关键词过滤+分页）
-│   ├── config.py                   # 助手运行参数配置接口（buffer_delay、chunk_threshold 等）
+│   ├── config.py                   # 助手运行参数配置接口；GET/PUT 成功时 data 含 _meta.updated_at（见 §5.7）
 │   └── settings.py                 # API 配置管理接口（api_configs CRUD + Token 消耗统计）
 │
 ├── bot/                            # 聊天机器人层
@@ -94,12 +94,12 @@ cedarstar/                          # 项目根目录
 │       ├── App.jsx                 # 根组件（侧边栏导航 + 路由出口）
 │       ├── router.jsx              # 路由配置（7 个页面；显式 import React）
 │       ├── pages/                  # 页面组件
-│       │   ├── Dashboard.jsx       # 控制台概览页（Bot 状态、记忆状态、批处理日志）
+│       │   ├── Dashboard.jsx       # 控制台概览页（status / memory-overview / batch-log，顶栏与日历、记忆 KPI）
 │       │   ├── Persona.jsx         # 人设配置页（角色/用户信息 CRUD）
-│       │   ├── Memory.jsx          # 记忆管理页（记忆卡片 + 长期记忆库）
-│       │   ├── History.jsx         # 对话历史页（消息列表，支持过滤）
-│       │   ├── Logs.jsx            # 系统日志页（日志列表，支持过滤）
-│       │   ├── Config.jsx          # 助手配置页（运行参数调整）
+│       │   ├── Memory.jsx          # 记忆管理页（四 Tab；固定视口内高度 + 内容区独立滚动，见 §3.6）
+│       │   ├── History.jsx         # 对话历史页（聊天气泡布局 + 筛选，见 §3.6）
+│       │   ├── Logs.jsx            # 系统日志页（固定高度布局，支持过滤）
+│       │   ├── Config.jsx          # 助手配置页（运行参数调整，优化了移动端触控体验）
 │       │   └── Settings.jsx        # 核心设置页（API 配置管理 + Token 统计）
 │       └── styles/                 # CSS 样式文件（每个页面对应一个 CSS 文件）
 │           ├── global.css          # 全局样式
@@ -240,6 +240,7 @@ cedarstar/                          # 项目根目录
 - 提供 `get_database()` 单例工厂函数
 - 管理 12 张核心数据表（及日志/统计等表）的 CRUD 操作；启动时由 `migrate_database_schema()` 幂等补齐列与索引（每次初始化成功执行后，`memory.database` 打 **INFO** 日志：`数据库 schema 迁移（索引/列）已执行`）
 - Context 只读：`get_all_active_temporal_states()`（`temporal_states.is_active=1` 全量）、`get_recent_relationship_timeline(limit)`（数据库按 `created_at` 倒序取前 `limit` 条；`context_builder` 注入前对关系时间线再按 `created_at` 正序排列）
+- 记忆卡片：`get_memory_cards()` 仅返回 `is_active=1`（供 API / Context）；日终 Step 3 Upsert 使用 `get_latest_memory_card_for_dimension()`，按 `user_id` + `character_id` + `dimension` 取**最近一条且不过滤 `is_active`**，避免批量软删后无法命中旧行；`update_memory_card(..., reactivate=True)` 在更新正文同时将 `is_active` 置 1（跑批合并写回后重新展示）
 
 #### 3.4.2 `context_builder.py` — Context 组装
 
@@ -290,9 +291,14 @@ cedarstar/                          # 项目根目录
 |------|------|
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | 将 Step 1 输出附在 prompt 开头，合并今日 chunk 摘要，调用 SUMMARY LLM 生成今日小传（`summary_type='daily'`） |
-| Step 3 | 记忆卡片 Upsert（逻辑同前）；结束时再调 SUMMARY LLM 判断是否写入 `relationship_timeline`（含 Step 1 结算的时效事件），有则 `INSERT` |
+| Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则调用模型合并去重后 `UPDATE`，合并失败时 fallback 为追加写入**；结束时再调 SUMMARY LLM 判断是否写入 `relationship_timeline`（含 Step 1 结算的时效事件），有则 `INSERT` |
 | Step 4 | 主 LLM 打分（1-10）；**全量**向量化入库（不再按分数跳过）。`halflife_days`：8–10→60，4–7→30，1–3→7。先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`，metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — 仅当 `last_access_ts` 距今 ≥90 天、半衰期衰减得分 \<0.05、且无子文档以该 `doc_id` 为 `parent_id` 时物理删除 |
+
+**Step 3 实现要点（与代码一致）：**
+- **维度 JSON：** 对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则。
+- **Upsert 行定位：** `get_latest_memory_card_for_dimension()`（不过滤 `is_active`），保证「全表 `is_active=0` 后重跑」仍更新同一逻辑行，而非误当作无记录而堆叠 `INSERT`。
+- **合并写回：** `_merge_memory_card_contents` 使用摘要模型配置的 `LLMInterface.generate_simple`（不经 `micro_batch` 的对话摘要模板）；合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
 
@@ -342,6 +348,9 @@ cedarstar/                          # 项目根目录
 
 **职责：** 提供 FastAPI REST 接口，供前端 Mini App 调用。所有接口统一返回 `{success, data, message}` 格式。
 
+**主要模块：**
+- `config.py`：助手运行参数配置接口。`GET /api/config/config` 和 `PUT /api/config/config` 成功时，`data` 字段会包含 `_meta.updated_at`，用于前端展示配置的真实落库时间（UTC 时间，前端负责转为本地时区）。
+
 **路由前缀映射：**
 
 | 前缀 | 模块 | 主要功能 |
@@ -357,6 +366,7 @@ cedarstar/                          # 项目根目录
 **边界：**
 - API 层不包含业务逻辑，直接调用 `memory.database` 的方法
 - `dashboard.py` 维护一个进程内共享的 `_bot_status` 字典，由 bot 的 `on_ready`/`on_disconnect` 事件写入
+- **`GET /api/dashboard/status` 的模型信息：** `active_api_config` / `model_name` 来自 `get_active_api_config('chat')`，与 Settings「对话 API」Tab 的激活项及 Bot 对话路径一致（不包含摘要 API）
 - `settings.py` 的 API Key 在返回时脱敏（只显示末4位）
 - `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写 SQLite；`DELETE /longterm/{id}` 先删 SQLite 再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列），并按 `chroma_doc_id` 批量读取 Chroma 元数据附加 `hits`、`halflife_days`、`last_access_ts`（孤儿行三项为 `null`）
 - `memory.py` 时效状态：`GET/POST /temporal-states`、`DELETE /temporal-states/{id}`（将 `is_active` 置 0）；`GET /relationship-timeline` 返回全表按 `created_at` 倒序（只读）
@@ -380,6 +390,16 @@ cedarstar/                          # 项目根目录
 | Logs（系统日志） | `/logs` | `/api/logs` |
 | Config（助手配置） | `/config` | `/api/config/config` |
 | Settings（核心设置） | `/settings` | `/api/settings/api-configs` `/api/settings/token-usage` |
+
+**Dashboard 页（`Dashboard.jsx` / `dashboard.css`）：** 挂载时并发请求 §3.5 三个控制台接口。顶栏为 Discord/Telegram 在线、**对话**侧激活配置名与模型（`/status`，与 `get_active_api_config('chat')` 一致）、批处理结论（由同页已拉取的 `/batch-log` 最近一条的 `step1_status`～`step5_status` 推导）。下方为跑批日历与记忆库概览；概览数据来自 `/memory-overview`，含 `chromadb_count`、`longterm_score_threshold`、`short_term_limit`、`chunk_summary_count`（今日微批摘要条数）、`dimension_status`（七维度圆点）、`latest_daily_summary_time` 等，具体字段以 `api/dashboard.py` 为准。样式层含核心 KPI 大字、今日日历高亮、维度 Tooltip 等（纯前端，不改变接口）。
+
+**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」与「摘要 API」为两个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=chat` 与 `?config_type=summary`，切换 Tab 时重新拉取。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表，若一致则仅刷新当前 Tab，避免在对话 Tab 下创建摘要配置后摘要列表仍为空。Tab 切换条样式与 Token 统计周期 Tab 同系的间距/分组（见 `settings.css` 中 `.config-tabs` / `.config-tab`）。
+
+**Persona 页（`Persona.jsx` / `persona.css`）：** 右侧 System Prompt 预览区使用 `position: sticky`（配合 `align-self: flex-start`、`max-height` 与预览正文区域内部滚动），主内容区纵向滚动时预览与「复制全文」仍留在视口内，便于对照长表单编辑。
+
+**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 120px)`（可按主内容区 padding 微调）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据（hits、halflife 等）用 **`.memory-meta-chip`** 展示；顶部 Tab 使用 **`.memory-tabs button.memory-tab`** 暖橙选中样式。均为前端布局/样式，**接口与数据字段不变**。
+
+**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 可横向滚动，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（与窄屏一致），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐。**不改变** `/api/history` 参数与响应消费方式。
 
 **开发代理：** Vite 将 `/api` 请求代理到 `http://localhost:8000`
 
@@ -597,6 +617,8 @@ Mini App 用户在 Settings 页面切换激活 API 配置
 
 **索引：** `(user_id, character_id, dimension, updated_at)`、`(user_id, is_active)`、`(is_active)`
 
+**访问约定：** 列表与 Context 仅展示 `is_active=1`（`get_memory_cards`）。日终跑批 Step 3 用 `get_latest_memory_card_for_dimension` 读写**含停用行**的最近一条，合并后通过 `update_memory_card(..., reactivate=True)` 恢复展示。
+
 ---
 
 ### 5.4 `temporal_states` — 临时/时态状态表
@@ -660,6 +682,8 @@ Mini App 用户在 Settings 页面切换激活 API 配置
 - `short_term_limit`：Context 中最近消息数
 - `longterm_score_threshold`：长期记忆归档分数阈值
 - `reranker_top_n`：Reranker 返回结果数
+
+**API 响应元数据：** `GET` / `PUT` `/api/config/config` 成功时，返回体中的 `data` 除上述键外另含 `_meta: { updated_at: string | null }`，值为这些键在 `config` 表中的 `MAX(updated_at)`（SQLite 时间字符串，前端解析时需注意这是 UTC 时间，需转为本地时区），用于 Mini App「上次保存时间」；`_meta` 不是配置项，不参与 `PUT` 写回。实现：`memory/database.py` 的 `get_config_max_updated_at_for_keys`、`api/config.py` 的 `_payload_with_meta`。
 
 ---
 
@@ -779,19 +803,19 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ---
 
-### 6.3 ✅ 已修复：`daily_batch.py` Step2 完整实现
+### 6.3 ✅ 已修复 / 已演进：`daily_batch.py` Step 3 记忆卡片
 
-**问题：** `_step2_update_memory_cards()` 方法中有大量 `TODO` 注释，实际上没有调用 LLM 分析维度信息，只是遍历了维度列表但没有执行任何实质性操作。
+**问题（历史）：** 日终记忆卡片更新曾缺失或仅为简单拼接，同维度内容重复堆叠；仅按 `get_memory_cards`（`is_active=1`）判断「是否有旧卡」时，批量软删后无法命中旧行；SUMMARY 模型若返回前置说明或非严格 JSON，维度解析易失败。
 
-**修复（2026-03-21）：** 完整实现了 Step2 的 LLM 维度分析和 memory_cards Upsert 逻辑：
+**当前行为（与 §3.4.4 Step 3 一致）：**
 
-1. 从 `summaries` 表取最新一条 `summary_type='daily'` 的今日小传
-2. 从 `messages` 表查询当日有对话的 `(user_id, character_id)` 列表（无记录时兜底为 `default_user/sirius`）
-3. 构建 Prompt 要求 SUMMARY LLM 按 7 个维度分析，返回 `{dimension: content_or_null}` JSON
-4. 解析 JSON（先直接解析，失败则用正则提取 JSON 块）
-5. 对有内容的维度执行 Upsert：已有记录则追加合并（`interaction_patterns` 并存保留并注明日期，其他维度追加更新标记），无记录则 INSERT
-6. 单个维度失败通过 `try/except + continue` 隔离，不影响其他维度继续执行
-7. 使用 `self.summary_llm`（SUMMARY 配置），不使用 chat 配置
+1. 从 `summaries` 表取最新一条 `summary_type='daily'` 的今日小传（Step 2 产出）
+2. 从 `messages` 表查询当批日期的 `(user_id, character_id)` 列表（无记录时兜底 `default_user/sirius`）
+3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）
+4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
+5. **Upsert：** `get_latest_memory_card_for_dimension` 取该用户/角色/维度最近一条（**含 `is_active=0`**）；有则 `_merge_memory_card_contents`（摘要模型 `generate_simple`）合并去重，`update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
+6. 单维度 `try/except + continue`，互不拖累
+7. 维度分析仍走 `summary_llm.generate_summary`（经 micro_batch 摘要模板包装）；**合并**走 `_call_summary_llm_custom`（直连 `generate_simple`，避免模板干扰）
 
 ---
 
@@ -878,7 +902,7 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 
 **问题：** `GET /api/config/config` 失败或返回非成功时，页面将 `DEFAULT_CONFIG` 当作已加载数据展示，用户误以为即数据库真实值；「重置默认值」与后端 `config.py` 环境默认值可能不一致，缺少说明。
 
-**修复（2026-03-21）：** 失败时不在界面用本地默认值冒充服务端数据：顶部红色 `role="alert"` 错误区 +「重新加载」重试；仅 `response.ok` 且 `success` 且有 `data` 时合并 `DEFAULT_CONFIG` 与 `data.data` 展示表单。重置按钮旁增加小字：「重置为系统默认值，可能与当前数据库配置不同」。详见 §7.2。
+**修复（2026-03-21）：** 失败时不在界面用本地默认值冒充服务端数据：顶部红色 `role="alert"` 错误区 +「重新加载」重试；成功拉取时剥离 `data._meta` 后合并参数键与 `DEFAULT_CONFIG`（见 §5.7、§7.2）。「重置默认值」的说明以悬停 Tooltip（`config.css` 中 `.config-reset-tooltip`）及按钮 `title` 呈现。详见 §7.2。
 
 ---
 
@@ -911,30 +935,15 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 
 ---
 
-### 7.1 🟡 中等：`Dashboard.jsx` — "最近批处理"状态硬编码为"全部成功"
+### 7.1 ✅ 已修复：`Dashboard.jsx` —「批处理」状态曾硬编码为「全部成功」
 
 **页面名称：** Dashboard（控制台概览）
 
-**Mock 数据位置：** `HealthCard` 组件内，约第 55 行：
+**原问题：** `HealthCard` 中「最近批处理 / 批处理」曾写死为绿色「全部成功」，未反映真实跑批结果。
 
-```jsx
-<div className="health-item">
-  <span className="health-label">最近批处理</span>
-  <div className="health-value" style={{ color: 'var(--status-green)' }}>
-    全部成功   {/* ← 硬编码字符串，永远显示绿色"全部成功" */}
-  </div>
-</div>
-```
+**修复：** `HealthCard` 接收父组件传入的 `batchLogs`（与页面级 `GET /api/dashboard/batch-log` 同源）。取**最近一条**日志（数组已按日期倒序），根据 `step1_status`～`step5_status` 是否均为 `1` 渲染「全部成功」或「存在失败」，并区分颜色；无记录时显示「暂无记录」。
 
-**问题描述：**  
-`HealthCard` 组件接收 `data` 参数（来自 `/api/dashboard/status`），但"最近批处理"这一行完全没有使用 API 数据，而是直接硬编码了绿色文字 `"全部成功"`。即使批处理实际失败，界面也永远显示"全部成功"。
-
-**对应的真实后端接口：**  
-- `/api/dashboard/batch-log`：返回最近 7 天的跑批日志，包含 `step1_status`～`step5_status`，可用于判断最近一次批处理是否成功。  
-- `/api/dashboard/status`：Bot 状态接口，理论上也可扩展返回最近批处理状态。
-
-**修复建议：**  
-从 `batchLogData`（已通过 `/api/dashboard/batch-log` 获取）中取最近一条记录，判断三个 step 状态，动态渲染"全部成功"或"存在失败"，并相应改变颜色。
+**相关接口：** `/api/dashboard/batch-log`（批处理状态）；`/api/dashboard/status` 仍仅负责 Bot 在线与**对话**激活配置名/模型名（见 §3.5 边界说明）。
 
 ---
 
@@ -947,10 +956,10 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 2. 「重置默认值」使用前端常量，与后端 `config.py` / 数据库可能不一致，缺少提示。
 
 **修复（2026-03-21）：**  
-1. 失败时不将本地默认值当作已加载数据：`config` 保持 `null`，页面顶部红色错误区（`role="alert"`）展示原因，并提供「重新加载」；仅 `response.ok` 且 `success` 且有 `data` 时用 `{ ...DEFAULT_CONFIG, ...data.data }` 合并展示（缺字段兜底仍为合理做法）。  
-2. 「重置默认值」按钮下方小字说明：「重置为系统默认值，可能与当前数据库配置不同」。
+1. 失败时不将本地默认值当作已加载数据：`config` 保持 `null`，页面顶部红色错误区（`role="alert"`）展示原因，并提供「重新加载」。成功时从 `data.data` 中解构出 `_meta`，其余键与 `DEFAULT_CONFIG` 合并为表单状态（勿把 `_meta` 写入 `config` 状态）。「上次保存时间」使用 `_meta.updated_at`（库内助手相关 key 的最近落库时间，见 §5.7），**不得**在每次 `GET` 成功时用 `new Date()` 冒充。`PUT` 成功后同样优先用响应中的 `_meta.updated_at` 更新展示，无则客户端兜底 `new Date()`。  
+2. 「重置默认值」说明文案：悬停 Tooltip + 按钮 `title`（与后端/数据库默认值可能不一致）；确认弹窗内保留二次说明。
 
-**对应接口：** `GET /api/config/config`、`PUT /api/config/config`
+**对应接口：** `GET /api/config/config`、`PUT /api/config/config`（响应 `data` 形状见 §5.7）
 
 ---
 
@@ -959,6 +968,10 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 **页面名称：** Memory（记忆管理）
 
 **说明（2026-03-21 任务 7）：** 页面分为四个 Tab：记忆卡片、长期记忆、时效状态（`temporal_states` 列表/新增/软删除）、关系时间线（`relationship_timeline` 只读倒序）。长期记忆每条展示 Chroma 侧 `hits`、`halflife_days`、`last_access_ts`，并对 `is_orphan` 显示提示文案。
+
+**时效状态 Tab UI：** 列表状态由 `getTemporalDisplayStatus` 根据 `is_active` 与 `expire_at` 推导（`生效中` / `已过期`）。**「软删除」（停用）按钮仅对「生效中」展示**；`expire_at` 已到期但日终跑批尚未把该行 `is_active` 置 0 时，界面显示「已过期」且**不**出现软删除，与 §6.2 Step 1 到期结算语义一致，避免对已到期记录重复操作。
+
+**布局与 Tab 切页：** 固定 `.memory-container` 高度 + `.memory-content-scroll-area` 内滚动、统一 `.memory-tab-header` / `h2` 页头与顶距，已去除各 Tab 外层区块不一致的 `margin-top`（原 `longterm-section` / `temporal-section` / `timeline-section`），避免切 Tab 时标题上下跳动；详见 §3.6 Memory 页说明。
 
 **对应接口：** `GET /api/memory/cards`、`GET/POST/DELETE /api/memory/*`（见 §7.4 表）
 
@@ -974,8 +987,8 @@ score_match = re.search(r'\b([1-9]|10)\b', score_text)
 | **History.jsx** | `GET /api/history`（支持 platform / keyword / date_from / date_to / page / page_size 参数） |
 | **Logs.jsx** | `GET /api/logs`（支持 platform / level / keyword / page / page_size 参数） |
 | **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |
-| **Settings.jsx** | `GET /api/settings/api-configs`、`POST /api/settings/api-configs`、`PUT /api/settings/api-configs/{id}`、`DELETE /api/settings/api-configs/{id}`、`PUT /api/settings/api-configs/{id}/activate`、`POST /api/settings/api-configs/fetch-models`、`GET /api/settings/token-usage`、`GET /api/persona` |
-| **Config.jsx** | `GET /api/config/config`、`PUT /api/config/config`（失败时顶部错误提示 + 重试，见 §7.2） |
+| **Settings.jsx** | `GET /api/settings/api-configs?config_type=chat|summary`（按 Tab 过滤）、`POST` / `PUT` / `DELETE` / `PUT .../activate`、`POST .../fetch-models`、`GET /api/settings/token-usage`、`GET /api/persona`；保存配置后按返回表单中的 `config_type` 切换 Tab 或刷新当前列表（见 §3.6 Settings 页说明） |
+| **Config.jsx** | `GET /api/config/config`、`PUT /api/config/config`（`data` 含 `_meta.updated_at`；失败时顶部错误提示 + 重试，见 §5.7、§7.2） |
 
 ---
 

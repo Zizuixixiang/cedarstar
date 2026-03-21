@@ -8,10 +8,68 @@
   max-width: 1200px;
   margin: 0 auto;
   padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  height: calc(100vh - 120px); /* 视口高度减去顶部导航等可能的高度 */
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+/* Toast 提示 */
+.toast-container {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.toast {
+  padding: 12px 20px;
+  border-radius: var(--radius-btn);
+  background: var(--card-bg);
+  backdrop-filter: var(--card-blur);
+  border: var(--border-card);
+  box-shadow: var(--shadow-card);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: slideIn 0.3s ease;
+}
+
+.toast.success {
+  color: var(--status-green);
+  border-left: 3px solid var(--status-green);
+}
+
+.toast.error {
+  color: #E07070;
+  border-left: 3px solid #E07070;
+}
+
+.toast.info {
+  color: var(--text-sub);
+  border-left: 3px solid var(--text-sub);
+}
+
+@keyframes slideIn {
+  from {
+    transform: translateX(100%);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 /* 筛选栏 */
 .filter-bar {
+  flex-shrink: 0;
   background: var(--card-bg);
   backdrop-filter: var(--card-blur);
   -webkit-backdrop-filter: var(--card-blur);
@@ -19,7 +77,6 @@
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
   padding: 24px;
-  margin-bottom: 24px;
 }
 
 .filter-row {
@@ -50,17 +107,27 @@
   border-radius: var(--radius-btn);
   padding: 4px;
   gap: 4px;
+  height: 44px;
+  box-sizing: border-box;
 }
 
 .segmented-button {
   flex: 1;
-  padding: 8px 16px;
+  padding: 0 16px;
+  height: 100%;
+  border: none;
+  background: transparent;
   border-radius: calc(var(--radius-btn) - 4px);
   font-size: 14px;
   color: var(--text-main);
   text-align: center;
   transition: all var(--transition);
   white-space: nowrap;
+  cursor: pointer;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .segmented-button:hover {
@@ -75,13 +142,15 @@
 
 /* 搜索输入框 */
 .search-input {
-  padding: 12px 16px;
+  padding: 0 16px;
+  height: 44px;
   border: 1px solid rgba(109, 89, 122, 0.1);
   border-radius: var(--radius-btn);
   background: white;
   color: var(--text-main);
   font-size: 14px;
   transition: all var(--transition);
+  box-sizing: border-box;
 }
 
 .search-input:focus {
@@ -94,6 +163,16 @@
   color: var(--text-sub);
 }
 
+/* 日志列表可滚动区域 */
+.logs-content-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+  border-radius: var(--radius-card); /* 给滚动区域加圆角，防止内部卡片滚动时边角溢出 */
+}
+
 /* 日志列表容器 */
 .logs-list-container {
   background: var(--card-bg);
@@ -103,7 +182,6 @@
   border-radius: var(--radius-card);
   box-shadow: var(--shadow-card);
   padding: 24px;
-  overflow: hidden;
 }
 
 .section-title {
@@ -289,10 +367,12 @@
   display: flex;
   flex-direction: column;
   gap: 24px;
+  height: 100%;
 }
 
 .skeleton-filter {
   height: 100px;
+  flex-shrink: 0;
   background: linear-gradient(90deg, rgba(109, 89, 122, 0.05) 25%, rgba(109, 89, 122, 0.1) 50%, rgba(109, 89, 122, 0.05) 75%);
   background-size: 200% 100%;
   animation: loading 1.5s infinite;

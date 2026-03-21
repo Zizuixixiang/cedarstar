@@ -126,12 +126,14 @@ function SkeletonLoader() {
     <div className="logs-container">
       <div className="skeleton-loader">
         <div className="skeleton-filter"></div>
-        <div className="logs-list-container">
-          <div className="skeleton-log-row"></div>
-          <div className="skeleton-log-row"></div>
-          <div className="skeleton-log-row"></div>
-          <div className="skeleton-log-row"></div>
-          <div className="skeleton-log-row"></div>
+        <div className="logs-content-scroll-area">
+          <div className="logs-list-container">
+            <div className="skeleton-log-row"></div>
+            <div className="skeleton-log-row"></div>
+            <div className="skeleton-log-row"></div>
+            <div className="skeleton-log-row"></div>
+            <div className="skeleton-log-row"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -406,54 +408,57 @@ function Logs() {
         </div>
       </div>
 
-      {/* 日志列表 */}
-      <div className="logs-list-container">
-        <div className="section-title">
-          <span>🪵 系统日志</span>
-          <span style={{ color: 'var(--text-sub)', fontSize: '14px', marginLeft: 'auto' }}>
-            共 {totalItems} 条记录
-          </span>
-        </div>
+      {/* 日志列表可滚动区域 */}
+      <div className="logs-content-scroll-area">
+        {/* 日志列表 */}
+        <div className="logs-list-container">
+          <div className="section-title">
+            <span>🪵 系统日志</span>
+            <span style={{ color: 'var(--text-sub)', fontSize: '14px', marginLeft: 'auto' }}>
+              共 {totalItems} 条记录
+            </span>
+          </div>
 
-        <div
-          className="logs-list"
-          style={{
-            opacity: fetching ? 0.5 : 1,
-            transition: 'opacity 0.2s ease',
-            pointerEvents: fetching ? 'none' : 'auto'
-          }}
-        >
-          {logs.length === 0 ? (
-            <EmptyState />
-          ) : (
-            logs.map(log => (
-              <LogRow key={log.id} log={log} />
-            ))
+          <div
+            className="logs-list"
+            style={{
+              opacity: fetching ? 0.5 : 1,
+              transition: 'opacity 0.2s ease',
+              pointerEvents: fetching ? 'none' : 'auto'
+            }}
+          >
+            {logs.length === 0 ? (
+              <EmptyState />
+            ) : (
+              logs.map(log => (
+                <LogRow key={log.id} log={log} />
+              ))
+            )}
+          </div>
+
+          {/* 分页控件 */}
+          {logs.length > 0 && totalPages > 1 && (
+            <div className="pagination">
+              <button
+                className="pagination-button"
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+              >
+                上一页
+              </button>
+              <span className="pagination-info">
+                第 {currentPage} 页 / 共 {totalPages} 页
+              </span>
+              <button
+                className="pagination-button"
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+              >
+                下一页
+              </button>
+            </div>
           )}
         </div>
-
-        {/* 分页控件 */}
-        {logs.length > 0 && totalPages > 1 && (
-          <div className="pagination">
-            <button
-              className="pagination-button"
-              onClick={handlePrevPage}
-              disabled={currentPage <= 1}
-            >
-              上一页
-            </button>
-            <span className="pagination-info">
-              第 {currentPage} 页 / 共 {totalPages} 页
-            </span>
-            <button
-              className="pagination-button"
-              onClick={handleNextPage}
-              disabled={currentPage >= totalPages}
-            >
-              下一页
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

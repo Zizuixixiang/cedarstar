@@ -83,21 +83,23 @@
 /* 滑块样式 */
 .config-slider {
   width: 180px;
-  height: 4px;
+  height: 6px; /* 稍微加粗滑轨，方便看清 */
   -webkit-appearance: none;
   appearance: none;
   background: rgba(244, 162, 97, 0.2);
-  border-radius: 2px;
+  border-radius: 3px;
   outline: none;
   cursor: pointer;
   transition: background var(--transition);
+  /* 防止移动端上下滑动时误触拖动滑块 */
+  touch-action: pan-y;
 }
 
 .config-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 18px;
-  height: 18px;
+  width: 24px; /* 增大触控目标 */
+  height: 24px;
   border-radius: 50%;
   background: var(--accent);
   cursor: pointer;
@@ -111,8 +113,8 @@
 }
 
 .config-slider::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
+  width: 24px; /* 增大触控目标 */
+  height: 24px;
   border: none;
   border-radius: 50%;
   background: var(--accent);
@@ -120,21 +122,66 @@
   box-shadow: 0 2px 6px rgba(244, 162, 97, 0.4);
 }
 
-/* 数字输入框 */
-.config-number-input {
-  width: 68px;
-  padding: 8px 10px;
+/* 数字输入框与步进器容器 */
+.config-number-wrapper {
+  display: flex;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.6);
   border: var(--border-dashed);
   border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, 0.6);
+  transition: border-color var(--transition);
+  overflow: hidden;
+}
+
+.config-number-wrapper:focus-within {
+  border-color: var(--accent);
+}
+
+/* 步进按钮 */
+.config-stepper-btn {
+  width: 32px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 1.2rem;
+  cursor: pointer;
+  transition: background var(--transition);
+  /* 增加触控区域并防止双击缩放 */
+  touch-action: manipulation;
+}
+
+.config-stepper-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+.config-stepper-btn:hover:not(:disabled) {
+  background: rgba(244, 162, 97, 0.1);
+  color: var(--accent);
+}
+
+.config-stepper-btn:active:not(:disabled) {
+  background: rgba(244, 162, 97, 0.2);
+}
+
+/* 数字输入框 */
+.config-number-input {
+  width: 48px;
+  padding: 8px 0;
+  border: none;
+  background: transparent;
   color: var(--text-main);
   font-size: 0.95rem;
   font-weight: 500;
   text-align: center;
-  transition: border-color var(--transition);
   -moz-appearance: textfield;
 }
 
+/* 隐藏浏览器原生的数字上下箭头 */
 .config-number-input::-webkit-inner-spin-button,
 .config-number-input::-webkit-outer-spin-button {
   -webkit-appearance: none;
@@ -143,62 +190,181 @@
 
 .config-number-input:focus {
   outline: none;
-  border-color: var(--accent);
+}
+
+.config-stepper-btn:focus {
+  outline: none; /* 移除按钮点击时的默认黑框 */
 }
 
 /* 底部操作栏 */
 .config-footer {
+  margin-top: 28px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(109, 89, 122, 0.1);
+}
+
+/* 单行工具条：左右两端对齐、垂直居中 */
+.config-footer-bar {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-top: 28px;
-  padding-top: 20px;
-  border-top: var(--border-dashed);
+  gap: 20px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.45);
+  border: 1px solid rgba(109, 89, 122, 0.1);
+  box-shadow: 0 2px 12px rgba(109, 89, 122, 0.05);
 }
 
-.config-last-saved {
-  font-size: 0.875rem;
-  color: var(--text-sub);
+.config-footer-bar--skeleton {
+  align-items: center;
 }
 
-.config-buttons {
+/* 左侧：标签 + 时间纵向，主次分明 */
+.config-footer-left {
   display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.config-footer-saved-label {
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--text-sub);
+  letter-spacing: 0.02em;
+}
+
+.config-footer-saved-time {
+  font-size: 1.15rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+
+.config-footer-right {
+  flex-shrink: 0;
+}
+
+/* 右侧：两按钮横向 + 间距 */
+.config-footer-actions {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
   gap: 12px;
 }
 
-/* 次要按钮 */
+/* 重置按钮悬停说明（极简主界面） */
+.config-reset-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+/* 锚点在 .config-reset-wrap（position: relative）；气泡相对按钮水平居中 */
+.config-reset-tooltip {
+  position: absolute;
+  left: 50%;
+  right: auto;
+  bottom: calc(100% + 8px);
+  width: max-content;
+  max-width: calc(100vw - 24px);
+  padding: 6px 12px;
+  font-size: 0.72rem;
+  line-height: 1.4;
+  color: var(--text-sub);
+  text-align: center;
+  white-space: nowrap;
+  background: rgba(255, 252, 248, 0.98);
+  border: 1px solid rgba(109, 89, 122, 0.14);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(109, 89, 122, 0.12);
+  opacity: 0;
+  visibility: hidden;
+  transform: translate(-50%, 6px);
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease,
+    visibility 0.2s;
+  z-index: 20;
+  pointer-events: none;
+}
+
+.config-reset-wrap:hover .config-reset-tooltip,
+.config-reset-wrap:focus-within .config-reset-tooltip {
+  opacity: 1;
+  visibility: visible;
+  transform: translate(-50%, 0);
+}
+
+/* 弹窗内次要按钮（保持实体浅色，非幽灵） */
 .config-btn-secondary {
   padding: 10px 20px;
-  border: var(--border-dashed);
+  border: 1px solid rgba(109, 89, 122, 0.22);
   border-radius: var(--radius-btn);
   background: rgba(109, 89, 122, 0.08);
   color: var(--text-main);
   font-size: 0.9rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition);
+  font-family: inherit;
+  transition:
+    background var(--transition),
+    border-color var(--transition),
+    box-shadow var(--transition),
+    transform 0.15s ease;
 }
 
-.config-btn-secondary:hover {
+.config-btn-secondary:hover:not(:disabled) {
   background: rgba(109, 89, 122, 0.15);
   border-color: rgba(109, 89, 122, 0.4);
 }
 
-/* 主要按钮 */
+.config-btn-secondary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.config-btn-secondary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 底部栏：幽灵次要按钮 */
+.config-btn-footer-secondary {
+  padding: 10px 18px;
+  background: transparent;
+  color: var(--text-sub);
+  font-weight: 600;
+  font-size: 0.86rem;
+  border: 1px solid rgba(109, 89, 122, 0.32);
+  box-shadow: none;
+}
+
+.config-btn-footer-secondary:hover:not(:disabled) {
+  background: rgba(109, 89, 122, 0.06);
+  color: var(--text-main);
+  border-color: rgba(109, 89, 122, 0.45);
+  box-shadow: none;
+}
+
+/* 通用主按钮（确认框等） */
 .config-btn-primary {
   padding: 10px 24px;
   border: none;
   border-radius: var(--radius-btn);
   background: var(--accent);
-  color: white;
+  color: #fff;
   font-size: 0.9rem;
   font-weight: 600;
   cursor: pointer;
-  transition: opacity var(--transition);
+  font-family: inherit;
+  transition: opacity var(--transition), transform 0.15s ease;
 }
 
-.config-btn-primary:hover {
-  opacity: 0.88;
+.config-btn-primary:hover:not(:disabled) {
+  opacity: 0.92;
 }
 
 .config-btn-primary:disabled {
@@ -206,20 +372,117 @@
   cursor: not-allowed;
 }
 
-/* 脉冲动画（有未保存修改时） */
-@keyframes config-pulse {
-  0% {
-    box-shadow: 0 0 0 0 rgba(244, 162, 97, 0.5);
+/* 底部栏：加深暖色主按钮，白字对比 */
+.config-btn-footer-primary {
+  padding: 11px 22px;
+  border-radius: 10px;
+  font-size: 0.88rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  background: linear-gradient(180deg, #e07a2e 0%, #c45d18 48%, #b85412 100%);
+  box-shadow:
+    0 3px 0 rgba(139, 62, 8, 0.35),
+    0 8px 24px rgba(196, 93, 24, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.config-btn-footer-primary:hover:not(:disabled) {
+  opacity: 1;
+  filter: brightness(1.06);
+  box-shadow:
+    0 3px 0 rgba(139, 62, 8, 0.4),
+    0 10px 28px rgba(196, 93, 24, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  transform: translateY(-1px);
+}
+
+.config-btn-footer-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow:
+    0 1px 0 rgba(139, 62, 8, 0.4),
+    0 4px 16px rgba(196, 93, 24, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.config-btn-footer-primary:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  filter: grayscale(0.2);
+  text-shadow: none;
+  box-shadow: none;
+  transform: none;
+}
+
+@media (max-width: 640px) {
+  .config-footer-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 18px;
   }
-  70% {
-    box-shadow: 0 0 0 10px rgba(244, 162, 97, 0);
+
+  .config-footer-left {
+    align-items: center;
+    text-align: center;
   }
-  100% {
-    box-shadow: 0 0 0 0 rgba(244, 162, 97, 0);
+
+  .config-footer-actions {
+    flex-direction: column-reverse;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .config-reset-wrap {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .config-btn-footer-secondary,
+  .config-btn-footer-primary {
+    width: 100%;
+    text-align: center;
+  }
+
+  .config-reset-tooltip {
+    left: 50%;
+    right: auto;
+    transform: translate(-50%, 6px);
+    max-width: calc(100vw - 32px);
+  }
+
+  .config-reset-wrap:hover .config-reset-tooltip,
+  .config-reset-wrap:focus-within .config-reset-tooltip {
+    transform: translate(-50%, 0);
   }
 }
 
-.config-btn-primary.has-changes {
+/* 脉冲动画（有未保存修改时，与 footer 主按钮阴影一致） */
+@keyframes config-pulse {
+  0% {
+    box-shadow:
+      0 3px 0 rgba(139, 62, 8, 0.35),
+      0 8px 24px rgba(196, 93, 24, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 0 0 0 rgba(224, 122, 46, 0.55);
+  }
+  70% {
+    box-shadow:
+      0 3px 0 rgba(139, 62, 8, 0.35),
+      0 8px 24px rgba(196, 93, 24, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 0 0 14px rgba(224, 122, 46, 0);
+  }
+  100% {
+    box-shadow:
+      0 3px 0 rgba(139, 62, 8, 0.35),
+      0 8px 24px rgba(196, 93, 24, 0.38),
+      inset 0 1px 0 rgba(255, 255, 255, 0.22),
+      0 0 0 0 rgba(224, 122, 46, 0);
+  }
+}
+
+.config-btn-footer-primary.has-changes:not(:disabled) {
   animation: config-pulse 2s infinite;
 }
 

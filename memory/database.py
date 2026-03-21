@@ -789,9 +789,65 @@ class MessageDatabase:
         except sqlite3.Error as e:
             logger.error(f"获取记忆卡片失败: {e}")
             raise
+
+    def get_latest_memory_card_for_dimension(
+        self,
+        user_id: str,
+        character_id: str,
+        dimension: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        按用户、角色、维度取最近一条记忆卡片（不筛选 is_active）。
+        供日终 Step 3 Upsert：批量软删后仍能更新同一行并重新激活。
+        """
+        allowed_dimensions = {
+            "preferences",
+            "interaction_patterns",
+            "current_status",
+            "goals",
+            "relationships",
+            "key_events",
+            "rules",
+        }
+        if dimension not in allowed_dimensions:
+            raise ValueError(
+                f"维度 '{dimension}' 不在允许的枚举值中。允许的值: {allowed_dimensions}"
+            )
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, user_id, character_id, dimension, content,
+                           updated_at, source_message_id, is_active
+                    FROM memory_cards
+                    WHERE user_id = ? AND character_id = ? AND dimension = ?
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (user_id, character_id, dimension),
+                )
+                row = cursor.fetchone()
+                if not row:
+                    return None
+                return {
+                    "id": row["id"],
+                    "user_id": row["user_id"],
+                    "character_id": row["character_id"],
+                    "dimension": row["dimension"],
+                    "content": row["content"],
+                    "updated_at": row["updated_at"],
+                    "source_message_id": row["source_message_id"],
+                    "is_active": bool(row["is_active"]),
+                }
+        except sqlite3.Error as e:
+            logger.error(f"查询记忆卡片（含停用）失败: {e}")
+            raise
     
     def update_memory_card(self, card_id: int, content: str, 
-                          dimension: Optional[str] = None) -> bool:
+                          dimension: Optional[str] = None,
+                          reactivate: bool = False) -> bool:
         """
         更新记忆卡片。
         
@@ -799,7 +855,8 @@ class MessageDatabase:
             card_id: 记忆卡片ID
             content: 新的记忆内容
             dimension: 新的维度（可选）
-            
+            reactivate: 为 True 时同时将 is_active 置 1（日终跑批合并后重新展示）
+
         Returns:
             bool: 更新是否成功
             
@@ -819,17 +876,33 @@ class MessageDatabase:
                 cursor = conn.cursor()
                 
                 if dimension:
-                    cursor.execute("""
-                        UPDATE memory_cards 
-                        SET content = ?, dimension = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (content, dimension, card_id))
+                    if reactivate:
+                        cursor.execute("""
+                            UPDATE memory_cards 
+                            SET content = ?, dimension = ?, updated_at = CURRENT_TIMESTAMP,
+                                is_active = 1
+                            WHERE id = ?
+                        """, (content, dimension, card_id))
+                    else:
+                        cursor.execute("""
+                            UPDATE memory_cards 
+                            SET content = ?, dimension = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """, (content, dimension, card_id))
                 else:
-                    cursor.execute("""
-                        UPDATE memory_cards 
-                        SET content = ?, updated_at = CURRENT_TIMESTAMP
-                        WHERE id = ?
-                    """, (content, card_id))
+                    if reactivate:
+                        cursor.execute("""
+                            UPDATE memory_cards 
+                            SET content = ?, updated_at = CURRENT_TIMESTAMP,
+                                is_active = 1
+                            WHERE id = ?
+                        """, (content, card_id))
+                    else:
+                        cursor.execute("""
+                            UPDATE memory_cards 
+                            SET content = ?, updated_at = CURRENT_TIMESTAMP
+                            WHERE id = ?
+                        """, (content, card_id))
                 
                 updated = cursor.rowcount > 0
                 conn.commit()
@@ -2018,6 +2091,28 @@ class MessageDatabase:
             logger.error(f"获取所有配置失败: {e}")
             return {}
 
+    def get_config_max_updated_at_for_keys(self, keys: List[str]) -> Optional[str]:
+        """
+        返回 config 表中给定 key 列表里最新的 updated_at（与 set_config 写入的 CURRENT_TIMESTAMP 一致）。
+        供助手配置 API 在响应中附带「最近持久化时间」，避免前端误用「加载页面的时刻」。
+        """
+        if not keys:
+            return None
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                placeholders = ",".join("?" * len(keys))
+                cursor.execute(
+                    f"SELECT MAX(updated_at) FROM config WHERE key IN ({placeholders})",
+                    keys,
+                )
+                row = cursor.fetchone()
+                if row and row[0] is not None and str(row[0]).strip():
+                    return str(row[0])
+        except sqlite3.Error as e:
+            logger.error("get_config_max_updated_at_for_keys 失败: %s", e)
+        return None
+
     # ==========================================
     # persona_configs CRUD
     # ==========================================
@@ -2581,8 +2676,22 @@ def get_memory_cards(user_id: str, character_id: str,
     return db.get_memory_cards(user_id, character_id, dimension, limit)
 
 
-def update_memory_card(card_id: int, content: str, 
-                      dimension: Optional[str] = None) -> bool:
+def get_latest_memory_card_for_dimension(
+    user_id: str,
+    character_id: str,
+    dimension: str,
+) -> Optional[Dict[str, Any]]:
+    """按用户、角色、维度取最近一条记忆卡片（含 is_active=0）。"""
+    db = get_database()
+    return db.get_latest_memory_card_for_dimension(user_id, character_id, dimension)
+
+
+def update_memory_card(
+    card_id: int,
+    content: str,
+    dimension: Optional[str] = None,
+    reactivate: bool = False,
+) -> bool:
     """
     更新记忆卡片的便捷函数。
     
@@ -2590,12 +2699,13 @@ def update_memory_card(card_id: int, content: str,
         card_id: 记忆卡片ID
         content: 新的记忆内容
         dimension: 新的维度（可选）
-        
+        reactivate: 为 True 时同时将 is_active 置 1
+
     Returns:
         bool: 更新是否成功
     """
     db = get_database()
-    return db.update_memory_card(card_id, content, dimension)
+    return db.update_memory_card(card_id, content, dimension, reactivate)
 
 
 def deactivate_memory_card(card_id: int) -> bool:

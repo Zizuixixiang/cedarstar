@@ -164,9 +164,11 @@ function SkeletonLoader() {
 
         {/* 消息列表骨架屏 */}
         <div className="message-list-container">
-          <div className="skeleton-message"></div>
-          <div className="skeleton-message"></div>
-          <div className="skeleton-message"></div>
+          <div className="history-chat-column">
+            <div className="skeleton-message"></div>
+            <div className="skeleton-message"></div>
+            <div className="skeleton-message"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -498,7 +500,7 @@ function History() {
 
       {/* 筛选栏 */}
       <div className="filter-bar">
-        <div className="filter-row">
+        <div className="filter-controls-row">
           {/* 平台切换 */}
           <div className="filter-group">
             <div className="filter-label">平台</div>
@@ -524,7 +526,7 @@ function History() {
             <div className="filter-label">关键词搜索</div>
             <input
               type="text"
-              className="search-input"
+              className="history-search-input"
               placeholder="输入关键词..."
               value={searchKeyword}
               onChange={(e) => setSearchKeyword(e.target.value)}
@@ -545,72 +547,73 @@ function History() {
                 </option>
               ))}
             </select>
-
-            {/* 自定义日期范围 */}
-            <div className={`date-range-container ${dateRangeOption === 'custom' ? '' : 'hidden'}`}>
-              <input
-                type="date"
-                className="date-select"
-                value={customDateFrom}
-                onChange={(e) => handleCustomDateFromChange(e.target.value)}
-                placeholder="开始日期"
-              />
-              <span style={{ alignSelf: 'center' }}>至</span>
-              <input
-                type="date"
-                className="date-select"
-                value={customDateTo}
-                onChange={(e) => handleCustomDateToChange(e.target.value)}
-                placeholder="结束日期"
-              />
-            </div>
           </div>
+        </div>
+
+        {/* 自定义日期范围（独立一行，避免拉高主筛选行） */}
+        <div className={`date-range-container ${dateRangeOption === 'custom' ? '' : 'hidden'}`}>
+          <input
+            type="date"
+            className="date-select"
+            value={customDateFrom}
+            onChange={(e) => handleCustomDateFromChange(e.target.value)}
+            placeholder="开始日期"
+          />
+          <span className="date-range-sep">至</span>
+          <input
+            type="date"
+            className="date-select"
+            value={customDateTo}
+            onChange={(e) => handleCustomDateToChange(e.target.value)}
+            placeholder="结束日期"
+          />
         </div>
       </div>
 
-      {/* 消息列表 */}
+      {/* 消息列表（外层全宽卡片；内层窄栏模拟移动端对话宽度） */}
       <div className="message-list-container">
-        <div className="section-title">
-          <span>🕰️ 对话历史</span>
-          <span style={{ color: 'var(--text-sub)', fontSize: '14px', marginLeft: 'auto' }}>
-            共 {totalItems} 条记录
-          </span>
-        </div>
+        <div className="history-chat-column">
+          <div className="section-title">
+            <span>🕰️ 对话历史</span>
+            <span style={{ color: 'var(--text-sub)', fontSize: '14px', marginLeft: 'auto' }}>
+              共 {totalItems} 条记录
+            </span>
+          </div>
 
-        <div className="message-list" style={{ opacity: fetching ? 0.5 : 1, transition: 'opacity 0.2s ease', pointerEvents: fetching ? 'none' : 'auto' }}>
-          {messages.length === 0 ? (
-            <EmptyState />
-          ) : (
-            messages.map(message => (
-              <div key={message.id} className={`message-row ${message.role === 'user' ? 'user-row' : 'assistant-row'}`}>
-                <MessageBubble message={message} keyword={searchKeyword} />
-              </div>
-            ))
+          <div className="message-list" style={{ opacity: fetching ? 0.5 : 1, transition: 'opacity 0.2s ease', pointerEvents: fetching ? 'none' : 'auto' }}>
+            {messages.length === 0 ? (
+              <EmptyState />
+            ) : (
+              messages.map(message => (
+                <div key={message.id} className={`message-row ${message.role === 'user' ? 'user-row' : 'assistant-row'}`}>
+                  <MessageBubble message={message} keyword={searchKeyword} />
+                </div>
+              ))
+            )}
+          </div>
+
+          {messages.length > 0 && totalPages > 1 && (
+            <div className="pagination">
+              <button
+                className="pagination-button"
+                onClick={handlePrevPage}
+                disabled={currentPage <= 1}
+              >
+                上一页
+              </button>
+              <span className="pagination-info">
+                第 {currentPage} 页 / 共 {totalPages} 页
+              </span>
+              <button
+                className="pagination-button"
+                onClick={handleNextPage}
+                disabled={currentPage >= totalPages}
+              >
+                下一页
+              </button>
+            </div>
           )}
         </div>
-
-        {/* 分页控件 */}
-        {messages.length > 0 && totalPages > 1 && (
-          <div className="pagination">
-            <button
-              className="pagination-button"
-              onClick={handlePrevPage}
-              disabled={currentPage <= 1}
-            >
-              上一页
-            </button>
-            <span className="pagination-info">
-              第 {currentPage} 页 / 共 {totalPages} 页
-            </span>
-            <button
-              className="pagination-button"
-              onClick={handleNextPage}
-              disabled={currentPage >= totalPages}
-            >
-              下一页
-            </button>
-          </div>
-        )}
       </div>
     </div>
   );

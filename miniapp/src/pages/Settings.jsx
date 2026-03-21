@@ -27,6 +27,7 @@ function SkeletonCard({ rows = 3 }) {
 }
 
 /* ─── 弹窗：新增 / 编辑 ─── */
+/* onSaved 成功时传入 form.config_type，父组件据此切换 Tab 并拉取对应列表 */
 function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
   const isEdit = !!initial?.id;
   const [form, setForm] = useState({
@@ -101,7 +102,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
       const data = await res.json();
       if (data.success) {
         toast.success(isEdit ? '✓ 配置已更新' : '✓ 配置已创建', { autoClose: 2000 });
-        onSaved();
+        onSaved(form.config_type);
       } else {
         toast.error(data.message || '操作失败');
       }
@@ -331,10 +332,17 @@ function Settings() {
     }
   };
 
-  /* 弹窗保存后回调 */
-  const handleSaved = () => {
+  /* 弹窗保存后：按保存的配置类型刷新；若与当前 Tab 不一致则切换 Tab（避免摘要配在对话 Tab 下仍拉 chat 列表） */
+  const handleSaved = (savedConfigType) => {
     setModalData(null);
-    fetchConfigs(activeTabRef.current);
+    const nextTab = savedConfigType === 'summary' || savedConfigType === 'chat'
+      ? savedConfigType
+      : activeTabRef.current;
+    if (nextTab !== activeTabRef.current) {
+      switchTab(nextTab);
+    } else {
+      fetchConfigs(nextTab);
+    }
   };
 
   /* Token 数值格式化 */

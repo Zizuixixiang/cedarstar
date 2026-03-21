@@ -2,18 +2,25 @@
  * Memory 页面专属样式
  */
 
-/* Memory 页面容器 */
+/* Memory 页面容器：固定视口内高度，避免 Tab 切换时整页高度与滚动条抖动 */
 .memory-container {
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: 32px;
+  gap: 20px;
+  height: calc(100vh - 120px);
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
 }
 
-/* 顶部 Tab */
+/* 120px ≈ .main-content 上下 padding(24×2) + 顶区留白；若仍出现外层滚动可改为 128～136 */
+
+/* Tab 条不参与压缩 */
 .memory-tabs {
+  flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
@@ -21,32 +28,65 @@
   border-bottom: 1px solid rgba(244, 162, 97, 0.2);
 }
 
+/* Tab 内容区：仅此区域纵向滚动 */
+.memory-content-scroll-area {
+  flex: 1;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-gutter: stable;
+}
+
 .memory-tabs.skeleton-tabs {
   border-bottom: none;
   align-items: center;
 }
 
-.memory-tab {
+/* 使用 button.memory-tab 提高优先级，覆盖 global.css 中 button 的 border:none / background:transparent，避免部分 Tab 露出浏览器默认黑框 */
+.memory-tabs button.memory-tab {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
   padding: 10px 18px;
-  border: var(--border-dashed);
+  border: 2px dashed rgba(244, 162, 97, 0.32);
   border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, 0.35);
+  background: rgba(255, 255, 255, 0.5);
   color: var(--text-sub);
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
-  transition: color var(--transition), border-color var(--transition), background var(--transition);
+  line-height: 1.25;
+  transition: color var(--transition), border-color var(--transition), background var(--transition),
+    box-shadow var(--transition), border-style 0.2s ease;
 }
 
-.memory-tab:hover {
+.memory-tabs button.memory-tab:hover {
   color: var(--text-main);
-  border-color: rgba(244, 162, 97, 0.45);
+  border-color: rgba(244, 162, 97, 0.55);
+  background: rgba(255, 255, 255, 0.72);
 }
 
-.memory-tab.active {
+.memory-tabs button.memory-tab.active {
   color: var(--accent);
+  border-style: solid;
   border-color: var(--accent);
-  background: rgba(244, 162, 97, 0.1);
+  border-width: 2px;
+  background: rgba(244, 162, 97, 0.14);
+  font-weight: 600;
+  box-shadow: 0 2px 10px rgba(244, 162, 97, 0.12);
+}
+
+.memory-tabs button.memory-tab:focus {
+  outline: none;
+}
+
+.memory-tabs button.memory-tab:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.35);
+}
+
+.memory-tabs button.memory-tab.active:focus-visible {
+  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.35), 0 2px 10px rgba(244, 162, 97, 0.12);
 }
 
 .tab-loading {
@@ -56,15 +96,53 @@
   font-size: 0.95rem;
 }
 
-/* 区块标题 */
-.section-title {
-  font-family: 'Lora', serif;
-  font-size: 1.4rem;
-  color: var(--text-main);
+/* 四个 Tab 内容区统一页头：距 Tab 栏固定 24px，行高一致 */
+.memory-tab-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  min-height: 48px;
+  margin-top: 24px;
   margin-bottom: 24px;
+}
+
+h2.memory-tab-header__title,
+.memory-tab-header__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  margin: 0;
+  padding: 0;
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--text-main);
+  font-family: 'Lora', 'Noto Sans SC', serif;
+  line-height: 1;
+}
+
+.memory-tab-header__title h2 {
+  margin: 0;
+  padding: 0;
+  line-height: 1;
+}
+
+.memory-tab-header__title-text {
+  line-height: 1.25;
+}
+
+.memory-tab-header__emoji {
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.memory-tab-header__actions {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
 /* 记忆卡片网格 */
@@ -168,11 +246,6 @@
   color: var(--text-sub);
 }
 
-/* 长期记忆区块 */
-.longterm-section {
-  margin-top: 32px;
-}
-
 /* 搜索框和新增按钮 */
 .longterm-header {
   display: flex;
@@ -271,6 +344,25 @@
   font-size: 0.82rem;
   color: var(--text-sub);
   margin-bottom: 6px;
+}
+
+/* 长期记忆：hits / halflife 胶囊标签，与右侧留白解耦、更易扫读 */
+.memory-detail-row--chroma-stats {
+  gap: 10px 12px;
+  align-items: center;
+}
+
+.memory-meta-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 12px;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  line-height: 1.35;
+  color: #6d597a;
+  background: rgba(109, 89, 122, 0.07);
+  border: 1px solid rgba(109, 89, 122, 0.12);
+  max-width: 100%;
 }
 
 .memory-detail-row-single {
@@ -628,11 +720,6 @@
   font-size: 1rem;
 }
 
-/* 时效状态 Tab */
-.temporal-section {
-  margin-top: 8px;
-}
-
 .temporal-item {
   border: var(--border-dashed);
   border-radius: var(--radius-card);
@@ -683,11 +770,6 @@
 .temporal-meta {
   font-size: 0.82rem;
   color: var(--text-sub);
-}
-
-/* 关系时间线 Tab */
-.timeline-section {
-  margin-top: 8px;
 }
 
 .timeline-list {

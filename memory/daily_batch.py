@@ -59,6 +59,7 @@ try:
         save_memory_card,
         update_memory_card,
         get_memory_cards,
+        get_latest_memory_card_for_dimension,
         get_recent_daily_summaries,
         save_daily_batch_log,
         get_daily_batch_log,
@@ -81,6 +82,7 @@ except ImportError:
         save_memory_card,
         update_memory_card,
         get_memory_cards,
+        get_latest_memory_card_for_dimension,
         get_recent_daily_summaries,
         save_daily_batch_log,
         get_daily_batch_log,
@@ -365,6 +367,154 @@ class DailyBatchProcessor:
         except Exception as e:
             logger.error(f"Step 2 执行失败: {e}")
             return False, str(e)
+
+    def _call_summary_llm_custom(self, prompt: str) -> str:
+        """使用摘要模型配置执行自定义 prompt（不经 micro_batch 的对话摘要模板包装）。"""
+        from llm.llm_interface import LLMInterface
+
+        sl = self.summary_llm
+        llm = LLMInterface(model_name=sl.model_name)
+        llm.api_key = sl.api_key
+        llm.api_base = sl.api_base
+        llm.timeout = sl.timeout
+        base = int(getattr(sl, "max_tokens", 500) or 500)
+        llm.max_tokens = min(2048, max(base, 900))
+        return llm.generate_simple(prompt).strip()
+
+    @staticmethod
+    def _parse_merged_content_json(raw: str) -> Optional[str]:
+        """从模型返回中解析 JSON 对象的 content 字段。"""
+        raw = (raw or "").strip()
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                c = data.get("content")
+                if c is not None and str(c).strip():
+                    return str(c).strip()
+        except json.JSONDecodeError:
+            pass
+        m = re.search(r"\{[\s\S]*\}", raw)
+        if m:
+            try:
+                data = json.loads(m.group())
+                if isinstance(data, dict):
+                    c = data.get("content")
+                    if c is not None and str(c).strip():
+                        return str(c).strip()
+            except json.JSONDecodeError:
+                pass
+        return None
+
+    @staticmethod
+    def _extract_first_json_object(text: str) -> Optional[str]:
+        """
+        从可能含前置说明、markdown 代码块的文本中截取第一个平衡的 JSON 对象字符串。
+        避免贪婪正则把多个 `}` 或字符串内的括号算错。
+        """
+        if not text:
+            return None
+        t = text.strip()
+        if "```" in t:
+            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
+            if m:
+                inner = m.group(1).strip()
+                if inner.startswith("{"):
+                    t = inner
+        i = t.find("{")
+        if i < 0:
+            t = t.replace("｛", "{").replace("｝", "}")
+            i = t.find("{")
+        if i < 0:
+            return None
+        depth = 0
+        in_str = False
+        escape = False
+        for j in range(i, len(t)):
+            ch = t[j]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_str:
+                escape = True
+                continue
+            if ch == '"' and not in_str:
+                in_str = True
+                continue
+            if ch == '"' and in_str:
+                in_str = False
+                continue
+            if in_str:
+                continue
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    return t[i : j + 1]
+        return None
+
+    def _merge_memory_card_contents(
+        self,
+        dimension: str,
+        dimension_label: str,
+        old_content: str,
+        new_content: str,
+        batch_date: str,
+    ) -> str:
+        """
+        将既有卡片与今日提取的新文案交给模型，重写为一段连贯、去重后的中文。
+        调用失败或解析失败时回退为简单拼接（并打日志）。
+        """
+        old_trim = old_content.strip()
+        if len(old_trim) > 6000:
+            old_trim = "…（前文已截断）\n" + old_trim[-6000:]
+
+        if dimension == "interaction_patterns":
+            merge_rules = (
+                "该维度记录有对话支撑的相处观察。若新旧描述指向同一行为且意思重复，只保留一份表述；"
+                "若对同一话题的观察明显矛盾，可在一小段内并列说明并带时间或场景提示，不要用列表堆砌。"
+            )
+        else:
+            merge_rules = (
+                "以今日新增为准修正或补充过时信息；相同事实只保留一份，整合为自然连贯的叙述，不要简单首尾拼接。"
+            )
+
+        prompt = f"""你是记忆整理助手。请将「既有记忆卡片」与「今日新增摘要」合并为一段连贯的中文（可用逗号、分号连接，不要用 Markdown 列表或编号条）。
+
+维度代码：{dimension}
+维度说明：{dimension_label}
+今日日期：{batch_date}
+
+【既有记忆卡片】
+{old_trim}
+
+【今日新增】
+{new_content.strip()}
+
+合并要求：
+1. 去除重复、同义反复的内容，禁止把同样意思写两遍。
+2. {merge_rules}
+3. 总长度控制在 400 字以内。
+4. 严格只返回 JSON，格式为：{{"content":"合并后的正文"}}，不要 markdown 代码块或其他说明文字。"""
+
+        fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
+        try:
+            raw = self._call_summary_llm_custom(prompt)
+        except Exception as e:
+            logger.warning(f"记忆卡片合并 LLM 调用失败，使用拼接回退: {e}")
+            return fallback
+
+        merged = self._parse_merged_content_json(raw)
+        if merged:
+            return merged
+
+        logger.warning(
+            "记忆卡片合并 JSON 解析失败，使用拼接回退；原始片段: %s",
+            raw[:200] if raw else "(空)",
+        )
+        return fallback
     
     async def _step3_memory_cards_and_timeline(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """
@@ -373,9 +523,9 @@ class DailyBatchProcessor:
         把今日小传内容发给 LLM，判断是否包含属于以下7个维度的新信息：
         preferences / interaction_patterns / current_status / goals / relationships / key_events / rules
         
-        有新信息则查 memory_cards 表，没有对应维度就 INSERT，有就合并重写后 UPDATE。
+        有新信息则查 memory_cards 表，没有对应维度就 INSERT，有则再经模型将新旧内容合并重写为一段去重后的正文后 UPDATE。
         
-        interaction_patterns 维度特别说明：只记录有具体对话支撑的行为观察，不做性格定论，新旧矛盾时并存保留并注明日期。
+        interaction_patterns 维度特别说明：只记录有具体对话支撑的行为观察，不做性格定论；明显矛盾时可并列保留并带时间/场景提示，但仍需去除重复表述。
         
         Args:
             batch_date: 批处理日期
@@ -470,23 +620,36 @@ class DailyBatchProcessor:
                 logger.error(f"LLM 调用失败，Step 3 中止: {e}")
                 return False, f"LLM 调用失败: {e}"
 
-            # 5. 解析 LLM 返回的 JSON
-            dimension_data = {}
+            # 5. 解析 LLM 返回的 JSON（容忍前置说明、markdown 代码块）
+            dimension_data: Dict[str, Any] = {}
+            raw_resp = (llm_response or "").strip()
+            parse_err: Optional[Exception] = None
             try:
-                # 尝试直接解析
-                dimension_data = json.loads(llm_response)
-            except json.JSONDecodeError:
-                # 尝试从响应中提取 JSON 块
-                json_match = re.search(r'\{[\s\S]*\}', llm_response)
-                if json_match:
+                dimension_data = json.loads(raw_resp)
+            except json.JSONDecodeError as e:
+                parse_err = e
+                slice_json = self._extract_first_json_object(raw_resp)
+                if slice_json:
                     try:
-                        dimension_data = json.loads(json_match.group())
-                    except json.JSONDecodeError as e:
-                        logger.error(f"无法解析 LLM 返回的 JSON: {e}，原始响应: {llm_response[:200]}")
-                        return False, f"JSON 解析失败: {e}"
-                else:
-                    logger.error(f"LLM 响应中未找到 JSON 块，原始响应: {llm_response[:200]}")
-                    return False, "LLM 响应格式错误，未找到 JSON"
+                        dimension_data = json.loads(slice_json)
+                        parse_err = None
+                    except json.JSONDecodeError as e2:
+                        parse_err = e2
+                if parse_err is not None:
+                    json_match = re.search(r"\{[\s\S]*\}", raw_resp)
+                    if json_match:
+                        try:
+                            dimension_data = json.loads(json_match.group())
+                            parse_err = None
+                        except json.JSONDecodeError as e3:
+                            parse_err = e3
+                if parse_err is not None:
+                    logger.error(
+                        "无法解析 LLM 维度分析 JSON: %s，原始响应前 500 字: %s",
+                        parse_err,
+                        raw_resp[:500],
+                    )
+                    return False, f"JSON 解析失败: {parse_err}"
 
             logger.info(f"LLM 维度分析完成，有内容的维度: {[k for k, v in dimension_data.items() if v and v != 'null']}")
 
@@ -504,23 +667,30 @@ class DailyBatchProcessor:
                             logger.debug(f"维度 {dimension} 无新信息，跳过")
                             continue
 
-                        # 查询该用户该维度是否已有记忆卡片
-                        existing_cards = get_memory_cards(user_id, character_id, dimension, limit=1)
+                        # 该维度最近一条（含 is_active=0），便于「全表软删后重跑」仍更新同一行
+                        existing_card = get_latest_memory_card_for_dimension(
+                            user_id, character_id, dimension
+                        )
 
-                        if existing_cards:
-                            # 已有记录 → 合并旧内容后 UPDATE
-                            existing_card = existing_cards[0]
-                            card_id = existing_card['id']
-                            old_content = existing_card['content']
+                        if existing_card:
+                            # 已有记录 → 模型合并去重后 UPDATE，并重新激活
+                            card_id = existing_card["id"]
+                            old_content = existing_card["content"]
+                            dim_label = dimensions_desc.get(dimension, dimension)
+                            merged_content = self._merge_memory_card_contents(
+                                dimension,
+                                dim_label,
+                                old_content,
+                                str(new_content),
+                                batch_date,
+                            )
 
-                            # 如果是 interaction_patterns，并存保留并注明日期
-                            if dimension == "interaction_patterns":
-                                merged_content = f"{old_content}\n[{batch_date}] {new_content}"
-                            else:
-                                # 其他维度：用新内容覆盖（新信息更准确）
-                                merged_content = f"{old_content}\n[{batch_date}更新] {new_content}"
-
-                            update_memory_card(card_id, merged_content)
+                            update_memory_card(
+                                card_id,
+                                merged_content,
+                                dimension=None,
+                                reactivate=True,
+                            )
                             logger.info(f"更新记忆卡片: dimension={dimension}, card_id={card_id}")
 
                         else:
