@@ -470,27 +470,31 @@
     box-sizing: border-box;
   }
 
-  /* 筛选按钮横向滚动 */
+  /* 筛选按钮：取消横向滚动，改为平分宽度 */
   .segmented-buttons {
     display: flex;
     flex-wrap: nowrap;
-    overflow-x: auto;
-    overflow-y: hidden;
     width: 100%;
+    justify-content: space-between;
+    gap: 4px; /* 减小间距 */
     box-sizing: border-box;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-    -webkit-overflow-scrolling: touch;
+    overflow: hidden; /* 取消横向滚动 */
+    padding: 4px;
   }
 
-  .segmented-buttons::-webkit-scrollbar {
-    display: none;
-  }
-
-  /* 防止按钮被挤压变形 */
+  /* 按钮等比缩放，平分容器 */
   .segmented-button {
-    flex-shrink: 0;
+    flex: 1;
+    min-width: 0; /* 允许按钮收缩 */
+    text-align: center;
+    padding: 6px 0; /* 左右 padding 为 0 */
+    font-size: 12px; /* 缩小字体 */
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis; /* 如果实在太窄，显示省略号 */
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
   /* 修复搜索框防溢出与撑起高度 */
