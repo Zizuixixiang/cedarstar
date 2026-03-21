@@ -845,7 +845,7 @@ h2.memory-tab-header__title,
     scrollbar-gutter: auto;
   }
 
-  /* 横向滚动只发生在外层，内层 Tab 行宽度为内容之和，不撑大 .memory-container */
+  /* 移动端 Tab 栏：平分宽度，每个 Tab 占 25%，缩小字体和内边距 */
   .memory-tabs-scroll {
     display: block;
     width: 100%;
@@ -853,35 +853,34 @@ h2.memory-tab-header__title,
     min-width: 0;
     flex-shrink: 0;
     box-sizing: border-box;
-    overflow-x: auto;
-    overflow-y: hidden;
-    padding-left: 8px;
-    padding-right: 8px;
-    -webkit-overflow-scrolling: touch;
-    scrollbar-width: none;
-    -ms-overflow-style: none;
-  }
-
-  .memory-tabs-scroll::-webkit-scrollbar {
-    display: none;
-  }
-
-  .memory-tabs {
-    width: max-content;
-    max-width: none;
-    min-width: 0;
-    flex-wrap: nowrap;
-    box-sizing: border-box;
-    /* 滚动由 .memory-tabs-scroll 承担 */
-    overflow: visible;
+    overflow: hidden; /* 取消横向滚动 */
     padding-left: 0;
     padding-right: 0;
   }
 
-  /* 防止 Tab 按钮被挤压或换行 */
+  .memory-tabs {
+    width: 100%;
+    max-width: 100%;
+    min-width: 0;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
+    overflow: hidden;
+    padding-left: 0;
+    padding-right: 0;
+    gap: 4px; /* 减小间距 */
+  }
+
+  /* 强制每个 Tab 按钮平分宽度，并缩小字体以适应屏幕 */
   .memory-tabs button.memory-tab {
-    flex-shrink: 0;
+    flex: 1;
+    min-width: 0;
+    width: 25%;
+    padding: 8px 2px;
+    font-size: 0.8rem; /* 缩小字体 */
     white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    text-align: center;
   }
 
   /* 修复下方卡片，强制换行，防止长文本撑破屏幕 */
