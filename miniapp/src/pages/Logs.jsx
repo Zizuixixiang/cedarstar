@@ -95,8 +95,10 @@ function LogRow({ log }) {
     <>
       <div className={`log-row ${isError ? 'error' : ''}`}>
         <div className="timestamp">{formatTimestamp(log.created_at)}</div>
-        <LevelTag level={log.level} />
-        <PlatformTag platform={log.platform} />
+        <div className="log-badges">
+          <LevelTag level={log.level} />
+          <PlatformTag platform={log.platform} />
+        </div>
         <div className="log-message">{log.message}</div>
         {hasStackTrace && (
           <button

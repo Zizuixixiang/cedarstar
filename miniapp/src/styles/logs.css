@@ -203,12 +203,18 @@
 /* 日志行 */
 .log-row {
   display: grid;
-  grid-template-columns: 160px 80px 100px 1fr auto;
+  grid-template-columns: 160px 180px 1fr auto; /* 桌面端合并徽章列 */
   gap: 16px;
   padding: 12px 16px;
   align-items: center;
   border-bottom: 1px solid rgba(109, 89, 122, 0.06);
   transition: background-color var(--transition);
+}
+
+.log-badges {
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 
 .log-row:hover {
@@ -233,15 +239,17 @@
 
 /* 级别标签 */
 .level-tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 4px 8px;
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  text-align: center;
   min-width: 60px;
+  white-space: nowrap;
 }
 
 .level-tag.error {
@@ -272,13 +280,15 @@
 
 /* 平台标签 */
 .platform-tag {
-  display: inline-block;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 4px 8px;
   border-radius: 12px;
   font-size: 11px;
   font-weight: 600;
-  text-align: center;
   min-width: 70px;
+  white-space: nowrap;
 }
 
 .platform-tag.telegram {
@@ -433,7 +443,7 @@
 /* 响应式设计 */
 @media (max-width: 1024px) {
   .log-row {
-    grid-template-columns: 140px 70px 90px 1fr auto;
+    grid-template-columns: 140px 160px 1fr auto;
     gap: 12px;
   }
 }
@@ -519,8 +529,19 @@
     padding: 16px;
   }
   
-  .timestamp, .level-tag, .platform-tag {
+  .timestamp {
     justify-self: start;
+    margin-bottom: 2px;
+  }
+
+  /* 移动端徽章横向并排 */
+  .log-badges {
+    display: flex;
+    flex-direction: row;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 4px 0 6px 0; /* 调整与上下元素的间距 */
   }
   
   .expand-button {
