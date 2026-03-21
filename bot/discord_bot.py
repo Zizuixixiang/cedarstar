@@ -8,7 +8,7 @@ import os
 import sys
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 # 添加当前目录到 Python 路径，确保可以导入本地模块
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -19,9 +19,11 @@ if project_root not in sys.path:
 import discord
 from discord.ext import commands
 
-from config import config, validate_config
+from config import config, validate_config, Platform
 from llm.llm_interface import LLMInterface
-from memory.database import save_message, get_database
+from bot.message_buffer import MessageBuffer
+from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
+from memory.database import save_message
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
 
@@ -64,12 +66,10 @@ class DiscordBot:
         # 存储对话历史（按用户ID和频道ID）
         self.conversation_histories = {}
         
-        # 消息缓冲区：key 为 session_id，value 为消息列表
-        self.message_buffers = {}
-        # 缓冲定时器：key 为 session_id，value 为 asyncio.Task
-        self.buffer_timers = {}
-        # 缓冲锁：防止并发问题
-        self.buffer_locks = {}
+        self._message_buffer = MessageBuffer(
+            flush_callback=self._flush_buffered_messages,
+            log=logger,
+        )
         
         # 设置事件处理器
         self._setup_handlers()
@@ -267,109 +267,37 @@ class DiscordBot:
         Args:
             message: Discord 消息对象
         """
-        # 创建会话ID（用户ID + 频道ID）
         session_id = f"{message.author.id}_{message.channel.id}"
-        
-        # 清理消息内容（移除提及）
         content = message.clean_content
-        
-        # 确保有锁对象
-        if session_id not in self.buffer_locks:
-            self.buffer_locks[session_id] = asyncio.Lock()
-        
-        async with self.buffer_locks[session_id]:
-            # 将消息添加到缓冲区
-            if session_id not in self.message_buffers:
-                self.message_buffers[session_id] = []
-            
-            self.message_buffers[session_id].append({
+        await self._message_buffer.add_to_buffer(
+            session_id,
+            {
                 "message": message,
                 "content": content,
-                "timestamp": asyncio.get_event_loop().time()
-            })
-            
-            logger.debug(f"消息添加到缓冲区: session_id={session_id}, 缓冲区大小={len(self.message_buffers[session_id])}")
-            
-            # 取消现有的定时器（如果有）
-            if session_id in self.buffer_timers:
-                self.buffer_timers[session_id].cancel()
-                logger.debug(f"取消现有定时器: session_id={session_id}")
-            
-            # 启动新的定时器
-            self.buffer_timers[session_id] = asyncio.create_task(
-                self._process_buffer(session_id)
+                "timestamp": asyncio.get_event_loop().time(),
+            },
+        )
+
+    async def _flush_buffered_messages(
+        self,
+        session_id: str,
+        combined_content: str,
+        buffer_messages: List[Dict[str, Any]],
+    ) -> None:
+        """缓冲到期后由 MessageBuffer 调用：Discord 侧打字、生成、分片发送。"""
+        base_message = buffer_messages[0]["message"]
+        async with base_message.channel.typing():
+            reply = await self._generate_reply_from_buffer(
+                base_message, combined_content, session_id
             )
-    
-    async def _process_buffer(self, session_id: str):
-        """
-        处理缓冲区中的消息。
-        
-        等待 buffer_delay 秒后，将缓冲区中的所有消息合并处理。
-        
-        Args:
-            session_id: 会话ID
-        """
-        try:
-            # 从数据库获取缓冲延迟时间
-            db = get_database()
-            buffer_delay_str = db.get_config("buffer_delay", "5")
-            try:
-                buffer_delay = int(buffer_delay_str)
-            except ValueError:
-                buffer_delay = 5  # 默认值
-                
-            logger.debug(f"开始缓冲等待: session_id={session_id}, 延迟={buffer_delay}秒")
-            await asyncio.sleep(buffer_delay)
-            
-            # 确保有锁对象
-            if session_id not in self.buffer_locks:
-                self.buffer_locks[session_id] = asyncio.Lock()
-            
-            async with self.buffer_locks[session_id]:
-                # 检查缓冲区是否还有消息
-                if session_id not in self.message_buffers or not self.message_buffers[session_id]:
-                    logger.debug(f"缓冲区为空，跳过处理: session_id={session_id}")
-                    return
-                
-                # 获取缓冲区中的所有消息
-                buffer_messages = self.message_buffers[session_id]
-                
-                # 清空缓冲区
-                self.message_buffers[session_id] = []
-                
-                # 删除定时器
-                if session_id in self.buffer_timers:
-                    del self.buffer_timers[session_id]
-                
-                logger.info(f"处理缓冲区消息: session_id={session_id}, 消息数量={len(buffer_messages)}")
-                
-                # 合并所有消息内容
-                combined_content = "\n".join([msg["content"] for msg in buffer_messages])
-                
-                # 使用第一条消息作为基础消息对象
-                base_message = buffer_messages[0]["message"]
-                
-                # 显示"正在输入"状态
-                async with base_message.channel.typing():
-                    # 生成回复
-                    reply = await self._generate_reply_from_buffer(base_message, combined_content, session_id)
-                    
-                    # 发送回复
-                    if reply:
-                        # 如果回复太长，分割成多个消息
-                        if len(reply) > 2000:
-                            chunks = self._split_message(reply)
-                            for chunk in chunks:
-                                await base_message.channel.send(chunk)
-                                await asyncio.sleep(0.5)  # 避免速率限制
-                        else:
-                            await base_message.channel.send(reply)
-        
-        except asyncio.CancelledError:
-            logger.debug(f"缓冲定时器被取消: session_id={session_id}")
-        except Exception as e:
-            logger.error(f"处理缓冲区时出错: session_id={session_id}, 错误={e}")
-            logger.exception(e)
+            if reply:
+                if len(reply) > 2000:
+                    chunks = self._split_message(reply)
+                    for chunk in chunks:
+                        await base_message.channel.send(chunk)
+                        await asyncio.sleep(0.5)  # 避免速率限制
+                else:
+                    await base_message.channel.send(reply)
     
     async def _generate_reply_from_buffer(self, base_message: discord.Message, combined_content: str, session_id: str) -> Optional[str]:
         """
@@ -398,6 +326,7 @@ class DiscordBot:
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
             reply = llm.generate_with_context(messages)
+            reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库（合并后的消息）
             save_message(
@@ -407,8 +336,8 @@ class DiscordBot:
                 user_id=str(base_message.author.id),
                 channel_id=str(base_message.channel.id),
                 message_id=str(base_message.id),
-                character_id="sirius",
-                platform="discord"
+                character_id=llm.character_id,
+                platform=Platform.DISCORD
             )
             
             # 保存AI回复到数据库
@@ -419,8 +348,8 @@ class DiscordBot:
                 user_id=str(base_message.author.id),
                 channel_id=str(base_message.channel.id),
                 message_id=f"ai_{base_message.id}",
-                character_id="sirius",
-                platform="discord"
+                character_id=llm.character_id,
+                platform=Platform.DISCORD
             )
             
             logger.info(f"为缓冲区生成回复: session_id={session_id}, context 消息数量={len(messages)}")
@@ -472,6 +401,7 @@ class DiscordBot:
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
             reply = llm.generate_with_context(messages)
+            reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库
             save_message(
@@ -481,8 +411,8 @@ class DiscordBot:
                 user_id=str(message.author.id),
                 channel_id=str(message.channel.id),
                 message_id=str(message.id),
-                character_id="sirius",
-                platform="discord"
+                character_id=llm.character_id,
+                platform=Platform.DISCORD
             )
             
             # 保存AI回复到数据库
@@ -493,8 +423,8 @@ class DiscordBot:
                 user_id=str(message.author.id),
                 channel_id=str(message.channel.id),
                 message_id=f"ai_{message.id}",
-                character_id="sirius",
-                platform="discord"
+                character_id=llm.character_id,
+                platform=Platform.DISCORD
             )
             
             logger.info(f"为用户 {message.author.name} 生成回复，context 消息数量: {len(messages)}")

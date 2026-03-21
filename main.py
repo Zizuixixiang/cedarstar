@@ -2,10 +2,11 @@
 CedarStar 项目主入口。
 
 负责初始化并启动所有组件，包括：
-1. Discord 机器人
-2. Telegram 机器人
-3. 日终跑批定时任务
-4. FastAPI REST API 服务
+1. 配置校验后、Bot 收消息前阻塞重建 BM25 索引（对齐 Chroma）
+2. Discord 机器人
+3. Telegram 机器人
+4. 日终跑批定时任务
+5. FastAPI REST API 服务
 """
 
 import asyncio
@@ -218,6 +219,15 @@ async def main_async():
         # 验证配置
         logger.info("验证配置...")
         validate_config()
+
+        # 任一 Bot 开始收消息前，阻塞重建 BM25 索引（与 Chroma 全量对齐；无文档时为空索引，不抛错）
+        logger.info("重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...")
+        from memory.bm25_retriever import get_bm25_retriever
+
+        if not get_bm25_retriever().refresh_index():
+            logger.warning(
+                "BM25 索引刷新未成功，关键词检索可能为空；服务仍继续启动"
+            )
         
         # 并行启动四个任务
         logger.info("并行启动四个任务...")

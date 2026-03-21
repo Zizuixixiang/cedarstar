@@ -25,9 +25,6 @@ rank_bm25
 # Cohere Rerank API
 cohere
 
-# 数据库
-psycopg2-binary  # SQLite support
-
 # 配置管理
 python-dotenv
 

@@ -1,0 +1,82 @@
+/**
+ * 根组件
+ * 包含侧边栏和路由出口，管理侧边栏展开/收起状态
+ */
+import { useState } from 'react'
+import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { navItems, routes } from './router.jsx'
+import './styles/sidebar.css'
+
+/**
+ * 侧边栏组件
+ * @param {boolean} collapsed - 是否收起状态
+ * @param {function} onToggle - 切换状态的回调函数
+ */
+function Sidebar({ collapsed, onToggle }) {
+  return (
+    <aside className={`sidebar ${collapsed ? 'collapsed' : ''}`}>
+      {/* 侧边栏头部 */}
+      <div className="sidebar-header">
+        <span className="sidebar-logo">✦ Sirius Core</span>
+        <button className="sidebar-toggle" onClick={onToggle} aria-label="切换侧边栏">
+          ☰
+        </button>
+      </div>
+
+      {/* 导航菜单 */}
+      <nav className="sidebar-nav">
+        {navItems.map((item) => (
+          <NavLink
+            key={item.path}
+            to={item.path}
+            className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+          >
+            <span className="nav-icon">{item.icon}</span>
+            <span className="nav-text">{item.text}</span>
+          </NavLink>
+        ))}
+      </nav>
+    </aside>
+  )
+}
+
+/**
+ * 主内容区组件
+ * @param {boolean} sidebarCollapsed - 侧边栏是否收起
+ */
+function MainContent({ sidebarCollapsed }) {
+  return (
+    <main className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
+      <Routes>
+        {routes.map((route) => (
+          <Route key={route.path} path={route.path} element={route.element} />
+        ))}
+      </Routes>
+    </main>
+  )
+}
+
+/**
+ * 应用根组件
+ */
+function App() {
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+
+  /**
+   * 切换侧边栏展开/收起状态
+   */
+  const handleToggleSidebar = () => {
+    setSidebarCollapsed(!sidebarCollapsed)
+  }
+
+  return (
+    <BrowserRouter>
+      <div className="app-container">
+        <Sidebar collapsed={sidebarCollapsed} onToggle={handleToggleSidebar} />
+        <MainContent sidebarCollapsed={sidebarCollapsed} />
+      </div>
+    </BrowserRouter>
+  )
+}
+
+export default App

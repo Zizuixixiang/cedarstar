@@ -1,0 +1,168 @@
+"""
+配置 API 模块。
+
+提供助手配置参数的获取和更新接口。
+"""
+from fastapi import APIRouter
+from typing import Dict, Any
+from memory.database import get_database
+
+router = APIRouter()
+
+
+def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
+    """
+    创建统一格式的响应。
+    
+    Args:
+        success: 是否成功
+        data: 响应数据
+        message: 消息说明
+        
+    Returns:
+        统一格式的响应字典
+    """
+    return {
+        "success": success,
+        "data": data,
+        "message": message
+    }
+
+
+# 默认配置值（使用后端期望的字段名）
+DEFAULT_CONFIG = {
+    "short_term_limit": 40,
+    "buffer_delay": 5,
+    "chunk_threshold": 50,
+    "longterm_score_threshold": 7,
+    "reranker_top_n": 2
+}
+
+# 内存缓存配置（从数据库加载）
+_config = None
+
+
+def _load_config_from_db() -> Dict[str, Any]:
+    """
+    从数据库加载配置。
+    
+    Returns:
+        Dict[str, Any]: 配置字典
+    """
+    db = get_database()
+    db_configs = db.get_all_configs()
+    
+    # 合并默认配置和数据库配置
+    config = DEFAULT_CONFIG.copy()
+    
+    # 将数据库中的字符串值转换为适当类型
+    for key in config.keys():
+        if key in db_configs:
+            value = db_configs[key]
+            # 根据默认值的类型进行转换
+            if isinstance(config[key], int):
+                try:
+                    config[key] = int(value)
+                except (ValueError, TypeError):
+                    pass  # 保持默认值
+            elif isinstance(config[key], float):
+                try:
+                    config[key] = float(value)
+                except (ValueError, TypeError):
+                    pass  # 保持默认值
+    
+    return config
+
+
+def _save_config_to_db(config: Dict[str, Any]) -> bool:
+    """
+    保存配置到数据库。
+    
+    Args:
+        config: 配置字典
+        
+    Returns:
+        bool: 保存是否成功
+    """
+    db = get_database()
+    success = True
+    
+    for key, value in config.items():
+        if key in DEFAULT_CONFIG:
+            if not db.set_config(key, str(value)):
+                success = False
+    
+    return success
+
+
+def _get_config() -> Dict[str, Any]:
+    """
+    获取配置（每次从数据库加载，确保获取最新值）。
+    
+    Returns:
+        Dict[str, Any]: 配置字典
+    """
+    global _config
+    
+    # 每次调用都从数据库重新加载，确保获取最新配置
+    _config = _load_config_from_db()
+    
+    return _config
+
+
+@router.get("/config")
+async def get_config():
+    """
+    获取当前所有配置参数。
+    """
+    config = _get_config()
+    return create_response(True, config)
+
+
+@router.put("/config")
+async def update_config(new_config: Dict[str, Any]):
+    """
+    批量更新配置参数，热更新生效。
+    
+    Args:
+        new_config: 新的配置字典
+        
+    Returns:
+        更新后的配置
+    """
+    global _config
+    
+    # 获取当前配置
+    config = _get_config()
+    
+    # 验证并更新配置
+    updated = False
+    for key, value in new_config.items():
+        if key in config:
+            # 根据默认值的类型进行转换
+            if isinstance(config[key], int):
+                try:
+                    config[key] = int(value)
+                    updated = True
+                except (ValueError, TypeError):
+                    pass  # 忽略无效值
+            elif isinstance(config[key], float):
+                try:
+                    config[key] = float(value)
+                    updated = True
+                except (ValueError, TypeError):
+                    pass  # 忽略无效值
+            else:
+                config[key] = value
+                updated = True
+    
+    if updated:
+        # 保存到数据库
+        if _save_config_to_db(config):
+            # 更新内存缓存
+            _config = config
+            return create_response(True, config, "配置更新成功")
+        else:
+            return create_response(False, None, "配置保存到数据库失败")
+    else:
+        return create_response(False, None, "没有有效的配置更新")

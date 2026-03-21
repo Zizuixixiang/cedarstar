@@ -8,7 +8,8 @@
 import os
 import logging
 import json
-from typing import List, Dict, Any, Optional, Tuple
+import time
+from typing import List, Dict, Any, Optional, Tuple, Set
 from datetime import datetime
 
 import chromadb
@@ -19,6 +20,75 @@ from config import config
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+# 未显式传入时的半衰期默认值（天）
+_DEFAULT_MEMORY_HALFLIFE_DAYS = 30
+
+
+def build_daily_summary_doc_id(batch_date: str) -> str:
+    """日终主文档 doc_id：`daily_{batch_date}`。"""
+    return f"daily_{batch_date}"
+
+
+def build_daily_event_doc_id(batch_date: str, event_index: int) -> str:
+    """日终事件片段 doc_id：`daily_{batch_date}_event_0` 递增。"""
+    return f"daily_{batch_date}_event_{event_index}"
+
+
+def _coerce_int(val: Any, default: int = 0) -> int:
+    if val is None:
+        return default
+    try:
+        return int(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _coerce_float(val: Any, default: float) -> float:
+    if val is None:
+        return default
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return default
+
+
+def _finalize_chroma_metadata(metadata: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    写入 Chroma 前补齐必选 metadata：base_score、halflife_days、hits、last_access_ts。
+    新写入 hits 恒为 0；last_access_ts 为当前 Unix 时间戳（float）。
+    """
+    out = dict(metadata)
+    if out.get("parent_id") is not None:
+        out["parent_id"] = str(out["parent_id"])
+    if "base_score" in out:
+        out["base_score"] = _coerce_float(out["base_score"], 5.0)
+    elif "score" in out:
+        out["base_score"] = _coerce_float(out["score"], 5.0)
+    else:
+        out["base_score"] = 5.0
+    out["halflife_days"] = _coerce_int(
+        out.get("halflife_days"), _DEFAULT_MEMORY_HALFLIFE_DAYS
+    )
+    out["hits"] = 0
+    out["last_access_ts"] = float(time.time())
+    return out
+
+
+def decayed_memory_strength(
+    base_score: float,
+    halflife_days: int,
+    last_access_ts: float,
+    now_ts: float,
+) -> float:
+    """
+    半衰期衰减：将 base_score（通常 1–10）归一化到 [0,1] 后按半衰期衰减。
+    strength = (base_score/10) * 0.5 ** (elapsed_days / halflife_days)
+    """
+    b = max(0.0, min(1.0, float(base_score) / 10.0))
+    hl = max(1, int(halflife_days))
+    elapsed_days = max(0.0, (float(now_ts) - float(last_access_ts)) / 86400.0)
+    return b * (0.5 ** (elapsed_days / hl))
 
 
 class ZhipuEmbedding:
@@ -175,9 +245,12 @@ class VectorStore:
         添加记忆到向量数据库。
         
         Args:
-            doc_id: 文档ID，格式如 daily_2026-03-14
+            doc_id: 文档ID。日终主文档建议 `daily_{batch_date}`；事件片段建议
+                `daily_{batch_date}_event_0`、`_event_1`…
             text: 记忆文本内容
-            metadata: 元数据，必须包含 date、session_id、summary_type
+            metadata: 元数据，必须包含 date、session_id、summary_type；
+                写入 Chroma 时会自动补齐 base_score(float)、halflife_days(int)、
+                hits(0)、last_access_ts(float)。
             
         Returns:
             bool: 是否添加成功
@@ -192,23 +265,65 @@ class VectorStore:
             # 获取文本向量
             embedding = self.embedding_client.get_embedding(text)
             
-            # 添加元数据时间戳
-            metadata["created_at"] = datetime.now().isoformat()
+            chroma_meta = _finalize_chroma_metadata(metadata)
+            chroma_meta["created_at"] = datetime.now().isoformat()
             
             # 添加到 ChromaDB
             self.collection.add(
                 ids=[doc_id],
                 embeddings=[embedding],
-                metadatas=[metadata],
+                metadatas=[chroma_meta],
                 documents=[text]
             )
             
-            logger.info(f"记忆添加成功，ID: {doc_id}, 类型: {metadata.get('summary_type')}")
+            logger.info(
+                f"记忆添加成功，ID: {doc_id}, 类型: {chroma_meta.get('summary_type')}"
+            )
             return True
             
         except Exception as e:
             logger.error(f"添加记忆失败，ID: {doc_id}, 错误: {e}")
             return False
+
+    def update_memory_hits(self, uid_list: List[str]) -> int:
+        """
+        按 doc_id 批量更新：hits+1，last_access_ts 为当前时间戳。
+
+        使用 collection.get(ids=...) 读取现有 metadata 后 collection.update() 写回，
+        不使用 where / metadata 过滤查询。
+        """
+        if not uid_list:
+            return 0
+        unique_ids = list(dict.fromkeys(uid_list))
+        try:
+            got = self.collection.get(ids=unique_ids, include=["metadatas"])
+            ids_out = got.get("ids") or []
+            metas = got.get("metadatas") or []
+            if not ids_out:
+                logger.debug("update_memory_hits: 未找到任何匹配的 doc_id")
+                return 0
+            now_ts = float(time.time())
+            upd_ids: List[str] = []
+            upd_meta: List[Dict[str, Any]] = []
+            for i, uid in enumerate(ids_out):
+                md = dict(metas[i] or {})
+                prev = _coerce_int(md.get("hits"), 0)
+                md["hits"] = prev + 1
+                md["last_access_ts"] = now_ts
+                upd_ids.append(uid)
+                upd_meta.append(md)
+            self.collection.update(ids=upd_ids, metadatas=upd_meta)
+            found_set = set(ids_out)
+            missing = [u for u in unique_ids if u not in found_set]
+            if missing:
+                logger.warning(
+                    "update_memory_hits: 以下 doc_id 不存在，已跳过（最多列 10 个）: %s",
+                    missing[:10],
+                )
+            return len(upd_ids)
+        except Exception as e:
+            logger.error(f"update_memory_hits 失败: {e}")
+            return 0
     
     def search_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
         """
@@ -352,6 +467,55 @@ class VectorStore:
             logger.error(f"获取所有记忆文档失败: {e}")
             return []
 
+    def garbage_collect_stale_memories(
+        self,
+        idle_days_threshold: float = 90.0,
+        strength_threshold: float = 0.05,
+        scan_limit: int = 10000,
+    ) -> int:
+        """
+        回收长期未访问且衰减后强度极低的向量记忆。
+
+        仅当同时满足：距 last_access_ts 已满 idle_days_threshold 天、
+        decayed_memory_strength < strength_threshold、且不存在其他文档以本 id 为 parent_id 时，
+        才物理删除（collection.delete(ids=...)）。
+        """
+        now_ts = time.time()
+        memories = self.get_all_memories(limit=scan_limit)
+        if not memories:
+            return 0
+
+        parents_with_children: Set[str] = set()
+        for m in memories:
+            md = m.get("metadata") or {}
+            pid = md.get("parent_id")
+            if pid is not None and str(pid).strip() != "":
+                parents_with_children.add(str(pid))
+
+        deleted = 0
+        for m in memories:
+            doc_id = m["id"]
+            md = m.get("metadata") or {}
+            try:
+                last_ts = float(md.get("last_access_ts", 0))
+            except (TypeError, ValueError):
+                continue
+            idle_days = (now_ts - last_ts) / 86400.0
+            if idle_days < idle_days_threshold:
+                continue
+            base = _coerce_float(md.get("base_score"), 5.0)
+            hl = _coerce_int(md.get("halflife_days"), _DEFAULT_MEMORY_HALFLIFE_DAYS)
+            strength = decayed_memory_strength(base, hl, last_ts, now_ts)
+            if strength >= strength_threshold:
+                continue
+            if doc_id in parents_with_children:
+                continue
+            if self.delete_memory(doc_id):
+                deleted += 1
+        if deleted:
+            logger.info("Chroma 记忆 GC 完成，删除 %s 条", deleted)
+        return deleted
+
 
 # 全局向量存储实例
 _vector_store_instance = None
@@ -413,6 +577,23 @@ def delete_memory(doc_id: str) -> bool:
     """
     store = get_vector_store()
     return store.delete_memory(doc_id)
+
+
+def update_memory_hits(uid_list: List[str]) -> int:
+    """对给定 doc_id 列表执行 hits+1 并刷新 last_access_ts，返回成功更新条数。"""
+    store = get_vector_store()
+    return store.update_memory_hits(uid_list)
+
+
+def garbage_collect_stale_memories(
+    idle_days_threshold: float = 90.0,
+    strength_threshold: float = 0.05,
+    scan_limit: int = 10000,
+) -> int:
+    store = get_vector_store()
+    return store.garbage_collect_stale_memories(
+        idle_days_threshold, strength_threshold, scan_limit
+    )
 
 
 def test_vector_store() -> None:

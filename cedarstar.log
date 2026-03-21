@@ -5254,3 +5254,781 @@ telegram.error.NetworkError: httpx.RemoteProtocolError: Server disconnected with
 2026-03-15 14:31:42,170 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
 2026-03-15 14:31:52,525 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
 2026-03-15 14:32:02,872 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:32:13,213 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:32:23,553 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:32:33,918 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:32:44,269 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:32:54,618 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:33:04,960 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:33:15,312 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:33:25,654 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:33:35,995 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:33:46,340 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:33:56,687 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:34:07,029 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:34:17,371 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 14:34:27,730 - httpx - INFO - HTTP Request: POST https://api.telegram.org/bot8617564291:AAGZ_KC-7P1T34C4MSj_TYxz6QqtMFs5c9k/getUpdates "HTTP/1.1 200 OK"
+2026-03-15 15:04:32,028 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-15 15:04:32,032 - telegram.ext.Updater - ERROR - Exception happened while polling for updates.
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http_proxy.py", line 343, in handle_async_request
+    return await self._connection.handle_async_request(request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 136, in handle_async_request
+    raise exc
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 106, in handle_async_request
+    ) = await self._receive_response_headers(**kwargs)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 177, in _receive_response_headers
+    event = await self._receive_event(timeout=timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 231, in _receive_event
+    raise RemoteProtocolError(msg)
+httpcore.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
+    res = await self._client.request(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.RemoteProtocolError: Server disconnected without sending a response.
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 154, in do_action
+    action_cb_task.result()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 671, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 4860, in get_updates
+    await self._post(
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 703, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 369, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 732, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
+    code, payload = await self.do_request(
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 303, in do_request
+    raise NetworkError(f"httpx.{err.__class__.__name__}: {err}") from err
+telegram.error.NetworkError: httpx.RemoteProtocolError: Server disconnected without sending a response.
+2026-03-15 15:04:32,036 - discord.client - ERROR - Attempting a reconnect in 1.66s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-15 15:04:32,140 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-15 15:04:33,806 - discord.client - ERROR - Attempting a reconnect in 1.33s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-15 15:04:33,806 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-15 15:04:35,139 - discord.client - ERROR - Attempting a reconnect in 5.37s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-15 15:04:35,144 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-15 15:04:36,573 - telegram.ext.Updater - ERROR - Exception happened while polling for updates.
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 101, in map_httpcore_exceptions
+    yield
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 394, in handle_async_request
+    resp = await self._pool.handle_async_request(req)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 256, in handle_async_request
+    raise exc from None
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\connection_pool.py", line 236, in handle_async_request
+    response = await connection.handle_async_request(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http_proxy.py", line 316, in handle_async_request
+    stream = await stream.start_tls(**kwargs)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_async\http11.py", line 376, in start_tls
+    return await self._stream.start_tls(ssl_context, server_hostname, timeout)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_backends\anyio.py", line 67, in start_tls
+    with map_exceptions(exc_map):
+         ^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpcore\_exceptions.py", line 14, in map_exceptions
+    raise to_exc(exc) from exc
+httpcore.ConnectError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 279, in do_request
+    res = await self._client.request(
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1540, in request
+    return await self.send(request, auth=auth, follow_redirects=follow_redirects)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1629, in send
+    response = await self._send_handling_auth(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1657, in _send_handling_auth
+    response = await self._send_handling_redirects(
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1694, in _send_handling_redirects
+    response = await self._send_single_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_client.py", line 1730, in _send_single_request
+    response = await transport.handle_async_request(request)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 393, in handle_async_request
+    with map_httpcore_exceptions():
+         ^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "contextlib.py", line 158, in __exit__
+  File "D:\Environment_coding\Python312\Lib\site-packages\httpx\_transports\default.py", line 118, in map_httpcore_exceptions
+    raise mapped_exc(message) from exc
+httpx.ConnectError
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 161, in network_retry_loop
+    await do_action()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_utils\networkloop.py", line 154, in do_action
+    action_cb_task.result()
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_updater.py", line 340, in polling_action_cb
+    updates = await self.bot.get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 671, in get_updates
+    updates = await super().get_updates(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 4860, in get_updates
+    await self._post(
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 703, in _post
+    return await self._do_post(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\ext\_extbot.py", line 369, in _do_post
+    return await super()._do_post(
+           ^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\_bot.py", line 732, in _do_post
+    result = await request.post(
+             ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 198, in post
+    result = await self._request_wrapper(
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_baserequest.py", line 305, in _request_wrapper
+    code, payload = await self.do_request(
+                    ^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\telegram\request\_httpxrequest.py", line 303, in do_request
+    raise NetworkError(f"httpx.{err.__class__.__name__}: {err}") from err
+telegram.error.NetworkError: httpx.ConnectError: 
+2026-03-16 22:43:36,500 - memory.daily_batch - INFO - 触发日终跑批处理
+2026-03-16 22:43:36,520 - memory.daily_batch - INFO - 开始日终跑批处理，日期: 2026-03-16
+2026-03-16 22:43:38,746 - discord.client - ERROR - Attempting a reconnect in 0.13s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-16 22:43:38,785 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:43:38,815 - memory.daily_batch - INFO - 执行 Step 1 - 生成今日小传，日期: 2026-03-16
+2026-03-16 22:43:38,818 - memory.daily_batch - INFO - 今日没有内容需要生成小传，日期: 2026-03-16
+2026-03-16 22:43:38,829 - memory.daily_batch - INFO - Step 1 完成，日期: 2026-03-16
+2026-03-16 22:43:38,833 - memory.daily_batch - INFO - 执行 Step 2 - 更新记忆卡片，日期: 2026-03-16
+2026-03-16 22:43:38,835 - memory.daily_batch - INFO - Step 2 执行（简化版），日期: 2026-03-16
+2026-03-16 22:43:38,869 - memory.daily_batch - INFO - Step 2 完成，日期: 2026-03-16
+2026-03-16 22:43:38,870 - memory.daily_batch - INFO - 执行 Step 3 - 价值打分与冷库归档，日期: 2026-03-16
+2026-03-16 22:43:38,874 - memory.daily_batch - INFO - 获取到今日小传，ID: 2, 长度: 15
+2026-03-16 22:43:38,926 - discord.client - ERROR - Attempting a reconnect in 2.37s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-16 22:43:38,933 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:43:41,315 - discord.client - ERROR - Attempting a reconnect in 2.08s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-16 22:43:41,327 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:43:42,175 - llm.llm_interface - ERROR - LLM API 调用失败: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-03-16 22:43:42,175 - memory.daily_batch - ERROR - LLM 价值打分失败: ('Connection aborted.', ConnectionResetError(10054, '远程主机强迫关闭了一个现有的连接。', None, 10054, None))
+2026-03-16 22:43:42,176 - memory.daily_batch - INFO - 使用默认分数: 5
+2026-03-16 22:43:42,176 - memory.daily_batch - INFO - 今日小传价值分: 5，跳过归档
+2026-03-16 22:43:42,192 - memory.daily_batch - INFO - Step 3 完成，日期: 2026-03-16
+2026-03-16 22:43:42,194 - memory.daily_batch - INFO - 日终跑批处理完成，日期: 2026-03-16
+2026-03-16 22:43:42,194 - memory.daily_batch - INFO - 日终跑批处理执行成功
+2026-03-16 22:43:43,418 - discord.client - ERROR - Attempting a reconnect in 9.48s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-16 22:43:43,431 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:43:52,921 - discord.client - ERROR - Attempting a reconnect in 15.18s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-16 22:43:52,926 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:44:08,121 - discord.client - ERROR - Attempting a reconnect in 48.34s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1562, in _create_direct_connection
+    hosts = await self._resolve_host(host, port, traces=traces)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1178, in _resolve_host
+    return await asyncio.shield(resolved_host_task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1209, in _resolve_host_with_throttle
+    addrs = await self._resolver.resolve(host, port, family=self._family)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\resolver.py", line 40, in resolve
+    infos = await self._loop.getaddrinfo(
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\base_events.py", line 905, in getaddrinfo
+  File "concurrent\futures\thread.py", line 59, in run
+  File "socket.py", line 978, in getaddrinfo
+socket.gaierror: [Errno 11004] getaddrinfo failed
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1568, in _create_direct_connection
+    raise ClientConnectorDNSError(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientConnectorDNSError: Cannot connect to host localhost:7897 ssl:default [getaddrinfo failed]
+2026-03-16 22:44:08,121 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:44:42,214 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-16 23:00:00 执行，等待 918 秒
+2026-03-16 22:44:58,275 - discord.gateway - INFO - Shard ID None session has been invalidated.
+2026-03-16 22:44:58,629 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 22:45:05,363 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: cf49fc5adecce5edeef161ee07d34b9a).
+2026-03-16 22:45:07,369 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-16 22:45:07,369 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-16 22:45:07,370 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-16 22:45:07,370 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-16 23:00:00,010 - memory.daily_batch - INFO - 触发日终跑批处理
+2026-03-16 23:00:00,012 - memory.daily_batch - INFO - 开始日终跑批处理，日期: 2026-03-16
+2026-03-16 23:00:00,017 - memory.daily_batch - INFO - Step 1 已跳过（已完成），日期: 2026-03-16
+2026-03-16 23:00:00,019 - memory.daily_batch - INFO - Step 2 已跳过（已完成），日期: 2026-03-16
+2026-03-16 23:00:00,019 - memory.daily_batch - INFO - Step 3 已跳过（已完成），日期: 2026-03-16
+2026-03-16 23:00:00,020 - memory.daily_batch - INFO - 日终跑批处理完成，日期: 2026-03-16
+2026-03-16 23:00:00,020 - memory.daily_batch - INFO - 日终跑批处理执行成功
+2026-03-16 23:01:00,037 - memory.daily_batch - INFO - 下一次日终跑批将在 2026-03-17 23:00:00 执行，等待 86340 秒
+2026-03-16 23:15:34,197 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 23:15:36,218 - discord.client - ERROR - Attempting a reconnect in 61.75s
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1298, in _wrap_create_connection
+    sock = await aiohappyeyeballs.start_connection(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohappyeyeballs\impl.py", line 122, in start_connection
+    raise first_exception
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohappyeyeballs\impl.py", line 73, in start_connection
+    sock = await _connect_sock(
+           ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohappyeyeballs\impl.py", line 208, in _connect_sock
+    await loop.sock_connect(sock, address)
+  File "asyncio\proactor_events.py", line 729, in sock_connect
+  File "asyncio\windows_events.py", line 803, in _poll
+  File "asyncio\windows_events.py", line 599, in finish_connect
+ConnectionRefusedError: [WinError 1225] 远程计算机拒绝网络连接。
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\client.py", line 728, in connect
+    self.ws = await asyncio.wait_for(coro, timeout=60.0)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "asyncio\tasks.py", line 520, in wait_for
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\gateway.py", line 392, in from_client
+    socket = await client.http.ws_connect(str(url))
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\discord\http.py", line 571, in ws_connect
+    return await self.__session.ws_connect(url, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 1076, in _ws_connect
+    resp = await self.request(
+           ^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 779, in _request
+    resp = await handler(req)
+           ^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\client.py", line 734, in _connect_and_send_request
+    conn = await self._connector.connect(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 672, in connect
+    proto = await self._create_connection(req, traces, timeout)
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1237, in _create_connection
+    _, proto = await self._create_proxy_connection(req, traces, timeout)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1621, in _create_proxy_connection
+    transport, proto = await self._create_direct_connection(
+                       ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1611, in _create_direct_connection
+    raise last_exc
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1580, in _create_direct_connection
+    transp, proto = await self._wrap_create_connection(
+                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Environment_coding\Python312\Lib\site-packages\aiohttp\connector.py", line 1321, in _wrap_create_connection
+    raise client_error(req.connection_key, exc) from exc
+aiohttp.client_exceptions.ClientProxyConnectionError: Cannot connect to host localhost:7897 ssl:default [远程计算机拒绝网络连接。]
+2026-03-16 23:15:36,271 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 23:16:40,349 - discord.gateway - INFO - Shard ID None session has been invalidated.
+2026-03-16 23:16:40,645 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 23:16:47,888 - discord.gateway - INFO - Shard ID None has connected to Gateway (Session ID: dc54566a7a50f2151a6ebfc2f9155384).
+2026-03-16 23:16:49,907 - bot.discord_bot - INFO - 机器人已登录为: Sirius-Server
+2026-03-16 23:16:49,907 - bot.discord_bot - INFO - 机器人 ID: 1481635560714932274
+2026-03-16 23:16:49,907 - bot.discord_bot - INFO - 已加入 1 个服务器
+2026-03-16 23:16:49,910 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → True
+2026-03-16 23:34:12,937 - bot.discord_bot - INFO - 已更新 Discord 在线状态 → False
+2026-03-16 23:34:14,762 - discord.gateway - INFO - Shard ID None has successfully RESUMED session dc54566a7a50f2151a6ebfc2f9155384.

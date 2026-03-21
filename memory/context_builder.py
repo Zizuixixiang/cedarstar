@@ -3,22 +3,28 @@ Context 构建模块。
 
 负责组装发送给 LLM 的完整 prompt，按照优先级从上到下拼装：
 1. system prompt：从配置读取，保持原样
-2. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
-3. daily summary：查询 summaries 表中 summary_type='daily'，按 created_at 倒序取最近 5 条，然后翻转为正序（按时间从老到新）后拼入
-4. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
-5. 向量检索：用用户当前输入调 search_memory()，取 top 5 结果，后续给 Reranker 用（先原样拼入 context）
-6. 最近消息：查询当前 session_id 下 is_summarized=0 的消息，按 created_at 倒序取 40 条，再正序排列后拼入
+2. temporal_states：is_active=1 的全部记录（在记忆卡片之前）
+3. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
+4. relationship_timeline：取最近 3 条（库内按倒序选取），注入 Context 时按 created_at 正序排列
+5. daily summary：查询 summaries 表中 summary_type='daily'，按 created_at 倒序取最近 5 条，然后翻转为正序（按时间从老到新）后拼入
+6. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
+7. 向量检索：Chroma top5 + BM25 top5 去重；长期记忆在进入精排前按 parent_id 父子折叠；注入时每条带 [uid:doc_id] 前缀
+8. 最近消息：查询当前 session_id 下 is_summarized=0 的消息，按 created_at 倒序取 40 条，再正序排列后拼入
 
 组装完成后返回一个结构，包含 system prompt 和 messages 数组，直接可以传给 LLM API。
 """
 
 import logging
+import math
+import time
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 from config import config
 from memory.database import (
     get_all_active_memory_cards,
+    get_all_active_temporal_states,
+    get_recent_relationship_timeline,
     get_recent_daily_summaries,
     get_today_chunk_summaries,
     get_unsummarized_messages_desc
@@ -45,6 +51,175 @@ except ImportError:
 # 设置日志
 logger = logging.getLogger(__name__)
 
+MEMORY_CITATION_DIRECTIVE = (
+    "如果你在生成回复时参考了上述历史记忆，必须在回复文本末尾标注引用，格式为 [[used:uid]]，可以有多个。"
+)
+
+
+def _created_at_timestamp_for_sort(created_at: Any) -> float:
+    """用于 relationship_timeline 等按时间正序排序；无法解析时置 0（排在最前）。"""
+    if not created_at:
+        return 0.0
+    try:
+        dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+        return float(dt.timestamp())
+    except (TypeError, ValueError, OSError):
+        return 0.0
+
+
+def _parent_group_key(result: Dict[str, Any]) -> str:
+    md = result.get("metadata") or {}
+    pid = md.get("parent_id")
+    if pid is not None and str(pid).strip():
+        return str(pid).strip()
+    rid = result.get("id")
+    return str(rid) if rid is not None else ""
+
+
+def _semantic_similarity_for_collapse(result: Dict[str, Any], bm25_max: float) -> float:
+    """组内比较用：向量用 score；BM25 分数按批次最大值缩放到约 [0,1]。"""
+    if result.get("retrieval_method") == "vector":
+        return float(result.get("score") or 0.0)
+    bm = float(result.get("score") or 0.0)
+    denom = bm25_max if bm25_max > 0 else 1.0
+    return min(1.0, bm / denom)
+
+
+def collapse_longterm_by_parent_id(all_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    按 parent_id 分组：事件片段与父 daily 同组；组内仅保留语义相似度（向量 score 或归一化 BM25）最高的一条。
+    输出顺序与首次出现的组顺序一致。
+    """
+    if not all_results:
+        return []
+    bm25_scores = [
+        float(r.get("score") or 0.0)
+        for r in all_results
+        if r.get("retrieval_method") == "bm25"
+    ]
+    bm25_max = max(bm25_scores) if bm25_scores else 1.0
+
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    order: List[str] = []
+    for r in all_results:
+        key = _parent_group_key(r)
+        if key not in groups:
+            groups[key] = []
+            order.append(key)
+        groups[key].append(r)
+
+    collapsed: List[Dict[str, Any]] = []
+    for key in order:
+        items = groups[key]
+        best = max(
+            items,
+            key=lambda x: _semantic_similarity_for_collapse(x, bm25_max),
+        )
+        collapsed.append(best)
+    return collapsed
+
+
+def _merge_vector_bm25_dedupe(
+    vector_results: List[Dict[str, Any]],
+    bm25_results: List[Dict[str, Any]],
+    max_total: int = 10,
+) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = []
+    seen: set = set()
+    for result in vector_results:
+        doc_id = result.get("id")
+        if doc_id and doc_id not in seen:
+            seen.add(doc_id)
+            r = dict(result)
+            r["retrieval_method"] = "vector"
+            merged.append(r)
+    for result in bm25_results:
+        doc_id = result.get("id")
+        if doc_id and doc_id not in seen:
+            seen.add(doc_id)
+            r = dict(result)
+            r["retrieval_method"] = "bm25"
+            merged.append(r)
+    return merged[:max_total]
+
+
+def _memory_age_days(metadata: Dict[str, Any], now_ts: float) -> float:
+    md = metadata or {}
+    created = md.get("created_at")
+    if created:
+        try:
+            dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+            return max(0.0, (now_ts - dt.timestamp()) / 86400.0)
+        except (TypeError, ValueError):
+            pass
+    try:
+        lt = float(md.get("last_access_ts", now_ts))
+    except (TypeError, ValueError):
+        lt = now_ts
+    return max(0.0, (now_ts - lt) / 86400.0)
+
+
+def _decay_resurrection_raw(metadata: Dict[str, Any], age_days: float) -> float:
+    md = metadata or {}
+    try:
+        base = float(md.get("base_score", md.get("score", 5.0)))
+    except (TypeError, ValueError):
+        base = 5.0
+    try:
+        hl = int(md.get("halflife_days") or 30)
+    except (TypeError, ValueError):
+        hl = 30
+    hl = max(1, hl)
+    try:
+        hits = int(md.get("hits") or 0)
+    except (TypeError, ValueError):
+        hits = 0
+    hits = max(0, hits)
+    exp_part = math.exp(-math.log(2) / float(hl) * age_days)
+    return base * exp_part * (1.0 + 0.35 * math.log(1 + hits))
+
+
+def fuse_rerank_with_time_decay(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """
+    精排综合分：0.8×语义(归一化) + 0.2×时间衰减复活分(归一化)。
+    语义分优先用 Cohere rerank_score，否则用检索 score。
+    """
+    if not candidates:
+        return []
+    now_ts = time.time()
+    sem_raw: List[float] = []
+    for c in candidates:
+        if c.get("rerank_score") is not None:
+            sem_raw.append(float(c["rerank_score"]))
+        else:
+            sem_raw.append(float(c.get("score") or 0.0))
+    smin, smax = min(sem_raw), max(sem_raw)
+
+    def norm_sem(i: int) -> float:
+        if smax <= smin:
+            return 1.0
+        return (sem_raw[i] - smin) / (smax - smin)
+
+    decay_raw: List[float] = []
+    for c in candidates:
+        md = c.get("metadata") or {}
+        age = _memory_age_days(md, now_ts)
+        decay_raw.append(_decay_resurrection_raw(md, age))
+    dmin, dmax = min(decay_raw), max(decay_raw)
+
+    def norm_dec(i: int) -> float:
+        if dmax <= dmin:
+            return 1.0
+        return (decay_raw[i] - dmin) / (dmax - dmin)
+
+    scored: List[Dict[str, Any]] = []
+    for i, c in enumerate(candidates):
+        cp = dict(c)
+        cp["fusion_score"] = 0.8 * norm_sem(i) + 0.2 * norm_dec(i)
+        scored.append(cp)
+    scored.sort(key=lambda x: x["fusion_score"], reverse=True)
+    return scored
+
 
 class ContextBuilder:
     """
@@ -65,11 +240,13 @@ class ContextBuilder:
         
         按照优先级从上到下拼装：
         1. system prompt
-        2. memory_cards
-        3. daily summary
-        4. chunk summary
-        5. 向量检索结果
-        6. 最近消息
+        2. temporal_states（is_active=1）
+        3. memory_cards
+        4. relationship_timeline（最近 3 条，created_at 正序注入）
+        5. daily summary
+        6. chunk summary
+        7. 向量检索（折叠 + [uid:doc_id]）
+        8. 最近消息
         
         Args:
             session_id: 会话ID
@@ -81,9 +258,13 @@ class ContextBuilder:
         try:
             # 1. 获取 system prompt
             system_prompt = self._build_system_prompt()
+
+            temporal_section = self._build_temporal_states_section()
             
             # 2. 获取 memory cards
             memory_cards_section = self._build_memory_cards_section()
+
+            relationship_timeline_section = self._build_relationship_timeline_section()
             
             # 3. 获取 daily summaries
             daily_summaries_section = self._build_daily_summaries_section()
@@ -103,7 +284,9 @@ class ContextBuilder:
             # 组装完整的 system prompt
             full_system_prompt = self._assemble_full_system_prompt(
                 system_prompt,
+                temporal_section,
                 memory_cards_section,
+                relationship_timeline_section,
                 daily_summaries_section,
                 chunk_summaries_section,
                 vector_search_section
@@ -139,15 +322,16 @@ class ContextBuilder:
         
         按照优先级从上到下拼装：
         1. system prompt
-        2. memory_cards
-        3. daily summary
-        4. chunk summary
-        5. 向量检索结果（带 Reranker 重排序）
-        6. 最近消息
+        2. temporal_states（is_active=1）
+        3. memory_cards
+        4. relationship_timeline（最近 3 条，created_at 正序注入）
+        5. daily summary
+        6. chunk summary
+        7. 向量检索（折叠 → Cohere 全候选打分 → 语义×0.8+衰减×0.2 → top 2，[uid:doc_id]）
+        8. 最近消息
         
         使用 asyncio.gather 并行执行向量检索和 BM25 检索，
-        等待这两路都返回结果并完成合并去重（得到最多 10 条候选）后，
-        再异步 await 调用 rerank() 取 top 2。
+        合并去重并父子折叠后，对全量候选 await rerank()，再按融合分排序取 top 2。
         
         Args:
             session_id: 会话ID
@@ -159,9 +343,13 @@ class ContextBuilder:
         try:
             # 1. 获取 system prompt
             system_prompt = self._build_system_prompt()
+
+            temporal_section = self._build_temporal_states_section()
             
             # 2. 获取 memory cards
             memory_cards_section = self._build_memory_cards_section()
+
+            relationship_timeline_section = self._build_relationship_timeline_section()
             
             # 3. 获取 daily summaries
             daily_summaries_section = self._build_daily_summaries_section()
@@ -181,7 +369,9 @@ class ContextBuilder:
             # 组装完整的 system prompt
             full_system_prompt = self._assemble_full_system_prompt(
                 system_prompt,
+                temporal_section,
                 memory_cards_section,
+                relationship_timeline_section,
                 daily_summaries_section,
                 chunk_summaries_section,
                 vector_search_section
@@ -219,6 +409,63 @@ class ContextBuilder:
             str: 基础 system prompt
         """
         return config.SYSTEM_PROMPT
+
+    def _build_temporal_states_section(self) -> str:
+        """temporal_states 中 is_active=1 的全部记录（置于记忆卡片之前）。"""
+        try:
+            rows = get_all_active_temporal_states()
+            if not rows:
+                return ""
+            lines: List[str] = ["# 时效状态（进行中）", ""]
+            for row in rows:
+                expire_at = row.get("expire_at") or "未设置"
+                content = (row.get("state_content") or "").strip()
+                rule = (row.get("action_rule") or "").strip()
+                sid = row.get("id", "")
+                chunk = f"- **{sid}**（至 {expire_at}）\n  - 状态：{content}"
+                if rule:
+                    chunk += f"\n  - 行为规则：{rule}"
+                lines.append(chunk)
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"构建 temporal_states 部分失败: {e}")
+            return ""
+
+    def _build_relationship_timeline_section(self) -> str:
+        """relationship_timeline：库内取最近 3 条，拼入前按 created_at 升序排列。"""
+        type_labels = {
+            "milestone": "里程碑",
+            "emotional_shift": "情绪转折",
+            "conflict": "冲突",
+            "daily_warmth": "日常温情",
+        }
+        try:
+            rows = get_recent_relationship_timeline(limit=3)
+            if not rows:
+                return ""
+            rows = sorted(
+                rows,
+                key=lambda r: _created_at_timestamp_for_sort(r.get("created_at")),
+            )
+            lines: List[str] = ["# 关系时间线（最近）", ""]
+            for row in rows:
+                et = row.get("event_type") or ""
+                label = type_labels.get(et, et)
+                created = row.get("created_at") or ""
+                if created:
+                    try:
+                        dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
+                        created_fmt = dt.strftime("%Y-%m-%d %H:%M")
+                    except (TypeError, ValueError):
+                        created_fmt = str(created)
+                else:
+                    created_fmt = "未知时间"
+                content = (row.get("content") or "").strip()
+                lines.append(f"- **{label}**（{created_fmt}）\n  {content}")
+            return "\n".join(lines)
+        except Exception as e:
+            logger.error(f"构建 relationship_timeline 部分失败: {e}")
+            return ""
     
     def _build_memory_cards_section(self) -> str:
         """
@@ -384,220 +631,135 @@ class ContextBuilder:
     
     def _build_vector_search_section(self, user_message: str) -> str:
         """
-        构建向量检索部分。
+        构建向量检索部分（同步，无 Cohere 精排）。
         
-        实现双路融合：向量检索 top 5 + BM25 top 5，按 doc_id 去重，得到最多 10 条候选。
-        加占位注释等 Reranker 填充。
-        
-        Args:
-            user_message: 用户当前消息
-            
-        Returns:
-            str: 向量检索部分的文本，如果没有则返回空字符串
+        双路融合后按 parent_id 父子折叠，注入时每条正文前带 [uid:doc_id]。
         """
         try:
-            # 检查配置
             if not config.ZHIPU_API_KEY or config.ZHIPU_API_KEY == "your_zhipu_api_key_here":
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
-            
-            # 1. 向量检索：调用 search_memory()，取 top 5 结果
+
             vector_results = search_memory(user_message, top_k=5)
-            
-            # 2. BM25 检索：调用 search_bm25()，取 top 5 结果
             bm25_results = search_bm25(user_message, top_k=5)
-            
-            # 3. 合并结果，按 doc_id 去重
-            all_results = []
-            seen_ids = set()
-            
-            # 先添加向量检索结果
-            for result in vector_results:
-                doc_id = result.get('id')
-                if doc_id and doc_id not in seen_ids:
-                    seen_ids.add(doc_id)
-                    result['retrieval_method'] = 'vector'
-                    all_results.append(result)
-            
-            # 再添加 BM25 检索结果（去重后）
-            for result in bm25_results:
-                doc_id = result.get('id')
-                if doc_id and doc_id not in seen_ids:
-                    seen_ids.add(doc_id)
-                    result['retrieval_method'] = 'bm25'
-                    all_results.append(result)
-            
-            # 限制最多 10 条结果
-            all_results = all_results[:10]
-            
+            all_results = _merge_vector_bm25_dedupe(vector_results, bm25_results, 10)
+            all_results = collapse_longterm_by_parent_id(all_results)
+
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
                 return ""
-            
-            # 4. 构建格式化文本
+
             sections = []
             for i, result in enumerate(all_results):
-                text = result['text']
-                metadata = result['metadata']
-                score = result.get('score', 0.0)
-                retrieval_method = result.get('retrieval_method', 'unknown')
-                
-                # 提取元数据信息
-                date = metadata.get('date', '未知日期')
-                summary_type = metadata.get('summary_type', '未知类型')
-                session_id = metadata.get('session_id', '未知会话')
-                
-                # 简化 session_id 显示
-                if '_' in session_id:
-                    parts = session_id.split('_')
+                text = (result.get("text") or "").strip()
+                doc_id = result.get("id") or ""
+                metadata = result.get("metadata") or {}
+                score = float(result.get("score") or 0.0)
+                retrieval_method = result.get("retrieval_method", "unknown")
+                date = metadata.get("date", "未知日期")
+                summary_type = metadata.get("summary_type", "未知类型")
+                session_id = metadata.get("session_id", "未知会话")
+                if "_" in str(session_id):
+                    parts = str(session_id).split("_")
                     if len(parts) >= 2:
                         display_session = f"用户{parts[0][:4]}...频道{parts[1][:4]}..."
                     else:
-                        display_session = session_id[:20]
+                        display_session = str(session_id)[:20]
                 else:
-                    display_session = session_id[:20]
-                
-                # 根据检索方法显示不同的标签
-                method_label = "向量" if retrieval_method == 'vector' else "关键词"
-                
-                sections.append(f"### 相关记忆 {i+1} ({method_label}检索，分数: {score:.2f})\n日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{text}")
-            
-            if sections:
-                vector_section = "\n\n".join(sections)
-                # 添加占位注释，等 Reranker 填充
-                vector_section += "\n\n<!-- 以上是双路检索结果，后续由 Reranker 进行重排序 -->"
-                return f"# 相关长期记忆（双路检索结果）\n\n{vector_section}"
-            else:
-                return ""
-                
+                    display_session = str(session_id)[:20]
+                method_label = "向量" if retrieval_method == "vector" else "关键词"
+                body = f"[uid:{doc_id}] {text}"
+                sections.append(
+                    f"### 相关记忆 {i+1} ({method_label}检索，分数: {score:.2f})\n"
+                    f"日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{body}"
+                )
+
+            vector_section = "\n\n".join(sections)
+            vector_section += "\n\n<!-- 以上是双路检索结果（已父子折叠）；异步路径下由 Reranker 精排 -->"
+            return f"# 相关长期记忆（双路检索结果）\n\n{vector_section}"
+
         except Exception as e:
             logger.error(f"构建向量检索部分失败: {e}")
             return ""
     
     async def _build_vector_search_section_async(self, user_message: str) -> str:
         """
-        异步构建向量检索部分（带 Reranker 重排序）。
-        
-        使用 asyncio.gather 并行执行向量检索和 BM25 检索，
-        等待这两路都返回结果并完成合并去重（得到最多 10 条候选）后，
-        再异步 await 调用 rerank() 取 top 2。
-        
-        Args:
-            user_message: 用户当前消息
-            
-        Returns:
-            str: 向量检索部分的文本，如果没有则返回空字符串
+        异步构建向量检索部分：并行双路检索 → 父子折叠 → Cohere 打分 →
+        语义归一化×0.8 + 时间衰减复活分归一化×0.2 综合排序 → 取 top 2；
+        每条正文前带 [uid:doc_id]。
         """
         try:
-            # 检查配置
             if not config.ZHIPU_API_KEY or config.ZHIPU_API_KEY == "your_zhipu_api_key_here":
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
-            
-            # 检查 Cohere API 配置
+
             if not config.COHERE_API_KEY or config.COHERE_API_KEY == "your_cohere_api_key_here":
                 logger.warning("COHERE_API_KEY 未设置或为默认值，使用普通双路检索")
-                # 回退到普通双路检索
                 return self._build_vector_search_section(user_message)
-            
+
             import asyncio
-            
-            # 1. 并行执行向量检索和 BM25 检索
+
             logger.debug(f"开始并行检索，查询: '{user_message[:50]}...'")
-            
-            # 注意：search_memory 和 search_bm25 目前是同步函数
-            # 在实际应用中，可能需要将它们改为异步函数
-            # 这里使用 run_in_executor 来避免阻塞事件循环
             loop = asyncio.get_event_loop()
-            
-            # 并行执行检索
             vector_future = loop.run_in_executor(None, search_memory, user_message, 5)
             bm25_future = loop.run_in_executor(None, search_bm25, user_message, 5)
-            
-            # 等待两个检索完成
             vector_results, bm25_results = await asyncio.gather(vector_future, bm25_future)
-            
-            logger.debug(f"并行检索完成，向量结果: {len(vector_results)} 条，BM25 结果: {len(bm25_results)} 条")
-            
-            # 2. 合并结果，按 doc_id 去重
-            all_results = []
-            seen_ids = set()
-            
-            # 先添加向量检索结果
-            for result in vector_results:
-                doc_id = result.get('id')
-                if doc_id and doc_id not in seen_ids:
-                    seen_ids.add(doc_id)
-                    result['retrieval_method'] = 'vector'
-                    all_results.append(result)
-            
-            # 再添加 BM25 检索结果（去重后）
-            for result in bm25_results:
-                doc_id = result.get('id')
-                if doc_id and doc_id not in seen_ids:
-                    seen_ids.add(doc_id)
-                    result['retrieval_method'] = 'bm25'
-                    all_results.append(result)
-            
-            # 限制最多 10 条结果
-            all_results = all_results[:10]
-            
+
+            logger.debug(
+                f"并行检索完成，向量结果: {len(vector_results)} 条，BM25 结果: {len(bm25_results)} 条"
+            )
+
+            all_results = _merge_vector_bm25_dedupe(vector_results, bm25_results, 10)
+            all_results = collapse_longterm_by_parent_id(all_results)
+
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
                 return ""
-            
-            # 3. 调用 Reranker 进行重排序
-            logger.debug(f"调用 Reranker，候选文档: {len(all_results)} 条")
-            reranked_results = await rerank(user_message, all_results, top_n=2)
-            
+
+            logger.debug(f"调用 Reranker（全量候选语义分），文档: {len(all_results)} 条")
+            reranked_results = await rerank(
+                user_message, all_results, top_n=len(all_results)
+            )
             if not reranked_results:
-                logger.debug("Reranker 未返回结果，使用原始候选")
+                logger.debug("Reranker 未返回结果，使用折叠后候选前 2 条")
                 reranked_results = all_results[:2]
-            
-            # 4. 构建格式化文本（使用 Reranker 重排后的结果）
+
+            fused = fuse_rerank_with_time_decay(reranked_results)
+            top_results = fused[:2]
+
             sections = []
-            for i, result in enumerate(reranked_results):
-                text = result['text']
-                metadata = result['metadata']
-                score = result.get('score', 0.0)
-                rerank_score = result.get('rerank_score', 0.0)
-                retrieval_method = result.get('retrieval_method', 'unknown')
-                
-                # 提取元数据信息
-                date = metadata.get('date', '未知日期')
-                summary_type = metadata.get('summary_type', '未知类型')
-                session_id = metadata.get('session_id', '未知会话')
-                
-                # 简化 session_id 显示
-                if '_' in session_id:
-                    parts = session_id.split('_')
+            for i, result in enumerate(top_results):
+                text = (result.get("text") or "").strip()
+                doc_id = result.get("id") or ""
+                metadata = result.get("metadata") or {}
+                fusion = float(result.get("fusion_score", 0.0))
+                retrieval_method = result.get("retrieval_method", "unknown")
+                date = metadata.get("date", "未知日期")
+                summary_type = metadata.get("summary_type", "未知类型")
+                session_id = metadata.get("session_id", "未知会话")
+                if "_" in str(session_id):
+                    parts = str(session_id).split("_")
                     if len(parts) >= 2:
                         display_session = f"用户{parts[0][:4]}...频道{parts[1][:4]}..."
                     else:
-                        display_session = session_id[:20]
+                        display_session = str(session_id)[:20]
                 else:
-                    display_session = session_id[:20]
-                
-                # 根据检索方法显示不同的标签
-                method_label = "向量" if retrieval_method == 'vector' else "关键词"
-                
-                # 如果有 Rerank 分数，显示 Rerank 分数
-                if 'rerank_score' in result:
-                    sections.append(f"### 相关记忆 {i+1} ({method_label}检索，Rerank分数: {rerank_score:.4f})\n日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{text}")
-                else:
-                    sections.append(f"### 相关记忆 {i+1} ({method_label}检索，分数: {score:.2f})\n日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{text}")
-            
-            if sections:
-                vector_section = "\n\n".join(sections)
-                # 添加 Reranker 标记
-                vector_section += f"\n\n<!-- Reranker 重排序完成，从 {len(all_results)} 条候选中选择 {len(reranked_results)} 条最相关记忆 -->"
-                return f"# 相关长期记忆（Reranker 重排序结果）\n\n{vector_section}"
-            else:
-                return ""
-                
+                    display_session = str(session_id)[:20]
+                method_label = "向量" if retrieval_method == "vector" else "关键词"
+                body = f"[uid:{doc_id}] {text}"
+                sections.append(
+                    f"### 相关记忆 {i+1} ({method_label}检索，综合分: {fusion:.4f})\n"
+                    f"日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{body}"
+                )
+
+            vector_section = "\n\n".join(sections)
+            vector_section += (
+                f"\n\n<!-- 精排：语义×0.8+时间衰减×0.2，自 {len(all_results)} 条折叠后候选取 {len(top_results)} 条 -->"
+            )
+            return f"# 相关长期记忆（精排结果）\n\n{vector_section}"
+
         except Exception as e:
             logger.error(f"构建向量检索部分失败（异步）: {e}")
-            # 如果异步版本失败，回退到同步版本
             logger.warning("异步检索失败，回退到同步检索")
             return self._build_vector_search_section(user_message)
     
@@ -654,43 +816,48 @@ class ContextBuilder:
             "content": user_message
         }
     
-    def _assemble_full_system_prompt(self, system_prompt: str, 
-                                    memory_cards_section: str,
-                                    daily_summaries_section: str,
-                                    chunk_summaries_section: str,
-                                    vector_search_section: str) -> str:
+    def _assemble_full_system_prompt(
+        self,
+        system_prompt: str,
+        temporal_states_section: str,
+        memory_cards_section: str,
+        relationship_timeline_section: str,
+        daily_summaries_section: str,
+        chunk_summaries_section: str,
+        vector_search_section: str,
+    ) -> str:
         """
         组装完整的 system prompt。
-        
-        Args:
-            system_prompt: 基础 system prompt
-            memory_cards_section: memory cards 部分
-            daily_summaries_section: daily summary 部分
-            chunk_summaries_section: chunk summary 部分
-            vector_search_section: 向量检索部分
-            
-        Returns:
-            str: 完整的 system prompt
+
+        顺序：system → temporal_states → memory_cards → relationship_timeline
+        → daily → chunk → 长期记忆检索；末尾注入引用死命令。
         """
         sections = [system_prompt]
-        
+
+        if temporal_states_section:
+            sections.append(temporal_states_section)
+
         if memory_cards_section:
             sections.append(memory_cards_section)
-        
+
+        if relationship_timeline_section:
+            sections.append(relationship_timeline_section)
+
         if daily_summaries_section:
             sections.append(daily_summaries_section)
-        
+
         if chunk_summaries_section:
             sections.append(chunk_summaries_section)
-        
+
         if vector_search_section:
             sections.append(vector_search_section)
-        
-        # 添加分隔线和指令
-        if len(sections) > 1:  # 除了基础 system prompt 外还有其他部分
+
+        if len(sections) > 1:
             sections.append("---")
             sections.append("以上是历史信息和用户记忆，请基于这些信息进行对话。")
-        
+
+        sections.append(MEMORY_CITATION_DIRECTIVE)
+
         return "\n\n".join(sections)
     
     def _assemble_messages(self, full_system_prompt: str,

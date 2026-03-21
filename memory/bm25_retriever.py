@@ -46,38 +46,31 @@ class BM25Retriever:
     def _build_index(self) -> None:
         """
         构建 BM25 索引。
-        
-        从 ChromaDB 获取所有文档，分词后构建 BM25 索引。
+
+        启动时自动从 ChromaDB 加载全量文档并建立索引。
+        若 ChromaDB 为空或连接失败，则优雅降级为空索引，不阻断服务启动。
         """
         try:
-            # 获取向量存储实例
             store = get_vector_store()
-            
-            # 获取所有文档（这里需要从 ChromaDB 获取所有文档）
-            # 由于 ChromaDB 没有直接的获取所有文档的 API，我们需要通过查询来获取
-            # 这里使用一个空查询来获取所有文档
-            try:
-                # 尝试获取所有文档
-                # 注意：ChromaDB 的 query 方法需要 embedding，这里使用一个简单的方法
-                # 在实际应用中，可能需要更复杂的方法来获取所有文档
-                # 这里简化：假设我们可以通过某种方式获取所有文档
-                # 暂时使用空列表，在 refresh_index 中会重新加载
-                self.documents = []
-                self.doc_metadata = []
-                self.doc_ids = []
-                
-                # 记录日志
-                logger.info("BM25 索引构建完成（初始为空）")
-                
-            except Exception as e:
-                logger.error(f"构建 BM25 索引失败: {e}")
-                self.documents = []
-                self.doc_metadata = []
-                self.doc_ids = []
+            memories = store.get_all_memories(limit=1000)
+
+            if not memories:
+                logger.info("ChromaDB 中暂无文档，BM25 索引初始化为空（后续可通过 refresh_index() 更新）")
                 self.bm25 = None
-                
+                return
+
+            for memory in memories:
+                self.doc_ids.append(memory["id"])
+                self.documents.append(memory["text"])
+                self.doc_metadata.append(memory["metadata"])
+
+            tokenized_docs = [self._tokenize(doc) for doc in self.documents]
+            self.bm25 = BM25Okapi(tokenized_docs)
+
+            logger.info(f"BM25 索引初始化完成，已从 ChromaDB 加载 {len(self.documents)} 条文档")
+
         except Exception as e:
-            logger.error(f"初始化 BM25 检索器失败: {e}")
+            logger.warning(f"BM25 索引初始化失败，降级为空索引（不影响服务启动）: {e}")
             self.documents = []
             self.doc_metadata = []
             self.doc_ids = []

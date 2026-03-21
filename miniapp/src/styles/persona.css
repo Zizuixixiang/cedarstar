@@ -1,0 +1,451 @@
+/* ========================================
+   人设配置页面样式
+   风格：暖光晨露 / 奶油日记风
+   ======================================== */
+
+/* 页面整体容器 */
+.persona-page {
+  width: 100%;
+  max-width: 1200px;
+  display: flex;
+  flex-direction: column;
+  background: var(--card-bg);
+  backdrop-filter: var(--card-blur);
+  -webkit-backdrop-filter: var(--card-blur);
+  border: var(--border-card);
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-card);
+  overflow: hidden;
+  min-height: calc(100vh - 48px);
+}
+
+/* ========================================
+   顶部标签栏
+   ======================================== */
+.persona-tabs {
+  display: flex;
+  align-items: center;
+  padding: 0 24px;
+  border-bottom: 1px solid rgba(109, 89, 122, 0.1);
+  background: rgba(255, 255, 255, 0.5);
+  min-height: 52px;
+  flex-shrink: 0;
+}
+
+.persona-tabs-scroll {
+  display: flex;
+  align-items: center;
+  overflow-x: auto;
+  flex: 1;
+  gap: 0;
+  /* 隐藏横向滚动条 */
+  scrollbar-width: none;
+}
+
+.persona-tabs-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.persona-tab {
+  padding: 14px 20px;
+  font-size: 0.88rem;
+  color: var(--text-sub);
+  border: none;
+  border-bottom: 3px solid transparent;
+  background: transparent;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: all var(--transition);
+  font-family: inherit;
+  line-height: 1;
+}
+
+.persona-tab:hover {
+  color: var(--text-main);
+}
+
+.persona-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+
+.persona-tab-new {
+  padding: 8px 16px;
+  font-size: 0.82rem;
+  color: var(--text-sub);
+  border: 1px dashed rgba(109, 89, 122, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  white-space: nowrap;
+  cursor: pointer;
+  margin-left: 12px;
+  flex-shrink: 0;
+  transition: all var(--transition);
+  font-family: inherit;
+}
+
+.persona-tab-new:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(244, 162, 97, 0.05);
+}
+
+/* ========================================
+   主内容区：左右两栏
+   ======================================== */
+.persona-body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+/* 左栏：编辑区 60% */
+.persona-editor {
+  width: 60%;
+  padding: 24px;
+  overflow-y: auto;
+  border-right: 1px solid rgba(109, 89, 122, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+
+/* 右栏：预览区 40% */
+.persona-preview {
+  width: 40%;
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ========================================
+   字段区块
+   ======================================== */
+.field-section {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.section-title {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  margin: 0;
+  letter-spacing: 0.02em;
+}
+
+/* 子章节样式 */
+.sub-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border: 1px solid rgba(109, 89, 122, 0.08);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.3);
+  margin-bottom: 12px;
+}
+
+.sub-section:last-child {
+  margin-bottom: 0;
+}
+
+.sub-section-title {
+  font-size: 0.88rem;
+  font-weight: 600;
+  color: var(--accent);
+  margin: 0 0 4px 0;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(244, 162, 97, 0.15);
+}
+
+/* label + 输入框的行 */
+.field-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.field-label {
+  font-size: 0.82rem;
+  color: var(--text-sub);
+  font-weight: 500;
+}
+
+.field-input,
+.field-textarea {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid rgba(109, 89, 122, 0.18);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.6);
+  color: var(--text-main);
+  font-family: inherit;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  transition: border-color 0.25s, background 0.25s;
+  resize: vertical;
+  outline: none;
+}
+
+.field-input {
+  resize: none;
+}
+
+.field-input:focus,
+.field-textarea:focus {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.85);
+  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.1);
+}
+
+.field-input::placeholder,
+.field-textarea::placeholder {
+  color: var(--text-sub);
+  opacity: 0.6;
+}
+
+/* ========================================
+   NSFW 折叠区
+   ======================================== */
+.nsfw-section {
+  display: flex;
+  flex-direction: column;
+}
+
+.nsfw-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  color: var(--text-sub);
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: color 0.2s;
+  width: fit-content;
+}
+
+.nsfw-toggle:hover {
+  color: var(--accent);
+}
+
+.nsfw-arrow {
+  display: inline-block;
+  font-size: 0.65rem;
+  transition: transform 0.3s ease;
+  transform: rotate(0deg);
+}
+
+.nsfw-arrow.up {
+  transform: rotate(90deg);
+}
+
+.nsfw-content {
+  max-height: 0;
+  overflow: hidden;
+  transition: max-height 0.35s ease;
+}
+
+.nsfw-content.expanded {
+  max-height: 200px;
+}
+
+/* ========================================
+   右栏预览区
+   ======================================== */
+.preview-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.copy-btn {
+  font-size: 0.78rem;
+  color: var(--text-sub);
+  padding: 5px 12px;
+  border: 1px solid rgba(109, 89, 122, 0.2);
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.copy-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(244, 162, 97, 0.06);
+}
+
+.copy-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.preview-content {
+  flex: 1;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 0.8rem;
+  line-height: 1.75;
+  color: var(--text-main);
+  background: rgba(109, 89, 122, 0.04);
+  border: var(--border-dashed);
+  border-radius: 12px;
+  padding: 16px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  min-height: 300px;
+  overflow-y: auto;
+}
+
+/* ========================================
+   底部操作栏
+   ======================================== */
+.persona-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 24px;
+  border-top: 1px solid rgba(109, 89, 122, 0.08);
+  background: rgba(255, 255, 255, 0.5);
+  flex-shrink: 0;
+}
+
+.footer-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.active-name {
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.btn-rename {
+  font-size: 0.82rem;
+  color: var(--text-sub);
+  padding: 6px 14px;
+  border: 1px solid rgba(109, 89, 122, 0.25);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.btn-rename:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: rgba(244, 162, 97, 0.06);
+}
+
+.btn-danger {
+  font-size: 0.82rem;
+  color: #c0392b;
+  padding: 6px 14px;
+  border: 1px solid rgba(192, 57, 43, 0.35);
+  border-radius: 8px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s;
+}
+
+.btn-danger:hover {
+  background: rgba(192, 57, 43, 0.08);
+  border-color: #c0392b;
+}
+
+.footer-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.btn-save {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 9px 28px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-btn);
+  cursor: pointer;
+  font-family: inherit;
+  transition: all var(--transition);
+}
+
+.btn-save:hover:not(:disabled) {
+  opacity: 0.88;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(244, 162, 97, 0.35);
+}
+
+.btn-save:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+  transform: none;
+}
+
+/* 脉冲动画：有未保存修改时 */
+@keyframes persona-pulse {
+  0%   { box-shadow: 0 0 0 0   rgba(244, 162, 97, 0.5); }
+  70%  { box-shadow: 0 0 0 8px rgba(244, 162, 97, 0);   }
+  100% { box-shadow: 0 0 0 0   rgba(244, 162, 97, 0);   }
+}
+
+.btn-save.pulse {
+  animation: persona-pulse 2s infinite;
+}
+
+/* ========================================
+   骨架屏
+   ======================================== */
+@keyframes shimmer {
+  0%   { background-position: -400% 0; }
+  100% { background-position:  400% 0; }
+}
+
+.sk-block {
+  border-radius: 6px;
+  background: linear-gradient(
+    90deg,
+    rgba(109,89,122,0.07) 25%,
+    rgba(109,89,122,0.13) 50%,
+    rgba(109,89,122,0.07) 75%
+  );
+  background-size: 400% 100%;
+  animation: shimmer 1.8s infinite;
+}
+
+.sk-tab {
+  height: 18px;
+  margin: 16px 8px;
+  border-radius: 4px;
+  display: inline-block;
+}
+
+.sk-title {
+  width: 100px;
+  height: 18px;
+  margin-bottom: 4px;
+}
+
+.sk-textarea {
+  width: 100%;
+  border-radius: 10px;
+}

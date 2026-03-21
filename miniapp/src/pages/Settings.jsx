@@ -1,0 +1,505 @@
+/**
+ * 核心设置页面
+ * API 配置管理 + Token 消耗统计
+ */
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { toast } from 'react-toastify';
+import 'react-toastify/dist/ReactToastify.css';
+import '../styles/settings.css';
+
+/* ─── 工具函数 ─── */
+const maskKey = (key) => {
+  if (!key) return '—';
+  if (key.startsWith('****')) return key; // 已脱敏
+  return key.length > 4 ? '****' + key.slice(-4) : '****';
+};
+
+/* ─── 骨架屏 ─── */
+function SkeletonCard({ rows = 3 }) {
+  return (
+    <div className="sk-card">
+      <div className="sk-block sk-title-bar" />
+      {Array.from({ length: rows }).map((_, i) => (
+        <div key={i} className="sk-block sk-row" style={{ width: `${85 - i * 10}%` }} />
+      ))}
+    </div>
+  );
+}
+
+/* ─── 弹窗：新增 / 编辑 ─── */
+function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
+  const isEdit = !!initial?.id;
+  const [form, setForm] = useState({
+    name: initial?.name || '',
+    api_key: '',
+    base_url: initial?.base_url || '',
+    model: initial?.model || '',
+    persona_id: initial?.persona_id ?? '',
+    config_type: initial?.config_type || configType || 'chat',
+  });
+  const [showKey, setShowKey] = useState(false);
+  const [modelOptions, setModelOptions] = useState(initial?.model ? [initial.model] : []);
+  const [fetchingModels, setFetchingModels] = useState(false);
+  const [saving, setSaving] = useState(false);
+
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const handleFetchModels = async () => {
+    if (!form.api_key || !form.base_url) {
+      toast.warning('请先填写 API Key 和 Base URL');
+      return;
+    }
+    setFetchingModels(true);
+    try {
+      const res = await fetch('/api/settings/api-configs/fetch-models', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ api_key: form.api_key, base_url: form.base_url }),
+      });
+      const data = await res.json();
+      if (data.success && Array.isArray(data.data)) {
+        setModelOptions(data.data);
+        toast.success(`✓ 获取到 ${data.data.length} 个模型`, { autoClose: 2000 });
+      } else {
+        toast.error(data.message || '获取模型列表失败');
+      }
+    } catch {
+      toast.error('网络错误');
+    } finally {
+      setFetchingModels(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!form.name.trim()) { toast.warning('请填写配置名称'); return; }
+    if (!isEdit && !form.api_key.trim()) { toast.warning('请填写 API Key'); return; }
+    if (!form.base_url.trim()) { toast.warning('请填写 Base URL'); return; }
+
+    setSaving(true);
+    try {
+      const body = {
+        name: form.name.trim(),
+        base_url: form.base_url.trim(),
+        persona_id: form.persona_id ? Number(form.persona_id) : null,
+        model: form.model.trim() || null,
+        config_type: form.config_type,
+      };
+      // 编辑时只有填写了新 key 才更新
+      if (form.api_key.trim()) body.api_key = form.api_key.trim();
+      if (!isEdit) body.api_key = form.api_key.trim();
+
+      const url = isEdit
+        ? `/api/settings/api-configs/${initial.id}`
+        : '/api/settings/api-configs';
+      const method = isEdit ? 'PUT' : 'POST';
+
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success(isEdit ? '✓ 配置已更新' : '✓ 配置已创建', { autoClose: 2000 });
+        onSaved();
+      } else {
+        toast.error(data.message || '操作失败');
+      }
+    } catch {
+      toast.error('网络错误');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-box">
+        <div className="modal-header">
+          <h3 className="modal-title">{isEdit ? '编辑配置' : '新增配置'}</h3>
+          <button className="modal-close" onClick={onClose}>✕</button>
+        </div>
+
+        <div className="modal-body">
+          {/* 配置类型 */}
+          <div className="modal-field">
+            <label className="modal-label">配置类型</label>
+            <div className="type-radio-group">
+              <label className="type-radio-label">
+                <input type="radio" name="config_type" value="chat"
+                  checked={form.config_type === 'chat'}
+                  onChange={() => set('config_type', 'chat')} />
+                <span className="type-radio-text">对话 API</span>
+              </label>
+              <label className="type-radio-label">
+                <input type="radio" name="config_type" value="summary"
+                  checked={form.config_type === 'summary'}
+                  onChange={() => set('config_type', 'summary')} />
+                <span className="type-radio-text">摘要 API</span>
+              </label>
+            </div>
+            <div className="modal-hint">
+              {form.config_type === 'chat' 
+                ? '用于日常对话、短期记忆、思维链'
+                : '用于批量总结、记忆归档、微批处理（建议用大模型如 GPT-4）'}
+            </div>
+          </div>
+
+          {/* 配置名称 */}
+          <div className="modal-field">
+            <label className="modal-label">配置名称</label>
+            <input className="modal-input" value={form.name}
+              onChange={e => set('name', e.target.value)} placeholder="如：DeepSeek 主力配置" />
+          </div>
+
+          {/* Base URL（调整到 Key 前面） */}
+          <div className="modal-field">
+            <label className="modal-label">Base URL</label>
+            <input className="modal-input" value={form.base_url}
+              onChange={e => set('base_url', e.target.value)}
+              placeholder="https://api.deepseek.com" />
+          </div>
+
+          {/* API Key */}
+          <div className="modal-field">
+            <label className="modal-label">API Key {isEdit && <span className="modal-hint">（留空保持不变）</span>}</label>
+            <div className="modal-input-wrap">
+              <input className="modal-input" type={showKey ? 'text' : 'password'}
+                value={form.api_key}
+                onChange={e => set('api_key', e.target.value)}
+                placeholder={isEdit ? '留空则不修改' : 'sk-...'} />
+              <button className="eye-btn" onClick={() => setShowKey(v => !v)}>
+                {showKey ? '🙈' : '👁'}
+              </button>
+            </div>
+          </div>
+
+          {/* 模型 */}
+          <div className="modal-field">
+            <label className="modal-label">模型</label>
+            <div className="modal-model-row">
+              {modelOptions.length > 0 ? (
+                <select className="modal-select" value={form.model}
+                  onChange={e => set('model', e.target.value)}>
+                  <option value="">请选择模型</option>
+                  {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                </select>
+              ) : (
+                <input className="modal-input" value={form.model}
+                  onChange={e => set('model', e.target.value)}
+                  placeholder="手动输入模型名，或点右侧按钮获取" />
+              )}
+              <button
+                className={`fetch-models-btn ${fetchingModels ? 'loading' : ''}`}
+                onClick={handleFetchModels}
+                disabled={fetchingModels}
+              >
+                {fetchingModels ? <span className="spin">⟳</span> : '获取模型列表'}
+              </button>
+            </div>
+            {modelOptions.length > 0 && (
+              <button className="clear-models-btn" onClick={() => setModelOptions([])}>
+                切换为手动输入
+              </button>
+            )}
+          </div>
+
+          {/* 关联人设 */}
+          <div className="modal-field">
+            <label className="modal-label">关联人设</label>
+            <select className="modal-select" value={form.persona_id}
+              onChange={e => set('persona_id', e.target.value)}>
+              <option value="">不关联人设</option>
+              {personas.map(p => (
+                <option key={p.id} value={p.id}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="modal-footer">
+          <button className="modal-btn-cancel" onClick={onClose}>取消</button>
+          <button className="modal-btn-save" onClick={handleSave} disabled={saving}>
+            {saving ? '保存中...' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ─── 主页面 ─── */
+function Settings() {
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' 或 'summary'
+  const activeTabRef = useRef('chat'); // 用 ref 追踪最新 activeTab，避免闭包陷阱
+  const [configs, setConfigs] = useState([]);
+  const [personas, setPersonas] = useState([]);
+  const [tokenStats, setTokenStats] = useState(null);
+  const [period, setPeriod] = useState('today');
+  const [isLoading, setIsLoading] = useState(true);
+  const [modalData, setModalData] = useState(null); // null=关闭, {}=新增, {...}=编辑
+
+  /* 切换 tab 时同步更新 ref */
+  const switchTab = (tab) => {
+    activeTabRef.current = tab;
+    setActiveTab(tab);
+  };
+
+  /* 获取配置列表：优先用传入的 tab，否则读 ref（永远是最新值） */
+  const fetchConfigs = useCallback(async (tab) => {
+    const t = tab ?? activeTabRef.current;
+    try {
+      const res = await fetch(`/api/settings/api-configs?config_type=${t}`);
+      const data = await res.json();
+      if (data.success) {
+        setConfigs(data.data || []);
+      } else {
+        console.error('fetchConfigs failed:', data.message);
+        setConfigs([]);
+      }
+    } catch (error) {
+      console.error('fetchConfigs network error:', error);
+      setConfigs([]);
+    }
+  }, []);
+
+  /* 获取 Token 统计 */
+  const fetchTokenStats = useCallback(async (p) => {
+    try {
+      const res = await fetch(`/api/settings/token-usage?period=${p}`);
+      const data = await res.json();
+      if (data.success) setTokenStats(data.data);
+    } catch { setTokenStats(null); }
+  }, []);
+
+  /* 初始并发加载 */
+  useEffect(() => {
+    const init = async () => {
+      try {
+        await Promise.all([
+          fetchConfigs(activeTab),
+          fetchTokenStats('today'),
+          fetch('/api/persona').then(r => r.json()).then(d => {
+            if (d.success) setPersonas(d.data || []);
+          }),
+        ]);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    init();
+  }, []);
+
+  /* 切换 tab 时重新拉取 */
+  useEffect(() => {
+    if (!isLoading) fetchConfigs(activeTab);
+  }, [activeTab]);
+
+  /* 切换 period */
+  useEffect(() => {
+    if (!isLoading) fetchTokenStats(period);
+  }, [period]);
+
+  /* 激活配置 */
+  const handleActivate = async (id) => {
+    const res = await fetch(`/api/settings/api-configs/${id}/activate`, { method: 'PUT' });
+    const data = await res.json();
+    if (data.success) {
+      toast.success('✓ 已激活', { autoClose: 2000 });
+      fetchConfigs(activeTabRef.current);
+    }
+  };
+
+  /* 删除配置 */
+  const handleDelete = async (cfg) => {
+    if (cfg.is_active == 1 || cfg.is_active === true) {
+      toast.warning('请先切换到其他配置再删除');
+      return;
+    }
+    if (!window.confirm(`确定删除「${cfg.name}」？`)) return;
+    try {
+      const res = await fetch(`/api/settings/api-configs/${cfg.id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('✓ 已删除', { autoClose: 2000 });
+        fetchConfigs(activeTabRef.current);
+      } else {
+        toast.error(data.message || '删除失败');
+      }
+    } catch {
+      toast.error('网络错误，删除失败');
+    }
+  };
+
+  /* 弹窗保存后回调 */
+  const handleSaved = () => {
+    setModalData(null);
+    fetchConfigs(activeTabRef.current);
+  };
+
+  /* Token 数值格式化 */
+  const fmt = (n) => n == null ? '—' : Number(n).toLocaleString();
+
+  /* 平台进度条 */
+  const totalTokens = tokenStats?.total_tokens || 0;
+  const platforms = [
+    { label: 'Telegram', value: tokenStats?.by_platform?.telegram || 0, color: '#5ba4cf' },
+    { label: 'Discord',  value: tokenStats?.by_platform?.discord  || 0, color: '#7289da' },
+  ];
+
+  if (isLoading) {
+    return (
+      <div className="settings-page">
+        <SkeletonCard rows={4} />
+        <SkeletonCard rows={3} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="settings-page">
+
+      {/* ① API 配置管理 */}
+      <div className="settings-card">
+        <div className="card-header">
+          <h2 className="card-title">🔑 API 配置管理</h2>
+          <div className="config-tabs">
+            <button 
+              className={`config-tab ${activeTab === 'chat' ? 'active' : ''}`}
+              onClick={() => switchTab('chat')}
+            >
+              对话 API
+            </button>
+            <button 
+              className={`config-tab ${activeTab === 'summary' ? 'active' : ''}`}
+              onClick={() => switchTab('summary')}
+            >
+              摘要 API
+            </button>
+          </div>
+          <button className="btn-add" onClick={() => setModalData({ config_type: activeTab })}>
+            ＋ 新增配置
+          </button>
+        </div>
+
+        {configs.length === 0 ? (
+          <div className="empty-tip">
+            {activeTab === 'chat' 
+              ? '暂无对话 API 配置，点击右上角新增'
+              : '暂无摘要 API 配置，点击右上角新增'}
+          </div>
+        ) : (
+          <div className="config-list">
+            {configs.map(cfg => (
+              <div key={cfg.id} className={`config-row ${cfg.is_active ? 'active-row' : ''}`}>
+                {/* 左：名称 + 激活标签 */}
+                <div className="cfg-left">
+                  <span className="cfg-name">{cfg.name}</span>
+                  <span className={`cfg-type-tag ${cfg.config_type === 'chat' ? 'chat-type' : 'summary-type'}`}>
+                    {cfg.config_type === 'chat' ? '对话' : '摘要'}
+                  </span>
+                  {cfg.is_active && <span className="tag-active">激活中</span>}
+                </div>
+                {/* 中：URL + 人设 */}
+                <div className="cfg-mid">
+                  <span className="cfg-url" title={cfg.base_url}>{cfg.base_url}</span>
+                  {cfg.persona_name && (
+                    <span className="cfg-persona">人设：{cfg.persona_name}</span>
+                  )}
+                  {cfg.model && (
+                    <span className="cfg-model">模型：{cfg.model}</span>
+                  )}
+                </div>
+                {/* 右：操作 */}
+                <div className="cfg-actions">
+                  {!cfg.is_active && (
+                    <button className="btn-activate" onClick={() => handleActivate(cfg.id)}>
+                      设为激活
+                    </button>
+                  )}
+                  <button className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
+                  <button className="btn-del" onClick={() => handleDelete(cfg)}>删除</button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* ② Token 消耗统计 */}
+      <div className="settings-card">
+        <div className="card-header">
+          <h2 className="card-title">📊 Token 消耗统计</h2>
+          <div className="period-tabs">
+            {[['today','今日'], ['week','本周'], ['month','本月']].map(([v, l]) => (
+              <button
+                key={v}
+                className={`period-tab ${period === v ? 'active' : ''}`}
+                onClick={() => setPeriod(v)}
+              >{l}</button>
+            ))}
+          </div>
+        </div>
+
+        {!tokenStats || tokenStats.total_tokens === 0 ? (
+          <div className="empty-tip">暂无统计数据</div>
+        ) : (
+          <>
+            {/* 三个数字卡片 */}
+            <div className="token-nums">
+              <div className="token-num-card">
+                <span className="token-num-val">{fmt(tokenStats.total_tokens)}</span>
+                <span className="token-num-label">总消耗</span>
+              </div>
+              <div className="token-num-card">
+                <span className="token-num-val">{fmt(tokenStats.prompt_tokens)}</span>
+                <span className="token-num-label">Prompt tokens</span>
+              </div>
+              <div className="token-num-card">
+                <span className="token-num-val">{fmt(tokenStats.completion_tokens)}</span>
+                <span className="token-num-label">Completion tokens</span>
+              </div>
+            </div>
+
+            {/* 平台进度条 */}
+            <div className="platform-bars">
+              {platforms.map(p => {
+                const pct = totalTokens > 0 ? Math.round((p.value / totalTokens) * 100) : 0;
+                return (
+                  <div key={p.label} className="platform-bar-row">
+                    <span className="platform-label">{p.label}</span>
+                    <div className="bar-track">
+                      <div
+                        className="bar-fill"
+                        style={{ width: `${pct}%`, background: p.color }}
+                      />
+                    </div>
+                    <span className="platform-val">{fmt(p.value)}</span>
+                    <span className="platform-pct">{pct}%</span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* 底部小字 */}
+            <div className="token-footer">
+              数据来源：共 {tokenStats.call_count ?? '—'} 次调用
+            </div>
+          </>
+        )}
+      </div>
+
+      {/* 弹窗 */}
+      {modalData !== null && (
+        <ConfigModal
+          initial={modalData}
+          personas={personas}
+          onClose={() => setModalData(null)}
+          onSaved={handleSaved}
+        />
+      )}
+    </div>
+  );
+}
+
+export default Settings;

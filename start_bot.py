@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """
 启动 Discord 机器人的脚本。
+
+流程：校验配置 → 阻塞重建 BM25 索引（与 Chroma 对齐）→ 启动 Discord Bot。
 """
 
 import os
@@ -23,6 +25,15 @@ try:
     # 验证配置
     config.validate_config()
     print("✓ 配置验证成功")
+
+    # Bot 收消息前阻塞重建 BM25 索引（与 main.py 一致）
+    from memory.bm25_retriever import get_bm25_retriever
+
+    print("正在重建 BM25 内存索引...")
+    if not get_bm25_retriever().refresh_index():
+        print("⚠ BM25 索引刷新未成功，关键词检索可能为空；继续启动")
+    else:
+        print("✓ BM25 索引已刷新")
     
     # 导入 Discord 机器人
     from bot.discord_bot import DiscordBot

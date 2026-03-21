@@ -7,11 +7,116 @@
 import sqlite3
 import logging
 import os
+import uuid
 from datetime import datetime
 from typing import List, Dict, Any, Optional
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+
+def _summaries_ensure_source_date_column(cursor: sqlite3.Cursor) -> None:
+    """为 summaries 增加 source_date 列（旧库兼容），并按 created_at 日期回填。"""
+    cursor.execute("PRAGMA table_info(summaries)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "source_date" not in columns:
+        cursor.execute("ALTER TABLE summaries ADD COLUMN source_date DATETIME")
+        cursor.execute(
+            "UPDATE summaries SET source_date = date(created_at) WHERE source_date IS NULL"
+        )
+        logger.debug("summaries 表添加 source_date 字段并完成历史回填")
+
+
+def _daily_batch_log_ensure_step45_columns(cursor: sqlite3.Cursor) -> None:
+    cursor.execute("PRAGMA table_info(daily_batch_log)")
+    cols = {row[1] for row in cursor.fetchall()}
+    if "step4_status" not in cols:
+        cursor.execute(
+            "ALTER TABLE daily_batch_log ADD COLUMN step4_status INTEGER DEFAULT 0"
+        )
+        logger.debug("daily_batch_log 表添加 step4_status")
+    if "step5_status" not in cols:
+        cursor.execute(
+            "ALTER TABLE daily_batch_log ADD COLUMN step5_status INTEGER DEFAULT 0"
+        )
+        logger.debug("daily_batch_log 表添加 step5_status")
+
+
+def _backfill_daily_batch_step45_legacy_once(cursor: sqlite3.Cursor) -> None:
+    """
+    升级五步流水线前已「三步全完成」的历史行，step4/step5 曾为 0：按用户约定 SQL 一次性补为 1。
+    通过 config 键保证全库仅执行一次，避免日后将真实 Step4/5 失败行误标为完成。
+    """
+    cursor.execute(
+        "SELECT 1 FROM config WHERE key = ? LIMIT 1",
+        ("backfill_daily_batch_step45_legacy_v1",),
+    )
+    if cursor.fetchone():
+        return
+    cursor.execute("""
+        UPDATE daily_batch_log
+        SET step4_status = 1, step5_status = 1
+        WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1
+    """)
+    n = cursor.rowcount
+    cursor.execute(
+        """
+        INSERT OR REPLACE INTO config (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+        """,
+        ("backfill_daily_batch_step45_legacy_v1", "1"),
+    )
+    logger.info(
+        "一次性回填 daily_batch_log：三步已完成行的 step4/step5 已置 1，更新 %s 行",
+        n,
+    )
+
+
+def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
+    """
+    启动时幂等迁移：补齐缺失列与全部约定索引。
+
+    通过 CREATE INDEX IF NOT EXISTS / 列检测实现「不存在则创建、已存在则跳过」。
+    """
+    _summaries_ensure_source_date_column(cursor)
+    _daily_batch_log_ensure_step45_columns(cursor)
+    _backfill_daily_batch_step45_legacy_once(cursor)
+
+    index_statements = [
+        "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_messages_is_summarized ON messages (is_summarized)",
+        (
+            "CREATE INDEX IF NOT EXISTS idx_messages_session_is_summarized "
+            "ON messages (session_id, is_summarized)"
+        ),
+        "CREATE INDEX IF NOT EXISTS idx_summaries_session_id ON summaries (session_id, created_at)",
+        (
+            "CREATE INDEX IF NOT EXISTS idx_summaries_session_type_source_date "
+            "ON summaries (session_id, summary_type, source_date)"
+        ),
+        "CREATE INDEX IF NOT EXISTS idx_summaries_source_date ON summaries (source_date)",
+        (
+            "CREATE INDEX IF NOT EXISTS idx_memory_cards_user_character "
+            "ON memory_cards (user_id, character_id, dimension, updated_at)"
+        ),
+        "CREATE INDEX IF NOT EXISTS idx_memory_cards_user_active ON memory_cards (user_id, is_active)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_cards_is_active ON memory_cards (is_active)",
+        (
+            "CREATE INDEX IF NOT EXISTS idx_temporal_states_expire_active "
+            "ON temporal_states (expire_at, is_active)"
+        ),
+        "CREATE INDEX IF NOT EXISTS idx_temporal_states_is_active ON temporal_states (is_active)",
+        (
+            "CREATE INDEX IF NOT EXISTS idx_relationship_timeline_created_at "
+            "ON relationship_timeline (created_at)"
+        ),
+        "CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs (created_at)",
+        "CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage (created_at)",
+    ]
+    for sql in index_statements:
+        cursor.execute(sql)
+
+    logger.debug("数据库 schema 迁移（索引/列）已执行")
 
 
 class MessageDatabase:
@@ -92,7 +197,8 @@ class MessageDatabase:
                         start_message_id INTEGER NOT NULL,
                         end_message_id INTEGER NOT NULL,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        summary_type TEXT DEFAULT 'chunk'
+                        summary_type TEXT DEFAULT 'chunk',
+                        source_date DATETIME
                     )
                 """)
                 
@@ -103,6 +209,8 @@ class MessageDatabase:
                         step1_status INTEGER DEFAULT 0,
                         step2_status INTEGER DEFAULT 0,
                         step3_status INTEGER DEFAULT 0,
+                        step4_status INTEGER DEFAULT 0,
+                        step5_status INTEGER DEFAULT 0,
                         error_message TEXT,
                         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
                         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP
@@ -153,29 +261,33 @@ class MessageDatabase:
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                     )
                 """)
-                
-                # 创建索引以提高查询性能
+
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_messages_session_id 
-                    ON messages (session_id, created_at)
+                    CREATE TABLE IF NOT EXISTS temporal_states (
+                        id TEXT PRIMARY KEY,
+                        state_content TEXT,
+                        action_rule TEXT,
+                        expire_at DATETIME,
+                        is_active INTEGER DEFAULT 1,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                    )
                 """)
                 cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_memory_cards_user_character
-                    ON memory_cards (user_id, character_id, dimension, updated_at)
+                    CREATE TABLE IF NOT EXISTS relationship_timeline (
+                        id TEXT PRIMARY KEY,
+                        created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                        event_type TEXT NOT NULL CHECK (
+                            event_type IN (
+                                'milestone', 'emotional_shift', 'conflict', 'daily_warmth'
+                            )
+                        ),
+                        content TEXT,
+                        source_summary_id TEXT
+                    )
                 """)
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_summaries_session_id
-                    ON summaries (session_id, created_at)
-                """)
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_logs_created_at
-                    ON logs (created_at)
-                """)
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_token_usage_created_at
-                    ON token_usage (created_at)
-                """)
-                
+
+                migrate_database_schema(cursor)
+
                 conn.commit()
                 
                 logger.debug("数据库表初始化完成")
@@ -326,6 +438,193 @@ class MessageDatabase:
             logger.error(f"获取所有消息失败: {e}")
             raise
     
+    def get_messages_filtered(
+        self,
+        platform: Optional[str] = None,
+        keyword: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        带过滤条件的消息查询（SQL 层过滤 + LIMIT/OFFSET 分页）。
+
+        Args:
+            platform: 平台过滤（'discord' / 'telegram'），None 表示不过滤
+            keyword:  关键词，匹配 content 或 thinking 字段，None 表示不过滤
+            date_from: 起始日期字符串 'YYYY-MM-DD'（包含），None 表示不限
+            date_to:   结束日期字符串 'YYYY-MM-DD'（包含），None 表示不限
+            page:      页码（从 1 开始）
+            page_size: 每页条数
+
+        Returns:
+            {
+                "total": int,
+                "messages": List[Dict]
+            }
+        """
+        try:
+            conditions = []
+            params: list = []
+
+            if platform:
+                conditions.append("platform = ?")
+                params.append(platform)
+
+            if keyword:
+                conditions.append("(content LIKE ? OR thinking LIKE ?)")
+                like = f"%{keyword}%"
+                params.extend([like, like])
+
+            if date_from:
+                conditions.append("date(created_at) >= ?")
+                params.append(date_from)
+
+            if date_to:
+                conditions.append("date(created_at) <= ?")
+                params.append(date_to)
+
+            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # 查总条数
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM messages {where_clause}",
+                    params,
+                )
+                total = cursor.fetchone()[0]
+
+                # 查分页数据
+                offset = (page - 1) * page_size
+                cursor.execute(
+                    f"""
+                    SELECT id, role, content, thinking, platform, created_at, session_id
+                    FROM messages
+                    {where_clause}
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    params + [page_size, offset],
+                )
+                rows = cursor.fetchall()
+
+                messages = [
+                    {
+                        "id": row["id"],
+                        "role": row["role"],
+                        "content": row["content"],
+                        "thinking": row["thinking"],
+                        "platform": row["platform"],
+                        "created_at": row["created_at"],
+                        "session_id": row["session_id"],
+                    }
+                    for row in rows
+                ]
+
+            logger.debug(
+                f"get_messages_filtered: total={total}, page={page}, "
+                f"page_size={page_size}, platform={platform}, keyword={keyword}"
+            )
+            return {"total": total, "messages": messages}
+
+        except sqlite3.Error as e:
+            logger.error(f"get_messages_filtered 失败: {e}")
+            raise
+
+    def get_logs_filtered(
+        self,
+        platform: Optional[str] = None,
+        level: Optional[str] = None,
+        keyword: Optional[str] = None,
+        page: int = 1,
+        page_size: int = 20,
+    ) -> Dict[str, Any]:
+        """
+        带过滤条件的日志查询（SQL 层过滤 + LIMIT/OFFSET 分页）。
+
+        Args:
+            platform: 平台过滤，None 表示不过滤
+            level:    日志级别（'INFO'/'WARNING'/'ERROR' 等），None 表示不过滤
+            keyword:  关键词，匹配 message 或 stack_trace 字段，None 表示不过滤
+            page:     页码（从 1 开始）
+            page_size: 每页条数
+
+        Returns:
+            {
+                "total": int,
+                "logs": List[Dict]
+            }
+        """
+        try:
+            conditions = []
+            params: list = []
+
+            if platform:
+                conditions.append("platform = ?")
+                params.append(platform)
+
+            if level:
+                conditions.append("level = ?")
+                params.append(level.upper())
+
+            if keyword:
+                conditions.append("(message LIKE ? OR stack_trace LIKE ?)")
+                like = f"%{keyword}%"
+                params.extend([like, like])
+
+            where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+
+                # 查总条数
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM logs {where_clause}",
+                    params,
+                )
+                total = cursor.fetchone()[0]
+
+                # 查分页数据
+                offset = (page - 1) * page_size
+                cursor.execute(
+                    f"""
+                    SELECT id, created_at, level, platform, message, stack_trace
+                    FROM logs
+                    {where_clause}
+                    ORDER BY created_at DESC
+                    LIMIT ? OFFSET ?
+                    """,
+                    params + [page_size, offset],
+                )
+                rows = cursor.fetchall()
+
+                logs = [
+                    {
+                        "id": row["id"],
+                        "created_at": row["created_at"],
+                        "level": row["level"],
+                        "platform": row["platform"],
+                        "message": row["message"],
+                        "stack_trace": row["stack_trace"],
+                    }
+                    for row in rows
+                ]
+
+            logger.debug(
+                f"get_logs_filtered: total={total}, page={page}, "
+                f"page_size={page_size}, platform={platform}, level={level}"
+            )
+            return {"total": total, "logs": logs}
+
+        except sqlite3.Error as e:
+            logger.error(f"get_logs_filtered 失败: {e}")
+            raise
+
     def clear_session_messages(self, session_id: str) -> int:
         """
         清除指定会话的所有消息。
@@ -609,10 +908,17 @@ class MessageDatabase:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
+                source_date = datetime.now().strftime("%Y-%m-%d")
                 cursor.execute("""
-                    INSERT INTO summaries (session_id, summary_text, start_message_id, end_message_id, summary_type)
-                    VALUES (?, ?, ?, ?, ?)
-                """, (session_id, summary_text, start_message_id, end_message_id, summary_type))
+                    INSERT INTO summaries (
+                        session_id, summary_text, start_message_id, end_message_id,
+                        summary_type, source_date
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (
+                    session_id, summary_text, start_message_id, end_message_id,
+                    summary_type, source_date,
+                ))
                 
                 summary_id = cursor.lastrowid
                 conn.commit()
@@ -1016,17 +1322,22 @@ class MessageDatabase:
             logger.error(f"获取最新未摘要消息失败: {e}")
             raise
     
-    def save_daily_batch_log(self, batch_date: str, step1_status: int = 0, 
-                           step2_status: int = 0, step3_status: int = 0,
-                           error_message: Optional[str] = None) -> bool:
+    def save_daily_batch_log(
+        self,
+        batch_date: str,
+        step1_status: int = 0,
+        step2_status: int = 0,
+        step3_status: int = 0,
+        step4_status: int = 0,
+        step5_status: int = 0,
+        error_message: Optional[str] = None,
+    ) -> bool:
         """
         保存或更新每日批处理日志。
         
         Args:
             batch_date: 批处理日期，格式为 'YYYY-MM-DD'
-            step1_status: 步骤1状态，0=未开始，1=已完成
-            step2_status: 步骤2状态，0=未开始，1=已完成
-            step3_status: 步骤3状态，0=未开始，1=已完成
+            step1_status ~ step5_status: 各步状态，0=未开始，1=已完成
             error_message: 错误信息（可选）
             
         Returns:
@@ -1039,14 +1350,21 @@ class MessageDatabase:
                 # 使用 INSERT OR REPLACE 来处理重复的 batch_date
                 cursor.execute("""
                     INSERT OR REPLACE INTO daily_batch_log 
-                    (batch_date, step1_status, step2_status, step3_status, error_message, updated_at)
-                    VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-                """, (batch_date, step1_status, step2_status, step3_status, error_message))
+                    (batch_date, step1_status, step2_status, step3_status, step4_status, step5_status,
+                     error_message, updated_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """, (
+                    batch_date, step1_status, step2_status, step3_status,
+                    step4_status, step5_status, error_message,
+                ))
                 
                 conn.commit()
                 
-                logger.debug(f"保存每日批处理日志成功: date={batch_date}, "
-                           f"step1={step1_status}, step2={step2_status}, step3={step3_status}")
+                logger.debug(
+                    f"保存每日批处理日志成功: date={batch_date}, "
+                    f"step1={step1_status}, step2={step2_status}, step3={step3_status}, "
+                    f"step4={step4_status}, step5={step5_status}"
+                )
                 return True
                 
         except sqlite3.Error as e:
@@ -1069,7 +1387,7 @@ class MessageDatabase:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT batch_date, step1_status, step2_status, step3_status, 
+                    SELECT batch_date, step1_status, step2_status, step3_status, step4_status, step5_status,
                            error_message, created_at, updated_at
                     FROM daily_batch_log
                     WHERE batch_date = ?
@@ -1083,6 +1401,12 @@ class MessageDatabase:
                         'step1_status': row['step1_status'],
                         'step2_status': row['step2_status'],
                         'step3_status': row['step3_status'],
+                        'step4_status': (
+                            0 if row['step4_status'] is None else int(row['step4_status'])
+                        ),
+                        'step5_status': (
+                            0 if row['step5_status'] is None else int(row['step5_status'])
+                        ),
                         'error_message': row['error_message'],
                         'created_at': row['created_at'],
                         'updated_at': row['updated_at']
@@ -1113,7 +1437,7 @@ class MessageDatabase:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    SELECT batch_date, step1_status, step2_status, step3_status, 
+                    SELECT batch_date, step1_status, step2_status, step3_status, step4_status, step5_status,
                            error_message, created_at, updated_at
                     FROM daily_batch_log
                     ORDER BY batch_date DESC
@@ -1129,6 +1453,12 @@ class MessageDatabase:
                         'step1_status': row['step1_status'],
                         'step2_status': row['step2_status'],
                         'step3_status': row['step3_status'],
+                        'step4_status': (
+                            0 if row['step4_status'] is None else int(row['step4_status'])
+                        ),
+                        'step5_status': (
+                            0 if row['step5_status'] is None else int(row['step5_status'])
+                        ),
                         'error_message': row['error_message'],
                         'created_at': row['created_at'],
                         'updated_at': row['updated_at']
@@ -1157,10 +1487,10 @@ class MessageDatabase:
             bool: 更新是否成功
             
         Raises:
-            ValueError: 如果 step_number 不在 1-3 范围内
+            ValueError: 如果 step_number 不在 1-5 范围内
         """
-        if step_number not in {1, 2, 3}:
-            raise ValueError(f"步骤编号 {step_number} 无效，必须是 1, 2 或 3")
+        if step_number not in {1, 2, 3, 4, 5}:
+            raise ValueError(f"步骤编号 {step_number} 无效，必须是 1 至 5")
         
         try:
             with sqlite3.connect(self.db_path) as conn:
@@ -1179,10 +1509,22 @@ class MessageDatabase:
                         SET step2_status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
                         WHERE batch_date = ?
                     """, (status, error_message, batch_date))
-                else:  # step_number == 3
+                elif step_number == 3:
                     cursor.execute("""
                         UPDATE daily_batch_log 
                         SET step3_status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE batch_date = ?
+                    """, (status, error_message, batch_date))
+                elif step_number == 4:
+                    cursor.execute("""
+                        UPDATE daily_batch_log 
+                        SET step4_status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
+                        WHERE batch_date = ?
+                    """, (status, error_message, batch_date))
+                else:
+                    cursor.execute("""
+                        UPDATE daily_batch_log 
+                        SET step5_status = ?, error_message = ?, updated_at = CURRENT_TIMESTAMP
                         WHERE batch_date = ?
                     """, (status, error_message, batch_date))
                 
@@ -1199,7 +1541,198 @@ class MessageDatabase:
         except sqlite3.Error as e:
             logger.error(f"更新批处理步骤状态失败: {e}")
             raise
-    
+
+    _DAILY_BATCH_INCOMPLETE_SQL = """(
+            IFNULL(step1_status, 0) = 0 OR IFNULL(step2_status, 0) = 0 OR
+            IFNULL(step3_status, 0) = 0 OR IFNULL(step4_status, 0) = 0 OR
+            IFNULL(step5_status, 0) = 0
+        )"""
+
+    def list_incomplete_daily_batch_dates_in_range(
+        self, start_date: str, end_date: str
+    ) -> List[str]:
+        """
+        列出 batch_date 在 [start_date, end_date]（含）且五步未全部完成的日期，升序。
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""
+                    SELECT batch_date FROM daily_batch_log
+                    WHERE batch_date >= ? AND batch_date <= ?
+                      AND {self._DAILY_BATCH_INCOMPLETE_SQL}
+                    ORDER BY batch_date ASC
+                    """,
+                    (start_date, end_date),
+                )
+                return [str(row[0]) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"查询未完成 daily_batch_log 失败: {e}")
+            raise
+
+    def mark_expired_skipped_daily_batch_logs_before(self, before_date: str) -> int:
+        """
+        batch_date 早于 before_date 且仍有未完成步骤的行：五步均置 1，
+        error_message='expired, skipped'。返回更新行数。
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""
+                    UPDATE daily_batch_log
+                    SET step1_status = 1, step2_status = 1, step3_status = 1,
+                        step4_status = 1, step5_status = 1,
+                        error_message = 'expired, skipped',
+                        updated_at = CURRENT_TIMESTAMP
+                    WHERE batch_date < ?
+                      AND {self._DAILY_BATCH_INCOMPLETE_SQL}
+                    """,
+                    (before_date,),
+                )
+                n = cursor.rowcount
+                conn.commit()
+                if n:
+                    logger.info(
+                        "已将 %s 条超窗未完成的 daily_batch_log 标记为 expired, skipped",
+                        n,
+                    )
+                return n
+        except sqlite3.Error as e:
+            logger.error(f"标记过期 daily_batch_log 失败: {e}")
+            raise
+
+    RELATIONSHIP_TIMELINE_EVENT_TYPES = frozenset({
+        "milestone", "emotional_shift", "conflict", "daily_warmth",
+    })
+
+    def list_expired_active_temporal_states(self, as_of_iso: str) -> List[Dict[str, Any]]:
+        """
+        列出已到期且仍激活的 temporal_states（expire_at <= as_of_iso，is_active=1）。
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, state_content, action_rule, expire_at, created_at
+                    FROM temporal_states
+                    WHERE is_active = 1
+                      AND expire_at IS NOT NULL
+                      AND datetime(expire_at) <= datetime(?)
+                    ORDER BY expire_at ASC
+                    """,
+                    (as_of_iso,),
+                )
+                return [dict(row) for row in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error(f"查询到期 temporal_states 失败: {e}")
+            raise
+
+    def deactivate_temporal_states_by_ids(self, state_ids: List[str]) -> int:
+        """将给定 id 的 temporal_states 设为 is_active=0。"""
+        if not state_ids:
+            return 0
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                placeholders = ",".join("?" * len(state_ids))
+                cursor.execute(
+                    f"""
+                    UPDATE temporal_states
+                    SET is_active = 0
+                    WHERE id IN ({placeholders})
+                    """,
+                    state_ids,
+                )
+                n = cursor.rowcount
+                conn.commit()
+                return n
+        except sqlite3.Error as e:
+            logger.error(f"停用 temporal_states 失败: {e}")
+            raise
+
+    def insert_relationship_timeline_event(
+        self,
+        event_type: str,
+        content: str,
+        source_summary_id: Optional[str] = None,
+        event_id: Optional[str] = None,
+    ) -> str:
+        """
+        插入一条 relationship_timeline。返回主键 id（UUID 字符串）。
+        """
+        if event_type not in self.RELATIONSHIP_TIMELINE_EVENT_TYPES:
+            raise ValueError(
+                f"event_type 无效: {event_type}，允许: {self.RELATIONSHIP_TIMELINE_EVENT_TYPES}"
+            )
+        eid = event_id or uuid.uuid4().hex
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO relationship_timeline (id, event_type, content, source_summary_id)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (eid, event_type, content, source_summary_id),
+                )
+                conn.commit()
+                logger.debug(
+                    "relationship_timeline 插入成功 id=%s type=%s", eid, event_type
+                )
+                return eid
+        except sqlite3.Error as e:
+            logger.error(f"插入 relationship_timeline 失败: {e}")
+            raise
+
+    def get_all_active_temporal_states(self) -> List[Dict[str, Any]]:
+        """
+        获取 temporal_states 中 is_active=1 的全部记录（按 created_at 升序，先写入的在前）。
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, state_content, action_rule, expire_at, is_active, created_at
+                    FROM temporal_states
+                    WHERE is_active = 1
+                    ORDER BY created_at ASC
+                    """
+                )
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            logger.error(f"查询激活的 temporal_states 失败: {e}")
+            return []
+
+    def get_recent_relationship_timeline(self, limit: int = 3) -> List[Dict[str, Any]]:
+        """
+        按 created_at 倒序取 relationship_timeline 前 limit 条。
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT id, created_at, event_type, content, source_summary_id
+                    FROM relationship_timeline
+                    ORDER BY created_at DESC
+                    LIMIT ?
+                    """,
+                    (limit,),
+                )
+                rows = cursor.fetchall()
+                return [dict(r) for r in rows]
+        except sqlite3.Error as e:
+            logger.error(f"查询 relationship_timeline 失败: {e}")
+            return []
+
     def save_log(self, level: str, message: str, platform: Optional[str] = None, 
                 stack_trace: Optional[str] = None) -> int:
         """
@@ -2071,24 +2604,60 @@ def mark_messages_as_summarized(start_message_id: int, end_message_id: int) -> i
     return db.mark_messages_as_summarized(start_message_id, end_message_id)
 
 
-def save_daily_batch_log(batch_date: str, step1_status: int = 0, 
-                        step2_status: int = 0, step3_status: int = 0,
-                        error_message: Optional[str] = None) -> bool:
+def save_daily_batch_log(
+    batch_date: str,
+    step1_status: int = 0,
+    step2_status: int = 0,
+    step3_status: int = 0,
+    step4_status: int = 0,
+    step5_status: int = 0,
+    error_message: Optional[str] = None,
+) -> bool:
     """
     保存或更新每日批处理日志的便捷函数。
     
     Args:
         batch_date: 批处理日期，格式为 'YYYY-MM-DD'
-        step1_status: 步骤1状态，0=未开始，1=已完成
-        step2_status: 步骤2状态，0=未开始，1=已完成
-        step3_status: 步骤3状态，0=未开始，1=已完成
+        step1_status ~ step5_status: 各步状态，0=未开始，1=已完成
         error_message: 错误信息（可选）
         
     Returns:
         bool: 操作是否成功
     """
     db = get_database()
-    return db.save_daily_batch_log(batch_date, step1_status, step2_status, step3_status, error_message)
+    return db.save_daily_batch_log(
+        batch_date, step1_status, step2_status, step3_status,
+        step4_status, step5_status, error_message,
+    )
+
+
+def list_expired_active_temporal_states(as_of_iso: str) -> List[Dict[str, Any]]:
+    return get_database().list_expired_active_temporal_states(as_of_iso)
+
+
+def deactivate_temporal_states_by_ids(state_ids: List[str]) -> int:
+    return get_database().deactivate_temporal_states_by_ids(state_ids)
+
+
+def get_all_active_temporal_states() -> List[Dict[str, Any]]:
+    """获取 is_active=1 的全部 temporal_states。"""
+    return get_database().get_all_active_temporal_states()
+
+
+def get_recent_relationship_timeline(limit: int = 3) -> List[Dict[str, Any]]:
+    """按 created_at 倒序取 relationship_timeline 前 limit 条。"""
+    return get_database().get_recent_relationship_timeline(limit)
+
+
+def insert_relationship_timeline_event(
+    event_type: str,
+    content: str,
+    source_summary_id: Optional[str] = None,
+    event_id: Optional[str] = None,
+) -> str:
+    return get_database().insert_relationship_timeline_event(
+        event_type, content, source_summary_id, event_id
+    )
 
 
 def get_daily_batch_log(batch_date: str) -> Optional[Dict[str, Any]]:
@@ -2119,6 +2688,18 @@ def get_recent_daily_batch_logs(limit: int = 30) -> List[Dict[str, Any]]:
     return db.get_recent_daily_batch_logs(limit)
 
 
+def list_incomplete_daily_batch_dates_in_range(
+    start_date: str, end_date: str,
+) -> List[str]:
+    return get_database().list_incomplete_daily_batch_dates_in_range(
+        start_date, end_date,
+    )
+
+
+def mark_expired_skipped_daily_batch_logs_before(before_date: str) -> int:
+    return get_database().mark_expired_skipped_daily_batch_logs_before(before_date)
+
+
 def update_daily_batch_step_status(batch_date: str, step_number: int, 
                                   status: int, error_message: Optional[str] = None) -> bool:
     """
@@ -2126,7 +2707,7 @@ def update_daily_batch_step_status(batch_date: str, step_number: int,
     
     Args:
         batch_date: 批处理日期，格式为 'YYYY-MM-DD'
-        step_number: 步骤编号（1, 2, 3）
+        step_number: 步骤编号（1 至 5）
         status: 状态，0=未开始，1=已完成
         error_message: 错误信息（可选）
         

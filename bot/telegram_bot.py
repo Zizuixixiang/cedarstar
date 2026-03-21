@@ -9,7 +9,7 @@ import os
 import sys
 import asyncio
 import logging
-from typing import Optional
+from typing import Any, Dict, List, Optional
 
 # 添加当前目录到 Python 路径，确保可以导入本地模块
 current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -20,7 +20,9 @@ if project_root not in sys.path:
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-from config import config, validate_config
+from bot.message_buffer import MessageBuffer
+from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
+from config import config, validate_config, Platform
 from llm.llm_interface import LLMInterface
 from memory.database import save_message, get_database
 from memory.micro_batch import trigger_micro_batch_check
@@ -48,13 +50,10 @@ class TelegramBot:
         初始化 Telegram 机器人。
         """
         # 注意：LLMInterface 不在这里固化，而是每次请求时动态创建，以支持热更新
-        
-        # 消息缓冲区：key 为 session_id，value 为消息列表
-        self.message_buffers = {}
-        # 缓冲定时器：key 为 session_id，value 为 asyncio.Task
-        self.buffer_timers = {}
-        # 缓冲锁：防止并发问题
-        self.buffer_locks = {}
+        self._message_buffer = MessageBuffer(
+            flush_callback=self._flush_buffered_messages,
+            log=logger,
+        )
         
         logger.info("Telegram 机器人初始化完成")
     
@@ -201,8 +200,16 @@ class TelegramBot:
         
         return parts
     
-    async def _add_to_buffer(self, update: Update, context: ContextTypes.DEFAULT_TYPE, 
-                           session_id: str, message, content: str, user_id: str, message_id: str):
+    async def _add_to_buffer(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        session_id: str,
+        message,
+        content: str,
+        user_id,
+        message_id,
+    ):
         """
         将消息添加到缓冲区，并启动/重置缓冲定时器。
         
@@ -215,119 +222,51 @@ class TelegramBot:
             user_id: 用户ID
             message_id: 消息ID
         """
-        # 确保有锁对象
-        if session_id not in self.buffer_locks:
-            self.buffer_locks[session_id] = asyncio.Lock()
-        
-        async with self.buffer_locks[session_id]:
-            # 将消息添加到缓冲区
-            if session_id not in self.message_buffers:
-                self.message_buffers[session_id] = []
-            
-            self.message_buffers[session_id].append({
+        await self._message_buffer.add_to_buffer(
+            session_id,
+            {
                 "update": update,
                 "context": context,
                 "message": message,
                 "content": content,
                 "user_id": user_id,
                 "message_id": message_id,
-                "timestamp": asyncio.get_event_loop().time()
-            })
-            
-            logger.debug(f"消息添加到缓冲区: session_id={session_id}, 缓冲区大小={len(self.message_buffers[session_id])}")
-            
-            # 取消现有的定时器（如果有）
-            if session_id in self.buffer_timers:
-                self.buffer_timers[session_id].cancel()
-                logger.debug(f"取消现有定时器: session_id={session_id}")
-            
-            # 启动新的定时器
-            self.buffer_timers[session_id] = asyncio.create_task(
-                self._process_buffer(session_id)
-            )
-    
-    async def _process_buffer(self, session_id: str):
-        """
-        处理缓冲区中的消息。
-        
-        等待 buffer_delay 秒后，将缓冲区中的所有消息合并处理。
-        
-        Args:
-            session_id: 会话ID
-        """
-        try:
-            # 从数据库获取缓冲延迟时间
-            db = get_database()
-            buffer_delay_str = db.get_config("buffer_delay", "5")
-            try:
-                buffer_delay = int(buffer_delay_str)
-            except ValueError:
-                buffer_delay = 5  # 默认值
-                
-            logger.debug(f"开始缓冲等待: session_id={session_id}, 延迟={buffer_delay}秒")
-            await asyncio.sleep(buffer_delay)
-            
-            # 确保有锁对象
-            if session_id not in self.buffer_locks:
-                self.buffer_locks[session_id] = asyncio.Lock()
-            
-            async with self.buffer_locks[session_id]:
-                # 检查缓冲区是否还有消息
-                if session_id not in self.message_buffers or not self.message_buffers[session_id]:
-                    logger.debug(f"缓冲区为空，跳过处理: session_id={session_id}")
-                    return
-                
-                # 获取缓冲区中的所有消息
-                buffer_messages = self.message_buffers[session_id]
-                
-                # 清空缓冲区
-                self.message_buffers[session_id] = []
-                
-                # 删除定时器
-                if session_id in self.buffer_timers:
-                    del self.buffer_timers[session_id]
-                
-                logger.info(f"处理缓冲区消息: session_id={session_id}, 消息数量={len(buffer_messages)}")
-                
-                # 合并所有消息内容
-                combined_content = "\n".join([msg["content"] for msg in buffer_messages])
-                
-                # 使用第一条消息作为基础消息对象
-                base_message = buffer_messages[0]["message"]
-                base_update = buffer_messages[0]["update"]
-                base_context = buffer_messages[0]["context"]
-                base_user_id = buffer_messages[0]["user_id"]
-                base_message_id = buffer_messages[0]["message_id"]
-                
-                # 显示"正在输入"状态
-                await base_context.bot.send_chat_action(chat_id=base_message.chat.id, action="typing")
-                
-                # 生成回复
-                reply = await self._generate_reply_from_buffer(
-                    session_id=session_id,
-                    combined_content=combined_content,
-                    user_id=base_user_id,
-                    chat_id=str(base_message.chat.id),
-                    message_id=base_message_id,
-                    base_message=base_message
-                )
-                
-                # 发送回复
-                if reply:
-                    # 如果回复太长，分割成多个消息
-                    if len(reply) > 4096:  # Telegram 消息长度限制
-                        chunks = self._split_message(reply)
-                        for chunk in chunks:
-                            await base_message.reply_text(chunk)
-                            await asyncio.sleep(0.5)  # 避免速率限制
-                    else:
-                        await base_message.reply_text(reply)
-        
-        except asyncio.CancelledError:
-            logger.debug(f"缓冲定时器被取消: session_id={session_id}")
-        except Exception as e:
-            logger.error(f"处理缓冲区时出错: session_id={session_id}, 错误={e}")
-            logger.exception(e)
+                "timestamp": asyncio.get_event_loop().time(),
+            },
+        )
+
+    async def _flush_buffered_messages(
+        self,
+        session_id: str,
+        combined_content: str,
+        buffer_messages: List[Dict[str, Any]],
+    ) -> None:
+        """缓冲到期后由 MessageBuffer 调用：Telegram 侧 typing、生成、分片回复。"""
+        base_message = buffer_messages[0]["message"]
+        base_context = buffer_messages[0]["context"]
+        base_user_id = buffer_messages[0]["user_id"]
+        base_message_id = buffer_messages[0]["message_id"]
+
+        await base_context.bot.send_chat_action(
+            chat_id=base_message.chat.id, action="typing"
+        )
+
+        reply = await self._generate_reply_from_buffer(
+            session_id=session_id,
+            combined_content=combined_content,
+            user_id=base_user_id,
+            chat_id=str(base_message.chat.id),
+            message_id=base_message_id,
+            base_message=base_message,
+        )
+        if reply:
+            if len(reply) > 4096:  # Telegram 消息长度限制
+                chunks = self._split_message(reply)
+                for chunk in chunks:
+                    await base_message.reply_text(chunk)
+                    await asyncio.sleep(0.5)  # 避免速率限制
+            else:
+                await base_message.reply_text(reply)
     
     async def _generate_reply_from_buffer(self, session_id: str, combined_content: str, 
                                         user_id: str, chat_id: str, message_id: str, 
@@ -361,6 +300,7 @@ class TelegramBot:
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
             reply = llm.generate_with_context(messages)
+            reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库（合并后的消息）
             save_message(
@@ -370,8 +310,8 @@ class TelegramBot:
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=message_id,
-                character_id="sirius",
-                platform="telegram"
+                character_id=llm.character_id,
+                platform=Platform.TELEGRAM
             )
             
             # 保存AI回复到数据库
@@ -382,8 +322,8 @@ class TelegramBot:
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=f"ai_{message_id}",
-                character_id="sirius",
-                platform="telegram"
+                character_id=llm.character_id,
+                platform=Platform.TELEGRAM
             )
             
             logger.info(f"为缓冲区生成回复: session_id={session_id}, context 消息数量={len(messages)}")
@@ -434,6 +374,7 @@ class TelegramBot:
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
             reply = llm.generate_with_context(messages)
+            reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库
             save_message(
@@ -443,8 +384,8 @@ class TelegramBot:
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=message_id,
-                character_id="sirius",
-                platform="telegram"  # 添加 platform 字段
+                character_id=llm.character_id,
+                platform=Platform.TELEGRAM
             )
             
             # 保存AI回复到数据库
@@ -455,8 +396,8 @@ class TelegramBot:
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=f"ai_{message_id}",
-                character_id="sirius",
-                platform="telegram"  # 添加 platform 字段
+                character_id=llm.character_id,
+                platform=Platform.TELEGRAM
             )
             
             logger.info(f"为 Telegram 用户 {user_id} 生成回复，context 消息数量: {len(messages)}")

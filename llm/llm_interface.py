@@ -60,6 +60,10 @@ class LLMInterface:
     LLM 接口类。
     
     封装 AI API 调用，提供统一的接口。
+    
+    Attributes:
+        character_id: 与当前激活 api_configs 行中 persona_id 对应的字符串，
+            供 Bot 写入 messages.character_id；无有效 persona_id 时为 "sirius"。
     """
     
     def __init__(self, model_name: Optional[str] = None, config_type: str = 'chat'):
@@ -73,7 +77,7 @@ class LLMInterface:
             model_name: 模型名称，覆盖自动检测（可选）
             config_type: 配置类型，'chat' 或 'summary'
         """
-        # 尝试从数据库激活配置读取
+        # 尝试从数据库激活配置读取（含 persona_id，供 messages.character_id 使用）
         db_cfg = self._load_active_config(config_type)
         
         if db_cfg:
@@ -93,6 +97,9 @@ class LLMInterface:
                 self.api_key = config.LLM_API_KEY
                 self.api_base = config.LLM_API_BASE
             logger.info(f"LLMInterface 使用环境变量配置: config_type={config_type}, model={self.model_name}")
+        
+        # 与当前激活 api_configs 关联的人设 ID，写入消息表时作为 character_id（无则兜底 sirius）
+        self.character_id = self._resolve_character_id_from_config(db_cfg)
         
         self.timeout = config.LLM_TIMEOUT
         self.max_tokens = config.LLM_MAX_TOKENS
@@ -114,7 +121,12 @@ class LLMInterface:
 
     @staticmethod
     def _load_active_config(config_type: str = 'chat') -> Optional[Dict[str, Any]]:
-        """从数据库读取指定类型的激活 api_config。"""
+        """
+        从数据库读取指定类型的激活 api_config 完整行。
+
+        返回字典包含 `api_configs` 表各字段（含 `persona_id`），供模型参数与
+        `character_id` 解析使用；失败或无激活行时返回 None。
+        """
         try:
             from memory.database import get_database
             db = get_database()
@@ -122,6 +134,23 @@ class LLMInterface:
         except Exception as e:
             logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
             return None
+
+    @staticmethod
+    def _resolve_character_id_from_config(db_cfg: Optional[Dict[str, Any]]) -> str:
+        """
+        从激活配置中的 persona_id 得到写入 messages 的 character_id 字符串。
+
+        persona_id 为空或缺失时返回字符串 "sirius"。
+        """
+        if not db_cfg:
+            return "sirius"
+        pid = db_cfg.get("persona_id")
+        if pid is None:
+            return "sirius"
+        s = str(pid).strip()
+        if not s or s.lower() == "none":
+            return "sirius"
+        return s
     
     def _prepare_headers(self) -> Dict[str, str]:
         """
