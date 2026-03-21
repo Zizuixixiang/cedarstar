@@ -819,35 +819,38 @@ h2.memory-tab-header__title,
    移动端响应式布局
    ======================================== */
 @media screen and (max-width: 767px) {
-  /* 强制父级不溢出，掐断整个页面的横向滚动条 */
+  /* 强制父级不溢出；min-width:0 关键：否则 Tab 行 intrinsic 宽度会撑开整条 flex 链 */
   .memory-container {
     width: 100%;
-    max-width: 100vw;
+    max-width: 100%;
+    min-width: 0;
     overflow-x: hidden;
     box-sizing: border-box;
-    /* 移动端取消固定高度，允许自然滚动，防止底部被截断 */
     height: auto;
     min-height: calc(100vh - 120px);
   }
 
   .memory-content-scroll-area {
     width: 100%;
+    max-width: 100%;
+    min-width: 0;
     overflow-x: hidden;
-    overflow-y: visible; /* 移动端让外层容器滚动，而不是内部区域 */
+    overflow-y: visible;
     box-sizing: border-box;
   }
 
-  /* 顶部 Tab 栏横向滑动，限制宽度防止撑破父级 */
+  /* 顶部 Tab：在自身宽度内横向滚动，不把父级撑宽 */
   .memory-tabs {
     width: 100%;
-    max-width: 100vw;
+    max-width: 100%;
+    min-width: 0;
     box-sizing: border-box;
     flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
-    padding-left: 4px;
-    padding-right: 4px;
-    /* 隐藏滚动条 */
+    padding-left: 8px;
+    padding-right: 8px;
+    -webkit-overflow-scrolling: touch;
     scrollbar-width: none;
     -ms-overflow-style: none;
   }
@@ -881,6 +884,50 @@ h2.memory-tab-header__title,
     width: 100%;
     box-sizing: border-box;
     word-break: break-word;
+    overflow-wrap: anywhere;
     white-space: normal;
+  }
+
+  /* Grid 默认 minmax(auto,1fr) 仍可能被长内容撑开，改为 minmax(0,1fr) */
+  .memory-cards-grid,
+  .skeleton-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* 卡片头：标题可收缩换行，操作按钮不挤爆布局 */
+  .card-header {
+    min-width: 0;
+    gap: 8px;
+  }
+
+  .card-header .card-title {
+    min-width: 0;
+    flex: 1;
+    overflow-wrap: anywhere;
+  }
+
+  .card-actions {
+    flex-shrink: 0;
+  }
+
+  /* Tab 页头若与按钮同排时不溢出 */
+  .memory-tab-header {
+    min-width: 0;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .memory-tab-header__title {
+    min-width: 0;
+    flex: 1 1 auto;
+  }
+
+  .longterm-header {
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+
+  .longterm-header .search-input {
+    min-width: 0;
   }
 }
