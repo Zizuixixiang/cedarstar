@@ -554,15 +554,52 @@
   
   .filter-group {
     min-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* 修复表单输入框溢出 */
+  .history-search-input,
+  .date-select {
+    width: 100%;
+    box-sizing: border-box;
   }
 
   .date-range-container {
     flex-direction: column;
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* 释放对话列宽度，减少外层 padding */
+  .message-list-container {
+    padding: 24px 10px;
+  }
+
+  .history-chat-column {
+    max-width: 100%;
+    width: 100%;
+    box-sizing: border-box;
   }
 
   /* 移动端增加气泡宽度占比 */
   .message-bubble {
     max-width: 85%;
     width: fit-content;
+  }
+
+  /* 修复分页按钮变形 */
+  .pagination {
+    display: flex;
+    flex-direction: row;
+    justify-content: center;
+    align-items: center;
+    gap: 15px;
+    flex-wrap: wrap; /* 允许在极窄屏幕下换行 */
+  }
+
+  .pagination-button {
+    height: auto;
+    padding: 8px 16px;
   }
 }
