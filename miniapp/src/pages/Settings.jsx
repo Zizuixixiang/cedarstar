@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { apiUrl } from '../apiBase';
 import '../styles/settings.css';
 
 /* ─── 工具函数 ─── */
@@ -52,7 +53,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
     }
     setFetchingModels(true);
     try {
-      const res = await fetch('/api/settings/api-configs/fetch-models', {
+      const res = await fetch(apiUrl('/api/settings/api-configs/fetch-models'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ api_key: form.api_key, base_url: form.base_url }),
@@ -89,12 +90,12 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
       if (form.api_key.trim()) body.api_key = form.api_key.trim();
       if (!isEdit) body.api_key = form.api_key.trim();
 
-      const url = isEdit
+      const path = isEdit
         ? `/api/settings/api-configs/${initial.id}`
         : '/api/settings/api-configs';
       const method = isEdit ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await fetch(apiUrl(path), {
         method,
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
@@ -250,7 +251,7 @@ function Settings() {
   const fetchConfigs = useCallback(async (tab) => {
     const t = tab ?? activeTabRef.current;
     try {
-      const res = await fetch(`/api/settings/api-configs?config_type=${t}`);
+      const res = await fetch(apiUrl(`/api/settings/api-configs?config_type=${t}`));
       const data = await res.json();
       if (data.success) {
         setConfigs(data.data || []);
@@ -267,7 +268,7 @@ function Settings() {
   /* 获取 Token 统计 */
   const fetchTokenStats = useCallback(async (p) => {
     try {
-      const res = await fetch(`/api/settings/token-usage?period=${p}`);
+      const res = await fetch(apiUrl(`/api/settings/token-usage?period=${p}`));
       const data = await res.json();
       if (data.success) setTokenStats(data.data);
     } catch { setTokenStats(null); }
@@ -280,7 +281,7 @@ function Settings() {
         await Promise.all([
           fetchConfigs(activeTab),
           fetchTokenStats('today'),
-          fetch('/api/persona').then(r => r.json()).then(d => {
+          fetch(apiUrl('/api/persona')).then(r => r.json()).then(d => {
             if (d.success) setPersonas(d.data || []);
           }),
         ]);
@@ -303,7 +304,7 @@ function Settings() {
 
   /* 激活配置 */
   const handleActivate = async (id) => {
-    const res = await fetch(`/api/settings/api-configs/${id}/activate`, { method: 'PUT' });
+    const res = await fetch(apiUrl(`/api/settings/api-configs/${id}/activate`), { method: 'PUT' });
     const data = await res.json();
     if (data.success) {
       toast.success('✓ 已激活', { autoClose: 2000 });
@@ -319,7 +320,7 @@ function Settings() {
     }
     if (!window.confirm(`确定删除「${cfg.name}」？`)) return;
     try {
-      const res = await fetch(`/api/settings/api-configs/${cfg.id}`, { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/settings/api-configs/${cfg.id}`), { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         toast.success('✓ 已删除', { autoClose: 2000 });

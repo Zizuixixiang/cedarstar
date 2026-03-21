@@ -4,10 +4,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { apiUrl } from '../apiBase';
 import './../styles/memory.css';
-
-// API 基础 URL
-const API_BASE_URL = 'http://localhost:8000';
 
 // 维度映射
 const DIMENSION_MAP = {
@@ -324,7 +322,7 @@ function TemporalStateItem({ row, addToast, onRefresh }) {
 
   const runDelete = async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/memory/temporal-states/${encodeURIComponent(row.id)}`, {
+      const response = await fetch(apiUrl(`/api/memory/temporal-states/${encodeURIComponent(row.id)}`), {
         method: 'DELETE'
       });
       const data = await response.json().catch(() => ({}));
@@ -590,7 +588,7 @@ function Memory() {
   // 加载记忆卡片数据
   const loadMemoryCards = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/memory/cards`);
+      const response = await fetch(apiUrl('/api/memory/cards'));
       if (!response.ok) {
         throw new Error('获取记忆卡片失败');
       }
@@ -646,7 +644,7 @@ function Memory() {
         page_size: '20'
       });
       
-      const response = await fetch(`${API_BASE_URL}/api/memory/longterm?${params}`);
+      const response = await fetch(apiUrl(`/api/memory/longterm?${params}`));
       if (!response.ok) {
         throw new Error('获取长期记忆失败');
       }
@@ -669,7 +667,7 @@ function Memory() {
   const loadTemporalStates = useCallback(async () => {
     setTemporalLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/memory/temporal-states`);
+      const response = await fetch(apiUrl('/api/memory/temporal-states'));
       if (!response.ok) {
         throw new Error('获取时效状态失败');
       }
@@ -691,7 +689,7 @@ function Memory() {
   const loadRelationshipTimeline = useCallback(async () => {
     setTimelineLoading(true);
     try {
-      const response = await fetch(`${API_BASE_URL}/api/memory/relationship-timeline`);
+      const response = await fetch(apiUrl('/api/memory/relationship-timeline'));
       if (!response.ok) {
         throw new Error('获取关系时间线失败');
       }
@@ -766,7 +764,7 @@ function Memory() {
       
       if (cardId) {
         // 更新现有卡片
-        const response = await fetch(`${API_BASE_URL}/api/memory/cards/${cardId}`, {
+        const response = await fetch(apiUrl(`/api/memory/cards/${cardId}`), {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
@@ -784,7 +782,7 @@ function Memory() {
         addToast('记忆卡片更新成功', 'success');
       } else {
         // 创建新卡片 - 使用POST /api/memory/cards
-        const response = await fetch(`${API_BASE_URL}/api/memory/cards`, {
+        const response = await fetch(apiUrl('/api/memory/cards'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -851,7 +849,7 @@ function Memory() {
       
       if (cardId) {
         // 调用删除API
-        const response = await fetch(`${API_BASE_URL}/api/memory/cards/${cardId}`, {
+        const response = await fetch(apiUrl(`/api/memory/cards/${cardId}`), {
           method: 'DELETE'
         });
         
@@ -893,7 +891,7 @@ function Memory() {
   const handleAddMemory = async (content) => {
     try {
       // 调用新增API
-      const response = await fetch(`${API_BASE_URL}/api/memory/longterm`, {
+      const response = await fetch(apiUrl('/api/memory/longterm'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -922,7 +920,7 @@ function Memory() {
   const handleDeleteMemory = async (memoryId) => {
     try {
       // 调用删除API
-      const response = await fetch(`${API_BASE_URL}/api/memory/longterm/${memoryId}`, {
+      const response = await fetch(apiUrl(`/api/memory/longterm/${memoryId}`), {
         method: 'DELETE'
       });
       
@@ -959,7 +957,7 @@ function Memory() {
   
   const handleAddTemporalState = async (payload) => {
     try {
-      const response = await fetch(`${API_BASE_URL}/api/memory/temporal-states`, {
+      const response = await fetch(apiUrl('/api/memory/temporal-states'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

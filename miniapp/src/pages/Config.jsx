@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { apiUrl } from '../apiBase';
 import '../styles/config.css';
 
 // 配置项默认值
@@ -183,7 +184,7 @@ function Config() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const response = await fetch('/api/config/config');
+      const response = await fetch(apiUrl('/api/config/config'));
       const data = await response.json();
       if (response.ok && data.success && data.data) {
         const merged = mergeConfigApiPayload(data.data);
@@ -248,7 +249,7 @@ function Config() {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const response = await fetch('/api/config/config', {
+      const response = await fetch(apiUrl('/api/config/config'), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

@@ -89,7 +89,9 @@ cedarstar/                          # 项目根目录
 │   ├── index.html                  # HTML 入口文件
 │   ├── package.json                # Node.js 依赖配置
 │   ├── vite.config.js              # Vite 构建配置（代理 /api 到 localhost:8000）
+│   ├── .env.production             # 生产构建环境变量（如 VITE_API_BASE_URL）
 │   └── src/
+│       ├── apiBase.js              # VITE_API_BASE_URL + apiUrl()；未设置则相对路径走开发代理
 │       ├── main.jsx                # React 应用入口，挂载根组件
 │       ├── App.jsx                 # 根组件（侧边栏导航 + 路由出口）
 │       ├── router.jsx              # 路由配置（7 个页面；显式 import React）
@@ -401,7 +403,7 @@ cedarstar/                          # 项目根目录
 
 **History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 可横向滚动，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（与窄屏一致），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐。**不改变** `/api/history` 参数与响应消费方式。
 
-**开发代理：** Vite 将 `/api` 请求代理到 `http://localhost:8000`
+**API 根地址：** 各页通过 `src/apiBase.js` 的 `apiUrl()` 生成 `fetch` URL。环境变量 `VITE_API_BASE_URL` 未设置或为空时基底为空字符串，请求为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。
 
 **路由入口：** `src/router.jsx` 导出 `navItems` 与 `routes`，文件顶部 `import React from 'react'`（见 §6.11）。
 

@@ -4,10 +4,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { apiUrl } from '../apiBase';
 import './../styles/logs.css';
-
-// API 基础 URL
-const API_BASE_URL = 'http://localhost:8000';
 
 // 平台选项
 const PLATFORM_OPTIONS = [
@@ -232,7 +230,7 @@ function Logs() {
       if (level) params.append('level', level);
       if (keyword.trim()) params.append('keyword', keyword.trim());
 
-      const response = await fetch(`${API_BASE_URL}/api/logs?${params}`);
+      const response = await fetch(apiUrl(`/api/logs?${params}`));
       if (!response.ok) throw new Error('获取日志失败');
 
       const data = await response.json();

@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { apiUrl } from '../apiBase';
 import '../styles/persona.css';
 
 // 空人设模板
@@ -113,7 +114,7 @@ function Persona() {
 
   // 获取所有人设列表
   const fetchPersonas = async () => {
-    const res = await fetch('/api/persona');
+    const res = await fetch(apiUrl('/api/persona'));
     const data = await res.json();
     if (data.success) {
       setPersonas(data.data || []);
@@ -124,7 +125,7 @@ function Persona() {
 
   // 获取单个人设详情
   const fetchDetail = async (id) => {
-    const res = await fetch(`/api/persona/${id}`);
+    const res = await fetch(apiUrl(`/api/persona/${id}`));
     const data = await res.json();
     if (data.success && data.data) {
       const d = data.data;
@@ -185,7 +186,7 @@ function Persona() {
     const name = window.prompt('请输入新人设名称：');
     if (!name?.trim()) return;
     try {
-      const res = await fetch('/api/persona', {
+      const res = await fetch(apiUrl('/api/persona'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: name.trim(), ...EMPTY_FORM }),
@@ -212,7 +213,7 @@ function Persona() {
     const newName = window.prompt('请输入新的人设名称：', activeName);
     if (!newName?.trim() || newName.trim() === activeName) return;
     try {
-      const res = await fetch(`/api/persona/${activeId}`, {
+      const res = await fetch(apiUrl(`/api/persona/${activeId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: newName.trim() }),
@@ -232,7 +233,7 @@ function Persona() {
   const handleDelete = async () => {
     if (!window.confirm(`确定要删除"${activeName}"？此操作不可恢复。`)) return;
     try {
-      const res = await fetch(`/api/persona/${activeId}`, { method: 'DELETE' });
+      const res = await fetch(apiUrl(`/api/persona/${activeId}`), { method: 'DELETE' });
       const data = await res.json();
       if (data.success) {
         toast.success('✓ 已删除', { autoClose: 2000 });
@@ -258,7 +259,7 @@ function Persona() {
     if (!activeId) return;
     setIsSaving(true);
     try {
-      const res = await fetch(`/api/persona/${activeId}`, {
+      const res = await fetch(apiUrl(`/api/persona/${activeId}`), {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),

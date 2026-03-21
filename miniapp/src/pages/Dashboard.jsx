@@ -4,10 +4,8 @@
  */
 
 import { useState, useEffect } from 'react';
+import { apiUrl } from '../apiBase';
 import './../styles/dashboard.css';
-
-// API 基础 URL
-const API_BASE_URL = 'http://localhost:8000';
 
 /**
  * 系统健康档案卡片组件
@@ -393,9 +391,9 @@ function Dashboard() {
       try {
         // 并发请求三个接口
         const [statusRes, batchLogRes, memoryRes] = await Promise.all([
-          fetch(`${API_BASE_URL}/api/dashboard/status`),
-          fetch(`${API_BASE_URL}/api/dashboard/batch-log`),
-          fetch(`${API_BASE_URL}/api/dashboard/memory-overview`)
+          fetch(apiUrl('/api/dashboard/status')),
+          fetch(apiUrl('/api/dashboard/batch-log')),
+          fetch(apiUrl('/api/dashboard/memory-overview'))
         ]);
 
         // 检查响应状态

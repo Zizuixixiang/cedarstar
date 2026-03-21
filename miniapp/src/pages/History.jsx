@@ -4,10 +4,8 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { apiUrl } from '../apiBase';
 import './../styles/history.css';
-
-// API 基础 URL
-const API_BASE_URL = 'http://localhost:8000';
 
 // 平台选项
 const PLATFORM_OPTIONS = [
@@ -296,7 +294,7 @@ function History() {
 
       console.log('API请求参数:', params.toString());
 
-      const response = await fetch(`${API_BASE_URL}/api/history?${params}`);
+      const response = await fetch(apiUrl(`/api/history?${params}`));
       if (!response.ok) {
         throw new Error('获取对话历史失败');
       }
