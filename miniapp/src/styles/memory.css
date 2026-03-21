@@ -814,3 +814,30 @@ h2.memory-tab-header__title,
   color: var(--text-main);
   line-height: 1.5;
 }
+
+/* ========================================
+   移动端响应式布局
+   ======================================== */
+@media screen and (max-width: 767px) {
+  /* 顶部 Tab 栏横向滑动 */
+  .memory-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding-left: 4px;
+    padding-right: 4px;
+    /* 隐藏滚动条 */
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .memory-tabs::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* 防止 Tab 按钮被挤压或换行 */
+  .memory-tabs button.memory-tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
