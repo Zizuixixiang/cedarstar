@@ -825,11 +825,15 @@ h2.memory-tab-header__title,
     max-width: 100vw;
     overflow-x: hidden;
     box-sizing: border-box;
+    /* 移动端取消固定高度，允许自然滚动，防止底部被截断 */
+    height: auto;
+    min-height: calc(100vh - 120px);
   }
 
   .memory-content-scroll-area {
     width: 100%;
     overflow-x: hidden;
+    overflow-y: visible; /* 移动端让外层容器滚动，而不是内部区域 */
     box-sizing: border-box;
   }
 
