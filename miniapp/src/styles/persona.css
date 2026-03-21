@@ -484,19 +484,72 @@
     margin-top: 20px; /* 增加上下区块间距 */
   }
 
-  /* 底部操作栏适配 */
+  /* 预览区顶部：标题 + 复制按钮同一行 */
+  .persona-preview .preview-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+  }
+
+  .persona-preview .preview-header .section-title {
+    font-size: 0.85rem;
+    margin: 0;
+    white-space: nowrap;
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .persona-preview .preview-header .copy-btn {
+    flex-shrink: 0;
+  }
+
+  /* 底部操作栏：第一行人设名 + 重命名/删除，第二行全宽保存 */
   .persona-footer {
     flex-direction: column;
-    gap: 16px;
     align-items: stretch;
-    padding: 16px;
+    padding: 16px 16px 40px; /* 底部留白，避免贴屏幕底边 */
+    gap: 0;
   }
 
   .footer-left {
+    display: flex;
+    align-items: center;
     justify-content: space-between;
+    width: 100%;
+    flex-wrap: nowrap;
+    gap: 8px;
+  }
+
+  .footer-left .active-name {
+    flex: 0 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  /* 无 wrapper 时：第一个操作按钮用 margin-left:auto 把「重命名+删除」整体靠右 */
+  .footer-left .btn-rename {
+    margin-left: auto;
+    flex-shrink: 0;
+  }
+
+  .footer-left .btn-danger {
+    flex-shrink: 0;
   }
 
   .footer-right {
-    justify-content: flex-end;
+    width: 100%;
+    margin-top: 15px;
+    justify-content: stretch;
+  }
+
+  .footer-right .btn-save {
+    width: 100%;
+    box-sizing: border-box;
   }
 }
