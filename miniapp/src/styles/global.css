@@ -71,12 +71,79 @@ h1, h2, h3, h4, h5, h6 {
   transition: margin-left var(--transition);
   min-height: 100vh;
   display: flex;
+  flex-direction: column;
+}
+
+.main-content-inner {
+  flex: 1;
+  display: flex;
   align-items: center;
   justify-content: center;
+  width: 100%;
 }
 
 .main-content.sidebar-collapsed {
   margin-left: var(--sidebar-collapsed-width);
+}
+
+/* 移动端 Header (默认隐藏) */
+.mobile-header {
+  display: none;
+  align-items: center;
+  padding: 12px 0;
+  margin-bottom: 24px;
+}
+
+.mobile-menu-btn {
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.6rem;
+  color: var(--text-main);
+  border-radius: var(--radius-btn);
+  margin-right: 12px;
+}
+
+.mobile-logo {
+  font-family: 'Lora', serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--accent);
+}
+
+/* 移动端遮罩层 */
+.sidebar-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  background: rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 90;
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity var(--transition), visibility var(--transition);
+}
+
+.sidebar-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 移动端响应式 */
+@media screen and (max-width: 767px) {
+  .main-content {
+    margin-left: 0 !important;
+    padding: 16px;
+  }
+  
+  .mobile-header {
+    display: flex;
+  }
 }
 
 /* 卡片基础样式 */

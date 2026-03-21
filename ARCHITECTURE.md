@@ -93,7 +93,7 @@ cedarstar/                          # 项目根目录
 │   └── src/
 │       ├── apiBase.js              # VITE_API_BASE_URL + apiUrl()；未设置则相对路径走开发代理
 │       ├── main.jsx                # React 应用入口，挂载根组件
-│       ├── App.jsx                 # 根组件（侧边栏导航 + 路由出口）
+│       ├── App.jsx                 # 根组件（响应式侧边栏导航 + 路由出口，支持移动端抽屉式菜单）
 │       ├── router.jsx              # 路由配置（7 个页面；显式 import React）
 │       ├── pages/                  # 页面组件
 │       │   ├── Dashboard.jsx       # 控制台概览页（status / memory-overview / batch-log，顶栏与日历、记忆 KPI）

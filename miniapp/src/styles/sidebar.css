@@ -17,7 +17,7 @@
   display: flex;
   flex-direction: column;
   padding: 20px 12px;
-  transition: width var(--transition);
+  transition: width var(--transition), transform var(--transition);
   z-index: 100;
   overflow: hidden;
 }
@@ -143,4 +143,29 @@
 
 .nav-item.active .nav-icon {
   transform: scale(1.1);
+}
+
+/* 移动端响应式 */
+@media screen and (max-width: 767px) {
+  .sidebar {
+    transform: translateX(-100%);
+    width: var(--sidebar-width) !important; /* 移动端不应用 collapsed 宽度 */
+  }
+
+  .sidebar.mobile-open {
+    transform: translateX(0);
+  }
+
+  .sidebar-toggle.desktop-only {
+    display: none;
+  }
+
+  .sidebar.collapsed .sidebar-logo,
+  .sidebar.collapsed .nav-text {
+    opacity: 1; /* 移动端保持文字显示 */
+  }
+
+  .sidebar.collapsed .nav-icon {
+    width: 28px; /* 移动端保持图标宽度 */
+  }
 }
