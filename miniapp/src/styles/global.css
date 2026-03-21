@@ -179,7 +179,26 @@ h1, h2, h3, h4, h5, h6 {
     min-height: auto;
   }
 
-  /* Flex 子项默认 min-width:auto，会被 Memory 等宽内容撑破视口，必须允许收缩 */
+  .mobile-header {
+    display: flex;
+    padding: 12px 16px; /* 增加内边距让其更舒适 */
+    margin-bottom: 0; /* 移除 margin-bottom，用 padding-top 在 content 里控制间距 */
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    min-width: 0;
+    /* 暴力固定头部 */
+    position: fixed;
+    top: 0;
+    left: 0;
+    z-index: 80; /* 低于侧边栏遮罩(90)和侧边栏(100) */
+    background: var(--bg-gradient); /* 使用全局背景变量防穿模 */
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(109, 89, 122, 0.1); /* 加一条细线区分内容区 */
+  }
+
+  /* 内容区防遮挡留白：把被 fixed Header 盖住的空间推下来 */
   .main-content-inner {
     min-width: 0;
     max-width: 100%;
@@ -187,26 +206,9 @@ h1, h2, h3, h4, h5, h6 {
     align-self: stretch;
     justify-content: flex-start;
     align-items: stretch;
-    padding: 8px 12px; /* 把 main-content 的 padding 移到这里 */
+    padding: 8px 12px;
+    padding-top: 64px; /* 增加顶部留白，防止被 fixed Header 遮挡 (Header 高度约 52px + 12px 间距) */
     box-sizing: border-box;
-  }
-  
-  .mobile-header {
-    display: flex;
-    padding: 12px 16px; /* 增加内边距让其更舒适 */
-    margin-bottom: 12px;
-    width: 100%;
-    max-width: 100%;
-    box-sizing: border-box;
-    min-width: 0;
-    /* 固定吸顶效果 */
-    position: sticky;
-    top: 0;
-    z-index: 80; /* 低于侧边栏遮罩(90)和侧边栏(100) */
-    background: var(--bg-gradient); /* 使用全局背景变量防穿模 */
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    border-bottom: 1px solid rgba(109, 89, 122, 0.1); /* 加一条细线区分内容区 */
   }
 
   .mobile-menu-btn {
