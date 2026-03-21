@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-03-21
+> 文档版本：2026-03-22（与 CedarStar 实现对齐：可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1）
 
 ---
 
@@ -21,7 +21,7 @@
 | SQLite（cedarstar.db） | 聊天原文、摘要、记忆卡片、关系时间线、时效状态、跑批日志 |
 | ChromaDB | 长期记忆向量存储（双轨：daily 小传 + event 事件片段） |
 | BM25 内存索引 | 关键词双路召回，服务启动时强制预热 |
-| daily_batch.py | 凌晨 4 点定时跑批，时区写死 Asia/Shanghai |
+| daily_batch.py | 东八区整点定时跑批（`Asia/Shanghai`）；触发小时由 SQLite `config.daily_batch_hour` 配置，**默认 23**，热更新 |
 
 ---
 
@@ -185,7 +185,7 @@ metadata:
   session_id       来源 session
   summary_type     固定为 "daily"
   base_score       大模型原始打分（1-10）
-  halflife_days    映射出的初始半衰期（7 / 30 / 60）
+  halflife_days    映射出的初始半衰期（1–3 分→30 天，4–7 分→200 天，8–10 分→600 天）
   hits             初始值 0
   last_access_ts   初始值为入库时间戳（float）
 ```
@@ -211,13 +211,31 @@ metadata:
 
 > **parent_id 是软引用：** 查询不到时静默降级返回 null，不抛异常，不做强外键约束。
 
-### 半衰期映射规则
+### 半衰期映射规则（与 `memory/daily_batch.py` 一致）
 
 | 打分区间 | halflife_days |
 |---|---|
-| 8-10 分 | 60 天 |
-| 4-7 分 | 30 天 |
-| 1-3 分 | 7 天 |
+| 8-10 分 | 600 天 |
+| 4-7 分 | 200 天 |
+| 1-3 分 | 30 天 |
+
+---
+
+### 2.1 运行参数表 `config`（SQLite，Mini App「助手配置」可改）
+
+以下键优先读库，缺失或非法时回退默认值；**不必改 `.env`** 即可热更新（与 `api/config.py`、`memory/context_builder.py` 等一致）。
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `buffer_delay` | 5 | 消息缓冲合并等待秒数 |
+| `short_term_limit` | 40 | Context 注入近期原文条数 |
+| `chunk_threshold` | 50 | 微批触发未摘要消息条数 |
+| `context_max_daily_summaries` | 5 | 注入 `daily` 小传条数 |
+| `context_max_longterm` | 3 | 双路召回+精排后注入长期记忆条数 |
+| `daily_batch_hour` | 23 | 东八区日终跑批整点（0–23） |
+| `relationship_timeline_limit` | 3 | 关系时间线注入条数 |
+| `gc_stale_days` | 180 | Step 5 GC：`last_access_ts` 闲置天数阈值 |
+| `retrieval_top_k` | 5 | 向量路 / BM25 路各自粗排条数 |
 
 ---
 
@@ -259,14 +277,14 @@ def init_bm25_index():
    + temporal_states 中 is_active=1 的全部记录
 
 2. 7张核心记忆卡片（memory_cards，is_active=1）
-   + relationship_timeline 按 created_at 倒序前 3 条
+   + relationship_timeline 最近 N 条（N=`relationship_timeline_limit`，默认 3），注入前按时间正序
 
 3. 长期记忆（两阶段召回，见下方详述）
 
-4. 近期摘要：最近 3-5 天的今日小传（summary_type=daily）
+4. 近期摘要：今日小传若干条（`summary_type=daily`，条数=`context_max_daily_summaries`，默认 5）
    + 今天日内的碎片摘要（summary_type=chunk）
 
-5. 最近 40 条原生消息（is_summarized=0，按 created_at 正序）
+5. 最近若干条原生消息（`is_summarized=0`，条数=`short_term_limit`，默认 40，按时间正序）
 
 6. 引用指令注入（Prompt 末尾死命令，见 Citation 机制）
 ```
@@ -275,9 +293,9 @@ def init_bm25_index():
 
 **阶段一：粗排（向量层 + BM25 双路并行）**
 
-- 语义路：ChromaDB 向量语义相似度 Top 50
-- 关键词路：BM25 内存索引关键词匹配 Top 50
-- 两路结果合并去重（RRF 融合）
+- 语义路：ChromaDB 向量相似度 Top K（K=`retrieval_top_k`，默认 5）
+- 关键词路：BM25 关键词匹配 Top K（同上）
+- 两路结果合并去重后进入父子折叠（实现为去重合并 + 折叠，非严格 RRF）
 
 **阶段一·五：父子折叠（去重）**
 
@@ -298,7 +316,7 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
   → 归一化后参与融合
 ```
 
-**截断输出：** 取重排后前 Top N 条（N 在 Mini App 前端配置），注入 Prompt 时每条必须带 uid 前缀：
+**截断输出：** 取重排后前 Top N 条（N=`context_max_longterm`，默认 3，Mini App「助手配置」+ SQLite `config`）；**同步路径**（无 Cohere）在折叠后直接截断为 N 条。注入 Prompt 时每条必须带 uid 前缀：
 
 ```
 [uid:daily_2026-03-16] 今天下班后去看了电影……
@@ -341,22 +359,22 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ## 五、日内微批处理
 
-**触发条件：** 当前 session 中 `is_summarized=0` 的消息达到 50 条时，异步触发。
+**触发条件：** 当前 session 中 `is_summarized=0` 的消息达到阈值时异步触发（阈值=`chunk_threshold`，默认 50，优先 SQLite `config`）。
 
 **执行流程：**
 
 ```
-1. 查询最早的 50 条 is_summarized=0 的消息
+1. 查询最早的「阈值」条 is_summarized=0 的消息
 2. 调用摘要模型生成《碎片摘要》
 3. 写入 summaries 表，summary_type=chunk（直接落库，防止重启丢失）
-4. 批量 UPDATE 这 50 条 messages.is_summarized=1
+4. 批量 UPDATE 本批消息的 messages.is_summarized=1
 ```
 
 ---
 
-## 六、凌晨 4 点日终跑批流水线
+## 六、日终跑批流水线（东八区整点，默认 23:00）
 
-时区写死 `Asia/Shanghai`，支持断点续跑，每步完成后更新 `daily_batch_log`。
+时区固定 `Asia/Shanghai`；**触发小时**由 SQLite `config.daily_batch_hour` 控制（默认 **23**），调度循环每次睡眠前读库，支持热更新。支持断点续跑，每步完成后更新 `daily_batch_log`。
 
 ---
 
@@ -381,7 +399,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 将以下内容统一提交给摘要模型，生成唯一的《今日小传》：
 - Step 1 输出的到期事件字符串（若有）
 - 今日所有的 chunk 碎片摘要
-- 今日剩余未满 50 条的原始消息
+- 今日剩余未满微批阈值（默认 50，可配置）的原始消息
 
 写入 `summaries` 表，`summary_type=daily`，`source_date=today`。
 
@@ -437,13 +455,13 @@ doc_id: daily_{batch_date}
 
 ### Step 5：冷库垃圾回收（GC）
 
-查询 ChromaDB，提取 `last_access_ts` 距今超过 90 天的记录。
+查询 ChromaDB，提取 `last_access_ts` 距今超过 **T** 天的记录（**T=`gc_stale_days`**，默认 **180**，优先 SQLite `config`）。
 
 在内存中试算当前衰减得分，满足以下**全部条件**才执行物理删除：
 
 ```
 条件一：衰减得分 < 0.05
-条件二：last_access_ts 距今超过 90 天
+条件二：last_access_ts 距今超过 T 天（T 可配置，默认 180）
 条件三：没有以此 doc_id 为 parent_id 的存活子节点
 ```
 
