@@ -68,11 +68,13 @@ function MainContent({ sidebarCollapsed, onOpenMobileSidebar }) {
       </div>
       
       <div className="main-content-inner">
-        <Routes>
-          {routes.map((route) => (
-            <Route key={route.path} path={route.path} element={route.element} />
-          ))}
-        </Routes>
+        <div className="main-content-viewport">
+          <Routes>
+            {routes.map((route) => (
+              <Route key={route.path} path={route.path} element={route.element} />
+            ))}
+          </Routes>
+        </div>
       </div>
     </main>
   )

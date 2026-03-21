@@ -18,6 +18,11 @@
 
 /* 120px ≈ .main-content 上下 padding(24×2) + 顶区留白；若仍出现外层滚动可改为 128～136 */
 
+/* Tab 外层：桌面端不参与布局（子级 .memory-tabs 仍直接参与 flex 列） */
+.memory-tabs-scroll {
+  display: contents;
+}
+
 /* Tab 条不参与压缩 */
 .memory-tabs {
   flex-shrink: 0;
@@ -837,15 +842,17 @@ h2.memory-tab-header__title,
     overflow-x: hidden;
     overflow-y: visible;
     box-sizing: border-box;
+    scrollbar-gutter: auto;
   }
 
-  /* 顶部 Tab：在自身宽度内横向滚动，不把父级撑宽 */
-  .memory-tabs {
+  /* 横向滚动只发生在外层，内层 Tab 行宽度为内容之和，不撑大 .memory-container */
+  .memory-tabs-scroll {
+    display: block;
     width: 100%;
     max-width: 100%;
     min-width: 0;
+    flex-shrink: 0;
     box-sizing: border-box;
-    flex-wrap: nowrap;
     overflow-x: auto;
     overflow-y: hidden;
     padding-left: 8px;
@@ -855,8 +862,20 @@ h2.memory-tab-header__title,
     -ms-overflow-style: none;
   }
 
-  .memory-tabs::-webkit-scrollbar {
+  .memory-tabs-scroll::-webkit-scrollbar {
     display: none;
+  }
+
+  .memory-tabs {
+    width: max-content;
+    max-width: none;
+    min-width: 0;
+    flex-wrap: nowrap;
+    box-sizing: border-box;
+    /* 滚动由 .memory-tabs-scroll 承担 */
+    overflow: visible;
+    padding-left: 0;
+    padding-right: 0;
   }
 
   /* 防止 Tab 按钮被挤压或换行 */

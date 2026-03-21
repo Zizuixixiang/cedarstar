@@ -483,10 +483,12 @@ function LongTermMemoryItem({ memory, onDelete }) {
 function SkeletonLoader() {
   return (
     <div className="memory-container">
-      <div className="memory-tabs skeleton-tabs">
-        {[1, 2, 3, 4].map((i) => (
-          <div key={i} className="skeleton-line short" style={{ width: '88px', height: '36px' }} />
-        ))}
+      <div className="memory-tabs-scroll" aria-label="记忆页签切换">
+        <div className="memory-tabs skeleton-tabs">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="skeleton-line short" style={{ width: '88px', height: '36px' }} />
+          ))}
+        </div>
       </div>
       <div className="memory-content-scroll-area">
         {/* 记忆卡片骨架屏 */}
@@ -1029,19 +1031,21 @@ function Memory() {
         />
       )}
       
-      <div className="memory-tabs" role="tablist">
-        {MEMORY_TABS.map((tab) => (
-          <button
-            key={tab.id}
-            type="button"
-            role="tab"
-            aria-selected={activeTab === tab.id}
-            className={`memory-tab ${activeTab === tab.id ? 'active' : ''}`}
-            onClick={() => setActiveTab(tab.id)}
-          >
-            {tab.label}
-          </button>
-        ))}
+      <div className="memory-tabs-scroll" aria-label="记忆页签切换">
+        <div className="memory-tabs" role="tablist">
+          {MEMORY_TABS.map((tab) => (
+            <button
+              key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`memory-tab ${activeTab === tab.id ? 'active' : ''}`}
+              onClick={() => setActiveTab(tab.id)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       <div className="memory-content-scroll-area">
