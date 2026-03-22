@@ -30,6 +30,7 @@ python-dotenv
 
 # HTTP 请求
 requests
+httpx
 
 # 时区处理
 pytz

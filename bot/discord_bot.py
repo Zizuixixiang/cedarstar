@@ -7,7 +7,9 @@ Discord 机器人模块。
 import os
 import sys
 import asyncio
+import base64
 import logging
+import requests
 from typing import Any, Dict, List, Optional
 
 # 添加当前目录到 Python 路径，确保可以导入本地模块
@@ -21,8 +23,10 @@ from discord.ext import commands
 
 from config import config, validate_config, Platform
 from llm.llm_interface import LLMInterface
-from bot.message_buffer import MessageBuffer
+from bot.message_buffer import MessageBuffer, ordered_media_type_from_buffer
 from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
+from bot.stt_client import transcribe_voice
+from bot.vision_caption import schedule_generate_image_caption
 from memory.database import save_message
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
@@ -142,7 +146,17 @@ class DiscordBot:
             
             # 如果消息提及机器人或是在私聊中，则将消息加入缓冲区
             if is_mentioned or is_dm:
-                await self._add_to_buffer(message)
+                has_text = bool(message.clean_content and message.clean_content.strip())
+                has_img = any(
+                    a.content_type and str(a.content_type).lower().startswith("image/")
+                    for a in message.attachments
+                )
+                has_audio = any(
+                    str(a.content_type or "").lower() in ("audio/ogg", "audio/mpeg")
+                    for a in message.attachments
+                )
+                if has_text or has_img or has_audio:
+                    await self._add_to_buffer(message)
             
             # 处理命令
             await self.bot.process_commands(message)
@@ -260,6 +274,10 @@ class DiscordBot:
         
         return parts
     
+    MAX_IMAGE_BYTES = 10 * 1024 * 1024
+    MAX_VOICE_DOWNLOAD_BYTES = 50 * 1024 * 1024
+    WHISPER_MAX_VOICE_BYTES = 25 * 1024 * 1024
+
     async def _add_to_buffer(self, message: discord.Message):
         """
         将消息添加到缓冲区，并启动/重置缓冲定时器。
@@ -268,27 +286,95 @@ class DiscordBot:
             message: Discord 消息对象
         """
         session_id = f"{message.author.id}_{message.channel.id}"
-        content = message.clean_content
-        await self._message_buffer.add_to_buffer(
-            session_id,
-            {
-                "message": message,
-                "content": content,
-                "timestamp": asyncio.get_event_loop().time(),
-            },
-        )
+        self._message_buffer.begin_heavy(session_id)
+        try:
+            content = (message.clean_content or "").strip()
+            text_parts: List[str] = []
+            if content:
+                text_parts.append(content)
+            image_payloads: List[Dict[str, Any]] = []
+            from_voice = False
+            for att in message.attachments:
+                ct = (att.content_type or "").lower()
+                if not ct.startswith("image/"):
+                    continue
+                if att.size and att.size > self.MAX_IMAGE_BYTES:
+                    text_parts.append("[发送了1张图片（文件过大，已跳过视觉解析）]")
+                    continue
+                try:
+                    raw = await att.read()
+                    b64 = base64.b64encode(raw).decode("ascii")
+                    image_payloads.append(
+                        {
+                            "type": "image",
+                            "data": b64,
+                            "caption": "",
+                            "mime_type": att.content_type or "image/jpeg",
+                        }
+                    )
+                except Exception as e:
+                    logger.error("读取 Discord 图片附件失败: %s", e)
+                    text_parts.append("[发送了1张图片（文件过大，已跳过视觉解析）]")
+            oversized_v = "[语音] 文件过大，跳过转录"
+            fail_v = "[语音] 转录失败"
+            for att in message.attachments:
+                ct = (att.content_type or "").lower()
+                if ct not in ("audio/ogg", "audio/mpeg"):
+                    continue
+                from_voice = True
+                if att.size and att.size > self.MAX_VOICE_DOWNLOAD_BYTES:
+                    text_parts.append(oversized_v)
+                    continue
+                try:
+                    raw = await att.read()
+                except Exception as e:
+                    logger.error("读取 Discord 语音附件失败: %s", e)
+                    text_parts.append(fail_v)
+                    continue
+                if len(raw) > self.WHISPER_MAX_VOICE_BYTES:
+                    text_parts.append(oversized_v)
+                    continue
+                try:
+                    mime = att.content_type or (
+                        "audio/ogg" if ct == "audio/ogg" else "audio/mpeg"
+                    )
+                    t = await transcribe_voice(raw, mime_type=mime)
+                    text_parts.append(f"[语音] {t}")
+                except Exception as e:
+                    logger.warning("Discord 语音转录失败: %s", e)
+                    text_parts.append(fail_v)
+            merged_text = "\n".join(text_parts).strip()
+            await self._message_buffer.add_to_buffer(
+                session_id,
+                {
+                    "message": message,
+                    "content": merged_text,
+                    "image_payloads": image_payloads,
+                    "from_voice": from_voice,
+                    "timestamp": asyncio.get_event_loop().time(),
+                },
+            )
+        finally:
+            self._message_buffer.end_heavy(session_id)
 
     async def _flush_buffered_messages(
         self,
         session_id: str,
         combined_content: str,
+        images: List[Dict[str, Any]],
         buffer_messages: List[Dict[str, Any]],
+        text_for_llm: str,
     ) -> None:
         """缓冲到期后由 MessageBuffer 调用：Discord 侧打字、生成、分片发送。"""
         base_message = buffer_messages[0]["message"]
         async with base_message.channel.typing():
             reply = await self._generate_reply_from_buffer(
-                base_message, combined_content, session_id
+                base_message,
+                combined_content,
+                session_id,
+                buffer_messages=buffer_messages,
+                images=images,
+                text_for_llm=text_for_llm,
             )
             if reply:
                 if len(reply) > 2000:
@@ -299,7 +385,15 @@ class DiscordBot:
                 else:
                     await base_message.channel.send(reply)
     
-    async def _generate_reply_from_buffer(self, base_message: discord.Message, combined_content: str, session_id: str) -> Optional[str]:
+    async def _generate_reply_from_buffer(
+        self,
+        base_message: discord.Message,
+        combined_content: str,
+        session_id: str,
+        buffer_messages: List[Dict[str, Any]],
+        images: Optional[List[Dict[str, Any]]] = None,
+        text_for_llm: Optional[str] = None,
+    ) -> Optional[str]:
         """
         从缓冲区合并的消息生成回复。
         
@@ -307,13 +401,21 @@ class DiscordBot:
             base_message: 基础消息对象（第一条消息）
             combined_content: 合并后的消息内容
             session_id: 会话ID
+            buffer_messages: 本缓冲批次原始条目（用于 from_voice 等标记）
+            images: 当前轮图片 payload
+            text_for_llm: 多模态请求用纯文本
             
         Returns:
             Optional[str]: 生成的回复，如果生成失败则返回 None
         """
         try:
             # 使用 context builder 构建完整的对话上下文
-            context = build_context(session_id, combined_content)
+            context = build_context(
+                session_id,
+                combined_content,
+                images=images or None,
+                llm_user_text=text_for_llm or None,
+            )
             
             # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")
@@ -329,7 +431,9 @@ class DiscordBot:
             reply = schedule_update_memory_hits_and_clean_reply(reply)
             
             # 保存用户消息到数据库（合并后的消息）
-            save_message(
+            has_img = bool(images)
+            media_t = ordered_media_type_from_buffer(buffer_messages)
+            user_row_id = save_message(
                 session_id=session_id,
                 role="user",
                 content=combined_content,
@@ -337,8 +441,18 @@ class DiscordBot:
                 channel_id=str(base_message.channel.id),
                 message_id=str(base_message.id),
                 character_id=llm.character_id,
-                platform=Platform.DISCORD
+                platform=Platform.DISCORD,
+                media_type=media_t,
+                image_caption=None,
+                vision_processed=0 if has_img else 1,
             )
+            if has_img and user_row_id:
+                schedule_generate_image_caption(
+                    user_row_id,
+                    images,
+                    (text_for_llm or "").strip(),
+                    platform=Platform.DISCORD,
+                )
             
             # 保存AI回复到数据库
             save_message(
@@ -363,6 +477,21 @@ class DiscordBot:
         except ValueError as e:
             logger.error(f"LLM 配置错误: {e}")
             return "抱歉，LLM 配置有问题，请检查 API 密钥设置。"
+        except requests.exceptions.Timeout:
+            if images:
+                logger.error(
+                    "LLM 请求超时（本轮含图片/多模态，可调 LLM_VISION_TIMEOUT / LLM_TIMEOUT）"
+                )
+                return (
+                    "抱歉，模型响应超时。带图请求更慢；可在 .env 提高 LLM_VISION_TIMEOUT（默认 180 秒）或 LLM_TIMEOUT。"
+                )
+            logger.error(
+                "LLM 请求超时（主对话无多模态图片 payload；上下文长或上游慢时可调 LLM_TIMEOUT，默认 60 秒）"
+            )
+            return (
+                "抱歉，模型响应超时。若上下文很长或接口较慢，"
+                "请在 .env 提高 LLM_TIMEOUT（默认 60 秒）。"
+            )
         except Exception as e:
             logger.error(f"生成回复时出错: {e}")
             logger.exception(e)  # 记录完整异常堆栈
@@ -438,6 +567,11 @@ class DiscordBot:
         except ValueError as e:
             logger.error(f"LLM 配置错误: {e}")
             return "抱歉，LLM 配置有问题，请检查 API 密钥设置。"
+        except requests.exceptions.Timeout:
+            logger.error("LLM 请求超时（可调 LLM_TIMEOUT，默认 60 秒）")
+            return (
+                "抱歉，模型响应超时。可在 .env 提高 LLM_TIMEOUT（默认 60 秒）。"
+            )
         except Exception as e:
             logger.error(f"生成回复时出错: {e}")
             logger.exception(e)  # 记录完整异常堆栈

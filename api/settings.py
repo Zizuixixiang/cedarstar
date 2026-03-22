@@ -5,9 +5,11 @@
 """
 from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, FrozenSet
 
 router = APIRouter()
+
+ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset({"chat", "summary", "vision", "stt"})
 
 
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
@@ -22,7 +24,7 @@ class ApiConfigCreate(BaseModel):
     base_url: str
     model: Optional[str] = None
     persona_id: Optional[int] = None
-    config_type: Optional[str] = 'chat'  # 'chat' 或 'summary'
+    config_type: Optional[str] = 'chat'  # 'chat' / 'summary' / 'vision' / 'stt'
 
 
 class ApiConfigUpdate(BaseModel):
@@ -59,9 +61,18 @@ async def list_api_configs(config_type: Optional[str] = None):
 async def create_api_config(config: ApiConfigCreate):
     """新增 API 配置。"""
     from memory.database import get_database
-    
+
+    ct = config.config_type or "chat"
+    if ct not in ALLOWED_API_CONFIG_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 config_type，允许: {', '.join(sorted(ALLOWED_API_CONFIG_TYPES))}",
+        )
+
     db = get_database()
-    config_id = db.save_api_config(config.model_dump())
+    payload = config.model_dump()
+    payload["config_type"] = ct
+    config_id = db.save_api_config(payload)
     
     return create_response(True, {"id": config_id}, "创建成功")
 
@@ -80,6 +91,11 @@ async def update_api_config(config_id: int, config: ApiConfigUpdate):
     
     # 只更新非 None 的字段
     update_data = {k: v for k, v in config.model_dump().items() if v is not None}
+    if "config_type" in update_data and update_data["config_type"] not in ALLOWED_API_CONFIG_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"无效的 config_type，允许: {', '.join(sorted(ALLOWED_API_CONFIG_TYPES))}",
+        )
     db.update_api_config(config_id, update_data)
     
     return create_response(True, None, "更新成功")

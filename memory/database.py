@@ -72,15 +72,47 @@ def _backfill_daily_batch_step45_legacy_once(cursor: sqlite3.Cursor) -> None:
     )
 
 
+def _messages_ensure_vision_columns(cursor: sqlite3.Cursor) -> None:
+    """为 messages 增加图片/视觉相关列（旧库兼容）；vision_processed 默认 1 表示已处理。"""
+    cursor.execute("PRAGMA table_info(messages)")
+    columns = {row[1] for row in cursor.fetchall()}
+    if "media_type" not in columns:
+        cursor.execute("ALTER TABLE messages ADD COLUMN media_type TEXT")
+        logger.debug("messages 表添加 media_type")
+    if "image_caption" not in columns:
+        cursor.execute("ALTER TABLE messages ADD COLUMN image_caption TEXT")
+        logger.debug("messages 表添加 image_caption")
+    if "vision_processed" not in columns:
+        cursor.execute(
+            "ALTER TABLE messages ADD COLUMN vision_processed INTEGER NOT NULL DEFAULT 1"
+        )
+        logger.debug("messages 表添加 vision_processed")
+
+
+def _ensure_sticker_cache_table(cursor: sqlite3.Cursor) -> None:
+    """Telegram 贴纸 file_unique_id → 视觉描述缓存；CREATE IF NOT EXISTS 幂等。"""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sticker_cache (
+            file_unique_id TEXT PRIMARY KEY,
+            emoji TEXT,
+            sticker_set_name TEXT,
+            description TEXT NOT NULL,
+            created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+
+
 def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
     """
     启动时幂等迁移：补齐缺失列与全部约定索引。
 
     通过 CREATE INDEX IF NOT EXISTS / 列检测实现「不存在则创建、已存在则跳过」。
     """
+    _ensure_sticker_cache_table(cursor)
     _summaries_ensure_source_date_column(cursor)
     _daily_batch_log_ensure_step45_columns(cursor)
     _backfill_daily_batch_step45_legacy_once(cursor)
+    _messages_ensure_vision_columns(cursor)
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -88,6 +120,10 @@ def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
         (
             "CREATE INDEX IF NOT EXISTS idx_messages_session_is_summarized "
             "ON messages (session_id, is_summarized)"
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_messages_vision_batch "
+            "ON messages (is_summarized, vision_processed)"
         ),
         "CREATE INDEX IF NOT EXISTS idx_summaries_session_id ON summaries (session_id, created_at)",
         (
@@ -163,7 +199,10 @@ class MessageDatabase:
                         is_summarized INTEGER DEFAULT 0,
                         character_id TEXT,
                         platform TEXT DEFAULT 'discord',
-                        thinking TEXT
+                        thinking TEXT,
+                        media_type TEXT,
+                        image_caption TEXT,
+                        vision_processed INTEGER NOT NULL DEFAULT 1
                     )
                 """)
                 
@@ -299,7 +338,10 @@ class MessageDatabase:
     def save_message(self, role: str, content: str, session_id: str, 
                     user_id: Optional[str] = None, channel_id: Optional[str] = None, 
                     message_id: Optional[str] = None, character_id: Optional[str] = None,
-                    platform: Optional[str] = None) -> int:
+                    platform: Optional[str] = None,
+                    media_type: Optional[str] = None,
+                    image_caption: Optional[str] = None,
+                    vision_processed: Optional[int] = None) -> int:
         """
         保存一条消息到数据库。
         
@@ -312,6 +354,9 @@ class MessageDatabase:
             message_id: 消息ID（可选）
             character_id: 角色ID（可选）
             platform: 平台标识（可选），如 'discord', 'telegram'
+            media_type: 媒体类型（如 image；纯文本可为 None）
+            image_caption: 系统生成的视觉描述（可选）
+            vision_processed: 0=待视觉后处理，1=已完成；默认 1
             
         Returns:
             int: 插入的消息ID
@@ -320,23 +365,108 @@ class MessageDatabase:
             sqlite3.Error: 数据库操作失败
         """
         try:
+            vp = 1 if vision_processed is None else int(vision_processed)
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
-                    INSERT INTO messages (role, content, session_id, user_id, channel_id, message_id, character_id, platform)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """, (role, content, session_id, user_id, channel_id, message_id, character_id, platform))
+                    INSERT INTO messages (
+                        role, content, session_id, user_id, channel_id, message_id,
+                        character_id, platform, media_type, image_caption, vision_processed
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """, (
+                    role, content, session_id, user_id, channel_id, message_id,
+                    character_id, platform, media_type, image_caption, vp,
+                ))
                 
-                message_id = cursor.lastrowid
+                new_id = cursor.lastrowid
                 conn.commit()
                 
-                logger.debug(f"保存消息成功: ID={message_id}, role={role}, session={session_id}, platform={platform}")
-                return message_id
+                logger.debug(
+                    "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, vision_processed=%s",
+                    new_id, role, session_id, platform, vp,
+                )
+                return new_id
                 
         except sqlite3.Error as e:
             logger.error(f"保存消息失败: {e}")
             raise
+
+    def get_assistant_content_for_platform_message_id(
+        self, session_id: str, platform_message_id: str
+    ) -> Optional[str]:
+        """
+        按会话 + 平台消息 ID 查找助手消息正文（用于 Telegram 反应等）。
+        Telegram 助手行使用 Bot 发出消息的 message_id；旧数据可能仍为 ai_*，无法与反应 ID 对齐。
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    SELECT content FROM messages
+                    WHERE session_id = ? AND role = 'assistant' AND message_id = ?
+                    LIMIT 1
+                    """,
+                    (session_id, str(platform_message_id)),
+                )
+                row = cursor.fetchone()
+                return str(row[0]) if row and row[0] is not None else None
+        except sqlite3.Error as e:
+            logger.error(f"按 message_id 查询助手消息失败: {e}")
+            return None
+
+    def update_message_vision_result(
+        self,
+        message_row_id: int,
+        image_caption: str,
+        vision_processed: int = 1,
+    ) -> bool:
+        """更新消息的 image_caption 与 vision_processed（视觉异步任务回调）。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    UPDATE messages
+                    SET image_caption = ?, vision_processed = ?
+                    WHERE id = ?
+                    """,
+                    (image_caption, int(vision_processed), int(message_row_id)),
+                )
+                conn.commit()
+                return cursor.rowcount > 0
+        except sqlite3.Error as e:
+            logger.error(f"更新视觉字段失败: {e}")
+            return False
+
+    def expire_stale_vision_pending(self, minutes: int = 5) -> int:
+        """
+        将长时间仍处于 vision_processed=0 的行标记为失败（微批/检查前兜底）。
+        """
+        caption = "[系统提示：视觉解析超时失败]"
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    f"""
+                    UPDATE messages
+                    SET vision_processed = 1,
+                        image_caption = ?
+                    WHERE vision_processed = 0
+                      AND created_at <= datetime('now', '-{int(minutes)} minutes')
+                    """,
+                    (caption,),
+                )
+                n = cursor.rowcount
+                conn.commit()
+                if n:
+                    logger.info("expire_stale_vision_pending: 更新 %s 行", n)
+                return n
+        except sqlite3.Error as e:
+            logger.error(f"expire_stale_vision_pending 失败: {e}")
+            return 0
     
     def get_recent_messages(self, session_id: str, limit: int = 20) -> List[Dict[str, Any]]:
         """
@@ -1145,7 +1275,7 @@ class MessageDatabase:
                 cursor.execute("""
                     SELECT COUNT(*) 
                     FROM messages 
-                    WHERE session_id = ? AND is_summarized = 0
+                    WHERE session_id = ? AND is_summarized = 0 AND vision_processed = 1
                 """, (session_id,))
                 
                 count = cursor.fetchone()[0]
@@ -1177,7 +1307,7 @@ class MessageDatabase:
                 cursor.execute("""
                     SELECT id, role, content, created_at, session_id, user_id, channel_id
                     FROM messages
-                    WHERE session_id = ? AND is_summarized = 0
+                    WHERE session_id = ? AND is_summarized = 0 AND vision_processed = 1
                     ORDER BY created_at ASC
                     LIMIT ?
                 """, (session_id, limit))
@@ -1363,7 +1493,8 @@ class MessageDatabase:
                 
                 # 先按时间倒序取最新的 limit 条
                 cursor.execute("""
-                    SELECT id, role, content, created_at, session_id, user_id, channel_id
+                    SELECT id, role, content, created_at, session_id, user_id, channel_id,
+                           media_type, image_caption, vision_processed
                     FROM messages
                     WHERE session_id = ? AND is_summarized = 0
                     ORDER BY created_at DESC
@@ -1381,7 +1512,10 @@ class MessageDatabase:
                         'created_at': row['created_at'],
                         'session_id': row['session_id'],
                         'user_id': row['user_id'],
-                        'channel_id': row['channel_id']
+                        'channel_id': row['channel_id'],
+                        'media_type': row['media_type'],
+                        'image_caption': row['image_caption'],
+                        'vision_processed': row['vision_processed'],
                     }
                     messages.append(message)
                 
@@ -2541,6 +2675,80 @@ class MessageDatabase:
                 'completion_tokens': 0, 'call_count': 0, 'by_platform': {}
             }
 
+    # ==========================================
+    # sticker_cache（Telegram 贴纸描述缓存）
+    # ==========================================
+
+    def get_sticker_cache(self, file_unique_id: str) -> Optional[Dict[str, Any]]:
+        """按 file_unique_id 读取贴纸缓存；表不存在时由迁移保证已建。"""
+        if not file_unique_id:
+            return None
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                _ensure_sticker_cache_table(cursor)
+                cursor.execute(
+                    """
+                    SELECT file_unique_id, emoji, sticker_set_name, description, created_at
+                    FROM sticker_cache WHERE file_unique_id = ?
+                    """,
+                    (file_unique_id,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except sqlite3.Error as e:
+            logger.error("读取 sticker_cache 失败: %s", e)
+            return None
+
+    def save_sticker_cache(
+        self,
+        file_unique_id: str,
+        emoji: Optional[str],
+        sticker_set_name: Optional[str],
+        description: str,
+    ) -> None:
+        """写入或覆盖贴纸缓存（失败仅打日志）。"""
+        if not file_unique_id:
+            return
+        desc = (description or "").strip() or "（贴纸）"
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                _ensure_sticker_cache_table(cursor)
+                cursor.execute(
+                    """
+                    INSERT OR REPLACE INTO sticker_cache
+                    (file_unique_id, emoji, sticker_set_name, description, created_at)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                    """,
+                    (
+                        file_unique_id,
+                        emoji or "",
+                        sticker_set_name or "",
+                        desc,
+                    ),
+                )
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.error("写入 sticker_cache 失败: %s", e)
+
+    def delete_sticker_cache(self, file_unique_id: str) -> None:
+        """按 file_unique_id 删除贴纸缓存（用于 /rescanpic 等强制重识别）。"""
+        if not file_unique_id:
+            return
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                _ensure_sticker_cache_table(cursor)
+                cursor.execute(
+                    "DELETE FROM sticker_cache WHERE file_unique_id = ?",
+                    (file_unique_id,),
+                )
+                conn.commit()
+        except sqlite3.Error as e:
+            logger.error("删除 sticker_cache 失败: %s", e)
+
 
 # 创建全局数据库实例
 _db_instance: Optional[MessageDatabase] = None
@@ -2588,7 +2796,10 @@ def get_database() -> MessageDatabase:
 def save_message(role: str, content: str, session_id: str, 
                 user_id: Optional[str] = None, channel_id: Optional[str] = None, 
                 message_id: Optional[str] = None, character_id: Optional[str] = None,
-                platform: Optional[str] = None) -> int:
+                platform: Optional[str] = None,
+                media_type: Optional[str] = None,
+                image_caption: Optional[str] = None,
+                vision_processed: Optional[int] = None) -> int:
     """
     保存消息的便捷函数。
     
@@ -2601,12 +2812,59 @@ def save_message(role: str, content: str, session_id: str,
         message_id: 消息ID（可选）
         character_id: 角色ID（可选）
         platform: 平台标识（可选），如 'discord', 'telegram'
+        media_type: 媒体类型（可选）
+        image_caption: 视觉描述（可选）
+        vision_processed: 视觉处理状态（可选，默认 1）
         
     Returns:
         int: 消息ID
     """
     db = get_database()
-    return db.save_message(role, content, session_id, user_id, channel_id, message_id, character_id, platform)
+    return db.save_message(
+        role, content, session_id, user_id, channel_id, message_id,
+        character_id, platform, media_type, image_caption, vision_processed,
+    )
+
+
+def get_assistant_content_for_platform_message_id(
+    session_id: str, platform_message_id: str
+) -> Optional[str]:
+    return get_database().get_assistant_content_for_platform_message_id(
+        session_id, platform_message_id
+    )
+
+
+def update_message_vision_result(
+    message_row_id: int,
+    image_caption: str,
+    vision_processed: int = 1,
+) -> bool:
+    return get_database().update_message_vision_result(
+        message_row_id, image_caption, vision_processed
+    )
+
+
+def expire_stale_vision_pending(minutes: int = 5) -> int:
+    return get_database().expire_stale_vision_pending(minutes=minutes)
+
+
+def get_sticker_cache_row(file_unique_id: str) -> Optional[Dict[str, Any]]:
+    return get_database().get_sticker_cache(file_unique_id)
+
+
+def save_sticker_cache_row(
+    file_unique_id: str,
+    emoji: Optional[str],
+    sticker_set_name: Optional[str],
+    description: str,
+) -> None:
+    get_database().save_sticker_cache(
+        file_unique_id, emoji, sticker_set_name, description
+    )
+
+
+def delete_sticker_cache_row(file_unique_id: str) -> None:
+    get_database().delete_sticker_cache(file_unique_id)
 
 
 def get_recent_messages(session_id: str, limit: int = 20) -> List[Dict[str, Any]]:

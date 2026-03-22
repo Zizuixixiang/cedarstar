@@ -36,18 +36,18 @@
   flex-wrap: wrap;
 }
 
-/* 对话 API / 摘要 API 切换（与 period-tabs 同风格的间距与分组） */
+/* 对话 / 摘要 / 视觉 / 语音转录 API 切换（与 period-tabs 同风格的间距与分组） */
 .config-tabs {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 6px;
   padding: 4px;
   background: rgba(109, 89, 122, 0.07);
   border-radius: 10px;
   flex: 1;
   justify-content: center;
   min-width: 0;
-  max-width: 320px;
+  max-width: 560px;
 }
 
 .config-tab {
@@ -162,6 +162,34 @@
   padding: 2px 8px;
   white-space: nowrap;
   letter-spacing: 0.02em;
+}
+
+.cfg-type-tag {
+  font-size: 0.72rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  white-space: nowrap;
+  letter-spacing: 0.02em;
+}
+
+.cfg-type-tag.chat-type {
+  color: #2d6a4f;
+  background: rgba(45, 106, 79, 0.12);
+}
+
+.cfg-type-tag.summary-type {
+  color: #6d597a;
+  background: rgba(109, 89, 122, 0.12);
+}
+
+.cfg-type-tag.vision-type {
+  color: #9a6b2d;
+  background: rgba(244, 162, 97, 0.18);
+}
+
+.cfg-type-tag.stt-type {
+  color: #1b6f7a;
+  background: rgba(27, 111, 122, 0.14);
 }
 
 /* 中：URL + 人设 + 模型 */
@@ -453,6 +481,21 @@
   font-size: 0.76rem;
   color: var(--text-sub);
   opacity: 0.7;
+}
+
+.type-radio-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 14px;
+}
+
+.type-radio-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  font-size: 0.84rem;
+  color: var(--text-main);
 }
 
 .modal-input {

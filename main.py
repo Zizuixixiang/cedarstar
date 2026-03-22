@@ -66,6 +66,26 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 
+class _SuppressTelegramBotApiUrlInfoFilter(logging.Filter):
+    """
+    httpx/httpcore 在 INFO 会打印完整 URL；Telegram Bot API 路径含 token，写入日志有泄露风险。
+    对指向 api.telegram.org 的记录仅保留 WARNING 及以上（等效于对该主机把 INFO 降噪）。
+    """
+
+    _needle = "://api.telegram.org"
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        if record.levelno >= logging.WARNING:
+            return True
+        try:
+            msg = record.getMessage()
+        except Exception:
+            return True
+        if self._needle in msg:
+            return False
+        return True
+
+
 def setup_logging():
     """
     设置日志配置。
@@ -84,6 +104,9 @@ def setup_logging():
     logging.getLogger('telegram').setLevel(logging.WARNING)
     logging.getLogger('urllib3').setLevel(logging.WARNING)
     logging.getLogger('requests').setLevel(logging.WARNING)
+    _tg_url_filter = _SuppressTelegramBotApiUrlInfoFilter()
+    logging.getLogger("httpx").addFilter(_tg_url_filter)
+    logging.getLogger("httpcore").addFilter(_tg_url_filter)
 
 
 async def run_discord_bot():

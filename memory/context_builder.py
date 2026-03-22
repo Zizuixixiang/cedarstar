@@ -16,6 +16,7 @@ Context 构建模块。
 
 import logging
 import math
+import re
 import time
 from functools import partial
 from typing import Dict, List, Any, Optional
@@ -52,6 +53,144 @@ except ImportError:
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+_USER_IMAGE_CONTENT_RE = re.compile(
+    r"^\[发送了(\d+)张图片\]\s*(.*)$", re.DOTALL
+)
+
+
+def _is_user_media_marker_line(stripped_line: str) -> bool:
+    if stripped_line.startswith("[贴纸]"):
+        return True
+    if stripped_line.startswith("[语音]"):
+        return True
+    if stripped_line.startswith("[发送了") and "张图片]" in stripped_line:
+        return True
+    return False
+
+
+def _extract_plain_user_text(content: str) -> str:
+    """去掉图片/贴纸/语音结构行后的用户纯文字（放格式化结果最前）。"""
+    lines = content.split("\n")
+    kept: List[str] = []
+    for line in lines:
+        st = line.strip()
+        if _is_user_media_marker_line(st):
+            continue
+        kept.append(line)
+    return "\n".join(kept).strip()
+
+
+def _infer_media_type_order_from_content(content: str) -> List[str]:
+    """旧行无 media_type 时，按正文出现顺序推断 image / sticker / voice。"""
+    order: List[str] = []
+    for line in content.split("\n"):
+        st = line.strip()
+        if st.startswith("[发送了") and "张图片]" in st and "image" not in order:
+            order.append("image")
+        if st.startswith("[贴纸]") and "sticker" not in order:
+            order.append("sticker")
+        if st.startswith("[语音]") and "voice" not in order:
+            order.append("voice")
+    return order
+
+
+def _format_reaction_part(msg: Dict[str, Any]) -> str:
+    """反应类消息：content 已在 Bot 层拼好，原样注入上下文。"""
+    return msg.get("content") or ""
+
+
+def _format_image_part(msg: Dict[str, Any]) -> str:
+    """
+    图片块：用户配文 + 可选系统视觉档案。
+    未来多图可升级为 JSON 数组，当前 image_caption 按字符串处理。
+    """
+    content = (msg.get("content") or "").strip()
+    cap = (msg.get("image_caption") or "").strip()
+    m = _USER_IMAGE_CONTENT_RE.match(content)
+    if m:
+        n = m.group(1)
+        ucap = (m.group(2) or "").strip()
+    else:
+        if not cap and "[发送了" not in content:
+            return ""
+        n = "1"
+        ucap = _extract_plain_user_text(content) or content
+    line1 = f"[用户发送了{n}张图片]：{ucap}" if ucap else f"[用户发送了{n}张图片]："
+    if cap:
+        return f"{line1}\n[系统视觉档案]：{cap}"
+    return line1
+
+
+def _format_sticker_part(msg: Dict[str, Any]) -> str:
+    lines = (msg.get("content") or "").split("\n")
+    out: List[str] = []
+    prefix = "[贴纸]"
+    for line in lines:
+        s = line.strip()
+        if not s.startswith(prefix):
+            continue
+        rest = s[len(prefix) :].lstrip()
+        sp = rest.find(" ")
+        desc = rest[sp + 1 :].lstrip() if sp != -1 else rest
+        out.append(f"[用户发送了一个贴纸]：{desc}")
+    return "\n".join(out)
+
+
+def _format_voice_part(msg: Dict[str, Any]) -> str:
+    text = msg.get("content") or ""
+    lines = text.split("\n")
+    out: List[str] = []
+    prefix = "[语音]"
+    for line in lines:
+        s = line.strip()
+        if not s.startswith(prefix):
+            continue
+        inner = s[len(prefix) :].lstrip()
+        out.append(f"[用户发送了一条语音]：{inner}")
+    if not out and text.strip().startswith(prefix):
+        inner = text.strip()[len(prefix) :].lstrip()
+        out.append(f"[用户发送了一条语音]：{inner}")
+    return "\n".join(out)
+
+
+def format_user_message_for_context(msg: Dict[str, Any]) -> str:
+    """
+    用户消息按 media_type 逗号顺序路由到各段格式化函数；纯文字先于媒体段。
+    reaction 单独走 _format_reaction_part（不参与复合 media_type 拼接）。
+    """
+    role = msg.get("role")
+    content = msg.get("content") or ""
+    if role != "user":
+        return content
+    media_raw = (msg.get("media_type") or "").strip()
+    if media_raw.lower() == "reaction":
+        return _format_reaction_part(msg)
+
+    plain = _extract_plain_user_text(content)
+    type_order = [x.strip().lower() for x in media_raw.split(",") if x.strip()]
+    if not type_order:
+        type_order = _infer_media_type_order_from_content(content)
+
+    chunks: List[str] = []
+    if plain:
+        chunks.append(plain)
+    for m in type_order:
+        if m == "image":
+            part = _format_image_part(msg)
+            if part:
+                chunks.append(part)
+        elif m == "sticker":
+            part = _format_sticker_part(msg)
+            if part:
+                chunks.append(part)
+        elif m == "voice":
+            part = _format_voice_part(msg)
+            if part:
+                chunks.append(part)
+    if not chunks:
+        return content
+    return "\n\n".join(chunks)
 
 
 def _short_term_recent_message_limit() -> int:
@@ -302,7 +441,13 @@ class ContextBuilder:
         """
         logger.info("Context 构建器初始化完成")
     
-    def build_context(self, session_id: str, user_message: str) -> Dict[str, Any]:
+    def build_context(
+        self,
+        session_id: str,
+        user_message: str,
+        images: Optional[List[Dict[str, Any]]] = None,
+        llm_user_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         构建完整的对话上下文。
         
@@ -318,7 +463,9 @@ class ContextBuilder:
         
         Args:
             session_id: 会话ID
-            user_message: 用户当前消息
+            user_message: 用户当前消息（与落库 content 一致）
+            images: 当前轮次多模态图片（可选）
+            llm_user_text: 对话模型用纯文本（有图片时建议传入）
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -347,7 +494,12 @@ class ContextBuilder:
             recent_messages_section = self._build_recent_messages_section(session_id)
             
             # 7. 添加当前用户消息
-            current_user_message = self._build_current_user_message(user_message)
+            cut = (
+                llm_user_text
+                if images and (llm_user_text is not None and str(llm_user_text).strip())
+                else user_message
+            )
+            current_user_message = self._build_current_user_message(cut, images)
             
             # 组装完整的 system prompt
             full_system_prompt = self._assemble_full_system_prompt(
@@ -384,7 +536,13 @@ class ContextBuilder:
                 ]
             }
     
-    async def build_context_async(self, session_id: str, user_message: str) -> Dict[str, Any]:
+    async def build_context_async(
+        self,
+        session_id: str,
+        user_message: str,
+        images: Optional[List[Dict[str, Any]]] = None,
+        llm_user_text: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
         异步构建完整的对话上下文（支持 Reranker）。
         
@@ -404,6 +562,8 @@ class ContextBuilder:
         Args:
             session_id: 会话ID
             user_message: 用户当前消息
+            images: 当前轮次图片 payload（可选）
+            llm_user_text: 对话模型用纯文本（可选）
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -432,7 +592,12 @@ class ContextBuilder:
             recent_messages_section = self._build_recent_messages_section(session_id)
             
             # 7. 添加当前用户消息
-            current_user_message = self._build_current_user_message(user_message)
+            cut = (
+                llm_user_text
+                if images and (llm_user_text is not None and str(llm_user_text).strip())
+                else user_message
+            )
+            current_user_message = self._build_current_user_message(cut, images)
             
             # 组装完整的 system prompt
             full_system_prompt = self._assemble_full_system_prompt(
@@ -848,7 +1013,7 @@ class ContextBuilder:
             logger.warning("异步检索失败，回退到同步检索")
             return self._build_vector_search_section(user_message)
     
-    def _build_recent_messages_section(self, session_id: str) -> List[Dict[str, str]]:
+    def _build_recent_messages_section(self, session_id: str) -> List[Dict[str, Any]]:
         """
         构建最近消息部分。
         
@@ -859,7 +1024,7 @@ class ContextBuilder:
             session_id: 会话ID
             
         Returns:
-            List[Dict[str, str]]: 消息列表，每条消息包含 role 和 content
+            List[Dict[str, Any]]: 消息列表，每条消息包含 role 和 content（纯文本）
         """
         try:
             recent_messages = get_unsummarized_messages_desc(
@@ -874,9 +1039,17 @@ class ContextBuilder:
             messages = []
             for msg in recent_messages:
                 role = "user" if msg['role'] == "user" else "assistant"
+                text = format_user_message_for_context(
+                    {
+                        "role": msg["role"],
+                        "content": msg["content"],
+                        "media_type": msg.get("media_type"),
+                        "image_caption": msg.get("image_caption"),
+                    }
+                )
                 messages.append({
                     "role": role,
-                    "content": msg['content']
+                    "content": text
                 })
             
             logger.debug(f"获取最近消息: session={session_id}, count={len(messages)}")
@@ -886,16 +1059,29 @@ class ContextBuilder:
             logger.error(f"构建最近消息部分失败: {e}")
             return []
     
-    def _build_current_user_message(self, user_message: str) -> Dict[str, str]:
+    def _build_current_user_message(
+        self,
+        user_message: str,
+        images: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """
         构建当前用户消息。
         
         Args:
             user_message: 用户当前消息
+            images: 多模态图片列表（可选）
             
         Returns:
-            Dict[str, str]: 当前用户消息
+            Dict[str, Any]: 当前用户消息
         """
+        if images:
+            from llm.llm_interface import LLMInterface, build_user_multimodal_content
+
+            llm = LLMInterface()
+            content = build_user_multimodal_content(
+                llm.api_base, llm.model_name, user_message, images
+            )
+            return {"role": "user", "content": content}
         return {
             "role": "user",
             "content": user_message
@@ -946,8 +1132,8 @@ class ContextBuilder:
         return "\n\n".join(sections)
     
     def _assemble_messages(self, full_system_prompt: str,
-                          recent_messages: List[Dict[str, str]],
-                          current_user_message: Dict[str, str]) -> List[Dict[str, str]]:
+                          recent_messages: List[Dict[str, Any]],
+                          current_user_message: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
         组装完整的 messages 数组。
         
@@ -957,7 +1143,7 @@ class ContextBuilder:
             current_user_message: 当前用户消息
             
         Returns:
-            List[Dict[str, str]]: 完整的 messages 数组
+            List[Dict[str, Any]]: 完整的 messages 数组
         """
         messages = []
         
@@ -978,19 +1164,28 @@ class ContextBuilder:
 
 
 # 便捷函数
-def build_context(session_id: str, user_message: str) -> Dict[str, Any]:
+def build_context(
+    session_id: str,
+    user_message: str,
+    images: Optional[List[Dict[str, Any]]] = None,
+    llm_user_text: Optional[str] = None,
+) -> Dict[str, Any]:
     """
     构建对话上下文的便捷函数。
     
     Args:
         session_id: 会话ID
         user_message: 用户当前消息
+        images: 当前轮图片 payload（可选）
+        llm_user_text: 对话模型用纯文本（可选，有图片时建议传入）
         
     Returns:
         Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
     """
     builder = ContextBuilder()
-    return builder.build_context(session_id, user_message)
+    return builder.build_context(
+        session_id, user_message, images=images, llm_user_text=llm_user_text
+    )
 
 
 if __name__ == "__main__":

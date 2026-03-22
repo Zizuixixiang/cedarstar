@@ -20,6 +20,84 @@ from memory.database import get_database
 logger = logging.getLogger(__name__)
 
 
+def use_anthropic_messages_api(
+    api_base: Optional[str], model_name: Optional[str]
+) -> bool:
+    """
+    是否走 Anthropic Messages API（/messages）。
+    优先看 api_base 是否含 anthropic；否则根据模型名含 claude 回退（兼容旧配置）。
+    """
+    b = (api_base or "").lower()
+    if "anthropic" in b:
+        return True
+    if "claude" in (model_name or "").lower():
+        return True
+    return False
+
+
+def build_user_multimodal_content(
+    api_base: Optional[str],
+    model_name: Optional[str],
+    text: str,
+    image_payloads: List[Dict[str, Any]],
+) -> Union[str, List[Dict[str, Any]]]:
+    """
+    组装用户多模态 content（OpenAI 兼容：text + image_url；Claude：text + image base64）。
+
+    image_payload 项：`data`（base64 字符串）、可选 `mime_type`（默认 image/jpeg）、可选 `caption`（已并入 text 时不必重复）。
+    """
+    if not image_payloads:
+        return text
+    t = (text or "").strip()
+    anthropic_fmt = use_anthropic_messages_api(api_base, model_name)
+    parts: List[Dict[str, Any]] = []
+    if t:
+        parts.append({"type": "text", "text": t})
+    for img in image_payloads:
+        mime = img.get("mime_type") or "image/jpeg"
+        b64 = img.get("data") or ""
+        if not b64:
+            continue
+        if anthropic_fmt:
+            parts.append(
+                {
+                    "type": "image",
+                    "source": {
+                        "type": "base64",
+                        "media_type": mime,
+                        "data": b64,
+                    },
+                }
+            )
+        else:
+            parts.append(
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                }
+            )
+    if not parts:
+        return t or "请描述图片。"
+    if not any(p.get("type") == "text" for p in parts):
+        parts.insert(0, {"type": "text", "text": "请查看图片并作答。"})
+    return parts
+
+
+def messages_contain_multimodal_images(messages: List[Dict[str, Any]]) -> bool:
+    """判断 messages 中是否含 OpenAI/Claude 风格的多模态图片块。"""
+    for msg in messages:
+        c = msg.get("content")
+        if not isinstance(c, list):
+            continue
+        for part in c:
+            if not isinstance(part, dict):
+                continue
+            t = part.get("type")
+            if t in ("image_url", "image"):
+                return True
+    return False
+
+
 @dataclass
 class LLMResponse:
     """LLM 响应数据结构。"""
@@ -75,7 +153,7 @@ class LLMInterface:
         
         Args:
             model_name: 模型名称，覆盖自动检测（可选）
-            config_type: 配置类型，'chat' 或 'summary'
+            config_type: 配置类型，`chat` / `summary` / `vision`（视觉/多模态等，库内独立激活行）
         """
         # 尝试从数据库激活配置读取（含 persona_id，供 messages.character_id 使用）
         db_cfg = self._load_active_config(config_type)
@@ -93,6 +171,7 @@ class LLMInterface:
                 self.api_key = config.SUMMARY_API_KEY or config.LLM_API_KEY
                 self.api_base = config.SUMMARY_API_BASE or config.LLM_API_BASE
             else:
+                # chat、vision：无库内激活行时共用主对话环境变量（vision 建议在 Settings 单独配置）
                 self.model_name = model_name or config.LLM_MODEL_NAME
                 self.api_key = config.LLM_API_KEY
                 self.api_base = config.LLM_API_BASE
@@ -102,6 +181,9 @@ class LLMInterface:
         self.character_id = self._resolve_character_id_from_config(db_cfg)
         
         self.timeout = config.LLM_TIMEOUT
+        # vision 专用配置：读超时至少与 LLM_VISION_TIMEOUT 对齐（贴纸识图等为同步阻塞）
+        if config_type == "vision":
+            self.timeout = max(self.timeout, config.LLM_VISION_TIMEOUT)
         self.max_tokens = config.LLM_MAX_TOKENS
         self.temperature = config.LLM_TEMPERATURE
         
@@ -151,7 +233,16 @@ class LLMInterface:
         if not s or s.lower() == "none":
             return "sirius"
         return s
-    
+
+    def _use_anthropic_messages_api(self) -> bool:
+        return use_anthropic_messages_api(self.api_base, self.model_name)
+
+    def _request_timeout_seconds(self, messages: List[Dict[str, Any]]) -> int:
+        """含图片时与 LLM_VISION_TIMEOUT 取 max，避免多模态请求被默认短超时切断。"""
+        if messages_contain_multimodal_images(messages):
+            return max(self.timeout, config.LLM_VISION_TIMEOUT)
+        return self.timeout
+
     def _prepare_headers(self) -> Dict[str, str]:
         """
         准备请求头。
@@ -175,7 +266,7 @@ class LLMInterface:
         
         return headers
     
-    def _prepare_openai_payload(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _prepare_openai_payload(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         准备 OpenAI 兼容 API 的请求负载。
         
@@ -193,7 +284,7 @@ class LLMInterface:
             "stream": False
         }
     
-    def _prepare_anthropic_payload(self, messages: List[Dict[str, str]]) -> Dict[str, Any]:
+    def _prepare_anthropic_payload(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
         准备 Anthropic Claude API 的请求负载。
         
@@ -209,7 +300,8 @@ class LLMInterface:
         
         for msg in messages:
             if msg["role"] == "system":
-                system_message = msg["content"]
+                c = msg["content"]
+                system_message = c if isinstance(c, str) else str(c)
             else:
                 claude_messages.append({
                     "role": msg["role"],
@@ -259,10 +351,17 @@ class LLMInterface:
         Returns:
             LLMResponse: 解析后的响应
         """
-        content_block = response_data["content"][0]
+        blocks = response_data.get("content") or []
+        text_parts: List[str] = []
+        for block in blocks:
+            if isinstance(block, dict) and block.get("type") == "text":
+                text_parts.append(block.get("text") or "")
+        merged = "".join(text_parts).strip()
+        if not merged and blocks:
+            merged = blocks[0].get("text", "") if isinstance(blocks[0], dict) else ""
         
         return LLMResponse(
-            content=content_block["text"],
+            content=merged,
             model=response_data["model"],
             usage={
                 "input_tokens": response_data.get("usage", {}).get("input_tokens", 0),
@@ -312,8 +411,8 @@ class LLMInterface:
         # 准备请求
         headers = self._prepare_headers()
         
-        # 根据模型类型准备不同的负载
-        if "claude" in self.model_name.lower():
+        # 根据 API 基址 / 模型选择端点
+        if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
             payload = self._prepare_anthropic_payload(messages)
             parse_func = self._parse_anthropic_response
@@ -397,7 +496,7 @@ class LLMInterface:
         
         return response.content, history
     
-    def generate_with_context(self, messages: List[Dict[str, str]]) -> str:
+    def generate_with_context(self, messages: List[Dict[str, Any]]) -> str:
         """
         使用完整的 messages 数组生成回复。
         
@@ -419,8 +518,8 @@ class LLMInterface:
         # 准备请求
         headers = self._prepare_headers()
         
-        # 根据模型类型准备不同的负载
-        if "claude" in self.model_name.lower():
+        # 根据 API 基址 / 模型选择端点
+        if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
             payload = self._prepare_anthropic_payload(messages)
             parse_func = self._parse_anthropic_response
@@ -430,7 +529,10 @@ class LLMInterface:
             parse_func = self._parse_openai_response
         
         # 发送请求
-        logger.debug(f"调用 LLM API (with context): {endpoint}, 模型: {self.model_name}")
+        req_timeout = self._request_timeout_seconds(messages)
+        logger.debug(
+            f"调用 LLM API (with context): {endpoint}, 模型: {self.model_name}, timeout={req_timeout}s"
+        )
         logger.debug(f"消息数量: {len(messages)}")
         
         try:
@@ -438,7 +540,7 @@ class LLMInterface:
                 endpoint,
                 headers=headers,
                 json=payload,
-                timeout=self.timeout
+                timeout=req_timeout
             )
             response.raise_for_status()
             
@@ -449,7 +551,12 @@ class LLMInterface:
             return llm_response.content
             
         except requests.exceptions.Timeout:
-            logger.error(f"LLM API 调用超时: {self.timeout}秒")
+            mm = messages_contain_multimodal_images(messages)
+            logger.error(
+                "LLM API 调用超时: %s秒%s",
+                req_timeout,
+                "（请求中含多模态图片）" if mm else "（无多模态图片，多为上下文过大或上游慢）",
+            )
             raise
         except requests.exceptions.RequestException as e:
             logger.error(f"LLM API 调用失败: {e}")
@@ -462,21 +569,38 @@ class LLMInterface:
         """
         异步保存token使用量到数据库。
         
+        若在异步事件循环中则 create_task；若在线程池等无 loop 环境（如 vision 任务里
+        run_in_executor 调 LLM）则同步写库，避免 no running event loop。
+        
         Args:
             usage: token使用统计字典
             platform: 平台标识（可选）
         """
         try:
-            # 提取token使用量
             prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
             completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
             total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
-            
-            # 异步保存到数据库
-            asyncio.create_task(self._async_save_token_usage(
-                prompt_tokens, completion_tokens, total_tokens, platform
-            ))
-            
+
+            try:
+                loop = asyncio.get_running_loop()
+            except RuntimeError:
+                loop = None
+
+            if loop is not None and loop.is_running():
+                loop.create_task(
+                    self._async_save_token_usage(
+                        prompt_tokens, completion_tokens, total_tokens, platform
+                    )
+                )
+            else:
+                db = get_database()
+                db.save_token_usage(
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                    model=self.model_name,
+                    platform=platform,
+                )
         except Exception as e:
             logger.error(f"保存token使用量失败: {e}")
     
@@ -572,7 +696,7 @@ class LLMInterface:
     
     def generate_with_context_and_tracking(
         self, 
-        messages: List[Dict[str, str]], 
+        messages: List[Dict[str, Any]], 
         platform: Optional[str] = None
     ) -> str:
         """
@@ -595,8 +719,8 @@ class LLMInterface:
         # 准备请求
         headers = self._prepare_headers()
         
-        # 根据模型类型准备不同的负载
-        if "claude" in self.model_name.lower():
+        # 根据 API 基址 / 模型选择端点
+        if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
             payload = self._prepare_anthropic_payload(messages)
             parse_func = self._parse_anthropic_response
@@ -606,7 +730,11 @@ class LLMInterface:
             parse_func = self._parse_openai_response
         
         # 发送请求
-        logger.debug(f"调用 LLM API (with context and tracking): {endpoint}, 模型: {self.model_name}")
+        req_timeout = self._request_timeout_seconds(messages)
+        logger.debug(
+            f"调用 LLM API (with context and tracking): {endpoint}, 模型: {self.model_name}, "
+            f"timeout={req_timeout}s"
+        )
         logger.debug(f"消息数量: {len(messages)}")
         
         try:
@@ -614,7 +742,7 @@ class LLMInterface:
                 endpoint,
                 headers=headers,
                 json=payload,
-                timeout=self.timeout
+                timeout=req_timeout
             )
             response.raise_for_status()
             
@@ -630,7 +758,12 @@ class LLMInterface:
             return llm_response.content
             
         except requests.exceptions.Timeout:
-            logger.error(f"LLM API 调用超时: {self.timeout}秒")
+            mm = messages_contain_multimodal_images(messages)
+            logger.error(
+                "LLM API 调用超时: %s秒%s",
+                req_timeout,
+                "（请求中含多模态图片）" if mm else "（无多模态图片，多为上下文过大或上游慢）",
+            )
             raise
         except requests.exceptions.RequestException as e:
             logger.error(f"LLM API 调用失败: {e}")
@@ -681,8 +814,8 @@ class LLMInterface:
         # 准备请求
         headers = self._prepare_headers()
         
-        # 根据模型类型准备不同的负载
-        if "claude" in self.model_name.lower():
+        # 根据 API 基址 / 模型选择端点
+        if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
             payload = self._prepare_anthropic_payload(messages)
             parse_func = self._parse_anthropic_response

@@ -36,6 +36,7 @@ try:
         get_unsummarized_messages_by_session,
         save_summary,
         mark_messages_as_summarized_by_ids,
+        expire_stale_vision_pending,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
@@ -45,6 +46,7 @@ except ImportError:
         get_unsummarized_messages_by_session,
         save_summary,
         mark_messages_as_summarized_by_ids,
+        expire_stale_vision_pending,
     )
 
 # 设置日志
@@ -158,7 +160,9 @@ async def check_and_process_micro_batch(session_id: str) -> bool:
         bool: 是否触发了微批处理
     """
     try:
-        # 获取未摘要消息数量
+        expire_stale_vision_pending(minutes=5)
+
+        # 获取未摘要消息数量（仅 vision_processed=1，避免未出视觉档案的行进入微批）
         unsummarized_count = get_unsummarized_count_by_session(session_id)
         threshold = _micro_batch_threshold()
         
@@ -193,9 +197,10 @@ async def process_micro_batch(session_id: str) -> None:
         session_id: 会话ID
     """
     try:
+        expire_stale_vision_pending(minutes=5)
         threshold = _micro_batch_threshold()
 
-        # 1. 获取最早的未摘要消息
+        # 1. 获取最早的未摘要消息（vision_processed=1）
         messages = get_unsummarized_messages_by_session(session_id, limit=threshold)
         
         if not messages:

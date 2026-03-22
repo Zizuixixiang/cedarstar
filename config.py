@@ -95,9 +95,30 @@ class Config:
             int: 超时时间，默认为 30 秒
         """
         try:
-            return int(os.getenv("LLM_TIMEOUT", "30"))
+            return int(os.getenv("LLM_TIMEOUT", "60"))
         except ValueError:
-            return 30
+            return 60
+
+    @property
+    def LLM_VISION_TIMEOUT(self) -> int:
+        """
+        含图片等多模态请求时的读超时（秒），与 LLM_TIMEOUT 取较大值生效。
+        贴纸识图、相册多模态等经公网 VL 常明显慢于纯文本，默认 180；可通过环境变量 LLM_VISION_TIMEOUT 调整。
+        """
+        try:
+            return int(os.getenv("LLM_VISION_TIMEOUT", "180"))
+        except ValueError:
+            return 180
+
+    @property
+    def OPENAI_API_KEY(self) -> Optional[str]:
+        """OpenAI API 密钥；用于语音转录（STT）在库内无 stt 配置时的回退，不复用 LLM_API_KEY。"""
+        return os.getenv("OPENAI_API_KEY")
+
+    @property
+    def OPENAI_API_BASE(self) -> str:
+        """OpenAI 兼容 API 根路径（含 /v1）；STT 回退用，默认 https://api.openai.com/v1。"""
+        return os.getenv("OPENAI_API_BASE", "https://api.openai.com/v1")
     
     @property
     def LLM_MAX_TOKENS(self) -> int:
@@ -396,6 +417,15 @@ class Config:
             proxies['https'] = https_proxy
         
         return proxies
+
+    @property
+    def DEFAULT_CHARACTER_ID(self) -> str:
+        """
+        无激活 chat 配置或 persona_id 为空时，写入 messages.character_id 的兜底值。
+        环境变量 DEFAULT_CHARACTER_ID；未设置或非空字符串无效时默认为 sirius。
+        """
+        v = (os.getenv("DEFAULT_CHARACTER_ID") or "").strip()
+        return v if v else "sirius"
 
 
 # 平台常量定义

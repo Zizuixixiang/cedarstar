@@ -15,6 +15,27 @@ const maskKey = (key) => {
   return key.length > 4 ? '****' + key.slice(-4) : '****';
 };
 
+const CONFIG_TYPE_LABEL = {
+  chat: '对话',
+  summary: '摘要',
+  vision: '视觉',
+  stt: '语音转录',
+};
+
+const CONFIG_TYPE_CLASS = {
+  chat: 'chat-type',
+  summary: 'summary-type',
+  vision: 'vision-type',
+  stt: 'stt-type',
+};
+
+const EMPTY_TAB_TIP = {
+  chat: '暂无对话 API 配置，点击右上角新增',
+  summary: '暂无摘要 API 配置，点击右上角新增',
+  vision: '暂无视觉 API 配置，点击右上角新增',
+  stt: '暂无语音转录 API 配置，点击右上角新增（模型建议 whisper-1）',
+};
+
 /* ─── 骨架屏 ─── */
 function SkeletonCard({ rows = 3 }) {
   return (
@@ -139,11 +160,24 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
                   onChange={() => set('config_type', 'summary')} />
                 <span className="type-radio-text">摘要 API</span>
               </label>
+              <label className="type-radio-label">
+                <input type="radio" name="config_type" value="vision"
+                  checked={form.config_type === 'vision'}
+                  onChange={() => set('config_type', 'vision')} />
+                <span className="type-radio-text">视觉 API</span>
+              </label>
+              <label className="type-radio-label">
+                <input type="radio" name="config_type" value="stt"
+                  checked={form.config_type === 'stt'}
+                  onChange={() => set('config_type', 'stt')} />
+                <span className="type-radio-text">语音转录 API</span>
+              </label>
             </div>
             <div className="modal-hint">
-              {form.config_type === 'chat' 
-                ? '用于日常对话、短期记忆、思维链'
-                : '用于批量总结、记忆归档、微批处理（建议用大模型如 GPT-4）'}
+              {form.config_type === 'chat' && '用于日常对话、短期记忆、思维链'}
+              {form.config_type === 'summary' && '用于批量总结、记忆归档、微批处理（建议用大模型如 GPT-4）'}
+              {form.config_type === 'vision' && '用于图片理解、多模态消息（与对话/摘要配置独立激活）'}
+              {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字（OpenAI 兼容 /audio/transcriptions，模型填 whisper-1）'}
             </div>
           </div>
 
@@ -232,7 +266,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
 
 /* ─── 主页面 ─── */
 function Settings() {
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' 或 'summary'
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt'
   const activeTabRef = useRef('chat'); // 用 ref 追踪最新 activeTab，避免闭包陷阱
   const [configs, setConfigs] = useState([]);
   const [personas, setPersonas] = useState([]);
@@ -336,7 +370,7 @@ function Settings() {
   /* 弹窗保存后：按保存的配置类型刷新；若与当前 Tab 不一致则切换 Tab（避免摘要配在对话 Tab 下仍拉 chat 列表） */
   const handleSaved = (savedConfigType) => {
     setModalData(null);
-    const nextTab = savedConfigType === 'summary' || savedConfigType === 'chat'
+    const nextTab = ['chat', 'summary', 'vision', 'stt'].includes(savedConfigType)
       ? savedConfigType
       : activeTabRef.current;
     if (nextTab !== activeTabRef.current) {
@@ -385,6 +419,18 @@ function Settings() {
             >
               摘要 API
             </button>
+            <button 
+              className={`config-tab ${activeTab === 'vision' ? 'active' : ''}`}
+              onClick={() => switchTab('vision')}
+            >
+              视觉 API
+            </button>
+            <button 
+              className={`config-tab ${activeTab === 'stt' ? 'active' : ''}`}
+              onClick={() => switchTab('stt')}
+            >
+              语音转录
+            </button>
           </div>
           <button className="btn-add" onClick={() => setModalData({ config_type: activeTab })}>
             ＋ 新增配置
@@ -393,9 +439,7 @@ function Settings() {
 
         {configs.length === 0 ? (
           <div className="empty-tip">
-            {activeTab === 'chat' 
-              ? '暂无对话 API 配置，点击右上角新增'
-              : '暂无摘要 API 配置，点击右上角新增'}
+            {EMPTY_TAB_TIP[activeTab] || EMPTY_TAB_TIP.chat}
           </div>
         ) : (
           <div className="config-list">
@@ -404,8 +448,12 @@ function Settings() {
                 {/* 左：名称 + 激活标签 */}
                 <div className="cfg-left">
                   <span className="cfg-name">{cfg.name}</span>
-                  <span className={`cfg-type-tag ${cfg.config_type === 'chat' ? 'chat-type' : 'summary-type'}`}>
-                    {cfg.config_type === 'chat' ? '对话' : '摘要'}
+                  <span
+                    className={['cfg-type-tag', CONFIG_TYPE_CLASS[cfg.config_type]]
+                      .filter(Boolean)
+                      .join(' ')}
+                  >
+                    {CONFIG_TYPE_LABEL[cfg.config_type] || cfg.config_type}
                   </span>
                   {cfg.is_active && <span className="tag-active">激活中</span>}
                 </div>
@@ -503,6 +551,7 @@ function Settings() {
         <ConfigModal
           initial={modalData}
           personas={personas}
+          configType={activeTab}
           onClose={() => setModalData(null)}
           onSaved={handleSaved}
         />
