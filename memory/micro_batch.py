@@ -136,10 +136,11 @@ class SummaryLLMInterface:
         llm.max_tokens = self.max_tokens
         
         try:
-            text = llm.generate_with_context_and_tracking(
+            text, _thinking = llm.generate_with_context_and_tracking(
                 [{"role": "user", "content": prompt}],
                 platform=Platform.BATCH,
-            ).strip()
+            )
+            text = text.strip()
             logger.debug(f"摘要生成成功，长度: {len(text)} 字符")
             return text
         except Exception as e:

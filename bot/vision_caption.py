@@ -44,13 +44,13 @@ async def generate_image_caption(
     platform: Optional[str] = None,
 ) -> None:
     from llm.llm_interface import LLMInterface, build_user_multimodal_content
-    from memory.database import update_message_vision_result
+    from memory.database import VISION_FAIL_CAPTION_SHORT, update_message_vision_result
 
     if not images:
         return
 
     prompt = _caption_user_prompt(caption_text)
-    fail_caption = "[视觉解析失败]"
+    fail_caption = VISION_FAIL_CAPTION_SHORT
 
     try:
         llm = LLMInterface(config_type="vision")
@@ -64,7 +64,10 @@ async def generate_image_caption(
 
         loop = asyncio.get_running_loop()
         def _call() -> str:
-            return llm.generate_with_context_and_tracking(messages, platform=platform)
+            raw, _thinking = llm.generate_with_context_and_tracking(
+                messages, platform=platform
+            )
+            return raw
 
         text = await loop.run_in_executor(None, _call)
         text = (text or "").strip() or fail_caption

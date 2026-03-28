@@ -19,7 +19,7 @@ import math
 import re
 import time
 from functools import partial
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 
 from config import config
@@ -262,6 +262,48 @@ MEMORY_CITATION_DIRECTIVE = (
     "如果你在生成回复时参考了上述历史记忆，必须在回复文本末尾标注引用，格式为 [[used:uid]]，可以有多个。"
 )
 
+def _telegram_segment_limits_from_db() -> Tuple[int, int]:
+    """读取 config 表中的 Telegram 分段参数（与 api.config DEFAULT 及校验范围一致）。"""
+    db = get_database()
+
+    def _int_key(name: str, default: int, lo: int, hi: int) -> int:
+        raw = db.get_config(name)
+        if raw is None or not str(raw).strip():
+            return default
+        try:
+            v = int(str(raw).strip())
+        except ValueError:
+            return default
+        return max(lo, min(hi, v))
+
+    max_chars = _int_key("telegram_max_chars", 50, 10, 1000)
+    max_chars = max(10, min(1000, round(max_chars / 10) * 10))
+    max_msg = _int_key("telegram_max_msg", 8, 1, 20)
+    return max_chars, max_msg
+
+
+def format_telegram_reply_segment_hint() -> str:
+    """Telegram 缓冲回复：追加于 system 末尾；MAX_CHARS / MAX_MSG 来自数据库。"""
+    max_chars, max_msg = _telegram_segment_limits_from_db()
+    return (
+        "\n\n"
+        "【Telegram 排版与分段指令】\n\n"
+        "(1) 标签限制\n"
+        "仅使用：<b> <i> <u> <s> <code> <pre> <blockquote> <a>，禁用其他所有标签。\n\n"
+        "(2) 分段规则（最高优先级）\n"
+        "思维链 / 思考过程中禁止使用 |||；||| 仅用于最终对用户的正文。\n"
+        f"可调变量：MAX_CHARS = {max_chars}，MAX_MSG = {max_msg}\n"
+        "- 每段约 10～MAX_CHARS 字，总段数 ≤ MAX_MSG\n"
+        "- 按语气 / 停顿 / 情绪切分，用 ||| 分隔分段，禁止在句子中间截断\n"
+        "- 每段只表达一个小点，允许极短句（嗯 / 好的 / 亲亲）\n\n"
+        "(3) 聊天感\n"
+        "像真人发消息，不像写文章：可用语气词；可有停顿和转折；避免长段解释。\n\n"
+        "(4) 内容过多时\n"
+        "优先压缩表达 → 只说重点 → 不突破段数上限。\n\n"
+        "(5) 禁止\n"
+        "超长整段 / 机械平均切分 / 每段结构完全一致。"
+    )
+
 
 def _created_at_timestamp_for_sort(created_at: Any) -> float:
     """用于 relationship_timeline 等按时间正序排序；无法解析时置 0（排在最前）。"""
@@ -447,6 +489,7 @@ class ContextBuilder:
         user_message: str,
         images: Optional[List[Dict[str, Any]]] = None,
         llm_user_text: Optional[str] = None,
+        telegram_segment_hint: bool = False,
     ) -> Dict[str, Any]:
         """
         构建完整的对话上下文。
@@ -466,6 +509,7 @@ class ContextBuilder:
             user_message: 用户当前消息（与落库 content 一致）
             images: 当前轮次多模态图片（可选）
             llm_user_text: 对话模型用纯文本（有图片时建议传入）
+            telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径）
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -511,6 +555,8 @@ class ContextBuilder:
                 chunk_summaries_section,
                 vector_search_section
             )
+            if telegram_segment_hint:
+                full_system_prompt = full_system_prompt + format_telegram_reply_segment_hint()
             
             # 组装 messages 数组
             messages = self._assemble_messages(
@@ -542,6 +588,7 @@ class ContextBuilder:
         user_message: str,
         images: Optional[List[Dict[str, Any]]] = None,
         llm_user_text: Optional[str] = None,
+        telegram_segment_hint: bool = False,
     ) -> Dict[str, Any]:
         """
         异步构建完整的对话上下文（支持 Reranker）。
@@ -564,6 +611,7 @@ class ContextBuilder:
             user_message: 用户当前消息
             images: 当前轮次图片 payload（可选）
             llm_user_text: 对话模型用纯文本（可选）
+            telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -609,6 +657,8 @@ class ContextBuilder:
                 chunk_summaries_section,
                 vector_search_section
             )
+            if telegram_segment_hint:
+                full_system_prompt = full_system_prompt + format_telegram_reply_segment_hint()
             
             # 组装 messages 数组
             messages = self._assemble_messages(
@@ -1169,6 +1219,7 @@ def build_context(
     user_message: str,
     images: Optional[List[Dict[str, Any]]] = None,
     llm_user_text: Optional[str] = None,
+    telegram_segment_hint: bool = False,
 ) -> Dict[str, Any]:
     """
     构建对话上下文的便捷函数。
@@ -1178,13 +1229,18 @@ def build_context(
         user_message: 用户当前消息
         images: 当前轮图片 payload（可选）
         llm_user_text: 对话模型用纯文本（可选，有图片时建议传入）
+        telegram_segment_hint: 为 True 时追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径建议开启）
         
     Returns:
         Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
     """
     builder = ContextBuilder()
     return builder.build_context(
-        session_id, user_message, images=images, llm_user_text=llm_user_text
+        session_id,
+        user_message,
+        images=images,
+        llm_user_text=llm_user_text,
+        telegram_segment_hint=telegram_segment_hint,
     )
 
 

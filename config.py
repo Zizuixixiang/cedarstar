@@ -92,12 +92,31 @@ class Config:
         获取 LLM API 调用超时时间（秒）。
         
         Returns:
-            int: 超时时间，默认为 30 秒
+            int: 超时时间，默认为 60 秒
         """
         try:
             return int(os.getenv("LLM_TIMEOUT", "60"))
         except ValueError:
             return 60
+
+    @property
+    def LLM_STREAM_READ_TIMEOUT(self) -> int:
+        """
+        SSE 流式 chat/completions：两次收到数据之间的读超时（秒）。
+        推理模型（如 R1）在 reasoning 阶段可能长时间无新 chunk，若与 LLM_TIMEOUT 相同
+        易触发 ReadTimeout；默认 max(LLM_TIMEOUT, 300)，可用 LLM_STREAM_READ_TIMEOUT 覆盖。
+        """
+        try:
+            raw = os.getenv("LLM_STREAM_READ_TIMEOUT")
+            if raw is not None and str(raw).strip():
+                return int(raw)
+        except ValueError:
+            pass
+        try:
+            base = int(os.getenv("LLM_TIMEOUT", "60"))
+        except ValueError:
+            base = 60
+        return max(base, 300)
 
     @property
     def LLM_VISION_TIMEOUT(self) -> int:
@@ -381,7 +400,18 @@ class Config:
             Optional[str]: HTTPS 代理地址，如果未设置则返回 None
         """
         return os.getenv("HTTPS_PROXY")
-    
+
+    @property
+    def TELEGRAM_PROXY(self) -> Optional[str]:
+        """
+        仅用于 python-telegram-bot 访问 api.telegram.org 的代理（显式传入 httpx，不读 trust_env）。
+
+        为空则直连。国内常用 Clash：**优先** ``socks5://127.0.0.1:7891``（SOCKS 端口以本机 Clash 配置为准）；
+        仅用 ``http://...`` 时易出现对 api.telegram.org 的 ``ConnectError``/``start_tls`` 失败。
+        """
+        v = (os.getenv("TELEGRAM_PROXY") or "").strip()
+        return v or None
+
     @property
     def ENABLE_PROXY(self) -> bool:
         """

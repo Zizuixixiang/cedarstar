@@ -7,8 +7,8 @@ uvicorn
 # Discord 机器人
 discord.py
 
-# Telegram 机器人
-python-telegram-bot
+# Telegram 机器人（[socks]：TELEGRAM_PROXY 使用 socks5:// 时需要）
+python-telegram-bot[socks]
 
 # 向量数据库
 chromadb
@@ -30,7 +30,11 @@ python-dotenv
 
 # HTTP 请求
 requests
-httpx
+httpx[socks]
+
+# Telegram 正文：Markdown 转 HTML + 安全白名单（bleach）
+markdown
+bleach
 
 # 时区处理
 pytz

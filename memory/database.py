@@ -9,10 +9,17 @@ import logging
 import os
 import uuid
 from datetime import datetime
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+# 图片异步描述失败/超时写入 image_caption 时的固定文案（须与 bot/vision_caption 等一致）
+VISION_FAIL_CAPTION_SHORT = "[视觉解析失败]"
+VISION_FAIL_CAPTION_TIMEOUT = "[系统提示：视觉解析超时失败]"
+_IMAGE_CAPTION_FALLBACKS_MARK_SUMMARIZED = frozenset(
+    {VISION_FAIL_CAPTION_SHORT, VISION_FAIL_CAPTION_TIMEOUT}
+)
 
 
 def _summaries_ensure_source_date_column(cursor: sqlite3.Cursor) -> None:
@@ -102,6 +109,20 @@ def _ensure_sticker_cache_table(cursor: sqlite3.Cursor) -> None:
     """)
 
 
+def _config_insert_defaults_if_missing(
+    cursor: sqlite3.Cursor, defaults: List[Tuple[str, str]]
+) -> None:
+    """为 config 表补默认行（PRIMARY KEY 冲突则跳过，不覆盖用户已改值）。"""
+    for key, val in defaults:
+        cursor.execute(
+            """
+            INSERT OR IGNORE INTO config (key, value, updated_at)
+            VALUES (?, ?, CURRENT_TIMESTAMP)
+            """,
+            (key, str(val)),
+        )
+
+
 def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
     """
     启动时幂等迁移：补齐缺失列与全部约定索引。
@@ -151,6 +172,14 @@ def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
     ]
     for sql in index_statements:
         cursor.execute(sql)
+
+    _config_insert_defaults_if_missing(
+        cursor,
+        [
+            ("telegram_max_chars", "50"),
+            ("telegram_max_msg", "8"),
+        ],
+    )
 
     logger.info("数据库 schema 迁移（索引/列）已执行")
 
@@ -341,7 +370,8 @@ class MessageDatabase:
                     platform: Optional[str] = None,
                     media_type: Optional[str] = None,
                     image_caption: Optional[str] = None,
-                    vision_processed: Optional[int] = None) -> int:
+                    vision_processed: Optional[int] = None,
+                    is_summarized: int = 0) -> int:
         """
         保存一条消息到数据库。
         
@@ -357,6 +387,7 @@ class MessageDatabase:
             media_type: 媒体类型（如 image；纯文本可为 None）
             image_caption: 系统生成的视觉描述（可选）
             vision_processed: 0=待视觉后处理，1=已完成；默认 1
+            is_summarized: 是否视为已摘要（1=占位/兜底文案，不参与微批计数）
             
         Returns:
             int: 插入的消息ID
@@ -366,26 +397,29 @@ class MessageDatabase:
         """
         try:
             vp = 1 if vision_processed is None else int(vision_processed)
+            is_sum = int(is_summarized)
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
                 
                 cursor.execute("""
                     INSERT INTO messages (
                         role, content, session_id, user_id, channel_id, message_id,
-                        character_id, platform, media_type, image_caption, vision_processed
+                        character_id, platform, media_type, image_caption, vision_processed,
+                        is_summarized
                     )
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """, (
                     role, content, session_id, user_id, channel_id, message_id,
                     character_id, platform, media_type, image_caption, vp,
+                    is_sum,
                 ))
                 
                 new_id = cursor.lastrowid
                 conn.commit()
                 
                 logger.debug(
-                    "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, vision_processed=%s",
-                    new_id, role, session_id, platform, vp,
+                    "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, vision_processed=%s, is_summarized=%s",
+                    new_id, role, session_id, platform, vp, is_sum,
                 )
                 return new_id
                 
@@ -427,14 +461,24 @@ class MessageDatabase:
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
-                cursor.execute(
-                    """
-                    UPDATE messages
-                    SET image_caption = ?, vision_processed = ?
-                    WHERE id = ?
-                    """,
-                    (image_caption, int(vision_processed), int(message_row_id)),
-                )
+                if image_caption in _IMAGE_CAPTION_FALLBACKS_MARK_SUMMARIZED:
+                    cursor.execute(
+                        """
+                        UPDATE messages
+                        SET image_caption = ?, vision_processed = ?, is_summarized = 1
+                        WHERE id = ?
+                        """,
+                        (image_caption, int(vision_processed), int(message_row_id)),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        UPDATE messages
+                        SET image_caption = ?, vision_processed = ?
+                        WHERE id = ?
+                        """,
+                        (image_caption, int(vision_processed), int(message_row_id)),
+                    )
                 conn.commit()
                 return cursor.rowcount > 0
         except sqlite3.Error as e:
@@ -445,7 +489,7 @@ class MessageDatabase:
         """
         将长时间仍处于 vision_processed=0 的行标记为失败（微批/检查前兜底）。
         """
-        caption = "[系统提示：视觉解析超时失败]"
+        caption = VISION_FAIL_CAPTION_TIMEOUT
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.cursor()
@@ -453,7 +497,8 @@ class MessageDatabase:
                     f"""
                     UPDATE messages
                     SET vision_processed = 1,
-                        image_caption = ?
+                        image_caption = ?,
+                        is_summarized = 1
                     WHERE vision_processed = 0
                       AND created_at <= datetime('now', '-{int(minutes)} minutes')
                     """,
@@ -2799,7 +2844,8 @@ def save_message(role: str, content: str, session_id: str,
                 platform: Optional[str] = None,
                 media_type: Optional[str] = None,
                 image_caption: Optional[str] = None,
-                vision_processed: Optional[int] = None) -> int:
+                vision_processed: Optional[int] = None,
+                is_summarized: int = 0) -> int:
     """
     保存消息的便捷函数。
     
@@ -2815,6 +2861,7 @@ def save_message(role: str, content: str, session_id: str,
         media_type: 媒体类型（可选）
         image_caption: 视觉描述（可选）
         vision_processed: 视觉处理状态（可选，默认 1）
+        is_summarized: 是否视为已摘要（默认 0）
         
     Returns:
         int: 消息ID
@@ -2823,6 +2870,7 @@ def save_message(role: str, content: str, session_id: str,
     return db.save_message(
         role, content, session_id, user_id, channel_id, message_id,
         character_id, platform, media_type, image_caption, vision_processed,
+        is_summarized,
     )
 
 

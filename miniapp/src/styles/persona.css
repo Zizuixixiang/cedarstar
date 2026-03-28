@@ -4,6 +4,21 @@
    ======================================== */
 
 /* 页面整体容器 */
+.persona-system-rules-hint {
+  font-size: 0.8125rem;
+  line-height: 1.45;
+  color: var(--text-muted, #6b7280);
+  margin: 0 0 10px;
+}
+
+.persona-inline-code {
+  font-family: ui-monospace, monospace;
+  font-size: 0.85em;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 0.1em 0.35em;
+  border-radius: 4px;
+}
+
 .persona-page {
   width: 100%;
   max-width: 1200px;

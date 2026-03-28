@@ -18,7 +18,43 @@ const DEFAULT_CONFIG = {
   relationship_timeline_limit: 3,
   gc_stale_days: 180,
   retrieval_top_k: 5,
+  telegram_max_chars: 50,
+  telegram_max_msg: 8,
 };
+
+/** Telegram 分段参数：单独 PUT 保存，与 api/config.py 一致 */
+const TELEGRAM_CONFIG_ROWS = [
+  {
+    key: 'telegram_max_chars',
+    name: '每段上限字数',
+    description: '对应提示词中的 MAX_CHARS',
+    min: 10,
+    max: 1000,
+    step: 10,
+  },
+  {
+    key: 'telegram_max_msg',
+    name: '正文最多几条',
+    description: '对应提示词中的 MAX_MSG',
+    min: 1,
+    max: 20,
+    step: 1,
+  },
+];
+
+function clampTelegramChars(raw) {
+  let v = Math.round(Number(raw));
+  if (Number.isNaN(v)) return DEFAULT_CONFIG.telegram_max_chars;
+  v = Math.max(10, Math.min(1000, v));
+  v = Math.round(v / 10) * 10;
+  return Math.max(10, Math.min(1000, v));
+}
+
+function clampTelegramMsg(raw) {
+  const v = Math.round(Number(raw));
+  if (Number.isNaN(v)) return DEFAULT_CONFIG.telegram_max_msg;
+  return Math.max(1, Math.min(20, v));
+}
 
 // 配置项元数据
 /** 解析后端 SQLite 风格或 ISO 时间字符串为本地 Date */
@@ -211,6 +247,7 @@ function Config() {
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState(null); // { message, type }
   const [showConfirm, setShowConfirm] = useState(false);
+  const [savingTelegramKey, setSavingTelegramKey] = useState(null);
 
   // 显示 toast
   const showToast = useCallback((message, type = 'success') => {
@@ -283,6 +320,66 @@ function Config() {
     setHasUnsavedChanges(true);
     setShowConfirm(false);
     showToast('已恢复默认值，记得保存', 'success');
+  };
+
+  const handleTelegramFieldChange = (key, rawValue) => {
+    const row = TELEGRAM_CONFIG_ROWS.find((r) => r.key === key);
+    if (!row) return;
+    const num = Number(rawValue);
+    if (Number.isNaN(num)) return;
+    const v = Math.max(row.min, Math.min(row.max, Math.round(num)));
+    setConfig((prev) => ({ ...prev, [key]: v }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleTelegramBlur = (key, rawValue) => {
+    const v =
+      key === 'telegram_max_chars'
+        ? clampTelegramChars(rawValue)
+        : clampTelegramMsg(rawValue);
+    setConfig((prev) => ({ ...prev, [key]: v }));
+  };
+
+  const adjustTelegram = (key, delta) => {
+    const row = TELEGRAM_CONFIG_ROWS.find((r) => r.key === key);
+    if (!row) return;
+    const cur = config[key];
+    const next =
+      key === 'telegram_max_chars'
+        ? clampTelegramChars(cur + delta)
+        : clampTelegramMsg(cur + delta);
+    setConfig((prev) => ({ ...prev, [key]: next }));
+    setHasUnsavedChanges(true);
+  };
+
+  /** 单行 PUT /api/config/config，仅提交一个 key */
+  const saveTelegramRow = async (key) => {
+    if (!config) return;
+    const v =
+      key === 'telegram_max_chars'
+        ? clampTelegramChars(config[key])
+        : clampTelegramMsg(config[key]);
+    setConfig((prev) => ({ ...prev, [key]: v }));
+    setSavingTelegramKey(key);
+    try {
+      const response = await fetch(apiUrl('/api/config/config'), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: v }),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast('✓ 已保存', 'success');
+        await fetchConfig();
+      } else {
+        showToast(data.message || '保存失败', 'error');
+      }
+    } catch (error) {
+      console.error('Telegram 配置保存失败:', error);
+      showToast('网络错误', 'error');
+    } finally {
+      setSavingTelegramKey(null);
+    }
   };
 
   // 保存配置
@@ -448,6 +545,69 @@ function Config() {
             {index < CONFIG_METADATA.length - 1 && <hr className="config-divider" />}
           </div>
         ))}
+
+        <hr className="config-divider" />
+        <div className="config-telegram-section">
+          <div className="config-telegram-section-header">
+            <div className="config-name">Telegram 回复分段</div>
+            <div className="config-desc">
+              与提示词中 MAX_CHARS / MAX_MSG 对应；每项修改后可点「保存此项」单独提交
+            </div>
+          </div>
+          {TELEGRAM_CONFIG_ROWS.map((row, idx) => (
+            <div key={row.key}>
+              <div className="config-item">
+                <div className="config-info">
+                  <div className="config-name">{row.name}</div>
+                  <div className="config-desc">{row.description}</div>
+                </div>
+                <div className="config-controls config-controls--telegram-row">
+                  <div className="config-slider-spacer" aria-hidden="true" />
+                  <div className="config-number-wrapper">
+                    <button
+                      type="button"
+                      className="config-stepper-btn"
+                      onClick={() => adjustTelegram(row.key, -row.step)}
+                      disabled={config[row.key] <= row.min}
+                      aria-label="减少"
+                    >
+                      -
+                    </button>
+                    <input
+                      type="number"
+                      inputMode="numeric"
+                      className="config-number-input config-number-input--telegram"
+                      min={row.min}
+                      max={row.max}
+                      step={row.step}
+                      value={config[row.key]}
+                      onChange={(e) => handleTelegramFieldChange(row.key, e.target.value)}
+                      onBlur={(e) => handleTelegramBlur(row.key, e.target.value)}
+                    />
+                    <button
+                      type="button"
+                      className="config-stepper-btn"
+                      onClick={() => adjustTelegram(row.key, row.step)}
+                      disabled={config[row.key] >= row.max}
+                      aria-label="增加"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <button
+                    type="button"
+                    className="config-btn-secondary config-btn-telegram-inline-save"
+                    onClick={() => saveTelegramRow(row.key)}
+                    disabled={savingTelegramKey === row.key}
+                  >
+                    {savingTelegramKey === row.key ? '保存中…' : '保存此项'}
+                  </button>
+                </div>
+              </div>
+              {idx < TELEGRAM_CONFIG_ROWS.length - 1 && <hr className="config-divider" />}
+            </div>
+          ))}
+        </div>
 
         {/* 底部操作栏：左信息 / 右按钮组 */}
         <div className="config-footer">

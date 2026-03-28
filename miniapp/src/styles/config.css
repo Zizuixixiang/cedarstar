@@ -80,6 +80,55 @@
   opacity: 0.72;
 }
 
+/* Telegram 分段区块（与上方 config-item 同一套标题/控件栅格） */
+.config-telegram-section {
+  margin-top: 0;
+}
+
+.config-telegram-section-header {
+  padding: 20px 0 8px;
+}
+
+.config-telegram-section-header .config-name {
+  margin-bottom: 6px;
+}
+
+.config-telegram-section-header .config-desc {
+  line-height: 1.45;
+}
+
+.config-inline-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: rgba(244, 162, 97, 0.12);
+}
+
+/* 与 .config-slider 同宽占位，使数字框与上方行纵向对齐 */
+.config-slider-spacer {
+  width: 180px;
+  flex-shrink: 0;
+}
+
+.config-controls--telegram-row {
+  flex-wrap: nowrap;
+}
+
+/* MAX_CHARS 可能三位数，略加宽数字区 */
+.config-number-input--telegram {
+  width: 52px;
+}
+
+.config-btn-telegram-inline-save {
+  min-width: 96px;
+  height: 36px;
+  padding: 0 14px;
+  border-radius: var(--radius-btn);
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
 /* 右侧控件区 */
 .config-controls {
   display: flex;
@@ -484,6 +533,18 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
+  }
+
+  .config-slider-spacer {
+    display: none;
+  }
+
+  .config-controls--telegram-row {
+    justify-content: space-between;
+  }
+
+  .config-btn-telegram-inline-save {
+    flex-shrink: 0;
   }
 
   /* 骨架屏也同步适配 */

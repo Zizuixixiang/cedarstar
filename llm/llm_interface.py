@@ -8,7 +8,7 @@ LLM 接口模块。
 import json
 import logging
 import asyncio
-from typing import Dict, List, Optional, Any, Union, Tuple
+from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 from dataclasses import dataclass
 
 import requests
@@ -698,7 +698,7 @@ class LLMInterface:
         self, 
         messages: List[Dict[str, Any]], 
         platform: Optional[str] = None
-    ) -> str:
+    ) -> Tuple[str, Optional[str]]:
         """
         使用完整的 messages 数组生成回复，并跟踪token使用量。
         
@@ -707,7 +707,7 @@ class LLMInterface:
             platform: 平台标识（可选）
             
         Returns:
-            str: 模型生成的文本内容
+            Tuple[str, Optional[str]]: (模型正文, 思维链；无则 None)
             
         Raises:
             ValueError: 如果 API 密钥未设置
@@ -755,7 +755,8 @@ class LLMInterface:
             if llm_response.usage:
                 self._save_token_usage_async(llm_response.usage, platform)
             
-            return llm_response.content
+            thinking_content = self._extract_thinking_content(response_data)
+            return llm_response.content, thinking_content
             
         except requests.exceptions.Timeout:
             mm = messages_contain_multimodal_images(messages)
@@ -771,6 +772,127 @@ class LLMInterface:
                 logger.error(f"响应状态码: {e.response.status_code}")
                 logger.error(f"响应内容: {e.response.text}")
             raise
+
+    def generate_stream(
+        self,
+        messages: List[Dict[str, Any]],
+        platform: Optional[str] = None,
+    ) -> Generator[Tuple[str, str], None, Dict[str, Any]]:
+        """
+        流式生成（仅 OpenAI 兼容 `chat/completions` + SSE）。
+
+        yield ``("thinking", chunk)``（`reasoning_content` / `thinking` delta）或
+        ``("content", chunk)``。
+
+        生成器返回值为
+        ``{"content": str, "thinking": Optional[str], "usage": Optional[dict]}``。
+
+        Anthropic 路径：整段 ``generate_with_context_and_tracking`` 后 yield 一次
+        ``("content", text)``，结构相同。
+        """
+        if not self.api_key:
+            raise ValueError("LLM_API_KEY 未设置，无法调用 LLM API")
+
+        if self._use_anthropic_messages_api():
+            text, th = self.generate_with_context_and_tracking(
+                messages, platform=platform
+            )
+            if text:
+                yield ("content", text)
+            return {
+                "content": text or "",
+                "thinking": (th.strip() if isinstance(th, str) and th.strip() else None),
+                "usage": None,
+            }
+
+        headers = self._prepare_headers()
+        endpoint = f"{self.api_base}/chat/completions"
+        payload = self._prepare_openai_payload(messages)
+        payload["stream"] = True
+        req_timeout = self._request_timeout_seconds(messages)
+        # 流式：timeout 元组 (连接, 读) —— 读超时指「两次 SSE 片段之间」最长等待，须大于推理间隙
+        stream_read = config.LLM_STREAM_READ_TIMEOUT
+        stream_connect = min(30, stream_read)
+        logger.debug(
+            "调用 LLM API (stream): %s, 模型: %s, timeout=(connect=%ss, read=%ss)",
+            endpoint,
+            self.model_name,
+            stream_connect,
+            stream_read,
+        )
+
+        full_content: List[str] = []
+        full_thinking: List[str] = []
+        usage_out: Optional[Dict[str, int]] = None
+
+        with requests.post(
+            endpoint,
+            headers=headers,
+            json=payload,
+            stream=True,
+            timeout=(stream_connect, stream_read),
+        ) as resp:
+            resp.raise_for_status()
+            for raw_line in resp.iter_lines(decode_unicode=False):
+                if raw_line is None:
+                    continue
+                try:
+                    line = raw_line.decode("utf-8").strip()
+                except UnicodeDecodeError:
+                    line = raw_line.decode("utf-8", errors="replace").strip()
+                if not line or line.startswith(":"):
+                    continue
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    obj: Dict[str, Any] = json.loads(data)
+                except json.JSONDecodeError:
+                    logger.debug("流式跳过无法解析的行: %s", data[:200])
+                    continue
+
+                u = obj.get("usage")
+                if isinstance(u, dict):
+                    usage_out = u
+
+                choices = obj.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                if not isinstance(delta, dict):
+                    continue
+
+                rc = delta.get("reasoning_content")
+                if rc:
+                    s = rc if isinstance(rc, str) else str(rc)
+                    full_thinking.append(s)
+                    yield ("thinking", s)
+
+                th = delta.get("thinking")
+                if th and not rc:
+                    s = th if isinstance(th, str) else str(th)
+                    full_thinking.append(s)
+                    yield ("thinking", s)
+
+                piece = delta.get("content")
+                if piece:
+                    s = piece if isinstance(piece, str) else str(piece)
+                    full_content.append(s)
+                    yield ("content", s)
+
+        content_str = "".join(full_content)
+        thinking_str = "".join(full_thinking).strip() or None
+
+        if usage_out:
+            self._save_token_usage_async(usage_out, platform)
+
+        return {
+            "content": content_str,
+            "thinking": thinking_str,
+            "usage": usage_out,
+        }
     
     def generate_with_thinking(
         self, 

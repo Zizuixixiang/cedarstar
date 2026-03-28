@@ -4,7 +4,7 @@
 提供助手配置参数的获取和更新接口。
 """
 from fastapi import APIRouter
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from memory.database import get_database
 
 router = APIRouter()
@@ -40,7 +40,23 @@ DEFAULT_CONFIG = {
     "relationship_timeline_limit": 3,
     "gc_stale_days": 180,
     "retrieval_top_k": 5,
+    "telegram_max_chars": 50,
+    "telegram_max_msg": 8,
 }
+
+
+def _normalize_telegram_config_value(key: str, value: Any) -> Optional[int]:
+    """将 telegram_* 配置规范为合法整数；非法则返回 None。"""
+    try:
+        v = int(value)
+    except (TypeError, ValueError):
+        return None
+    if key == "telegram_max_chars":
+        v = max(10, min(1000, round(v / 10) * 10))
+        return v
+    if key == "telegram_max_msg":
+        return max(1, min(20, v))
+    return None
 
 # 内存缓存配置（从数据库加载）
 _config = None
@@ -152,6 +168,12 @@ async def update_config(new_config: Dict[str, Any]):
     updated = False
     for key, value in new_config.items():
         if key in config:
+            if key in ("telegram_max_chars", "telegram_max_msg"):
+                norm = _normalize_telegram_config_value(key, value)
+                if norm is not None and config[key] != norm:
+                    config[key] = norm
+                    updated = True
+                continue
             # 根据默认值的类型进行转换
             if isinstance(config[key], int):
                 try:

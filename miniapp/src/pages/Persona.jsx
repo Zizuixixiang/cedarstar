@@ -474,6 +474,14 @@ function Persona() {
           {/* 系统规则 */}
           <div className="field-section">
             <h2 className="section-title">⚙️ 系统规则</h2>
+            <p className="persona-system-rules-hint">
+              Telegram 回复正文使用 HTML 模式发送。可在此约定：请使用 HTML 标签进行文本格式化，例如
+              {' '}
+              <code className="persona-inline-code">&lt;b&gt;加粗&lt;/b&gt;</code>、
+              <code className="persona-inline-code">&lt;code&gt;代码&lt;/code&gt;</code>、
+              <code className="persona-inline-code">&lt;i&gt;斜体&lt;/i&gt;</code>
+              ，不要使用 Markdown 语法。
+            </p>
             <textarea
               className="field-textarea"
               rows={4}

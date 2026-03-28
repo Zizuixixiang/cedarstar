@@ -13,6 +13,9 @@ import httpx
 
 logger = logging.getLogger(__name__)
 
+# 转录失败时写入 messages.content 的兜底文案（与 Telegram 等 Bot 一致；落库时须 is_summarized=1）
+TRANSCRIBE_FAIL_USER_CONTENT = "[语音] 转录失败"
+
 # 长语音转录可能超过 MessageBuffer 的 buffer_delay 窗口，导致语音与紧邻文字被拆成两轮对话；
 # 属物理耗时限制，不是缓冲逻辑 bug。
 
