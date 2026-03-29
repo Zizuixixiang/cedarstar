@@ -20,6 +20,7 @@ const CONFIG_TYPE_LABEL = {
   summary: '摘要',
   vision: '视觉',
   stt: '语音转录',
+  embedding: 'Embedding',
 };
 
 const CONFIG_TYPE_CLASS = {
@@ -27,6 +28,7 @@ const CONFIG_TYPE_CLASS = {
   summary: 'summary-type',
   vision: 'vision-type',
   stt: 'stt-type',
+  embedding: 'embedding-type',
 };
 
 const EMPTY_TAB_TIP = {
@@ -34,6 +36,7 @@ const EMPTY_TAB_TIP = {
   summary: '暂无摘要 API 配置，点击右上角新增',
   vision: '暂无视觉 API 配置，点击右上角新增',
   stt: '暂无语音转录 API 配置，点击右上角新增（模型建议 whisper-1）',
+  embedding: '暂无 Embedding 配置，点击右上角新增（表情包向量用硅基流动 OpenAI 兼容 /v1/embeddings）',
 };
 
 /* ─── 骨架屏 ─── */
@@ -172,12 +175,19 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
                   onChange={() => set('config_type', 'stt')} />
                 <span className="type-radio-text">语音转录 API</span>
               </label>
+              <label className="type-radio-label">
+                <input type="radio" name="config_type" value="embedding"
+                  checked={form.config_type === 'embedding'}
+                  onChange={() => set('config_type', 'embedding')} />
+                <span className="type-radio-text">Embedding</span>
+              </label>
             </div>
             <div className="modal-hint">
               {form.config_type === 'chat' && '用于日常对话、短期记忆、思维链'}
               {form.config_type === 'summary' && '用于批量总结、记忆归档、微批处理（建议用大模型如 GPT-4）'}
               {form.config_type === 'vision' && '用于图片理解、多模态消息（与对话/摘要配置独立激活）'}
               {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字（OpenAI 兼容 /audio/transcriptions，模型填 whisper-1）'}
+              {form.config_type === 'embedding' && '用于表情包 Chroma 检索（硅基流动 BAAI/bge-m3，OpenAI 兼容 /v1/embeddings）；需在列表中激活'}
             </div>
           </div>
 
@@ -266,7 +276,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
 
 /* ─── 主页面 ─── */
 function Settings() {
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt'
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt' | 'embedding'
   const activeTabRef = useRef('chat'); // 用 ref 追踪最新 activeTab，避免闭包陷阱
   const [configs, setConfigs] = useState([]);
   const [personas, setPersonas] = useState([]);
@@ -370,7 +380,7 @@ function Settings() {
   /* 弹窗保存后：按保存的配置类型刷新；若与当前 Tab 不一致则切换 Tab（避免摘要配在对话 Tab 下仍拉 chat 列表） */
   const handleSaved = (savedConfigType) => {
     setModalData(null);
-    const nextTab = ['chat', 'summary', 'vision', 'stt'].includes(savedConfigType)
+    const nextTab = ['chat', 'summary', 'vision', 'stt', 'embedding'].includes(savedConfigType)
       ? savedConfigType
       : activeTabRef.current;
     if (nextTab !== activeTabRef.current) {
@@ -430,6 +440,12 @@ function Settings() {
               onClick={() => switchTab('stt')}
             >
               语音转录
+            </button>
+            <button 
+              className={`config-tab ${activeTab === 'embedding' ? 'active' : ''}`}
+              onClick={() => switchTab('embedding')}
+            >
+              Embedding
             </button>
           </div>
           <button className="btn-add" onClick={() => setModalData({ config_type: activeTab })}>

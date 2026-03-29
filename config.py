@@ -130,6 +130,14 @@ class Config:
             return 180
 
     @property
+    def SILICONFLOW_API_KEY(self) -> Optional[str]:
+        """
+        硅基流动 API 密钥兜底：仅当核心设置中已激活的 config_type=embedding 行里 api_key 为空时，
+        由 memory/meme_store 等处读取本项（优先级低于数据库）。
+        """
+        return os.getenv("SILICONFLOW_API_KEY")
+
+    @property
     def OPENAI_API_KEY(self) -> Optional[str]:
         """OpenAI API 密钥；用于语音转录（STT）在库内无 stt 配置时的回退，不复用 LLM_API_KEY。"""
         return os.getenv("OPENAI_API_KEY")

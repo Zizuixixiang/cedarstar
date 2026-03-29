@@ -24,6 +24,25 @@ _TELEGRAM_HTML_ATTRS = {
     "blockquote": ["expandable"],
 }
 _TELEGRAM_PROTOCOLS = frozenset({"http", "https", "mailto", "tg"})
+# 模型常用 Markdown「>」整段引用，bleach 后成 <blockquote>，TG 会显示成一条条竖线；正文应展开为普通段落
+_INNER_BLOCKQUOTE_RE = re.compile(
+    r"<blockquote\b[^>]*>((?:(?!<blockquote\b).)*?)</blockquote>",
+    re.IGNORECASE | re.DOTALL,
+)
+
+
+def _unwrap_body_blockquotes(html: str) -> str:
+    """去掉模型误堆的 blockquote 外壳，保留内层已允许的 HTML（b/i/…）。"""
+    if not (html or "").strip():
+        return html or ""
+    s = html
+    for _ in range(256):
+        m = _INNER_BLOCKQUOTE_RE.search(s)
+        if not m:
+            break
+        inner = (m.group(1) or "").strip()
+        s = s[: m.start()] + inner + s[m.end() :]
+    return s.strip()
 
 
 def _plain_text_fallback_html(text: str) -> str:
@@ -97,7 +116,7 @@ def markdown_to_telegram_safe_html(text: str) -> str:
         logger.warning("bleach 清洗失败，回退为纯文本转义: %s", e)
         return _plain_text_fallback_html(src)
 
-    return cleaned.strip()
+    return _unwrap_body_blockquotes(cleaned).strip()
 
 
 def prefix_safe_html_by_max_len(html: str, max_len: int) -> Tuple[str, str]:

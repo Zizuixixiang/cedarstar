@@ -409,11 +409,11 @@ class DailyBatchProcessor:
         llm.timeout = sl.timeout
         base = int(getattr(sl, "max_tokens", 500) or 500)
         llm.max_tokens = min(2048, max(base, 900))
-        raw, _thinking = llm.generate_with_context_and_tracking(
+        llm_resp = llm.generate_with_context_and_tracking(
             [{"role": "user", "content": prompt}],
             platform=Platform.BATCH,
         )
-        return raw.strip()
+        return (llm_resp.content or "").strip()
 
     @staticmethod
     def _parse_merged_content_json(raw: str) -> Optional[str]:
@@ -828,10 +828,11 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
 请只返回一个整数分数（1-10），不要有其他文字。"""
             
             try:
-                score_text, _thinking = self.llm.generate_with_context_and_tracking(
+                llm_resp = self.llm.generate_with_context_and_tracking(
                     [{"role": "user", "content": prompt}],
                     platform=Platform.BATCH,
                 )
+                score_text = llm_resp.content or ""
                 score_match = re.search(r'\b([1-9]|10)\b', score_text)
                 if score_match:
                     score = int(score_match.group(1))

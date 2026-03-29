@@ -123,6 +123,63 @@ def _config_insert_defaults_if_missing(
         )
 
 
+def ensure_api_configs_schema(cursor: sqlite3.Cursor) -> None:
+    """创建 api_configs 表并补全缺失列（与 MessageDatabase._ensure_api_configs_table 一致）。"""
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS api_configs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            name TEXT NOT NULL,
+            api_key TEXT NOT NULL,
+            base_url TEXT NOT NULL,
+            model TEXT,
+            persona_id INTEGER,
+            is_active INTEGER DEFAULT 0,
+            config_type TEXT DEFAULT 'chat',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+    """)
+    cursor.execute("PRAGMA table_info(api_configs)")
+    existing_cols = {row[1] for row in cursor.fetchall()}
+    migrations = [
+        ("model", "TEXT"),
+        ("persona_id", "INTEGER"),
+        ("is_active", "INTEGER DEFAULT 0"),
+        ("config_type", "TEXT DEFAULT 'chat'"),
+    ]
+    for col, col_def in migrations:
+        if col not in existing_cols:
+            cursor.execute(f"ALTER TABLE api_configs ADD COLUMN {col} {col_def}")
+
+
+def _ensure_default_embedding_api_config_row(cursor: sqlite3.Cursor) -> None:
+    """
+    若无任意 config_type=embedding 行，插入默认硅基流动 bge-m3（api_key 空，用户自填）并激活。
+    """
+    ensure_api_configs_schema(cursor)
+    cursor.execute(
+        "SELECT 1 FROM api_configs WHERE config_type = ? LIMIT 1",
+        ("embedding",),
+    )
+    if cursor.fetchone():
+        return
+    cursor.execute(
+        """
+        INSERT INTO api_configs (
+            name, api_key, base_url, model, persona_id, is_active, config_type
+        )
+        VALUES (?, ?, ?, ?, NULL, 1, ?)
+        """,
+        (
+            "硅基流动 bge-m3",
+            "",
+            "https://api.siliconflow.cn/v1",
+            "BAAI/bge-m3",
+            "embedding",
+        ),
+    )
+
+
 def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
     """
     启动时幂等迁移：补齐缺失列与全部约定索引。
@@ -180,6 +237,8 @@ def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
             ("telegram_max_msg", "8"),
         ],
     )
+
+    _ensure_default_embedding_api_config_row(cursor)
 
     logger.info("数据库 schema 迁移（索引/列）已执行")
 
@@ -327,6 +386,15 @@ class MessageDatabase:
                         chroma_doc_id TEXT,
                         score INTEGER DEFAULT 5,
                         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS meme_pack (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        name TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        is_animated INTEGER NOT NULL DEFAULT 0
                     )
                 """)
 
@@ -2393,32 +2461,7 @@ class MessageDatabase:
 
     def _ensure_api_configs_table(self, cursor):
         """确保 api_configs 表存在，并自动补全缺失字段。"""
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS api_configs (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL,
-                api_key TEXT NOT NULL,
-                base_url TEXT NOT NULL,
-                model TEXT,
-                persona_id INTEGER,
-                is_active INTEGER DEFAULT 0,
-                config_type TEXT DEFAULT 'chat',
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-        # 检查并补全可能缺失的字段（兼容旧数据库）
-        cursor.execute("PRAGMA table_info(api_configs)")
-        existing_cols = {row[1] for row in cursor.fetchall()}
-        migrations = [
-            ("model", "TEXT"),
-            ("persona_id", "INTEGER"),
-            ("is_active", "INTEGER DEFAULT 0"),
-            ("config_type", "TEXT DEFAULT 'chat'"),
-        ]
-        for col, col_def in migrations:
-            if col not in existing_cols:
-                cursor.execute(f"ALTER TABLE api_configs ADD COLUMN {col} {col_def}")
+        ensure_api_configs_schema(cursor)
 
     def get_all_api_configs(self, config_type: Optional[str] = None) -> List[Dict[str, Any]]:
         """获取所有 API 配置列表，带关联人设名称。可按 config_type 过滤。"""
@@ -2719,6 +2762,43 @@ class MessageDatabase:
                 'total_tokens': 0, 'prompt_tokens': 0,
                 'completion_tokens': 0, 'call_count': 0, 'by_platform': {}
             }
+
+    # ==========================================
+    # meme_pack（表情包：名称 + URL，与 Chroma meme_pack 对应）
+    # ==========================================
+
+    def insert_meme_pack(self, name: str, url: str, is_animated: int) -> int:
+        """插入 meme_pack 行，返回新自增 id；失败返回 -1。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.cursor()
+                cursor.execute(
+                    """
+                    INSERT INTO meme_pack (name, url, is_animated)
+                    VALUES (?, ?, ?)
+                    """,
+                    ((name or "").strip(), (url or "").strip(), int(is_animated)),
+                )
+                conn.commit()
+                rid = cursor.lastrowid
+                return int(rid) if rid is not None else -1
+        except sqlite3.Error as e:
+            logger.error("insert_meme_pack 失败: %s", e)
+            return -1
+
+    def fetch_all_meme_pack(self) -> List[Dict[str, Any]]:
+        """返回 meme_pack 全表行，用于校对后批量重同步 Chroma。"""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                cursor = conn.cursor()
+                cursor.execute(
+                    "SELECT id, name, url, is_animated FROM meme_pack ORDER BY id"
+                )
+                return [dict(r) for r in cursor.fetchall()]
+        except sqlite3.Error as e:
+            logger.error("fetch_all_meme_pack 失败: %s", e)
+            return []
 
     # ==========================================
     # sticker_cache（Telegram 贴纸描述缓存）

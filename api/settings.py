@@ -9,7 +9,9 @@ from typing import Optional, Dict, Any, List, FrozenSet
 
 router = APIRouter()
 
-ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset({"chat", "summary", "vision", "stt"})
+ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
+    {"chat", "summary", "vision", "stt", "embedding"}
+)
 
 
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
@@ -24,7 +26,7 @@ class ApiConfigCreate(BaseModel):
     base_url: str
     model: Optional[str] = None
     persona_id: Optional[int] = None
-    config_type: Optional[str] = 'chat'  # 'chat' / 'summary' / 'vision' / 'stt'
+    config_type: Optional[str] = 'chat'  # chat / summary / vision / stt / embedding
 
 
 class ApiConfigUpdate(BaseModel):

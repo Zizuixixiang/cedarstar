@@ -64,10 +64,10 @@ async def generate_image_caption(
 
         loop = asyncio.get_running_loop()
         def _call() -> str:
-            raw, _thinking = llm.generate_with_context_and_tracking(
+            llm_resp = llm.generate_with_context_and_tracking(
                 messages, platform=platform
             )
-            return raw
+            return llm_resp.content or ""
 
         text = await loop.run_in_executor(None, _call)
         text = (text or "").strip() or fail_caption

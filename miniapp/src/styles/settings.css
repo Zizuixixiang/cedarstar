@@ -36,7 +36,7 @@
   flex-wrap: wrap;
 }
 
-/* 对话 / 摘要 / 视觉 / 语音转录 API 切换（与 period-tabs 同风格的间距与分组） */
+/* 对话 / 摘要 / 视觉 / 语音转录 / Embedding API 切换（与 period-tabs 同风格的间距与分组） */
 .config-tabs {
   display: flex;
   align-items: center;
@@ -190,6 +190,11 @@
 .cfg-type-tag.stt-type {
   color: #1b6f7a;
   background: rgba(27, 111, 122, 0.14);
+}
+
+.cfg-type-tag.embedding-type {
+  color: #5c4d7a;
+  background: rgba(92, 77, 122, 0.14);
 }
 
 /* 中：URL + 人设 + 模型 */

@@ -49,7 +49,11 @@ from bot.markdown_telegram_html import (
     split_safe_html_telegram_chunks,
 )
 from bot.telegram_html_sanitize import split_body_into_html_chunks
-from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
+from bot.logutil import exc_detail
+from bot.reply_citations import (
+    parse_telegram_segments_with_memes,
+    schedule_update_memory_hits_and_clean_reply,
+)
 from bot.stt_client import TRANSCRIBE_FAIL_USER_CONTENT, transcribe_voice
 from bot.vision_caption import schedule_generate_image_caption
 from config import config, validate_config, Platform
@@ -63,6 +67,7 @@ from memory.database import (
 )
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
+from tools.meme import search_meme, send_meme
 
 
 # 设置日志
@@ -107,6 +112,18 @@ class _TelegramStreamOutcome(NamedTuple):
     assistant_message_id: Optional[str]
     thinking: Optional[str]
     save_user: bool
+
+
+class _TelegramSseRound(NamedTuple):
+    """单轮 chat/completions SSE 结束快照（供定稿思维链 / 工具轮 / 最终入库）。"""
+
+    done_payload: Optional[Dict[str, Any]]
+    err_pack: Optional[Tuple[Any, str, str]]
+    thinking_msg_id: Optional[int]
+    think_from_delta: str
+    think_plain: str
+    raw_content: str
+    interrupted: bool
 
 
 def _telegram_reaction_emoji_label(rt: Any) -> Optional[str]:
@@ -169,7 +186,7 @@ async def _schedule_rescan_timeout(bot, session_id: str, chat_id: int) -> None:
                 try:
                     await bot.send_message(chat_id=chat_id, text="已取消")
                 except Exception as e:
-                    logger.warning("贴纸重扫超时回复失败: %s", e)
+                    logger.warning("贴纸重扫超时回复失败: %s", exc_detail(e))
         finally:
             _rescan_timeout_tasks.pop(session_id, None)
 
@@ -187,10 +204,10 @@ def _sync_describe_sticker_vision(b64: str, mime_type: str) -> str:
     content = build_user_multimodal_content(
         llm.api_base, llm.model_name, prompt, imgs
     )
-    out, _ = llm.generate_with_context_and_tracking(
+    llm_resp = llm.generate_with_context_and_tracking(
         [{"role": "user", "content": content}], platform=Platform.TELEGRAM
     )
-    t = (out or "").strip()
+    t = (llm_resp.content or "").strip()
     if len(t) > 160:
         t = t[:160]
     return t
@@ -428,7 +445,7 @@ class TelegramBot:
                     },
                 )
             except Exception as e:
-                logger.exception("Telegram 图片下载失败: %s", e)
+                logger.exception("Telegram 图片下载失败: %s", exc_detail(e))
                 skip = "[发送了1张图片（文件过大，已跳过视觉解析）]"
                 await self._add_to_buffer(
                     update, context, session_id, message, skip, user_id, message_id
@@ -480,7 +497,7 @@ class TelegramBot:
                     data = bio.getvalue()
                 raw = bytes(data)
             except Exception as e:
-                logger.exception("Telegram 语音下载失败: %s", e)
+                logger.exception("Telegram 语音下载失败: %s", exc_detail(e))
                 await self._add_to_buffer(
                     update,
                     context,
@@ -510,7 +527,7 @@ class TelegramBot:
                 text = await transcribe_voice(raw, mime_type="audio/ogg")
                 content = f"[语音] {text}"
             except Exception as e:
-                logger.warning("Telegram 语音转录失败: %s", e)
+                logger.warning("Telegram 语音转录失败: %s", exc_detail(e))
                 content = fail
 
             await self._add_to_buffer(
@@ -593,7 +610,9 @@ class TelegramBot:
                 if text:
                     desc = text
             except Exception as e:
-                logger.warning("贴纸视觉解析失败 fid=%s: %s", fid, e)
+                logger.warning(
+                    "贴纸视觉解析失败 fid=%s: %s", fid, exc_detail(e)
+                )
                 desc = fallback
             finally:
                 db.save_sticker_cache(fid, emoji, set_name, desc)
@@ -720,7 +739,12 @@ class TelegramBot:
                 parse_mode=parse_mode,
             )
         except Exception as e:
-            logger.debug("Telegram edit_message_text 失败: %s", e)
+            logger.debug(
+                "Telegram edit_message_text 失败 chat_id=%s msg_id=%s: %s",
+                chat_id,
+                message_id,
+                exc_detail(e),
+            )
 
     def _telegram_thinking_blockquote_html(self, think_plain: str) -> str:
         """思维链定稿：可折叠 blockquote（仅流式结束后的最后一次编辑使用）。"""
@@ -756,13 +780,159 @@ class TelegramBot:
                 await asyncio.sleep(0.5)
         return body_for_db, first_mid
 
-    async def _telegram_stream_thinking_and_reply(
+    async def _telegram_send_body_via_chat(
+        self, bot, chat_id: int, cleaned: str
+    ) -> Tuple[str, Optional[str]]:
+        """无 base_message 时向 chat 发送分段 HTML（与 _telegram_send_body_segments 对齐）。"""
+        parts = _split_telegram_body_parts(cleaned)
+        body_for_db = "\n".join(parts)
+        out_chunks: List[str] = []
+        for seg in parts:
+            out_chunks.extend(self._telegram_html_body_chunks(seg))
+        first_mid: Optional[str] = None
+        for i, chunk in enumerate(out_chunks):
+            sent = await bot.send_message(
+                chat_id=chat_id, text=chunk, parse_mode="HTML"
+            )
+            if first_mid is None:
+                first_mid = str(sent.message_id)
+            if i + 1 < len(out_chunks):
+                await asyncio.sleep(0.5)
+        return body_for_db, first_mid
+
+    async def _telegram_send_one_meme(
+        self, bot, chat_id: int, query: str
+    ) -> Tuple[bool, Optional[str]]:
+        """单条描述 search_meme(top_k=1) 并发送；空查询或检索无结果则跳过。返回 (是否发出, message_id)。"""
+        q = (query or "").strip()
+        if not q:
+            return False, None
+        results = await asyncio.to_thread(search_meme, q, 1)
+        if not results:
+            return False, None
+        row = results[0]
+        url = (row.get("url") or "").strip()
+        if not url:
+            return False, None
+        try:
+            isa = int(row.get("is_animated", 0))
+        except (TypeError, ValueError):
+            isa = 0
+        try:
+            sent = await send_meme(url, isa, bot, chat_id)
+            mid: Optional[str] = None
+            if sent is not None:
+                raw_mid = getattr(sent, "message_id", None)
+                if raw_mid is not None:
+                    mid = str(raw_mid)
+            return True, mid
+        except Exception as e:
+            logger.warning("send_meme 失败: %s", exc_detail(e))
+            return False, None
+
+    async def _telegram_send_meme_queries(
+        self, bot, chat_id: int, queries: List[str]
+    ) -> Tuple[bool, Optional[str]]:
+        """按顺序对每条描述发送表情包（内部复用 _telegram_send_one_meme）。"""
+        any_sent = False
+        first_mid: Optional[str] = None
+        for q in queries:
+            sent, mid = await self._telegram_send_one_meme(bot, chat_id, q)
+            if sent:
+                any_sent = True
+                if first_mid is None and mid:
+                    first_mid = mid
+                await asyncio.sleep(0.3)
+        return any_sent, first_mid
+
+    async def _telegram_deliver_ordered_segments(
+        self,
+        bot,
+        chat_id: int,
+        segments: List[Tuple[str, str]],
+        *,
+        base_message=None,
+    ) -> Tuple[Optional[str], bool]:
+        """
+        按 segments 顺序交替发文字段（可走 HTML 分段）与表情包。
+        base_message 非空时文字用 reply；否则用 send_message（与 _telegram_send_body_via_chat 一致）。
+        返回 (首条助手消息 message_id, 是否至少发出过一张表情)。
+        """
+        first_mid: Optional[str] = None
+        meme_any = False
+        for kind, payload in segments:
+            if kind == "text":
+                t = (payload or "").strip()
+                if not t:
+                    continue
+                if base_message is not None:
+                    _, mid = await self._telegram_send_body_segments(
+                        base_message, t
+                    )
+                else:
+                    _, mid = await self._telegram_send_body_via_chat(
+                        bot, chat_id, t
+                    )
+                if first_mid is None and mid:
+                    first_mid = mid
+                await asyncio.sleep(0.25)
+            elif kind == "meme":
+                sent, mid = await self._telegram_send_one_meme(
+                    bot, chat_id, payload
+                )
+                if sent:
+                    meme_any = True
+                    if first_mid is None and mid:
+                        first_mid = mid
+                    await asyncio.sleep(0.3)
+        return first_mid, meme_any
+
+    async def _telegram_deliver_prefetched_llm_response(
+        self, llm_resp: Any, base_message, bot
+    ) -> _TelegramStreamOutcome:
+        """非流式 LLM 结果：思维链 blockquote + 正文分段（与流式结束态一致）。"""
+        think_plain = (llm_resp.thinking or "").strip() or None
+        if think_plain:
+            html_th = self._telegram_thinking_blockquote_html(think_plain)
+            await base_message.reply_text(html_th, parse_mode="HTML")
+        cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
+        segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
+        has_text_seg = any(
+            k == "text" and (s or "").strip() for k, s in segments
+        )
+        assistant_message_id: Optional[str] = None
+        meme_sent = False
+        if segments:
+            assistant_message_id, meme_sent = (
+                await self._telegram_deliver_ordered_segments(
+                    bot,
+                    base_message.chat.id,
+                    segments,
+                    base_message=base_message,
+                )
+            )
+        if not body_for_db.strip() and meme_sent:
+            body_for_db = "[表情包]"
+        sent_something = bool(has_text_seg or think_plain or meme_sent)
+        if not sent_something:
+            await base_message.reply_text(
+                _TELEGRAM_STREAM_GENERIC_ERROR, parse_mode=None
+            )
+        return _TelegramStreamOutcome(
+            body_for_db=body_for_db,
+            assistant_message_id=assistant_message_id,
+            thinking=think_plain,
+            save_user=True,
+        )
+
+    async def _telegram_stream_llm_one_sse_round(
         self,
         llm: LLMInterface,
         messages: List[Dict[str, Any]],
         base_message,
         bot,
-    ) -> _TelegramStreamOutcome:
+    ) -> _TelegramSseRound:
+        """一轮 SSE：实时编辑思维链占位；结束态供 _telegram_finalize_sse_round_outcome 定稿。"""
         chat_id = base_message.chat.id
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
@@ -771,7 +941,9 @@ class TelegramBot:
             co_list: List[str] = []
             th_list: List[str] = []
             try:
-                gen = llm.generate_stream(messages, platform=Platform.TELEGRAM)
+                gen = llm.generate_stream(
+                    messages, platform=Platform.TELEGRAM, tools=None
+                )
                 while True:
                     try:
                         kind, chunk = next(gen)
@@ -798,6 +970,7 @@ class TelegramBot:
                                         "content": c_body,
                                         "thinking": t_norm,
                                         "usage": fin.get("usage"),
+                                        "tool_calls": fin.get("tool_calls"),
                                     },
                                 )
                             ),
@@ -812,7 +985,10 @@ class TelegramBot:
                     else:
                         co_list.append(chunk)
             except Exception as ex:
-                logger.exception("Telegram LLM 流式线程异常: %s", ex)
+                logger.exception(
+                    "Telegram LLM 流式线程异常（上游 SSE / chat/completions 或网络）: %s",
+                    exc_detail(ex),
+                )
                 asyncio.run_coroutine_threadsafe(
                     q.put(("err", ex, "".join(co_list), "".join(th_list))), loop
                 ).result(timeout=60)
@@ -833,11 +1009,10 @@ class TelegramBot:
                 thinking_parts.append(item[1])
                 cur = "".join(thinking_parts)
                 if thinking_msg_id is None:
-                    # 阶段一：纯文本占位，流式全程展开可见（无 parse_mode）
                     sent = await base_message.reply_text(_TELEGRAM_THINK_PLACEHOLDER)
                     thinking_msg_id = sent.message_id
                 now = time.monotonic()
-                if now - last_think_edit >= 1.0:
+                if now - last_think_edit >= 0.45:
                     plain = cur or _TELEGRAM_THINK_PLACEHOLDER
                     if len(plain) > 4096:
                         plain = plain[:4096]
@@ -868,68 +1043,146 @@ class TelegramBot:
             else:
                 think_plain = think_from_delta
             interrupted = False
-            thinking_stored: Optional[str] = done_payload.get("thinking")
-            if isinstance(thinking_stored, str) and thinking_stored.strip():
-                thinking_stored = thinking_stored.strip()
-            elif think_from_delta:
-                thinking_stored = think_from_delta
-            else:
-                thinking_stored = None
         elif err_pack is not None:
             _ex, c_partial, t_partial = err_pack
             raw_content = c_partial or ""
             think_plain = think_from_delta or (t_partial or "").strip()
             interrupted = True
-            thinking_stored = think_from_delta or ((t_partial or "").strip() or None)
         else:
             raw_content = ""
             think_plain = think_from_delta
             interrupted = False
-            thinking_stored = think_from_delta or None
 
+        return _TelegramSseRound(
+            done_payload=done_payload,
+            err_pack=err_pack,
+            thinking_msg_id=thinking_msg_id,
+            think_from_delta=think_from_delta,
+            think_plain=think_plain,
+            raw_content=raw_content,
+            interrupted=interrupted,
+        )
+
+    async def _telegram_finalize_thinking_blockquote(
+        self,
+        base_message,
+        bot,
+        chat_id: int,
+        thinking_msg_id: Optional[int],
+        think_plain: str,
+        interrupted: bool,
+    ) -> Optional[int]:
+        """将占位思维链消息定稿为 blockquote，或删除空占位。返回最终 message_id（若新建）。"""
         if interrupted and think_plain and "…（已中断）" not in think_plain:
             think_plain_show = think_plain + "\n…（已中断）"
         else:
             think_plain_show = think_plain
 
+        out_mid = thinking_msg_id
         if thinking_msg_id is not None:
             if think_plain_show.strip():
-                # 阶段二：定稿为可折叠 HTML blockquote
                 html_th = self._telegram_thinking_blockquote_html(think_plain_show)
                 await self._telegram_safe_edit_text(
                     bot, chat_id, thinking_msg_id, html_th, parse_mode="HTML"
                 )
             else:
                 try:
-                    await bot.delete_message(chat_id=chat_id, message_id=thinking_msg_id)
+                    await bot.delete_message(
+                        chat_id=chat_id, message_id=thinking_msg_id
+                    )
                 except Exception:
                     pass
-                thinking_msg_id = None
+                out_mid = None
         elif think_plain_show.strip():
             html_th = self._telegram_thinking_blockquote_html(think_plain_show)
             sent_th = await base_message.reply_text(html_th, parse_mode="HTML")
-            thinking_msg_id = sent_th.message_id
+            out_mid = sent_th.message_id
+        return out_mid
 
-        cleaned = schedule_update_memory_hits_and_clean_reply(raw_content)
-        body_parts = _split_telegram_body_parts(cleaned)
-        parts_exist = bool(body_parts)
-        logger.debug(
-            "Telegram 流式结束: 正文段数=%s (按 |||；全角｜｜｜已归一)",
-            len(body_parts),
-        )
-        assistant_message_id: Optional[str] = None
-        body_for_db = ""
-        if parts_exist:
-            body_for_db, assistant_message_id = await self._telegram_send_body_segments(
-                base_message, cleaned
+    async def _telegram_finalize_sse_round_outcome(
+        self,
+        sse: _TelegramSseRound,
+        base_message,
+        bot,
+    ) -> _TelegramStreamOutcome:
+        """定稿思维链 + 发送正文，组装缓冲 outcome。"""
+        chat_id = base_message.chat.id
+        done_payload = sse.done_payload
+        err_pack = sse.err_pack
+        think_plain = sse.think_plain
+        raw_content = sse.raw_content
+        interrupted = sse.interrupted
+
+        if err_pack is not None:
+            _ex, c_partial, t_partial = err_pack
+            logger.error(
+                "Telegram 流式生成异常（见下方堆栈/摘要）: %s | "
+                "已缓冲 partial 正文=%d 字符 partial 思维链=%d 字符",
+                exc_detail(_ex) if isinstance(_ex, BaseException) else repr(_ex),
+                len(c_partial or ""),
+                len(t_partial or ""),
             )
 
-        sent_something = bool(parts_exist or think_plain_show.strip())
+        if sse.done_payload is not None:
+            t_api = sse.done_payload.get("thinking")
+            if isinstance(t_api, str) and t_api.strip():
+                thinking_stored = t_api.strip()
+            elif sse.think_from_delta:
+                thinking_stored = sse.think_from_delta
+            else:
+                thinking_stored = None
+        elif err_pack is not None:
+            _ex, c_partial, t_partial = err_pack
+            thinking_stored = sse.think_from_delta or (
+                (t_partial or "").strip() or None
+            )
+        else:
+            thinking_stored = sse.think_from_delta or None
+
+        await self._telegram_finalize_thinking_blockquote(
+            base_message,
+            bot,
+            chat_id,
+            sse.thinking_msg_id,
+            think_plain,
+            interrupted,
+        )
+
+        cleaned = schedule_update_memory_hits_and_clean_reply(raw_content)
+        segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
+        has_text_seg = any(
+            k == "text" and (s or "").strip() for k, s in segments
+        )
+        logger.debug(
+            "Telegram 流式结束: 有序段数=%s (||| 与 [meme:…] 为分隔)",
+            len(segments),
+        )
+        assistant_message_id: Optional[str] = None
+        meme_sent = False
+        if segments:
+            assistant_message_id, meme_sent = (
+                await self._telegram_deliver_ordered_segments(
+                    bot, chat_id, segments, base_message=base_message
+                )
+            )
+        if not body_for_db.strip() and meme_sent:
+            body_for_db = "[表情包]"
+
+        sent_something = bool(
+            has_text_seg or (think_plain or "").strip() or meme_sent
+        )
         if done_payload is not None and not sent_something:
+            logger.warning(
+                "Telegram SSE 收尾：无正文且无思维链，将发通用错误提示。"
+                " raw_len=%s cleaned_len=%s raw_preview=%r",
+                len(raw_content or ""),
+                len(cleaned or ""),
+                (raw_content or "")[:400],
+            )
             await base_message.reply_text(
                 _TELEGRAM_STREAM_GENERIC_ERROR, parse_mode=None
             )
-        if err_pack is not None and not parts_exist and not think_plain.strip():
+        if err_pack is not None and not sent_something:
             await base_message.reply_text(
                 _TELEGRAM_STREAM_GENERIC_ERROR, parse_mode=None
             )
@@ -937,7 +1190,7 @@ class TelegramBot:
         if done_payload is not None:
             save_user = True
         elif err_pack is not None:
-            save_user = bool(parts_exist or bool(think_plain.strip()))
+            save_user = bool(sent_something)
         else:
             save_user = False
 
@@ -946,6 +1199,20 @@ class TelegramBot:
             assistant_message_id=assistant_message_id,
             thinking=thinking_stored,
             save_user=save_user,
+        )
+
+    async def _telegram_stream_thinking_and_reply(
+        self,
+        llm: LLMInterface,
+        messages: List[Dict[str, Any]],
+        base_message,
+        bot,
+    ) -> _TelegramStreamOutcome:
+        sse = await self._telegram_stream_llm_one_sse_round(
+            llm, messages, base_message, bot
+        )
+        return await self._telegram_finalize_sse_round_outcome(
+            sse, base_message, bot
         )
 
     def _assistant_outgoing_chunks(
@@ -1060,9 +1327,21 @@ class TelegramBot:
                     "抱歉，内部错误：缺少消息上下文。", None, False
                 )
 
-            outcome = await self._telegram_stream_thinking_and_reply(
-                llm, messages, base_message, bot
-            )
+            if llm._use_anthropic_messages_api():
+
+                def _call_sync() -> Any:
+                    return llm.generate_with_context_and_tracking(
+                        messages, platform=Platform.TELEGRAM
+                    )
+
+                llm_resp = await asyncio.to_thread(_call_sync)
+                outcome = await self._telegram_deliver_prefetched_llm_response(
+                    llm_resp, base_message, bot
+                )
+            else:
+                outcome = await self._telegram_stream_thinking_and_reply(
+                    llm, messages, base_message, bot
+                )
 
             has_img = bool(images)
             media_t = ordered_media_type_from_buffer(buffer_messages)
@@ -1104,7 +1383,7 @@ class TelegramBot:
             )
 
         except ValueError as e:
-            logger.error("LLM 配置错误: %s", e)
+            logger.error("LLM 配置错误: %s", exc_detail(e))
             return _BufferGenResult(
                 "抱歉，LLM 配置有问题，请检查 API 密钥设置。", None, False
             )
@@ -1130,8 +1409,11 @@ class TelegramBot:
                 False,
             )
         except Exception as e:
-            logger.error("生成回复时出错: %s", e)
-            logger.exception(e)
+            logger.exception(
+                "缓冲区生成回复异常 session_id=%s: %s",
+                session_id,
+                exc_detail(e),
+            )
             return _BufferGenResult("抱歉，生成回复时出错了，请稍后再试。", None, False)
 
     async def _add_to_buffer(
@@ -1194,8 +1476,10 @@ class TelegramBot:
             )
         except TelegramNetworkError as e:
             logger.warning(
-                "send_chat_action 失败（略过「正在输入」提示，仍继续生成）: %s",
-                e,
+                "send_chat_action 失败 chat_id=%s（略过「正在输入」，仍继续生成）。"
+                " 多为连不上 api.telegram.org，请检查 TELEGRAM_PROXY。详情: %s",
+                base_message.chat.id,
+                exc_detail(e),
             )
 
         gen = await self._generate_reply_from_buffer(
@@ -1224,43 +1508,63 @@ class TelegramBot:
         elif gen.reply and not gen.assistant_message_id:
             await base_message.reply_text(gen.reply, parse_mode=None)
     
-    async def _generate_reply(self, session_id: str, content: str, 
-                            user_id: str, chat_id: str, message_id: str) -> Optional[str]:
+    async def _generate_reply(
+        self,
+        session_id: str,
+        content: str,
+        user_id: str,
+        chat_id: str,
+        message_id: str,
+        telegram_bot: Optional[Any] = None,
+    ) -> Optional[str]:
         """
-        生成回复消息。
-        
-        复用现有的消息缓冲逻辑，与平台对象解耦。
-        
-        Args:
-            session_id: 会话ID（格式：telegram_{chat_id}）
-            content: 消息内容
-            user_id: 用户ID
-            chat_id: 聊天ID
-            message_id: 消息ID
-            
-        Returns:
-            Optional[str]: 生成的回复，如果生成失败则返回 None
+        生成回复消息（非缓冲路径；主会话走缓冲）。
+        传入 telegram_bot 时：发送思维链、去掉 [meme:…] 后的正文与检索到的表情包。
         """
         try:
-            # 使用 context builder 构建完整的对话上下文
             context = build_context(session_id, content)
-            
-            # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
-            
-            # 如果没有构建出有效的 messages，使用最小化版本
             if not messages:
                 messages = [{"role": "user", "content": content}]
-            
-            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
+
             llm = LLMInterface()
-            reply, _thinking = llm.generate_with_context_and_tracking(
-                messages, platform=Platform.TELEGRAM
-            )
-            reply = schedule_update_memory_hits_and_clean_reply(reply)
-            
-            # 保存用户消息到数据库
+
+            def _call() -> Any:
+                return llm.generate_with_context_and_tracking(
+                    messages, platform=Platform.TELEGRAM
+                )
+
+            llm_resp = await asyncio.to_thread(_call)
+            cid = int(chat_id)
+            think_plain = (llm_resp.thinking or "").strip()
+            if telegram_bot and think_plain:
+                html_th = self._telegram_thinking_blockquote_html(think_plain)
+                try:
+                    await telegram_bot.send_message(
+                        chat_id=cid, text=html_th, parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.warning(
+                        "发送思维链失败 chat_id=%s: %s",
+                        cid,
+                        exc_detail(e),
+                    )
+
+            cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
+            segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
+            meme_sent = False
+            if telegram_bot and segments:
+                _, meme_sent = await self._telegram_deliver_ordered_segments(
+                    telegram_bot, cid, segments, base_message=None
+                )
+            if body_for_db.strip():
+                reply = body_for_db
+            elif meme_sent:
+                reply = "[表情包]"
+            else:
+                reply = ""
+
             save_message(
                 session_id=session_id,
                 role="user",
@@ -1274,8 +1578,6 @@ class TelegramBot:
                     content
                 ),
             )
-            
-            # 保存AI回复到数据库
             save_message(
                 session_id=session_id,
                 role="assistant",
@@ -1284,19 +1586,19 @@ class TelegramBot:
                 channel_id=chat_id,
                 message_id=f"ai_{message_id}",
                 character_id=llm.character_id,
-                platform=Platform.TELEGRAM
+                platform=Platform.TELEGRAM,
             )
-            
-            logger.info(f"为 Telegram 用户 {user_id} 生成回复，context 消息数量: {len(messages)}")
-            logger.debug(f"System prompt 长度: {len(system_prompt)}")
-            
-            # 异步触发微批处理检查
+            logger.info(
+                "为 Telegram 用户 %s 生成回复，context 消息数量: %s",
+                user_id,
+                len(messages),
+            )
+            logger.debug("System prompt 长度: %s", len(system_prompt))
             asyncio.create_task(trigger_micro_batch_check(session_id))
-            
             return reply
-            
+
         except ValueError as e:
-            logger.error(f"LLM 配置错误: {e}")
+            logger.error("LLM 配置错误: %s", exc_detail(e))
             return "抱歉，LLM 配置有问题，请检查 API 密钥设置。"
         except requests.exceptions.Timeout:
             logger.error("LLM 请求超时（可调 LLM_TIMEOUT，默认 60 秒）")
@@ -1304,8 +1606,11 @@ class TelegramBot:
                 "抱歉，模型响应超时。可在 .env 提高 LLM_TIMEOUT（默认 60 秒）。"
             )
         except Exception as e:
-            logger.error(f"生成回复时出错: {e}")
-            logger.exception(e)  # 记录完整异常堆栈
+            logger.exception(
+                "_generate_reply 异常 session_id=%s: %s",
+                session_id,
+                exc_detail(e),
+            )
             return "抱歉，生成回复时出错了，请稍后再试。"
 
     async def handle_message_reaction(
@@ -1356,7 +1661,7 @@ class TelegramBot:
             )
             asyncio.create_task(trigger_micro_batch_check(session_id))
         except Exception as e:
-            logger.error(f"保存反应消息失败: {e}")
+            logger.error("保存反应消息失败: %s", exc_detail(e))
     
     async def run_async(self):
         """
@@ -1457,14 +1762,18 @@ class TelegramBot:
                 set_bot_online("telegram", True)
                 logger.info("已更新 Telegram 在线状态 → True")
             except Exception as e:
-                logger.warning(f"更新 Telegram 在线状态失败: {e}")
+                logger.warning(
+                    "更新 Telegram 在线状态失败: %s", exc_detail(e)
+                )
             
             # 保持运行直到收到停止信号
             stop_event = asyncio.Event()
             await stop_event.wait()
             
         except Exception as e:
-            logger.error(f"启动 Telegram 机器人时出错: {e}")
+            logger.exception(
+                "启动 Telegram 机器人时出错: %s", exc_detail(e)
+            )
             raise
     
     async def run(self):
@@ -1478,7 +1787,9 @@ class TelegramBot:
             # 保持运行
             await self.application.updater.idle()
         except Exception as e:
-            logger.error(f"Telegram 机器人运行失败: {e}")
+            logger.exception(
+                "Telegram 机器人 run() 失败: %s", exc_detail(e)
+            )
             raise
     
     async def stop(self):
@@ -1502,7 +1813,9 @@ async def run_telegram_bot():
         bot = TelegramBot()
         await bot.run()
     except Exception as e:
-        logger.error(f"Telegram 机器人运行失败: {e}")
+        logger.exception(
+            "run_telegram_bot 失败: %s", exc_detail(e)
+        )
         raise
 
 
@@ -1521,11 +1834,11 @@ def main():
         asyncio.run(bot.run())
         
     except ValueError as e:
-        logger.error(f"配置验证失败: {e}")
+        logger.error("配置验证失败: %s", exc_detail(e))
         print(f"错误: {e}")
         print("请检查 .env 文件中的配置项")
     except Exception as e:
-        logger.error(f"机器人运行失败: {e}")
+        logger.exception("机器人 main 运行失败: %s", exc_detail(e))
         print(f"错误: {e}")
 
 

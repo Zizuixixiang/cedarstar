@@ -427,10 +427,10 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
-            reply, _thinking = llm.generate_with_context_and_tracking(
+            llm_resp = llm.generate_with_context_and_tracking(
                 messages, platform=Platform.DISCORD
             )
-            reply = schedule_update_memory_hits_and_clean_reply(reply)
+            reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
             
             # 保存用户消息到数据库（合并后的消息）
             has_img = bool(images)
@@ -531,10 +531,10 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = LLMInterface()
-            reply, _thinking = llm.generate_with_context_and_tracking(
+            llm_resp = llm.generate_with_context_and_tracking(
                 messages, platform=Platform.DISCORD
             )
-            reply = schedule_update_memory_hits_and_clean_reply(reply)
+            reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
             
             # 保存用户消息到数据库
             save_message(

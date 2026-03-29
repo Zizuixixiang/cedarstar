@@ -12,6 +12,7 @@ from typing import Any, Dict, Generator, List, Optional, Tuple, Union
 from dataclasses import dataclass
 
 import requests
+from bot.logutil import exc_detail
 from config import config, Platform
 from memory.database import get_database
 
@@ -98,6 +99,113 @@ def messages_contain_multimodal_images(messages: List[Dict[str, Any]]) -> bool:
     return False
 
 
+def _openai_tools_specs_to_anthropic(
+    tools: Optional[List[Dict[str, Any]]],
+) -> List[Dict[str, Any]]:
+    """OpenAI `tools`（type+function）→ Anthropic Messages API `tools`（name+input_schema）。"""
+    out: List[Dict[str, Any]] = []
+    for t in tools or []:
+        if not isinstance(t, dict):
+            continue
+        fn = t.get("function") if isinstance(t.get("function"), dict) else {}
+        name = (fn.get("name") or "").strip()
+        if not name:
+            continue
+        desc = (fn.get("description") or "").strip()
+        params = fn.get("parameters")
+        if not isinstance(params, dict):
+            params = {"type": "object", "properties": {}}
+        out.append(
+            {
+                "name": name,
+                "description": desc,
+                "input_schema": params,
+            }
+        )
+    return out
+
+
+def _openai_chat_messages_to_anthropic_messages(
+    messages: List[Dict[str, Any]],
+) -> List[Dict[str, Any]]:
+    """
+    OpenAI chat 多轮（含 role=tool、assistant.tool_calls）→ Anthropic `messages` 数组。
+    不含 system；system 由调用方单独放入 payload。
+    """
+    out: List[Dict[str, Any]] = []
+    i = 0
+    n = len(messages)
+    while i < n:
+        m = messages[i]
+        role = m.get("role")
+        if role == "tool":
+            blocks: List[Dict[str, Any]] = []
+            while i < n and messages[i].get("role") == "tool":
+                tmsg = messages[i]
+                raw = tmsg.get("content")
+                cstr = raw if isinstance(raw, str) else json.dumps(
+                    raw, ensure_ascii=False
+                )
+                blocks.append(
+                    {
+                        "type": "tool_result",
+                        "tool_use_id": (tmsg.get("tool_call_id") or "") or "",
+                        "content": cstr,
+                    }
+                )
+                i += 1
+            out.append({"role": "user", "content": blocks})
+            continue
+        if role == "assistant":
+            tcalls = m.get("tool_calls")
+            has_tc = isinstance(tcalls, list) and len(tcalls) > 0
+            c = m.get("content")
+            if not has_tc:
+                if c is None:
+                    c = ""
+                out.append({"role": "assistant", "content": c})
+                i += 1
+                continue
+            parts: List[Dict[str, Any]] = []
+            if isinstance(c, str) and c.strip():
+                parts.append({"type": "text", "text": c})
+            for tc in tcalls:
+                if not isinstance(tc, dict):
+                    continue
+                fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+                name = (fn.get("name") or tc.get("name") or "").strip()
+                tid = tc.get("id") or ""
+                raw_args = fn.get("arguments", "{}")
+                if not isinstance(raw_args, str):
+                    raw_args = json.dumps(raw_args, ensure_ascii=False)
+                try:
+                    inp = json.loads(raw_args) if raw_args.strip() else {}
+                except json.JSONDecodeError:
+                    inp = {}
+                if not name:
+                    continue
+                parts.append(
+                    {"type": "tool_use", "id": tid, "name": name, "input": inp}
+                )
+            if not parts:
+                parts.append({"type": "text", "text": ""})
+            out.append({"role": "assistant", "content": parts})
+            i += 1
+            continue
+        if role == "user":
+            out.append({"role": "user", "content": m.get("content")})
+            i += 1
+            continue
+        out.append(
+            {
+                "role": role if role else "user",
+                "content": m.get("content") if m.get("content") is not None else "",
+            }
+        )
+        i += 1
+    return out
+
+
 @dataclass
 class LLMResponse:
     """LLM 响应数据结构。"""
@@ -116,7 +224,13 @@ class LLMResponse:
     
     raw_response: Optional[Dict[str, Any]] = None
     """原始 API 响应数据。"""
-    
+
+    tool_calls: Optional[List[Dict[str, Any]]] = None
+    """OpenAI 风格 tool_calls，每项含 id、name、arguments(str)；无则为 None。"""
+
+    thinking: Optional[str] = None
+    """思维链（如 R1 reasoning）；由 generate_with_context_and_tracking 等填充。"""
+
     def to_dict(self) -> Dict[str, Any]:
         """
         将响应转换为字典。
@@ -129,7 +243,9 @@ class LLMResponse:
             "model": self.model,
             "usage": self.usage,
             "finish_reason": self.finish_reason,
-            "raw_response": self.raw_response
+            "raw_response": self.raw_response,
+            "tool_calls": self.tool_calls,
+            "thinking": self.thinking,
         }
 
 
@@ -266,23 +382,34 @@ class LLMInterface:
         
         return headers
     
-    def _prepare_openai_payload(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _prepare_openai_payload(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """
         准备 OpenAI 兼容 API 的请求负载。
         
         Args:
             messages: 消息列表
+            tools: OpenAI tools / function 定义列表；有值时附带 tool_choice=auto
             
         Returns:
             Dict[str, Any]: 请求负载
         """
-        return {
+        payload: Dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
             "max_tokens": self.max_tokens,
             "temperature": self.temperature,
-            "stream": False
+            "stream": False,
         }
+        if tools:
+            payload["tools"] = tools
+            # OpenAI Chat Completions：与 tools 同发，值为字面量 "auto"（由模型决定是否调用工具）
+            # 未传 tools 时不应带 tool_choice，故放在本分支内
+            payload["tool_choice"] = "auto"
+        return payload
     
     def _prepare_anthropic_payload(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
         """
@@ -332,13 +459,38 @@ class LLMInterface:
         """
         choice = response_data["choices"][0]
         message = choice["message"]
-        
+        raw_content = message.get("content")
+        if raw_content is None:
+            text_content = ""
+        elif isinstance(raw_content, str):
+            text_content = raw_content
+        else:
+            text_content = str(raw_content)
+
+        tool_calls_out: Optional[List[Dict[str, Any]]] = None
+        raw_tc = message.get("tool_calls")
+        if raw_tc:
+            tool_calls_out = []
+            for tc in raw_tc:
+                if not isinstance(tc, dict):
+                    continue
+                fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+                args = fn.get("arguments")
+                tool_calls_out.append(
+                    {
+                        "id": tc.get("id") or "",
+                        "name": fn.get("name") or "",
+                        "arguments": args if isinstance(args, str) else (json.dumps(args) if args is not None else "{}"),
+                    }
+                )
+
         return LLMResponse(
-            content=message["content"],
+            content=text_content,
             model=response_data["model"],
             usage=response_data.get("usage"),
             finish_reason=choice.get("finish_reason"),
-            raw_response=response_data
+            raw_response=response_data,
+            tool_calls=tool_calls_out if tool_calls_out else None,
         )
     
     def _parse_anthropic_response(self, response_data: Dict[str, Any]) -> LLMResponse:
@@ -368,14 +520,16 @@ class LLMInterface:
                 "output_tokens": response_data.get("usage", {}).get("output_tokens", 0)
             },
             finish_reason=response_data.get("stop_reason"),
-            raw_response=response_data
+            raw_response=response_data,
+            tool_calls=None,
         )
     
     def generate(
         self, 
         prompt: str, 
         system_prompt: Optional[str] = None,
-        conversation_history: Optional[List[Dict[str, str]]] = None
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """
         生成文本响应。
@@ -384,6 +538,7 @@ class LLMInterface:
             prompt: 用户提示
             system_prompt: 系统提示，用于指导模型行为
             conversation_history: 对话历史，格式为 [{"role": "user", "content": "..."}, ...]
+            tools: OpenAI 兼容 tools（仅 OpenAI 路径写入 payload；Anthropic 路径忽略）
             
         Returns:
             LLMResponse: LLM 响应
@@ -418,7 +573,7 @@ class LLMInterface:
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
-            payload = self._prepare_openai_payload(messages)
+            payload = self._prepare_openai_payload(messages, tools)
             parse_func = self._parse_openai_response
         
         # 发送请求
@@ -442,10 +597,18 @@ class LLMInterface:
             logger.error(f"LLM API 调用超时: {self.timeout}秒")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"LLM API 调用失败: {e}")
+            logger.error(
+                "LLM API 调用失败 endpoint=%s model=%s: %s",
+                endpoint,
+                self.model_name,
+                exc_detail(e),
+            )
             if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"响应状态码: {e.response.status_code}")
-                logger.error(f"响应内容: {e.response.text}")
+                logger.error(
+                    "HTTP 响应 status=%s body_prefix=%r",
+                    e.response.status_code,
+                    (e.response.text or "")[:1200],
+                )
             raise
     
     def generate_simple(self, prompt: str) -> str:
@@ -559,10 +722,18 @@ class LLMInterface:
             )
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"LLM API 调用失败: {e}")
+            logger.error(
+                "LLM API(with context) 失败 endpoint=%s model=%s: %s",
+                endpoint,
+                self.model_name,
+                exc_detail(e),
+            )
             if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"响应状态码: {e.response.status_code}")
-                logger.error(f"响应内容: {e.response.text}")
+                logger.error(
+                    "HTTP 响应 status=%s body_prefix=%r",
+                    e.response.status_code,
+                    (e.response.text or "")[:1200],
+                )
             raise
     
     def _save_token_usage_async(self, usage: Dict[str, int], platform: Optional[str] = None):
@@ -602,7 +773,7 @@ class LLMInterface:
                     platform=platform,
                 )
         except Exception as e:
-            logger.error(f"保存token使用量失败: {e}")
+            logger.error("保存 token 使用量失败: %s", exc_detail(e))
     
     async def _async_save_token_usage(self, prompt_tokens: int, completion_tokens: int, 
                                      total_tokens: int, platform: Optional[str] = None):
@@ -625,7 +796,7 @@ class LLMInterface:
                 platform=platform
             )
         except Exception as e:
-            logger.error(f"异步保存token使用量失败: {e}")
+            logger.error("异步保存 token 使用量失败: %s", exc_detail(e))
     
     def _extract_thinking_content(self, response_data: Dict[str, Any]) -> Optional[str]:
         """
@@ -660,7 +831,7 @@ class LLMInterface:
             return None
             
         except Exception as e:
-            logger.error(f"提取思维链内容失败: {e}")
+            logger.error("提取思维链内容失败: %s", exc_detail(e))
             return None
     
     def generate_with_token_tracking(
@@ -668,7 +839,8 @@ class LLMInterface:
         prompt: str, 
         system_prompt: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        platform: Optional[str] = None
+        platform: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> LLMResponse:
         """
         生成文本响应并跟踪token使用量。
@@ -678,6 +850,7 @@ class LLMInterface:
             system_prompt: 系统提示，用于指导模型行为
             conversation_history: 对话历史，格式为 [{"role": "user", "content": "..."}, ...]
             platform: 平台标识（可选）
+            tools: OpenAI 兼容 tools（仅 OpenAI 路径生效）
             
         Returns:
             LLMResponse: LLM 响应
@@ -686,7 +859,9 @@ class LLMInterface:
             ValueError: 如果 API 密钥未设置
             requests.exceptions.RequestException: 如果 API 调用失败
         """
-        response = self.generate(prompt, system_prompt, conversation_history)
+        response = self.generate(
+            prompt, system_prompt, conversation_history, tools=tools
+        )
         
         # 保存token使用量
         if response.usage:
@@ -697,17 +872,19 @@ class LLMInterface:
     def generate_with_context_and_tracking(
         self, 
         messages: List[Dict[str, Any]], 
-        platform: Optional[str] = None
-    ) -> Tuple[str, Optional[str]]:
+        platform: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> LLMResponse:
         """
         使用完整的 messages 数组生成回复，并跟踪token使用量。
         
         Args:
             messages: 完整的消息数组，包含 system、user、assistant 消息
             platform: 平台标识（可选）
+            tools: OpenAI 兼容 tools 列表（仅 OpenAI 路径生效；Anthropic 路径忽略）
             
         Returns:
-            Tuple[str, Optional[str]]: (模型正文, 思维链；无则 None)
+            LLMResponse: 含 content、可选 tool_calls、thinking 等
             
         Raises:
             ValueError: 如果 API 密钥未设置
@@ -726,11 +903,13 @@ class LLMInterface:
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
-            payload = self._prepare_openai_payload(messages)
+            payload = self._prepare_openai_payload(messages, tools)
             parse_func = self._parse_openai_response
         
-        # 发送请求
+        # 发送请求（带 tools 时为整段非流式等待，推理模型首轮可能很久；与流式读超时对齐）
         req_timeout = self._request_timeout_seconds(messages)
+        if tools:
+            req_timeout = max(req_timeout, config.LLM_STREAM_READ_TIMEOUT)
         logger.debug(
             f"调用 LLM API (with context and tracking): {endpoint}, 模型: {self.model_name}, "
             f"timeout={req_timeout}s"
@@ -756,7 +935,9 @@ class LLMInterface:
                 self._save_token_usage_async(llm_response.usage, platform)
             
             thinking_content = self._extract_thinking_content(response_data)
-            return llm_response.content, thinking_content
+            llm_response.thinking = thinking_content
+            
+            return llm_response
             
         except requests.exceptions.Timeout:
             mm = messages_contain_multimodal_images(messages)
@@ -767,22 +948,31 @@ class LLMInterface:
             )
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"LLM API 调用失败: {e}")
+            logger.error(
+                "LLM API(tracking) 失败 endpoint=%s model=%s: %s",
+                endpoint,
+                self.model_name,
+                exc_detail(e),
+            )
             if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"响应状态码: {e.response.status_code}")
-                logger.error(f"响应内容: {e.response.text}")
+                logger.error(
+                    "HTTP 响应 status=%s body_prefix=%r",
+                    e.response.status_code,
+                    (e.response.text or "")[:1200],
+                )
             raise
 
     def generate_stream(
         self,
         messages: List[Dict[str, Any]],
         platform: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Generator[Tuple[str, str], None, Dict[str, Any]]:
         """
         流式生成（仅 OpenAI 兼容 `chat/completions` + SSE）。
 
-        yield ``("thinking", chunk)``（`reasoning_content` / `thinking` delta）或
-        ``("content", chunk)``。
+        yield ``("thinking", chunk)``（delta 中 `reasoning_content` / `reasoning` / `thinking`，
+        或仅在末包 ``choices[0].message`` 中给出整段推理时补一次）或 ``("content", chunk)``。
 
         生成器返回值为
         ``{"content": str, "thinking": Optional[str], "usage": Optional[dict]}``。
@@ -794,9 +984,11 @@ class LLMInterface:
             raise ValueError("LLM_API_KEY 未设置，无法调用 LLM API")
 
         if self._use_anthropic_messages_api():
-            text, th = self.generate_with_context_and_tracking(
+            llm_resp = self.generate_with_context_and_tracking(
                 messages, platform=platform
             )
+            text = llm_resp.content
+            th = llm_resp.thinking
             if text:
                 yield ("content", text)
             return {
@@ -807,7 +999,7 @@ class LLMInterface:
 
         headers = self._prepare_headers()
         endpoint = f"{self.api_base}/chat/completions"
-        payload = self._prepare_openai_payload(messages)
+        payload = self._prepare_openai_payload(messages, tools)
         payload["stream"] = True
         req_timeout = self._request_timeout_seconds(messages)
         # 流式：timeout 元组 (连接, 读) —— 读超时指「两次 SSE 片段之间」最长等待，须大于推理间隙
@@ -824,66 +1016,143 @@ class LLMInterface:
         full_content: List[str] = []
         full_thinking: List[str] = []
         usage_out: Optional[Dict[str, int]] = None
+        tc_by_index: Dict[int, Dict[str, str]] = {}
 
-        with requests.post(
-            endpoint,
-            headers=headers,
-            json=payload,
-            stream=True,
-            timeout=(stream_connect, stream_read),
-        ) as resp:
-            resp.raise_for_status()
-            for raw_line in resp.iter_lines(decode_unicode=False):
-                if raw_line is None:
-                    continue
-                try:
-                    line = raw_line.decode("utf-8").strip()
-                except UnicodeDecodeError:
-                    line = raw_line.decode("utf-8", errors="replace").strip()
-                if not line or line.startswith(":"):
-                    continue
-                if not line.startswith("data:"):
-                    continue
-                data = line[5:].strip()
-                if data == "[DONE]":
-                    break
-                try:
-                    obj: Dict[str, Any] = json.loads(data)
-                except json.JSONDecodeError:
-                    logger.debug("流式跳过无法解析的行: %s", data[:200])
-                    continue
+        def _merge_tool_call_delta(tc: Dict[str, Any]) -> None:
+            if not isinstance(tc, dict):
+                return
+            try:
+                idx = int(tc.get("index", 0) or 0)
+            except (TypeError, ValueError):
+                idx = 0
+            slot = tc_by_index.setdefault(
+                idx, {"id": "", "name": "", "arguments": ""}
+            )
+            tid = tc.get("id")
+            if tid:
+                slot["id"] = str(tid)
+            fn = tc.get("function") if isinstance(tc.get("function"), dict) else {}
+            nm = fn.get("name")
+            if nm:
+                slot["name"] = str(nm)
+            arg = fn.get("arguments")
+            if arg is not None and arg != "":
+                slot["arguments"] = (slot["arguments"] or "") + (
+                    arg if isinstance(arg, str) else str(arg)
+                )
 
-                u = obj.get("usage")
-                if isinstance(u, dict):
-                    usage_out = u
-
-                choices = obj.get("choices") or []
-                if not choices:
+        def _delta_thinking_piece(d: Dict[str, Any]) -> Optional[str]:
+            for key in ("reasoning_content", "reasoning", "thinking"):
+                v = d.get(key)
+                if v is None or v == "":
                     continue
-                delta = choices[0].get("delta") or {}
-                if not isinstance(delta, dict):
-                    continue
+                return v if isinstance(v, str) else str(v)
+            return None
 
-                rc = delta.get("reasoning_content")
-                if rc:
-                    s = rc if isinstance(rc, str) else str(rc)
-                    full_thinking.append(s)
-                    yield ("thinking", s)
+        try:
+            with requests.post(
+                endpoint,
+                headers=headers,
+                json=payload,
+                stream=True,
+                timeout=(stream_connect, stream_read),
+            ) as resp:
+                if resp.status_code >= 400:
+                    body_prev = (resp.text or "")[:1200]
+                    logger.error(
+                        "上游 chat/completions 非 2xx: status=%s endpoint=%s body_prefix=%r",
+                        resp.status_code,
+                        endpoint,
+                        body_prev,
+                    )
+                    resp.raise_for_status()
+                for raw_line in resp.iter_lines(decode_unicode=False):
+                    if raw_line is None:
+                        continue
+                    try:
+                        line = raw_line.decode("utf-8").strip()
+                    except UnicodeDecodeError:
+                        line = raw_line.decode("utf-8", errors="replace").strip()
+                    if not line or line.startswith(":"):
+                        continue
+                    if not line.startswith("data:"):
+                        continue
+                    data = line[5:].strip()
+                    if data == "[DONE]":
+                        break
+                    try:
+                        obj: Dict[str, Any] = json.loads(data)
+                    except json.JSONDecodeError:
+                        logger.debug("流式跳过无法解析的行: %s", data[:200])
+                        continue
 
-                th = delta.get("thinking")
-                if th and not rc:
-                    s = th if isinstance(th, str) else str(th)
-                    full_thinking.append(s)
-                    yield ("thinking", s)
+                    u = obj.get("usage")
+                    if isinstance(u, dict):
+                        usage_out = u
 
-                piece = delta.get("content")
-                if piece:
-                    s = piece if isinstance(piece, str) else str(piece)
-                    full_content.append(s)
-                    yield ("content", s)
+                    choices = obj.get("choices") or []
+                    if not choices:
+                        continue
+                    choice0 = choices[0] if isinstance(choices[0], dict) else {}
+                    delta = choice0.get("delta")
+                    if not isinstance(delta, dict):
+                        delta = {}
+
+                    th_piece = _delta_thinking_piece(delta)
+                    if th_piece:
+                        full_thinking.append(th_piece)
+                        yield ("thinking", th_piece)
+
+                    piece = delta.get("content")
+                    if piece:
+                        s = piece if isinstance(piece, str) else str(piece)
+                        full_content.append(s)
+                        yield ("content", s)
+
+                    for tc in delta.get("tool_calls") or []:
+                        _merge_tool_call_delta(tc)
+
+                    # 部分网关只在最后一个 chunk 的 choices[0].message 里给整段推理，delta 无流式片段
+                    msg = choice0.get("message")
+                    if isinstance(msg, dict) and not full_thinking:
+                        th_msg = _delta_thinking_piece(msg)
+                        if th_msg:
+                            full_thinking.append(th_msg)
+                            yield ("thinking", th_msg)
+
+        except requests.exceptions.RequestException as e:
+            logger.error(
+                "LLM 流式异常（建连或读 SSE 中断，常见 SSL/代理/上游断开） "
+                "endpoint=%s model=%s timeout=(%s,%s)s: %s",
+                endpoint,
+                self.model_name,
+                stream_connect,
+                stream_read,
+                exc_detail(e),
+            )
+            raise
 
         content_str = "".join(full_content)
         thinking_str = "".join(full_thinking).strip() or None
+
+        tool_calls_out: Optional[List[Dict[str, Any]]] = None
+        if tc_by_index:
+            built: List[Dict[str, Any]] = []
+            for idx in sorted(tc_by_index.keys()):
+                slot = tc_by_index[idx]
+                if not (slot.get("name") or "").strip() and not (
+                    slot.get("id") or ""
+                ).strip():
+                    continue
+                built.append(
+                    {
+                        "id": slot.get("id") or "",
+                        "name": (slot.get("name") or "").strip(),
+                        "arguments": slot.get("arguments") or "{}",
+                    }
+                )
+            if built:
+                tool_calls_out = built
 
         if usage_out:
             self._save_token_usage_async(usage_out, platform)
@@ -892,6 +1161,7 @@ class LLMInterface:
             "content": content_str,
             "thinking": thinking_str,
             "usage": usage_out,
+            "tool_calls": tool_calls_out,
         }
     
     def generate_with_thinking(
@@ -899,7 +1169,8 @@ class LLMInterface:
         prompt: str, 
         system_prompt: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
-        platform: Optional[str] = None
+        platform: Optional[str] = None,
+        tools: Optional[List[Dict[str, Any]]] = None,
     ) -> Tuple[str, Optional[str]]:
         """
         生成文本响应，提取思维链内容。
@@ -943,7 +1214,7 @@ class LLMInterface:
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
-            payload = self._prepare_openai_payload(messages)
+            payload = self._prepare_openai_payload(messages, tools)
             parse_func = self._parse_openai_response
         
         # 发送请求
@@ -976,10 +1247,18 @@ class LLMInterface:
             logger.error(f"LLM API 调用超时: {self.timeout}秒")
             raise
         except requests.exceptions.RequestException as e:
-            logger.error(f"LLM API 调用失败: {e}")
+            logger.error(
+                "LLM API(with thinking) 失败 endpoint=%s model=%s: %s",
+                endpoint,
+                self.model_name,
+                exc_detail(e),
+            )
             if hasattr(e, 'response') and e.response is not None:
-                logger.error(f"响应状态码: {e.response.status_code}")
-                logger.error(f"响应内容: {e.response.text}")
+                logger.error(
+                    "HTTP 响应 status=%s body_prefix=%r",
+                    e.response.status_code,
+                    (e.response.text or "")[:1200],
+                )
             raise
 
 

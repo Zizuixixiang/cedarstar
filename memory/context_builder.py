@@ -259,7 +259,12 @@ def _retrieval_top_k() -> int:
 
 
 MEMORY_CITATION_DIRECTIVE = (
-    "如果你在生成回复时参考了上述历史记忆，必须在回复文本末尾标注引用，格式为 [[used:uid]]，可以有多个。"
+    "如果你在生成回复时参考了上述历史记忆，必须在回复文本末尾标注引用，格式为 [[used:uid]]（半角方括号、双括号），可以有多个。"
+    "禁止使用单括号 [used:…]、中文书名号【used:…】，否则无法被系统正确识别。"
+)
+
+THINKING_LANGUAGE_DIRECTIVE = (
+    "你的思维链（thinking / reasoning）必须使用中文。"
 )
 
 def _telegram_segment_limits_from_db() -> Tuple[int, int]:
@@ -301,7 +306,18 @@ def format_telegram_reply_segment_hint() -> str:
         "(4) 内容过多时\n"
         "优先压缩表达 → 只说重点 → 不突破段数上限。\n\n"
         "(5) 禁止\n"
-        "超长整段 / 机械平均切分 / 每段结构完全一致。"
+        "超长整段 / 机械平均切分 / 每段结构完全一致。\n\n"
+        "(5.1) 不要用 Markdown 引用语法「行首 >」把很多行都写成引用块，"
+        "也不要用整段 <blockquote>；在 Telegram 里会显示成一条条带竖线的引用样式，像公告一样很难看。\n"
+        "普通聊天用正常段落即可，需要强调用 <b> 等标签。\n\n"
+        "(6) 表情包\n"
+        "把表情包当作真人聊天里随手甩图，自然融入对话：配合当前话题、语气与情绪选用，"
+        "在调侃、吐槽、安慰、附和、庆祝等时机点缀即可；不必每条回复都发，一两张放在语气停顿或包袱之后，"
+        "比一串无关堆砌更合适；描述要写此刻真正想传达的情绪或梗，避免与正文脱节。\n"
+        "如果你想发表情包，在回复里写 [meme:描述]，描述用中文写你想要的情绪或内容，\n"
+        "例如：[meme:开心大笑] 或 [meme:无语翻白眼]。\n"
+        "[meme:…] 与 ||| 一样都是「顺序分隔符」：机器人会按从左到右依次发出每一段文字和每一条表情包，\n"
+        "写在前面的先发。可把表情包插在多段文字之间，例如：第一段||| [meme:开心] 第二段。"
     )
 
 
@@ -1151,7 +1167,7 @@ class ContextBuilder:
         组装完整的 system prompt。
 
         顺序：system → temporal_states → memory_cards → relationship_timeline
-        → daily → chunk → 长期记忆检索；末尾注入引用死命令。
+        → daily → chunk → 长期记忆检索；末尾注入引用死命令与思维链语言要求。
         """
         sections = [system_prompt]
 
@@ -1178,6 +1194,7 @@ class ContextBuilder:
             sections.append("以上是历史信息和用户记忆，请基于这些信息进行对话。")
 
         sections.append(MEMORY_CITATION_DIRECTIVE)
+        sections.append(THINKING_LANGUAGE_DIRECTIVE)
 
         return "\n\n".join(sections)
     
