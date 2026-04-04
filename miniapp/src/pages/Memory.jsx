@@ -414,7 +414,7 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
 /**
  * 长期记忆项组件
  */
-function LongTermMemoryItem({ memory, onDelete }) {
+function LongTermMemoryItem({ memory, onDelete, gcExemptHitsThreshold }) {
   const [showConfirm, setShowConfirm] = useState(false);
   
   const handleDelete = () => {
@@ -425,6 +425,10 @@ function LongTermMemoryItem({ memory, onDelete }) {
     onDelete(memory.id);
     setShowConfirm(false);
   };
+
+  const hitsNum = memory.hits != null ? Number(memory.hits) : null;
+  const isGcExempt = hitsNum != null && gcExemptHitsThreshold != null && hitsNum >= gcExemptHitsThreshold;
+  const arousalDisplay = memory.arousal != null ? Number(memory.arousal).toFixed(2) : null;
   
   if (showConfirm) {
     return (
@@ -448,17 +452,29 @@ function LongTermMemoryItem({ memory, onDelete }) {
   
   return (
     <div className="memory-item">
-      <div className="memory-summary">{memory.content}</div>
+      <div className="memory-summary">
+        {memory.content}
+        {isGcExempt && (
+          <span className="gc-exempt-badge" title={`引用次数 ${hitsNum} ≥ 阈值 ${gcExemptHitsThreshold}，已豁免自动删除`}>
+            🔒 免删
+          </span>
+        )}
+      </div>
       {memory.is_orphan ? (
         <div className="memory-orphan-hint">未同步到向量库（is_orphan）</div>
       ) : null}
       <div className="memory-detail-row memory-detail-row--chroma-stats">
         <span className="memory-meta-chip">
-          引用次数 hits：{memory.hits != null ? memory.hits : '—'}
+          引用次数 hits：{hitsNum != null ? hitsNum : '—'}
         </span>
         <span className="memory-meta-chip">
           半衰期 halflife_days：{memory.halflife_days != null ? memory.halflife_days : '—'}
         </span>
+        {arousalDisplay != null && (
+          <span className="memory-meta-chip">
+            情绪强度 arousal：{arousalDisplay}
+          </span>
+        )}
       </div>
       <div className="memory-detail-row memory-detail-row-single">
         最近访问 last_access_ts：
@@ -552,6 +568,7 @@ function Memory() {
   const [memoryCards, setMemoryCards] = useState({});
   const [longTermMemories, setLongTermMemories] = useState([]);
   const [toasts, setToasts] = useState([]);
+  const [gcExemptHitsThreshold, setGcExemptHitsThreshold] = useState(null);
   
   // 弹窗状态
   const [showEditModal, setShowEditModal] = useState(false);
@@ -724,7 +741,16 @@ function Memory() {
       setLoading(true);
       await Promise.all([
         loadMemoryCards(),
-        loadLongTermMemories()
+        loadLongTermMemories(),
+        fetch(apiUrl('/api/config/config'))
+          .then(r => r.json())
+          .then(d => {
+            if (d.success && d.data) {
+              const val = Number(d.data.gc_exempt_hits_threshold);
+              if (!Number.isNaN(val)) setGcExemptHitsThreshold(val);
+            }
+          })
+          .catch(() => {}),
       ]);
       setLoading(false);
     };
@@ -1108,6 +1134,7 @@ function Memory() {
                   key={memory.id}
                   memory={memory}
                   onDelete={handleDeleteMemory}
+                  gcExemptHitsThreshold={gcExemptHitsThreshold}
                 />
               ))
             )}

@@ -385,6 +385,23 @@ h2.memory-tab-header__title,
   font-size: 0.9rem;
 }
 
+.gc-exempt-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #2e7d55;
+  background: rgba(46, 125, 85, 0.10);
+  border: 1px solid rgba(46, 125, 85, 0.22);
+  vertical-align: middle;
+  white-space: nowrap;
+  cursor: default;
+}
+
 .delete-button {
   padding: 6px 12px;
   background: rgba(224, 112, 112, 0.1);

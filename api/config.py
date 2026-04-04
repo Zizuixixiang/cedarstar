@@ -39,6 +39,7 @@ DEFAULT_CONFIG = {
     "daily_batch_hour": 23,
     "relationship_timeline_limit": 3,
     "gc_stale_days": 180,
+    "gc_exempt_hits_threshold": 10,
     "retrieval_top_k": 5,
     "telegram_max_chars": 50,
     "telegram_max_msg": 8,

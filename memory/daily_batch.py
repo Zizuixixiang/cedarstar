@@ -132,6 +132,19 @@ def _gc_stale_days_threshold() -> float:
     return 180.0
 
 
+def _gc_exempt_hits_threshold() -> int:
+    """Step 5 GC hits 豁免阈值：优先 config 表 gc_exempt_hits_threshold，否则默认 10。"""
+    try:
+        raw = get_database().get_config("gc_exempt_hits_threshold")
+        if raw is not None and str(raw).strip() != "":
+            return max(0, int(str(raw).strip()))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 gc_exempt_hits_threshold 失败，使用默认 10: %s", e)
+    return 10
+
+
 def _score_to_halflife_days(score: int) -> int:
     """日终打分映射半衰期：8–10→600 天，4–7→200 天，1–3→30 天。"""
     if score >= 8:
@@ -814,37 +827,56 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             summary_text = daily_summary['summary_text']
             summary_id = daily_summary['id']
             
-            prompt = f"""请评估以下今日小传的长期保留价值，给出1-10分的评分（10分最高）：
-            
+            prompt = f"""请评估以下今日小传的长期保留价值，给出评分和情绪强度。
+
 今日小传内容：
 {summary_text}
 
-评分标准：
+评分标准（score，整数 1-10）：
 1-3分：日常琐事，没有长期参考价值
 4-6分：有一定参考价值，但信息较为普通
 7-8分：有价值的信息，值得长期保留
 9-10分：非常重要的信息，对长期记忆有显著价值
 
-请只返回一个整数分数（1-10），不要有其他文字。"""
+情绪强度（arousal，浮点数 0.0–1.0）：
+0.0–0.2：平静普通的一天，几乎无情绪波动
+0.3–0.6：有一定情绪起伏，但整体平稳
+0.7–1.0：情绪激烈的事件（争吵、重大喜讯、悲伤等）
+
+严格只返回 JSON，格式：{{"score": <整数>, "arousal": <浮点数>}}，不要有任何其他文字。"""
             
+            score = 5
+            arousal = 0.1
             try:
                 llm_resp = self.llm.generate_with_context_and_tracking(
                     [{"role": "user", "content": prompt}],
                     platform=Platform.BATCH,
                 )
-                score_text = llm_resp.content or ""
-                score_match = re.search(r'\b([1-9]|10)\b', score_text)
-                if score_match:
-                    score = int(score_match.group(1))
-                else:
-                    score = 5
+                score_text = (llm_resp.content or "").strip()
+                try:
+                    score_data = json.loads(score_text)
+                    if isinstance(score_data, dict):
+                        raw_score = score_data.get("score", 5)
+                        raw_arousal = score_data.get("arousal", 0.1)
+                        score = max(1, min(10, int(raw_score)))
+                        arousal = max(0.0, min(1.0, float(raw_arousal)))
+                    else:
+                        raise ValueError("not a dict")
+                except (json.JSONDecodeError, ValueError, TypeError):
+                    score_match = re.search(r'\b([1-9]|10)\b', score_text)
+                    score = int(score_match.group(1)) if score_match else 5
+                    arousal_match = re.search(r'"arousal"\s*:\s*([0-9]*\.?[0-9]+)', score_text)
+                    if arousal_match:
+                        arousal = max(0.0, min(1.0, float(arousal_match.group(1))))
                     logger.warning(
-                        f"无法从LLM响应中提取分数，使用默认值: {score}, 响应: {score_text}"
+                        "无法完整解析打分 JSON，回退提取: score=%s arousal=%s, 原始: %s",
+                        score, arousal, score_text[:200],
                     )
-                logger.info(f"今日小传价值分: {score}/10")
+                logger.info(f"今日小传价值分: {score}/10, arousal: {arousal:.2f}")
             except Exception as e:
                 logger.error(f"LLM 价值打分失败: {e}")
                 score = 5
+                arousal = 0.1
             
             halflife = _score_to_halflife_days(score)
             parent_doc_id = build_daily_summary_doc_id(batch_date)
@@ -862,6 +894,7 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
                 "summary_id": str(summary_id),
                 "base_score": float(score),
                 "halflife_days": halflife,
+                "arousal": float(arousal),
             }
             
             if not add_memory(parent_doc_id, summary_text, base_meta):
@@ -915,6 +948,7 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
                     "summary_id": str(summary_id),
                     "base_score": float(score),
                     "halflife_days": halflife,
+                    "arousal": float(arousal),
                     "parent_id": parent_doc_id,
                 }
                 if not add_memory(eid, frag, em):
@@ -937,13 +971,15 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             return False, str(e)
     
     async def _step5_chroma_gc(self, batch_date: str) -> Tuple[bool, Optional[str]]:
-        """Step 5 - Chroma 向量记忆 GC（衰减 + 闲置天数阈值 + 无子节点）。"""
+        """Step 5 - Chroma 向量记忆 GC（衰减 + 闲置天数阈值 + 无子节点 + hits 豁免）。"""
         try:
             idle_days = _gc_stale_days_threshold()
+            exempt_hits = _gc_exempt_hits_threshold()
             n = garbage_collect_stale_memories(
                 idle_days_threshold=idle_days,
                 strength_threshold=0.05,
                 scan_limit=10000,
+                exempt_hits_threshold=exempt_hits,
             )
             logger.info(f"Step 5 GC 删除 {n} 条，日期: {batch_date}")
             return True, None

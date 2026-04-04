@@ -312,8 +312,8 @@ def format_telegram_reply_segment_hint() -> str:
         "普通聊天用正常段落即可，需要强调用 <b> 等标签。\n\n"
         "(6) 表情包\n"
         "把表情包当作真人聊天里随手甩图，自然融入对话：配合当前话题、语气与情绪选用，"
-        "在调侃、吐槽、安慰、附和、庆祝等时机点缀即可；不必每条回复都发，一两张放在语气停顿或包袱之后，"
-        "比一串无关堆砌更合适；描述要写此刻真正想传达的情绪或梗，避免与正文脱节。\n"
+        "在调侃、吐槽、安慰、附和、庆祝等时机点缀即可；不必每轮回复都发，一两张放在语气停顿或包袱之后，"
+        "比一串无关堆砌更合适；也可以什么表情包都不发；描述要写此刻真正想传达的情绪或梗，避免与正文脱节。\n"
         "如果你想发表情包，在回复里写 [meme:描述]，描述用中文写你想要的情绪或内容，\n"
         "例如：[meme:开心大笑] 或 [meme:无语翻白眼]。\n"
         "[meme:…] 与 ||| 一样都是「顺序分隔符」：机器人会按从左到右依次发出每一段文字和每一条表情包，\n"
@@ -440,7 +440,13 @@ def _decay_resurrection_raw(metadata: Dict[str, Any], age_days: float) -> float:
     except (TypeError, ValueError):
         hits = 0
     hits = max(0, hits)
-    exp_part = math.exp(-math.log(2) / float(hl) * age_days)
+    try:
+        arousal = float(md.get("arousal") or 0.1)
+        arousal = max(0.0, min(1.0, arousal))
+    except (TypeError, ValueError):
+        arousal = 0.1
+    effective_hl = float(hl) * (1.0 + arousal)
+    exp_part = math.exp(-math.log(2) / effective_hl * age_days)
     return base * exp_part * (1.0 + 0.35 * math.log(1 + hits))
 
 

@@ -186,6 +186,7 @@ metadata:
   summary_type     固定为 "daily"
   base_score       大模型原始打分（1-10）
   halflife_days    映射出的初始半衰期（1–3 分→30 天，4–7 分→200 天，8–10 分→600 天）
+  arousal          情绪强度（float，0.0–1.0；平静约 0.1，情绪激烈事件约 0.8+）
   hits             初始值 0
   last_access_ts   初始值为入库时间戳（float）
 ```
@@ -203,6 +204,7 @@ metadata:
   event_type       highlight / rant / milestone / health 等
   base_score       按单条事件独立打分
   halflife_days
+  arousal          继承自当日 daily 的 arousal 值（float，0.0–1.0）
   hits             初始值 0
   last_access_ts   初始值为入库时间戳（float）
 ```
@@ -235,6 +237,7 @@ metadata:
 | `daily_batch_hour` | 23 | 东八区日终跑批整点（0–23） |
 | `relationship_timeline_limit` | 3 | 关系时间线注入条数 |
 | `gc_stale_days` | 180 | Step 5 GC：`last_access_ts` 闲置天数阈值 |
+| `gc_exempt_hits_threshold` | 10 | Step 5 GC：hits 豁免阈值；达到此值的记忆跳过所有删除条件 |
 | `retrieval_top_k` | 5 | 向量路 / BM25 路各自粗排条数 |
 
 ---
@@ -309,10 +312,12 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 最终得分 = (语义相似度归一化 × 0.8) + (时间衰减复活得分 × 0.2)
 
 衰减复活得分计算：
-  age_days     = (当前时间 - last_access_ts) / 86400
-  base         = clamp(base_score, 0, 10)
-  boost        = 1 + 0.35 × ln(1 + hits)
-  decay_score  = base × exp(-ln(2) / halflife_days × age_days) × boost
+  age_days        = (当前时间 - last_access_ts) / 86400
+  base            = clamp(base_score, 0, 10)
+  boost           = 1 + 0.35 × ln(1 + hits)
+  arousal         = metadata.arousal ?? 0.1          # 历史数据无此字段时兜底 0.1
+  effective_hl    = halflife_days × (1 + arousal)    # arousal 越高半衰期越长，记忆消退越慢
+  decay_score     = base × exp(-ln(2) / effective_hl × age_days) × boost
   → 归一化后参与融合
 ```
 
@@ -431,12 +436,16 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ### Step 4：长期记忆全量入库（ChromaDB Insert）
 
-对今日小传进行价值打分（1-10 分），映射 `halflife_days`。
+对今日小传进行价值打分，prompt 要求模型同时输出两个字段：
+- `score`（整数 1–10）：长期保留价值
+- `arousal`（浮点 0.0–1.0）：情绪强度，不分正负；平静普通的一天约 0.1，情绪激烈的事件约 0.8+；**必须为 float，不可输出字符串**
+
+`halflife_days` 由 `score` 映射；`arousal` 直接写入 metadata（`float(arousal)` 确保类型正确）。
 
 **轨道一：daily 入库**
 ```
 doc_id: daily_{batch_date}
-写入今日小传全文 + 完整 metadata（含 hits=0，last_access_ts=当前时间戳）
+写入今日小传全文 + 完整 metadata（含 hits=0，last_access_ts=当前时间戳，arousal=float）
 ```
 
 **轨道二：event 片段拆分入库**
@@ -457,15 +466,19 @@ doc_id: daily_{batch_date}
 
 查询 ChromaDB，提取 `last_access_ts` 距今超过 **T** 天的记录（**T=`gc_stale_days`**，默认 **180**，优先 SQLite `config`）。
 
-在内存中试算当前衰减得分，满足以下**全部条件**才执行物理删除：
+在内存中逐条判断，**前置豁免优先**，随后依次检查三条删除条件：
 
 ```
-条件一：衰减得分 < 0.05
-条件二：last_access_ts 距今超过 T 天（T 可配置，默认 180）
+前置豁免：hits >= gc_exempt_hits_threshold（T_hits，优先 SQLite config，默认 10）→ 跳过，不删
+
+条件一：last_access_ts 距今超过 T 天（T 可配置，默认 180）
+条件二：衰减得分 < 0.05
 条件三：没有以此 doc_id 为 parent_id 的存活子节点
+
+以上四项全部满足（豁免不触发 + 三条全中）才执行物理删除。
 ```
 
-条件三防止孤儿记录：只要有任何一个 event 片段还活着，当天的 daily 就不会被 GC 删除。
+条件三防止孤儿记录：只要有任何一个 event 片段还活着，当天的 daily 就不会被 GC 删除。hits 豁免确保被高频引用的记忆永久留存。
 
 更新 `step5_status=1`。
 
@@ -492,6 +505,8 @@ doc_id: daily_{batch_date}
 | doc_id 作为 ChromaDB 主键 | 反写时 O(1) 直接更新，禁止 metadata 过滤查询 |
 | parent_id 软引用 | 父节点被 GC 删除后静默降级，不产生孤儿报错 |
 | GC 跳过有存活子节点的父 | 防止有价值的 event 片段失去溯源能力 |
+| arousal 字段 | 记录情绪强度（独立于正负效价）；高 arousal 事件半衰期自动延长，不易被时间淹没 |
+| hits 豁免 GC | 被反复引用说明有持续价值，不应因时间衰减被物理删除；避免「热门记忆」被误 GC |
 | temporal_states 独立表 | 时效信息需要到期自动归档，不能和长期记忆混存 |
 | relationship_timeline 追加不覆盖 | 关系进展有时序，合并会压平时间线 |
 | System Prompt 人工维护 | 全自动更新导致人格悄无声息漂移 |

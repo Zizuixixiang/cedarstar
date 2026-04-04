@@ -235,6 +235,7 @@ def migrate_database_schema(cursor: sqlite3.Cursor) -> None:
         [
             ("telegram_max_chars", "50"),
             ("telegram_max_msg", "8"),
+            ("gc_exempt_hits_threshold", "10"),
         ],
     )
 

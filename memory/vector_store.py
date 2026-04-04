@@ -491,11 +491,12 @@ class VectorStore:
         idle_days_threshold: float = 90.0,
         strength_threshold: float = 0.05,
         scan_limit: int = 10000,
+        exempt_hits_threshold: int = 10,
     ) -> int:
         """
         回收长期未访问且衰减后强度极低的向量记忆。
 
-        仅当同时满足：距 last_access_ts 已满 idle_days_threshold 天、
+        仅当同时满足：hits 未达到豁免阈值、距 last_access_ts 已满 idle_days_threshold 天、
         decayed_memory_strength < strength_threshold、且不存在其他文档以本 id 为 parent_id 时，
         才物理删除（collection.delete(ids=...)）。
         """
@@ -515,6 +516,9 @@ class VectorStore:
         for m in memories:
             doc_id = m["id"]
             md = m.get("metadata") or {}
+            hits = int(md.get("hits") or 0)
+            if hits >= exempt_hits_threshold:
+                continue
             try:
                 last_ts = float(md.get("last_access_ts", 0))
             except (TypeError, ValueError):
@@ -614,10 +618,11 @@ def garbage_collect_stale_memories(
     idle_days_threshold: float = 90.0,
     strength_threshold: float = 0.05,
     scan_limit: int = 10000,
+    exempt_hits_threshold: int = 10,
 ) -> int:
     store = get_vector_store()
     return store.garbage_collect_stale_memories(
-        idle_days_threshold, strength_threshold, scan_limit
+        idle_days_threshold, strength_threshold, scan_limit, exempt_hits_threshold
     )
 
 

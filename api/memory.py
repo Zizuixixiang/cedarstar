@@ -94,6 +94,7 @@ def _annotate_longterm_chroma_stats(result: Dict[str, Any]) -> Dict[str, Any]:
                 "hits": None,
                 "halflife_days": None,
                 "last_access_ts": None,
+                "arousal": None,
             }
         else:
             md = meta_by_id.get(cid) or {}
@@ -104,11 +105,19 @@ def _annotate_longterm_chroma_stats(result: Dict[str, Any]) -> Dict[str, Any]:
                     last_ts = float(lat)
                 except (TypeError, ValueError):
                     last_ts = None
+            raw_arousal = md.get("arousal")
+            arousal_val: Optional[float] = None
+            if raw_arousal is not None:
+                try:
+                    arousal_val = float(raw_arousal)
+                except (TypeError, ValueError):
+                    arousal_val = None
             d = {
                 **d,
                 "hits": _safe_int(md.get("hits"), 0),
                 "halflife_days": _safe_int(md.get("halflife_days"), 30),
                 "last_access_ts": last_ts,
+                "arousal": arousal_val,
             }
         items_out.append(d)
     return {**result, "items": items_out}

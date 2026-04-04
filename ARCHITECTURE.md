@@ -290,7 +290,15 @@ cedarstar/                          # 项目根目录
 8. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`；**`format_user_message_for_context`**：先输出去掉图片/贴纸/语音结构行后的**纯文字**；再按 **`media_type.split(",")` 的顺序**依次调用 `_format_image_part` / `_format_sticker_part` / `_format_voice_part`（主函数仅路由）；**`media_type='reaction'`** 时由 **`_format_reaction_part`** 原样返回 `content`（Bot 已拼好完整语义）。`image_caption` 在 `_format_image_part` 中按**单字符串**处理（未来多图可升级为 JSON 数组）。旧行若无 `media_type`，则按正文出现顺序推断 `image`/`sticker`/`voice`
 9. 当前用户消息（可选多模态：`build_context(session_id, user_message, images=..., llm_user_text=...)`，`images` 非空时由 `build_user_multimodal_content` 组装最后一轮 user content）
 
-**精排（仅异步路径）：** 并行双路检索并折叠后，对剩余候选调用 Cohere 得到语义相关分；对每条再算时间衰减复活分 `base_score × exp(-ln(2)/halflife_days × age_days) × (1 + 0.35×ln(1+hits))`（`age_days` 优先由 metadata `created_at` 推算，否则由 `last_access_ts`）；两路分数各自在当批候选内 min-max 归一化后按 **0.8×语义 + 0.2×衰减** 综合得分排序，取 top 2 写入 context。
+**精排（仅异步路径）：** 并行双路检索并折叠后，对剩余候选调用 Cohere 得到语义相关分；对每条再算时间衰减复活分（`age_days` 优先由 metadata `created_at` 推算，否则由 `last_access_ts`）：
+
+```
+arousal          = clamp(metadata.arousal ?? 0.1, 0.0, 1.0)   # 历史数据无此字段时兜底 0.1
+effective_hl     = halflife_days × (1 + arousal)               # arousal 越高半衰期越长
+decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 0.35 × ln(1 + hits))
+```
+
+两路分数各自在当批候选内 min-max 归一化后按 **0.8×语义 + 0.2×衰减** 综合得分排序，取 top 2 写入 context。
 
 **边界：**
 - 同步版 `build_context()`：双路检索 + 父子折叠，无 Cohere；长期记忆块标题为「双路检索结果」
@@ -329,8 +337,8 @@ cedarstar/                          # 项目根目录
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | 将 Step 1 输出附在 prompt 开头，合并今日 chunk 摘要，调用 SUMMARY LLM 生成今日小传（`summary_type='daily'`） |
 | Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则调用模型合并去重后 `UPDATE`，合并失败时 fallback 为追加写入**；结束时再调 SUMMARY LLM 判断是否写入 `relationship_timeline`（含 Step 1 结算的时效事件），有则 `INSERT` |
-| Step 4 | 主 LLM 打分（1-10，`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；**全量**向量化入库（不再按分数跳过）。`halflife_days`：8–10→600，4–7→200，1–3→30。先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`，metadata 含 `parent_id` 指向当日主文档；增量更新 BM25；事件拆分再走 SUMMARY 路径（同上，`BATCH`） |
-| Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — 闲置天数阈值优先 SQLite `gc_stale_days`（默认 180），半衰期衰减得分 \<0.05、且无子文档以该 `doc_id` 为 `parent_id` 时物理删除 |
+| Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
+| Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 SQLite `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
 **Step 3 实现要点（与代码一致）：**
 - **维度 JSON：** 对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则。
@@ -452,7 +460,7 @@ cedarstar/                          # 项目根目录
 
 **Persona 页（`Persona.jsx` / `persona.css`）：** 右侧 System Prompt 预览区使用 `position: sticky`（配合 `align-self: flex-start`、`max-height` 与预览正文区域内部滚动），主内容区纵向滚动时预览与「复制全文」仍留在视口内，便于对照长表单编辑。「系统规则」区块下含 **Telegram HTML 格式化** 提示（与 `bot/telegram_bot.py` 正文 `parse_mode=HTML` 一致）。
 
-**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 120px)`（可按主内容区 padding 微调）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据（hits、halflife 等）用 **`.memory-meta-chip`** 展示；顶部 Tab 使用 **`.memory-tabs button.memory-tab`** 暖橙选中样式。均为前端布局/样式，**接口与数据字段不变**。
+**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 120px)`（可按主内容区 padding 微调）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab 使用 **`.memory-tabs button.memory-tab`** 暖橙选中样式。
 
 **History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。
 
@@ -531,9 +539,10 @@ asyncio 定时器（东八区 `daily_batch_hour` 整点，默认 23:00）
   │    SummaryLLMInterface（维度 JSON + 时间轴 JSON）     │
   ├─────────────────────────────────────────────────────┤
   │  Step 4：主 LLM 打分（`Platform.BATCH`）+ 全量 Chroma   │
+  │    prompt 输出 score + arousal；metadata 含 arousal    │
   │    vector_store.add_memory / bm25 增量                │
   ├─────────────────────────────────────────────────────┤
-  │  Step 5：Chroma GC（衰减 + gc_stale_days 未访问 + 无子节点） │
+  │  Step 5：Chroma GC（hits 豁免 + 衰减 + 未访问 + 无子节点）  │
   └─────────────────────────────────────────────────────┘
 ```
 
@@ -746,6 +755,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 - `daily_batch_hour`：东八区日终跑批整点小时 0–23（默认 23）；`memory/daily_batch.py` 定时循环每次睡眠前读库
 - `relationship_timeline_limit`：关系时间线注入条数（默认 3）
 - `gc_stale_days`：Step 5 Chroma GC 闲置天数阈值（默认 180）
+- `gc_exempt_hits_threshold`：Step 5 GC hits 豁免阈值（默认 10）；`hits` 达到此值的记忆无论衰减分多低都不会被物理删除
 - `retrieval_top_k`：向量与 BM25 各路召回候选数（默认 5）
 - `telegram_max_chars`：Telegram 正文分段提示词中的 **MAX_CHARS**（默认 50；`api/config.py` 校验 10–1000 且对齐步长 10）；`context_builder.format_telegram_reply_segment_hint()` 读库注入 system
 - `telegram_max_msg`：同上 **MAX_MSG**（默认 8；校验 1–20）
