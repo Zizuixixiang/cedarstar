@@ -104,10 +104,10 @@ logger = logging.getLogger(__name__)
 TIMEZONE = pytz.timezone("Asia/Shanghai")
 
 
-def _daily_batch_trigger_hour() -> int:
+async def _daily_batch_trigger_hour() -> int:
     """日终跑批触发小时（0–23）：优先 config 表 daily_batch_hour，否则默认 23。"""
     try:
-        raw = get_database().get_config("daily_batch_hour")
+        raw = await get_database().get_config("daily_batch_hour")
         if raw is not None and str(raw).strip() != "":
             h = int(str(raw).strip())
             if 0 <= h <= 23:
@@ -119,10 +119,10 @@ def _daily_batch_trigger_hour() -> int:
     return 23
 
 
-def _gc_stale_days_threshold() -> float:
+async def _gc_stale_days_threshold() -> float:
     """Step 5 GC 闲置天数阈值：优先 config 表 gc_stale_days，否则默认 180。"""
     try:
-        raw = get_database().get_config("gc_stale_days")
+        raw = await get_database().get_config("gc_stale_days")
         if raw is not None and str(raw).strip() != "":
             return max(1.0, float(str(raw).strip()))
     except (ValueError, TypeError):
@@ -132,10 +132,10 @@ def _gc_stale_days_threshold() -> float:
     return 180.0
 
 
-def _gc_exempt_hits_threshold() -> int:
+async def _gc_exempt_hits_threshold() -> int:
     """Step 5 GC hits 豁免阈值：优先 config 表 gc_exempt_hits_threshold，否则默认 10。"""
     try:
-        raw = get_database().get_config("gc_exempt_hits_threshold")
+        raw = await get_database().get_config("gc_exempt_hits_threshold")
         if raw is not None and str(raw).strip() != "":
             return max(0, int(str(raw).strip()))
     except (ValueError, TypeError):
@@ -165,8 +165,8 @@ class DailyBatchProcessor:
         """
         初始化日终跑批处理器。
         """
-        # 创建 LLM 接口
-        self.llm = LLMInterface()
+        # LLM 接口在 run_daily_batch 中异步初始化（await LLMInterface.create()）
+        self.llm: Optional[LLMInterface] = None
         self.summary_llm = SummaryLLMInterface()
         self._settled_temporal_snippets: List[str] = []
         
@@ -195,6 +195,9 @@ class DailyBatchProcessor:
         """
         self._settled_temporal_snippets = []
         try:
+            # 异步初始化 LLM 接口（读取最新激活配置）
+            self.llm = await LLMInterface.create()
+
             if batch_date is None:
                 batch_date = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
             
@@ -597,20 +600,11 @@ class DailyBatchProcessor:
             try:
                 from memory.database import get_database
                 db = get_database()
-                with __import__('sqlite3').connect(db.db_path) as conn:
-                    conn.row_factory = __import__('sqlite3').Row
-                    cursor = conn.cursor()
-                    cursor.execute("""
-                        SELECT DISTINCT user_id, character_id
-                        FROM messages
-                        WHERE DATE(created_at) = ?
-                          AND user_id IS NOT NULL
-                          AND user_id != ''
-                          AND role = 'user'
-                    """, (batch_date,))
-                    user_rows = cursor.fetchall()
-                    user_character_pairs = [(row['user_id'], row['character_id']) for row in user_rows
-                                            if row['user_id'] and row['character_id']]
+                user_rows = await db.get_today_user_character_pairs(batch_date)
+                user_character_pairs = [
+                    (row['user_id'], row['character_id']) for row in user_rows
+                    if row['user_id'] and row['character_id']
+                ]
             except Exception as e:
                 logger.warning(f"查询今日用户列表失败，使用默认值: {e}")
                 user_character_pairs = []
@@ -973,8 +967,8 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
     async def _step5_chroma_gc(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """Step 5 - Chroma 向量记忆 GC（衰减 + 闲置天数阈值 + 无子节点 + hits 豁免）。"""
         try:
-            idle_days = _gc_stale_days_threshold()
-            exempt_hits = _gc_exempt_hits_threshold()
+            idle_days = await _gc_stale_days_threshold()
+            exempt_hits = await _gc_exempt_hits_threshold()
             n = garbage_collect_stale_memories(
                 idle_days_threshold=idle_days,
                 strength_threshold=0.05,
@@ -1006,7 +1000,7 @@ async def schedule_daily_batch():
             # 获取当前时间（东八区）
             now = datetime.now(TIMEZONE)
             
-            hour = _daily_batch_trigger_hour()
+            hour = await _daily_batch_trigger_hour()
             # 计算到下一次触发整点的时间差
             target_time = now.replace(hour=hour, minute=0, second=0, microsecond=0)
 

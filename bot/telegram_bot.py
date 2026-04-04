@@ -193,13 +193,14 @@ async def _schedule_rescan_timeout(bot, session_id: str, chat_id: int) -> None:
     _rescan_timeout_tasks[session_id] = asyncio.create_task(_run())
 
 
-def _sync_describe_sticker_vision(b64: str, mime_type: str) -> str:
+def _sync_describe_sticker_vision(b64: str, mime_type: str,
+                                   _db_cfg: Optional[Dict[str, Any]] = None) -> str:
     """同步调用 vision 配置，供 asyncio.to_thread 使用。"""
     prompt = (
         "请用40字以内描述这张贴纸的含义和情绪，\n"
         "如果图片中有文字请原样引用，不要描述技术细节"
     )
-    llm = LLMInterface(config_type="vision")
+    llm = LLMInterface(config_type="vision", _db_cfg=_db_cfg)
     imgs = [{"type": "image", "data": b64, "mime_type": mime_type}]
     content = build_user_multimodal_content(
         llm.api_base, llm.model_name, prompt, imgs
@@ -296,7 +297,7 @@ class TelegramBot:
             context: 上下文对象
         """
         # 动态创建以读取最新激活配置
-        current_llm = LLMInterface()
+        current_llm = await LLMInterface.create()
         model_info = (
             f"🤖 当前模型: {current_llm.model_name}\n"
             f"📊 最大 token: {current_llm.max_tokens}\n"
@@ -604,8 +605,13 @@ class TelegramBot:
                     raise ValueError("sticker file too large")
                 mime = _sticker_mime_from_path(tg_file.file_path or "")
                 b64 = base64.b64encode(raw).decode("ascii")
+                try:
+                    from memory.database import get_database as _gdb
+                    _vision_db_cfg = await _gdb().get_active_api_config("vision")
+                except Exception:
+                    _vision_db_cfg = None
                 text = await asyncio.to_thread(
-                    _sync_describe_sticker_vision, b64, mime
+                    _sync_describe_sticker_vision, b64, mime, _vision_db_cfg
                 )
                 if text:
                     desc = text
@@ -1313,7 +1319,7 @@ class TelegramBot:
             if not messages:
                 messages = [{"role": "user", "content": combined_content}]
 
-            llm = LLMInterface()
+            llm = await LLMInterface.create()
 
             logger.info(
                 "为缓冲区生成回复（流式）: session_id=%s, context 消息数量=%s",
@@ -1528,7 +1534,7 @@ class TelegramBot:
             if not messages:
                 messages = [{"role": "user", "content": content}]
 
-            llm = LLMInterface()
+            llm = await LLMInterface.create()
 
             def _call() -> Any:
                 return llm.generate_with_context_and_tracking(

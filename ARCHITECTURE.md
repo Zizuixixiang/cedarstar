@@ -21,7 +21,7 @@
 CedarStar 是一个具备**长期记忆能力**的 AI 聊天机器人系统，支持 Discord 和 Telegram 双平台接入。系统通过分层记忆架构（短期消息缓冲 → 微批摘要 → 日终小传 → 向量长期记忆）实现跨会话的持久化记忆，并提供一个 React 管理后台（Mini App）用于可视化管理。
 
 **技术栈：**
-- 后端：Python / FastAPI / SQLite / ChromaDB
+- 后端：Python / FastAPI / PostgreSQL（asyncpg 连接池）/ ChromaDB
 - 机器人：discord.py / python-telegram-bot
 - LLM：OpenAI 兼容 API / Anthropic Claude（可配置）
 - Embedding：长期记忆用智谱 AI embedding-3（1024 维）；表情包 Chroma 集合 `meme_pack` 用硅基流动 BAAI/bge-m3（与主记忆隔离）
@@ -40,7 +40,7 @@ cedarstar/                          # 项目根目录
 ├── README.md                       # 项目简介、技术栈、简略目录与「规划中」模块说明
 ├── start_bot.py                    # 备用启动脚本（校验配置 → 阻塞重建 BM25 → 仅启动 Discord Bot）
 ├── .env                            # 环境变量配置文件（不入库）
-├── cedarstar.db                    # SQLite 数据库文件（运行时生成）
+├── cedarstar.db                    # SQLite 数据库文件（已迁移至 PostgreSQL，此文件仅作历史备份参考）
 ├── cedarstar.log                   # 运行日志文件（运行时生成）
 ├── PROGRESS.md                     # 开发进度记录文档
 │
@@ -48,7 +48,7 @@ cedarstar/                          # 项目根目录
 │   ├── router.py                   # API 路由汇总，统一注册所有子路由
 │   ├── dashboard.py                # 控制台概览接口（Bot 状态、记忆概览、批处理日志）
 │   ├── persona.py                  # 人设配置 CRUD 接口
-│   ├── memory.py                   # 记忆管理接口（记忆卡片 + 长期记忆：先 Chroma 后 SQLite 写入，列表含 is_orphan）
+│   ├── memory.py                   # 记忆管理接口（记忆卡片 + 长期记忆：先 Chroma 后数据库写入，列表含 is_orphan）
 │   ├── history.py                  # 对话历史查询接口（支持平台/关键词/日期过滤+分页）
 │   ├── logs.py                     # 系统日志查询接口（支持平台/级别/关键词过滤+分页）
 │   ├── config.py                   # 助手运行参数配置接口；GET/PUT 成功时 data 含 _meta.updated_at（见 §5.7）
@@ -72,7 +72,7 @@ cedarstar/                          # 项目根目录
 │
 ├── memory/                         # 记忆系统层（核心模块）
 │   ├── __init__.py                 # 包初始化文件
-│   ├── database.py                 # SQLite 数据库封装（MessageDatabase 类 + 全局单例 + 便捷函数）
+│   ├── database.py                 # PostgreSQL 数据库封装（asyncpg 连接池 + MessageDatabase 类 + 全局单例 + 便捷函数）
 │   ├── context_builder.py          # Context 组装器（system + 时效状态 + 记忆卡片 + 关系时间线 + 摘要 + 折叠/精排长期记忆 + 近期消息）
 │   ├── micro_batch.py              # 微批处理（消息达阈值时异步生成 chunk 摘要）
 │   ├── daily_batch.py              # 日终跑批（东八区 `daily_batch_hour` 整点，默认 23:00；五步：时效→小传→卡片/时间轴→向量→Chroma GC）
@@ -80,7 +80,7 @@ cedarstar/                          # 项目根目录
 │   ├── meme_store.py               # 表情包专用 Chroma 集合 `meme_pack`（与主记忆隔离；写入/查询用显式向量，硅基流动 BAAI/bge-m3）
 │   ├── bm25_retriever.py           # BM25 关键词检索（jieba 分词 + rank_bm25，内存缓存索引）
 │   ├── reranker.py                 # Cohere Rerank 重排器（异步，对双路检索结果重排序）
-│   └── async_log_handler.py        # 异步日志处理器（将日志写入 SQLite logs 表）
+│   └── async_log_handler.py        # 异步日志处理器（将日志写入数据库 logs 表）
 │
 ├── services/                       # 外部服务集成层（待开发）
 │   ├── __init__.py                 # 包初始化文件
@@ -169,11 +169,11 @@ cedarstar/                          # 项目根目录
 | `ZHIPU_API_KEY` | 智谱 Embedding API 密钥 |
 | `SILICONFLOW_API_KEY` | 硅基流动 API 密钥兜底：表情包向量在 **`api_configs` 已激活 `embedding` 行且 `api_key` 非空时仅用库内 key**；否则读此项（`config.py` → `.env`） |
 | `COHERE_API_KEY` | Cohere Rerank API 密钥 |
-| `DATABASE_URL` | SQLite 数据库路径 |
+| `DATABASE_URL` | PostgreSQL 连接 DSN（asyncpg 格式，如 `postgresql://user:pass@host/db`）；未设置时返回空字符串 |
 | `CHROMADB_PERSIST_DIR` | ChromaDB 本地存储目录 |
-| `MICRO_BATCH_THRESHOLD` | 微批触发阈值**兜底**：当 SQLite `config.chunk_threshold` 未配置或无效时使用（默认 50 条） |
-| `MESSAGE_BUFFER_DELAY` | 消息缓冲等待时间（默认 5 秒）；**主路径**为 SQLite `config.buffer_delay`（见 `bot/message_buffer.py`） |
-| `CONTEXT_MAX_RECENT_MESSAGES` | Context 最近原文条数**兜底**：当 SQLite `config.short_term_limit` 未配置或无效时使用（默认 40 条） |
+| `MICRO_BATCH_THRESHOLD` | 微批触发阈值**兜底**：当数据库 `config.chunk_threshold` 未配置或无效时使用（默认 50 条） |
+| `MESSAGE_BUFFER_DELAY` | 消息缓冲等待时间（默认 5 秒）；**主路径**为数据库 `config.buffer_delay`（见 `bot/message_buffer.py`） |
+| `CONTEXT_MAX_RECENT_MESSAGES` | Context 最近原文条数**兜底**：当数据库 `config.short_term_limit` 未配置或无效时使用（默认 40 条） |
 | `CONTEXT_MAX_DAILY_SUMMARIES` | Context 中每日摘要数（默认 5 条） |
 | `DEFAULT_CHARACTER_ID` | 无有效激活 `chat` 行 `persona_id` 时的 `messages.character_id` 兜底（默认 `sirius`）；**Telegram 反应**落库走此路径，不经 `LLMInterface` |
 
@@ -188,7 +188,7 @@ cedarstar/                          # 项目根目录
 - 写入 `messages.character_id`：**主对话（缓冲 flush）路径**使用**同一次请求**创建的 `LLMInterface.character_id`（来自当前激活 `chat` 配置中的 `persona_id`，解析逻辑与 `get_active_api_config('chat')` 一致；无有效 `persona_id` 时实例内兜底为 `"sirius"`）。**例外：** **Telegram 消息反应**落库不经 `LLMInterface`，直接查 `api_configs`（`config_type='chat'`、`is_active=1`）取 `persona_id`，无效则用环境变量 **`DEFAULT_CHARACTER_ID`**（见配置表），见本条下「Telegram 消息反应」
 - 不直接操作数据库，通过 `memory.database` 的便捷函数存储消息
 - **诊断日志：** Bot 与 **`llm/llm_interface.py`** 在关键 WARNING/ERROR 中使用 **`bot.logutil.exc_detail(exc)`** 输出异常类型、说明（空消息时用 `repr` 截断）及 **`__cause__`** 链。LLM 另记 **`endpoint` / `model`**；`requests` 有响应体时附 **HTTP status 与 body 前缀**。Telegram 流式路径：工作线程内 **`logger.exception`** 与 **`_telegram_finalize_sse_round_outcome`** 在 **`err_pack`** 时的 ERROR（含已缓冲 partial 长度）互补
-- 不构建 prompt，通过 `memory.context_builder.build_context()` 获取完整上下文（`_assemble_full_system_prompt` 在引用死命令后追加 **`THINKING_LANGUAGE_DIRECTIVE`**，要求 thinking / reasoning 使用中文；Telegram 缓冲 flush 另传 `telegram_segment_hint=True`，在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**（Markdown→发送侧见 `markdown_telegram_html`）：提示词内 **MAX_CHARS / MAX_MSG** 来自 SQLite `config.telegram_max_chars` / `config.telegram_max_msg`，默认 50 / 8，可由 Mini App 助手配置页调整；含表情包自然融入与 `[meme:…]` / `|||` 顺序说明；`|||` 仅用于最终正文、不在思维链中使用）；Discord 与其余路径不传 `telegram_segment_hint`，仍含中文思维链指令
+- 不构建 prompt，通过 `memory.context_builder.build_context()` 获取完整上下文（`_assemble_full_system_prompt` 在引用死命令后追加 **`THINKING_LANGUAGE_DIRECTIVE`**，要求 thinking / reasoning 使用中文；Telegram 缓冲 flush 另传 `telegram_segment_hint=True`，在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**（Markdown→发送侧见 `markdown_telegram_html`）：提示词内 **MAX_CHARS / MAX_MSG** 来自 `config` 表 `config.telegram_max_chars` / `config.telegram_max_msg`，默认 50 / 8，可由 Mini App 助手配置页调整；含表情包自然融入与 `[meme:…]` / `|||` 顺序说明；`|||` 仅用于最终正文、不在思维链中使用）；Discord 与其余路径不传 `telegram_segment_hint`，仍含中文思维链指令
 - 消息缓冲（`message_buffers` / `buffer_locks` / `buffer_timers`、`add_to_buffer`、读 `buffer_delay` 后合并）由 **`bot/message_buffer.py`** 的 `MessageBuffer` 统一实现；超时后 `aggregate_buffer_entries()` 得到落库用 `combined_content`、当前轮 `images`（`image_payload` 列表）及 `text_for_llm`（多模态用纯文本）。flush 回调签名为 `(session_id, combined_content, images, buffer_messages, text_for_llm)`。两 bot 负责入缓冲条目（`content` 与/或 `image_payload` / `image_payloads`）、平台 typing 与分片发送；**`_flush_buffered_messages` → `_generate_reply_from_buffer` 须传入同一批 `buffer_messages`**（Discord / Telegram 一致）。**Telegram 缓冲 flush：** `_generate_reply_from_buffer` 按线路分支：**Anthropic `/messages`** → **`asyncio.to_thread` + `generate_with_context_and_tracking`（不传 `tools`）** → **`_telegram_deliver_prefetched_llm_response`**；**OpenAI 兼容 SSE** → **`_telegram_stream_thinking_and_reply`**（单轮 **`generate_stream`，`tools=None`**）→ **`_telegram_finalize_sse_round_outcome`**：流式编辑思维链占位，结束定稿一条 `<blockquote expandable>🧠 思维链`…（`parse_mode=HTML`），再按有序段交付助手回复（文字与表情包交替）。无正文且无思维链且无成功表情包时发通用错误提示前打 **WARNING**（含 `raw_preview`）。**表情包：** 在 `[[used:…]]` 清洗之后，**`parse_telegram_segments_with_memes`** 将 **`|||`** 与 **`[meme:描述]`** 拆成有序段，**`_telegram_deliver_ordered_segments`** 按序**交替**发送各段 HTML 与各 **`search_meme(query, top_k=1)`** → **`send_meme`**（无命中静默跳过）；仅表情无字且至少发出一张时落库可为 `[表情包]`，并可用首条媒体 `message_id` 落库。助手**对外正文**在 Citation 与 meme 标记清洗后由 **`bot/markdown_telegram_html.py`**（`markdown` + `bleach`）将模型 Markdown 转为 HTML 并白名单清洗（允许 `b` / `i` / `u` / `s` / `code` / `pre` / `a`（`href` 限 `http`/`https`/`tg`/`mailto`）/ `blockquote`（可选 `expandable`）；API 不支持 `<br>`，`nl2br` 产出在清洗前转为换行符），不在白名单的标签剥离并保留内文；**`bot/telegram_html_sanitize.py`** 对每段 `|||` 正文整段只做一次上述转换，再用 `split_safe_html_telegram_chunks` 按净化后长度适配 4096；思维链与正文同条时正文前缀用 `prefix_safe_html_by_max_len` 在**已净化 HTML** 上切分。再按 `|||` 拆成多条 `reply_text`（`parse_mode=HTML`），段间 `asyncio.sleep(0.5)`。Mini App **Persona** 页「系统规则」下提示模型在 Telegram 场景使用上述 HTML 标签、勿用 Markdown。`messages` 中 assistant **仅落库清洗后的整段正文**（分段用换行拼接，**不含** `|||`）。配置类错误等 flush 前失败仍走 `reply` 字符串由 `_flush_buffered_messages` 单条发出。`media_type` 由 **`ordered_media_type_from_buffer`** 按条目**时间顺序**遍历：每条目若有图/贴纸/语音则依次尝试追加 `image` / `sticker` / `voice`（已存在则跳过），得到**去重且保序**的逗号拼接串；不可只依赖 `combined_content` 字符串推断
 - **慢处理与 flush：** 贴纸识图、语音 STT、图片下载等在 **`add_to_buffer` 之前**可能远长于 `buffer_delay`。Bot 在慢段前后调用 `MessageBuffer.begin_heavy` / `end_heavy`；定时器 `sleep(buffer_delay)` 结束后若该 session 仍有未配平的 heavy，**再轮询等待至多约 180 秒**（`message_buffer._BUFFER_HEAVY_WAIT_CAP_S`）后才取出缓冲区合并，避免「只有先发图片入队、贴纸/语音还在识图/转录就被 flush」的拆分。超时仍可能拆分时会打 WARNING 日志
 - 图片：单张大于 10MB 不入视觉管线，缓冲内以文案 `[发送了1张图片（文件过大，已跳过视觉解析）]` 记录。用户消息落库时若有图：`media_type='image'`、`vision_processed=0`，并由 **`bot/vision_caption.py`** 调度异步任务（`config_type='vision'` 的激活配置）写回 `image_caption` 与 `vision_processed=1`；失败写 **`memory.database.VISION_FAIL_CAPTION_SHORT`**（`[视觉解析失败]`）。**`update_message_vision_result`** 在 `image_caption` 为 `[视觉解析失败]` 或 **`[系统提示：视觉解析超时失败]`**（与 **`expire_stale_vision_pending`** 超时 UPDATE）时同时将 **`is_summarized=1`**，避免占位行占用微批「未摘要」计数
@@ -265,11 +265,11 @@ cedarstar/                          # 项目根目录
 
 #### 3.4.1 `database.py` — 数据持久化
 
-**职责：** 封装所有 SQLite 操作，提供单例 `MessageDatabase` 实例和模块级便捷函数。
+**职责：** 封装所有 PostgreSQL 操作，提供单例 `MessageDatabase` 实例和模块级便捷函数。使用 `asyncpg` 连接池（`min_size=2, max_size=10`），所有数据库操作均为 `async def`。
 
 **边界：**
-- 所有数据库操作都通过此模块，其他模块不直接操作 SQLite
-- 提供 `get_database()` 单例工厂函数
+- 所有数据库操作都通过此模块，其他模块不直接操作数据库
+- 提供 `get_database()` 单例工厂函数（同步）；应用启动时需调用 `await initialize_database()` 完成连接池初始化（读取 `config.DATABASE_URL`、调用 `init_pool` 并建表）
 - **`save_message(..., is_summarized=0|1)`** 写入 `messages.is_summarized`；**`update_message_vision_result`** 在 `image_caption` 为 `[视觉解析失败]` / `[系统提示：视觉解析超时失败]` 时同步置 **`is_summarized=1`**
 - 管理核心数据表（含 `meme_pack` 等，及日志/统计表）的 CRUD 操作；启动时由 `migrate_database_schema()` 幂等补齐列与索引（每次初始化成功执行后，`memory.database` 打 **INFO** 日志：`数据库 schema 迁移（索引/列）已执行`）
 - Context 只读：`get_all_active_temporal_states()`（`temporal_states.is_active=1` 全量）、`get_recent_relationship_timeline(limit)`（数据库按 `created_at` 倒序取前 `limit` 条；`context_builder` 注入前对关系时间线再按 `created_at` 正序排列）
@@ -308,7 +308,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 #### 3.4.3 `micro_batch.py` — 微批处理
 
-**职责：** 每次消息写入后异步检查，当 session 中 `is_summarized=0` 且 **`vision_processed=1`** 的消息达到阈值时触发摘要生成。阈值优先 SQLite `config.chunk_threshold`，否则环境变量 `MICRO_BATCH_THRESHOLD`（默认 50）。
+**职责：** 每次消息写入后异步检查，当 session 中 `is_summarized=0` 且 **`vision_processed=1`** 的消息达到阈值时触发摘要生成。阈值优先 `config` 表 `config.chunk_threshold`，否则环境变量 `MICRO_BATCH_THRESHOLD`（默认 50）。
 
 **视觉兜底：** `check_and_process_micro_batch` 与 `process_micro_batch` 开头调用 `expire_stale_vision_pending(5)`：将 `vision_processed=0` 且 `created_at` 早于当前 5 分钟以上的行置为 `vision_processed=1`，`image_caption='[系统提示：视觉解析超时失败]'`，避免异步任务丢失导致微批永远不满足。
 
@@ -338,7 +338,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | Step 2 | 将 Step 1 输出附在 prompt 开头，合并今日 chunk 摘要，调用 SUMMARY LLM 生成今日小传（`summary_type='daily'`） |
 | Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则调用模型合并去重后 `UPDATE`，合并失败时 fallback 为追加写入**；结束时再调 SUMMARY LLM 判断是否写入 `relationship_timeline`（含 Step 1 结算的时效事件），有则 `INSERT` |
 | Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
-| Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 SQLite `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
+| Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
 **Step 3 实现要点（与代码一致）：**
 - **维度 JSON：** 对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则。
@@ -358,7 +358,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - 提供 `add_memory()` / `search_memory()` / `delete_memory()` / `update_memory_hits()` 便捷函数
 - 集合名称固定为 `cedarstar_memories`
 - **智谱 API 与维度：** `embedding-3` 在 HTTP 请求体中**若不传 `dimensions`，默认返回 2048 维**。`vector_store.ZhipuEmbedding` **必须**在调用 `/embeddings` 时显式传入 **`dimensions: 1024`**，否则首次 `collection.add` 会把 Chroma 集合固定为 2048，而查询与其它路径仍按 1024 维构造向量，会出现 `Collection expecting embedding with dimension of 2048, got 1024`（或同类维度不匹配），`get_all_memories`、BM25 `refresh_index` 也会异常。
-- **旧库 / 误建成 2048 的集合：** 若本地 `chroma_db` 已按错误维度写入，**处理（推荐）：先停止占用 Chroma 的进程**，备份后**删除** `chroma_db` 目录，确保代码已带 `dimensions: 1024` 后再启动并重新跑批写入。旧架构向量与当前 metadata / 双轨约定不一致时，重建通常比就地迁移更干净；SQLite `longterm_memories` 中历史行可能变为 Chroma 侧「孤儿」，由 Mini App `is_orphan` 提示，可按需清理或重新录入。
+- **旧库 / 误建成 2048 的集合：** 若本地 `chroma_db` 已按错误维度写入，**处理（推荐）：先停止占用 Chroma 的进程**，备份后**删除** `chroma_db` 目录，确保代码已带 `dimensions: 1024` 后再启动并重新跑批写入。旧架构向量与当前 metadata / 双轨约定不一致时，重建通常比就地迁移更干净；`longterm_memories` 表中历史行可能变为 Chroma 侧「孤儿」，由 Mini App `is_orphan` 提示，可按需清理或重新录入。
 - **写入 metadata（Chroma）：** 在 `date` / `session_id` / `summary_type` 等调用方字段之外，`add_memory()` 会统一写入 `base_score`（float，可由调用方传入或从旧字段 `score` 推导，默认 5.0）、`halflife_days`（int，默认 30）、`hits`（int，新文档恒为 0）、`last_access_ts`（float，当前 Unix 时间戳），并保留 `created_at`（ISO 字符串）
 - **doc_id 约定：** 日终主文档为 `daily_{batch_date}`（`build_daily_summary_doc_id`）；同一日多条事件片段为 `daily_{batch_date}_event_0`、`daily_{batch_date}_event_1`…（`build_daily_event_doc_id`）；Mini App 手工长期记忆仍为 `manual_{uuid}`
 - **`update_memory_hits(uid_list)`：** 仅按 `doc_id` 列表 `get` 再 `update`，逐条 `hits+1` 并刷新 `last_access_ts`，不用 metadata `where` 查询
@@ -385,7 +385,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 #### 3.4.8 `async_log_handler.py` — 异步日志处理
 
-**职责：** 将 Python logging 的日志异步写入 SQLite `logs` 表，供 Mini App 查询。
+**职责：** 将 Python logging 的日志异步写入数据库 `logs` 表，供 Mini App 查询。
 
 #### 3.4.9 `meme_store.py` — 表情包向量集合
 
@@ -393,7 +393,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **边界：**
 - `get_meme_store()` 单例；持久化目录同 `CHROMADB_PERSIST_DIR`（集合名不同，数据文件与主记忆分集合存放）
-- `add_meme(id, name, url, is_animated, document_text=...)`：对文档文本调用 `siliconflow_embed_text` 后写入；metadata 含 `sqlite_id` 等与 SQLite `meme_pack` 对齐
+- `add_meme(id, name, url, is_animated, document_text=...)`：对文档文本调用 `siliconflow_embed_text` 后写入；metadata 含 `sqlite_id`（历史兼容字段名，实际存储数据库 `meme_pack.id`）等与 `meme_pack` 表对齐
 - `search_by_vector(vector, top_k)`：返回 metadata 列表（含解析后的 `id`）
 - 批量导入脚本（如大规模视觉描述）可另建脚本调用 `add_meme`；仓库内 `scripts/import_memes.py` 等为独立流程，不属核心启动路径
 
@@ -420,16 +420,16 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Mini App 设置：存储与保存方式（速查）**
 
-- **存储位置：** 均在同一 SQLite 库 **`cedarstar.db`**（由 `memory/database.py` 初始化），**无**独立 `settings` 配置文件目录。与 Mini App 强相关表：**`config`**（`key` / `value` / `updated_at` 运行参数）、**`api_configs`**（多组 API：`name`、`api_key`、`base_url`、`model`、`persona_id`、`config_type`、`is_active` 等）、**`token_usage`**（`GET /api/settings/token-usage` 读取统计）。人设等另有 **`persona_configs`** 等表（见 §5.8）。
+- **存储位置：** 均在同一 PostgreSQL 库（由 `memory/database.py` 的 `initialize_database()` 初始化，DSN 来自 `.env` 的 `DATABASE_URL`），**无**独立 `settings` 配置文件目录。与 Mini App 强相关表：**`config`**（`key` / `value` / `updated_at` 运行参数）、**`api_configs`**（多组 API：`name`、`api_key`、`base_url`、`model`、`persona_id`、`config_type`、`is_active` 等）、**`token_usage`**（`GET /api/settings/token-usage` 读取统计）。人设等另有 **`persona_configs`** 等表（见 §5.8）。
 - **核心设置页**（`miniapp/src/pages/Settings.jsx`，路由 `/settings`）：**不是**「整页一个接口写死全部配置」。按配置行使用 **`GET` / `POST` / `PUT` / `DELETE /api/settings/api-configs`**；**`PUT /api/settings/api-configs/{config_id}`** 的请求体为 [`ApiConfigUpdate`](api/settings.py) 可选字段，**仅非 `null` 字段更新**（HTTP 为 PUT，语义接近 PATCH）；**`PUT /api/settings/api-configs/{id}/activate`** 切换激活；**`POST /api/settings/api-configs/fetch-models`** 拉模型列表；**`GET /api/settings/token-usage`** 周期统计。
-- **助手配置页**（`miniapp/src/pages/Config.jsx`，路由 `/config`）：主按钮 **`PUT /api/config/config`** 提交与 [`api/config.py`](api/config.py) **`DEFAULT_CONFIG`** 键集合对齐的**整对象**，后端写回 **`config` 表**（`set_config` 逐键 `INSERT OR REPLACE`）。**Telegram 回复分段**（`telegram_max_chars` / `telegram_max_msg`）另支持**仅含单键**的 **`PUT /api/config/config`**，与整页保存共用同一接口。
+- **助手配置页**（`miniapp/src/pages/Config.jsx`，路由 `/config`）：主按钮 **`PUT /api/config/config`** 提交与 [`api/config.py`](api/config.py) **`DEFAULT_CONFIG`** 键集合对齐的**整对象**，后端写回 **`config` 表**（`set_config` 逐键 `INSERT INTO ... ON CONFLICT DO UPDATE SET`）。**Telegram 回复分段**（`telegram_max_chars` / `telegram_max_msg`）另支持**仅含单键**的 **`PUT /api/config/config`**，与整页保存共用同一接口。
 
 **边界：**
 - API 层不包含业务逻辑，直接调用 `memory.database` 的方法
 - `dashboard.py` 维护一个进程内共享的 `_bot_status` 字典，由 bot 的 `on_ready`/`on_disconnect` 事件写入
 - **`GET /api/dashboard/status` 的模型信息：** `active_api_config` / `model_name` 来自 `get_active_api_config('chat')`，与 Settings「对话 API」Tab 的激活项及 Bot 对话路径一致（不包含摘要 API）
 - `settings.py` 的 API Key 在返回时脱敏（只显示末4位）
-- `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写 SQLite；`DELETE /longterm/{id}` 先删 SQLite 再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列），并按 `chroma_doc_id` 批量读取 Chroma 元数据附加 `hits`、`halflife_days`、`last_access_ts`（孤儿行三项为 `null`）
+- `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写数据库；`DELETE /longterm/{id}` 先删数据库再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列），并按 `chroma_doc_id` 批量读取 Chroma 元数据附加 `hits`、`halflife_days`、`last_access_ts`（孤儿行三项为 `null`）
 - `memory.py` 时效状态：`GET/POST /temporal-states`、`DELETE /temporal-states/{id}`（将 `is_active` 置 0）；`GET /relationship-timeline` 返回全表按 `created_at` 倒序（只读）
 
 ---
@@ -567,7 +567,17 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.daily_batch import t
 
 ```bash
 # 查最近跑批状态（显式列名，对应五步 + 错误信息）
-python -c "import sqlite3; c=sqlite3.connect('cedarstar.db').cursor(); c.execute('SELECT batch_date, step1_status, step2_status, step3_status, step4_status, step5_status, error_message, updated_at FROM daily_batch_log ORDER BY batch_date DESC LIMIT 3'); [print(r) for r in c.fetchall()]"
+python -c "
+import sys, asyncio
+sys.path.insert(0, '.')
+from memory.database import initialize_database, get_database
+async def main():
+    await initialize_database()
+    db = get_database()
+    rows = await db.execute_query('SELECT batch_date, step1_status, step2_status, step3_status, step4_status, step5_status, error_message, updated_at FROM daily_batch_log ORDER BY batch_date DESC LIMIT 3')
+    [print(r) for r in rows]
+asyncio.run(main())
+"
 ```
 
 ```bash
@@ -620,7 +630,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 ## 5. 数据库表结构概览
 
-数据库文件：`cedarstar.db`（SQLite）
+数据库：PostgreSQL（通过 `asyncpg` 连接，DSN 由环境变量 `DATABASE_URL` 指定）
 
 ### 5.1 `messages` — 对话消息表
 
@@ -730,7 +740,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `score` | INTEGER | 价值分（1-10，日终打分结果） |
 | `created_at` | TIMESTAMP | 创建时间 |
 
-> 此表是 ChromaDB 的 SQLite 镜像，用于 Mini App 展示，两者通过 `chroma_doc_id` 关联。
+> 此表是 ChromaDB 的数据库镜像，用于 Mini App 展示，两者通过 `chroma_doc_id` 关联。
 
 **API 说明：** `GET /api/memory/longterm` 返回的每条 `items[]` 在表字段之外包含：
 - `is_orphan`（布尔）：当 `chroma_doc_id` 为空或仅空白时为 `true`（历史双写失败遗留）；新通过 Mini App 创建的长期记忆在正常路径下恒为 `false`。
@@ -760,7 +770,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 - `telegram_max_chars`：Telegram 正文分段提示词中的 **MAX_CHARS**（默认 50；`api/config.py` 校验 10–1000 且对齐步长 10）；`context_builder.format_telegram_reply_segment_hint()` 读库注入 system
 - `telegram_max_msg`：同上 **MAX_MSG**（默认 8；校验 1–20）
 
-**API 响应元数据：** `GET` / `PUT` `/api/config/config` 成功时，返回体中的 `data` 除上述键外另含 `_meta: { updated_at: string | null }`，值为 **`DEFAULT_CONFIG` 所含全部键**（含 `telegram_*`）在 `config` 表中的 `MAX(updated_at)`（SQLite 时间字符串，前端解析时需注意这是 UTC 时间，需转为本地时区），用于 Mini App「上次保存时间」；`_meta` 不是配置项，不参与 `PUT` 写回。实现：`memory/database.py` 的 `get_config_max_updated_at_for_keys`、`api/config.py` 的 `_payload_with_meta`。
+**API 响应元数据：** `GET` / `PUT` `/api/config/config` 成功时，返回体中的 `data` 除上述键外另含 `_meta: { updated_at: string | null }`，值为 **`DEFAULT_CONFIG` 所含全部键**（含 `telegram_*`）在 `config` 表中的 `MAX(updated_at)`（ISO 8601 字符串，前端解析时需注意这是 UTC 时间，需转为本地时区），用于 Mini App「上次保存时间」；`_meta` 不是配置项，不参与 `PUT` 写回。实现：`memory/database.py` 的 `get_config_max_updated_at_for_keys`、`api/config.py` 的 `_payload_with_meta`。
 
 ---
 
@@ -850,9 +860,9 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `created_at` | DATETIME | 创建时间 |
 | `updated_at` | DATETIME | 更新时间 |
 
-**逻辑字段顺序**（与 `save_daily_batch_log` / 代码中的读写一致）即上表从上到下的顺序。**若库由较早版本创建、后经 `ALTER TABLE` 追加 `step4_status` / `step5_status`，** SQLite 中 `SELECT *` 的**物理列顺序**可能为：`batch_date`，`step1_status`～`step3_status`，`error_message`，`created_at`，`updated_at`，`step4_status`，`step5_status`。验收与手工 `UPDATE` 时请写**显式列名**，勿依赖 `SELECT *` 的下标含义。
+**逻辑字段顺序**（与 `save_daily_batch_log` / 代码中的读写一致）即上表从上到下的顺序。**若库由较早版本的 SQLite 创建、后经 `ALTER TABLE` 追加 `step4_status` / `step5_status`，** 历史 SQLite 中 `SELECT *` 的**物理列顺序**可能为：`batch_date`，`step1_status`～`step3_status`，`error_message`，`created_at`，`updated_at`，`step4_status`，`step5_status`。迁移至 PostgreSQL 后应确认列顺序；验收与手工 `UPDATE` 时请写**显式列名**，勿依赖 `SELECT *` 的下标含义。
 
-**历史数据（三步时代已全完成、升级后 step4/step5 仍为 0）：** 服务启动时 `migrate_database_schema` 会**一次性**执行等价于下面的 `UPDATE`，并在 `config` 表写入键 `backfill_daily_batch_step45_legacy_v1`，之后不再执行。若需手工在 sqlite3 中修补，可执行：
+**历史数据（三步时代已全完成、升级后 step4/step5 仍为 0）：** 服务启动时 `migrate_database_schema` 会**一次性**执行等价于下面的 `UPDATE`，并在 `config` 表写入键 `backfill_daily_batch_step45_legacy_v1`，之后不再执行。可手工执行以下 SQL 修补：
 
 ```sql
 UPDATE daily_batch_log
@@ -880,7 +890,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `id` | INTEGER PK AUTOINCREMENT | 自增主键；Chroma metadata 中常以 `sqlite_id` 引用 |
+| `id` | SERIAL PRIMARY KEY | 自增主键；Chroma metadata 中以 `sqlite_id` 字段引用（历史兼容名） |
 | `name` | TEXT NOT NULL | 展示名 / 检索用文本来源之一 |
 | `url` | TEXT NOT NULL | 图片或动图 URL |
 | `is_animated` | INTEGER NOT NULL DEFAULT 0 | `1` 表示动图（发送侧用 `send_animation`），`0` 为静图（`send_photo`） |
@@ -937,7 +947,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 **修复（2026-03-21）：** 在 `memory/database.py` 中新增两个方法，将过滤与分页逻辑完全下推到 SQL 层：
 
-- `get_messages_filtered(platform, keyword, date_from, date_to, page, page_size)`：对 `messages` 表使用 `WHERE` 条件过滤（platform 精确匹配、keyword 对 content/thinking 做 `LIKE`、date_from/date_to 用 SQLite `date()` 函数比较），`COUNT(*)` 获取总条数，`LIMIT/OFFSET` 分页，同时返回 `{total, messages}`。
+- `get_messages_filtered(platform, keyword, date_from, date_to, page, page_size)`：对 `messages` 表使用 `WHERE` 条件过滤（platform 精确匹配、keyword 对 content/thinking 做 `ILIKE`、date_from/date_to 用 `created_at::date` 比较），`COUNT(*)` 获取总条数，`LIMIT/OFFSET` 分页，同时返回 `{total, messages}`。
 - `get_logs_filtered(platform, level, keyword, page, page_size)`：对 `logs` 表同理，level 自动转大写后精确匹配，keyword 对 message/stack_trace 做 `LIKE`。
 
 `api/history.py` 和 `api/logs.py` 改为直接调用上述新方法，删除了原有的全量加载、Python 内存过滤、手动排序和切片逻辑。过滤条件为空时不拼接对应 `WHERE` 子句。前端接口格式（`total / page / page_size / messages|logs`）保持不变。
@@ -954,12 +964,12 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ### 6.7 ✅ 已修复：`longterm_memories` 表与 ChromaDB 双写不一致风险
 
-**问题：** `api/memory.py` 的 `create_longterm_memory()` 先写 SQLite 再写 ChromaDB，如果 ChromaDB 写入失败，SQLite 中已有记录但 `chroma_doc_id` 为空，导致数据不一致。删除时也可能出现 ChromaDB 删除成功但 SQLite 删除失败的情况。
+**问题：** `api/memory.py` 的 `create_longterm_memory()` 先写数据库再写 ChromaDB，如果 ChromaDB 写入失败，数据库中已有记录但 `chroma_doc_id` 为空，导致数据不一致。删除时也可能出现 ChromaDB 删除成功但数据库删除失败的情况。
 
 **修复（2026-03-21）：**
 
-1. **创建：** 先 `vector_store.add_memory()`（`doc_id` 使用 `manual_{uuid}`），成功后再 `create_longterm_memory(..., chroma_doc_id=...)`；Chroma 失败则直接返回业务失败且不写 SQLite。若 SQLite 写入失败则尝试 `delete_memory` 回滚 Chroma 中的同 `doc_id`。
-2. **删除：** 先 `delete_longterm_memory`，成功后再删 Chroma；SQLite 失败仍返回删除失败；Chroma 删除失败仅 `warning` 日志，接口仍返回成功（避免向量残留影响接口语义，由运维/后续清理处理）。
+1. **创建：** 先 `vector_store.add_memory()`（`doc_id` 使用 `manual_{uuid}`），成功后再 `create_longterm_memory(..., chroma_doc_id=...)`；Chroma 失败则直接返回业务失败且不写数据库。若数据库写入失败则尝试 `delete_memory` 回滚 Chroma 中的同 `doc_id`。
+2. **删除：** 先 `delete_longterm_memory`，成功后再删 Chroma；数据库失败仍返回删除失败；Chroma 删除失败仅 `warning` 日志，接口仍返回成功（避免向量残留影响接口语义，由运维/后续清理处理）。
 3. **查询：** `GET /longterm` 对每条记录附加 `is_orphan: true/false`（`chroma_doc_id` 缺失即为孤儿行），供前端提示历史遗留数据。
 
 ---
@@ -980,11 +990,16 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ---
 
-### 6.10 ✅ 已修复：`requirements.txt` 包含无效依赖
+### 6.10 ✅ 已迁移：数据库从 SQLite 迁移至 PostgreSQL（asyncpg）
 
-**问题：** `requirements.txt` 中包含 `psycopg2-binary`（PostgreSQL 驱动），但项目实际使用的是 SQLite（Python 内置），不需要此依赖。注释说明也有误（写的是 "SQLite support"）。
+**背景：** 项目初期使用 Python 内置 `sqlite3`，`requirements.txt` 曾短暂引入 `psycopg2-binary` 后被删除。
 
-**修复（2026-03-21）：** 已删除 `psycopg2-binary` 及其注释行。SQLite 为 Python 内置模块，无需额外安装。
+**迁移（2026-04）：**
+- `memory/database.py` 全面重写：`sqlite3` → `asyncpg`，所有操作改为 `async def`，使用连接池（`min_size=2, max_size=10`）。
+- SQL 方言转换：`?` → `$N` 位置参数；`INSERT OR REPLACE` → `ON CONFLICT DO UPDATE`；`INSERT OR IGNORE` → `ON CONFLICT DO NOTHING`；`datetime('now')` → `NOW()`；`IN (?)` → `= ANY($1::type[])`。
+- 新增 `async def initialize_database()` 作为启动入口，从 `config.DATABASE_URL` 读取 DSN 后调用 `init_pool` 并建表。
+- `asyncpg` 返回的 `datetime`/`date` 对象统一通过 `_norm` 转换为 ISO 字符串以保持与上层代码兼容。
+- `config.py` 中 `DATABASE_URL` 改为 `str` 类型，未设置时返回空字符串。
 
 ---
 

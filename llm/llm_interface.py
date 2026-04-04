@@ -260,7 +260,8 @@ class LLMInterface:
             供 Bot 写入 messages.character_id；无有效 persona_id 时为 "sirius"。
     """
     
-    def __init__(self, model_name: Optional[str] = None, config_type: str = 'chat'):
+    def __init__(self, model_name: Optional[str] = None, config_type: str = 'chat',
+                 _db_cfg: Optional[Dict[str, Any]] = None):
         """
         初始化 LLM 接口。
         
@@ -270,9 +271,11 @@ class LLMInterface:
         Args:
             model_name: 模型名称，覆盖自动检测（可选）
             config_type: 配置类型，`chat` / `summary` / `vision`（视觉/多模态等，库内独立激活行）
+            _db_cfg: 调用方预取的激活配置字典（可选）；
+                     async 上下文中请用 ``await LLMInterface.create()`` 代替直接构造。
         """
-        # 尝试从数据库激活配置读取（含 persona_id，供 messages.character_id 使用）
-        db_cfg = self._load_active_config(config_type)
+        # 使用调用方预取的 DB 配置（async 路径），或回退到环境变量（sync 路径）
+        db_cfg = _db_cfg
         
         if db_cfg:
             self.model_name = model_name or db_cfg.get('model') or config.LLM_MODEL_NAME
@@ -317,21 +320,35 @@ class LLMInterface:
                 self.api_base = "https://api.openai.com/v1"
                 logger.warning(f"未知模型 {self.model_name}，使用 OpenAI API 作为默认")
 
+    @classmethod
+    async def create(
+        cls,
+        model_name: Optional[str] = None,
+        config_type: str = 'chat',
+    ) -> "LLMInterface":
+        """
+        异步工厂方法：从数据库读取激活配置后构造 LLMInterface 实例。
+
+        在 async 上下文中请始终用 ``await LLMInterface.create(...)``
+        代替直接 ``LLMInterface(...)``，以确保读取到最新的 DB 激活配置。
+        """
+        from memory.database import get_database
+        db_cfg: Optional[Dict[str, Any]] = None
+        try:
+            db_cfg = await get_database().get_active_api_config(config_type)
+        except Exception as e:
+            logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
+        return cls(model_name=model_name, config_type=config_type, _db_cfg=db_cfg)
+
     @staticmethod
     def _load_active_config(config_type: str = 'chat') -> Optional[Dict[str, Any]]:
         """
-        从数据库读取指定类型的激活 api_config 完整行。
+        已废弃：原同步 DB 查询入口，迁移到 asyncpg 后不再使用。
 
-        返回字典包含 `api_configs` 表各字段（含 `persona_id`），供模型参数与
-        `character_id` 解析使用；失败或无激活行时返回 None。
+        保留此方法仅为向后兼容，始终返回 None（调用方将回退到环境变量）。
+        在 async 上下文中请改用 ``await LLMInterface.create()``。
         """
-        try:
-            from memory.database import get_database
-            db = get_database()
-            return db.get_active_api_config(config_type)
-        except Exception as e:
-            logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
-            return None
+        return None
 
     @staticmethod
     def _resolve_character_id_from_config(db_cfg: Optional[Dict[str, Any]]) -> str:

@@ -253,6 +253,10 @@ async def main_async():
         logger.info("验证配置...")
         validate_config()
 
+        # 初始化 PostgreSQL 连接池（必须在启动任何 Bot 或 LLM 组件之前完成）
+        from memory.database import initialize_database
+        await initialize_database()
+
         # 任一 Bot 开始收消息前，阻塞重建 BM25 索引（与 Chroma 全量对齐；无文档时为空索引，不抛错）
         logger.info("重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...")
         from memory.bm25_retriever import get_bm25_retriever
@@ -281,14 +285,14 @@ async def main_async():
         logger.info(f"当前时区: {pytz.timezone('Asia/Shanghai')}")
         try:
             from memory.database import get_database as _gdb
-            _h = _gdb().get_config("daily_batch_hour")
+            _h = await _gdb().get_config("daily_batch_hour")
             _hour = int(str(_h).strip()) if _h and str(_h).strip() != "" else 23
             if not (0 <= _hour <= 23):
                 _hour = 23
         except Exception:
             _hour = 23
         logger.info(
-            "日终跑批触发时间: 每天 %02d:00 (Asia/Shanghai)，可由 SQLite config.daily_batch_hour 调整",
+            "日终跑批触发时间: 每天 %02d:00 (Asia/Shanghai)，可由 config 表 daily_batch_hour 调整",
             _hour,
         )
         logger.info(f"API 文档地址: http://localhost:8000/docs")

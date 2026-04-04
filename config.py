@@ -46,14 +46,14 @@ class Config:
     
     # 数据库配置
     @property
-    def DATABASE_URL(self) -> Optional[str]:
+    def DATABASE_URL(self) -> str:
         """
-        获取数据库连接 URL。
+        获取 PostgreSQL 数据库连接 URL（asyncpg DSN）。
         
         Returns:
-            Optional[str]: 数据库连接 URL，如果未设置则返回 None
+            str: 数据库连接 URL，未设置时返回空字符串
         """
-        return os.getenv("DATABASE_URL")
+        return os.getenv("DATABASE_URL", "")
     
     # LLM 配置
     @property

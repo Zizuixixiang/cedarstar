@@ -196,7 +196,7 @@ class DiscordBot:
                 ctx: 命令上下文
             """
             # 动态创建以读取最新激活配置
-            current_llm = LLMInterface()
+            current_llm = await LLMInterface.create()
             model_info = (
                 f"🤖 **当前模型**: {current_llm.model_name}\n"
                 f"📊 **最大 token**: {current_llm.max_tokens}\n"
@@ -426,7 +426,7 @@ class DiscordBot:
                 messages = [{"role": "user", "content": combined_content}]
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
-            llm = LLMInterface()
+            llm = await LLMInterface.create()
             llm_resp = llm.generate_with_context_and_tracking(
                 messages, platform=Platform.DISCORD
             )
@@ -530,7 +530,7 @@ class DiscordBot:
                 messages = [{"role": "user", "content": content}]
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
-            llm = LLMInterface()
+            llm = await LLMInterface.create()
             llm_resp = llm.generate_with_context_and_tracking(
                 messages, platform=Platform.DISCORD
             )
