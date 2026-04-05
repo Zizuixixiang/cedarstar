@@ -167,6 +167,7 @@ cython_debug/
 
 # CedarStar specific
 .clinerules
+cedarstar.log
 cedarstar.db
 cedarstar/cedarstar.db
 cedarstar/cedarstar.db.backup
