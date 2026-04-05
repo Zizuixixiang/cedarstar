@@ -166,6 +166,7 @@ cython_debug/
 *.sqlite3
 
 # CedarStar specific
+.clinerules
 cedarstar.db
 cedarstar/cedarstar.db
 cedarstar/cedarstar.db.backup
