@@ -18,6 +18,7 @@ from datetime import datetime
 import pytz
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 # 添加当前目录到 Python 路径
@@ -69,6 +70,12 @@ async def root():
 @app.get("/health")
 async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+# 挂载 Mini App 静态文件
+miniapp_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "miniapp", "dist")
+if os.path.exists(miniapp_dist):
+    app.mount("/app", StaticFiles(directory=miniapp_dist, html=True), name="miniapp")
 
 
 class _SuppressTelegramBotApiUrlInfoFilter(logging.Filter):

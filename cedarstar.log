@@ -23059,3 +23059,726 @@ aiohttp.client_exceptions.ClientConnectorError: Cannot connect to host gateway.d
 2026-04-05 18:59:32,779 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
 2026-04-05 20:34:01,551 - bot.telegram_bot - INFO - Telegram 机器人已停止
 2026-04-05 20:34:01,556 - __main__ - INFO - 程序已终止
+2026-04-05 13:13:38,989 - __main__ - INFO - ============================================================
+2026-04-05 13:13:38,990 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 13:13:38,990 - __main__ - INFO - 启动时间: 2026-04-05 13:13:38
+2026-04-05 13:13:38,990 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 13:13:38,990 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 13:13:38,990 - __main__ - INFO - ============================================================
+2026-04-05 13:13:38,990 - __main__ - INFO - 验证配置...
+2026-04-05 13:13:39,247 - memory.database - INFO - 一次性回填 daily_batch_log：三步已完成行的 step4/step5 已置 1，更新 0 行
+2026-04-05 13:13:39,304 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 13:13:39,310 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 13:13:39,311 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 13:13:41,048 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 13:13:41,055 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 13:13:41,081 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 13:13:42,023 - jieba - DEBUG - Dumping model to file cache /tmp/jieba.cache
+2026-04-05 13:13:42,106 - jieba - DEBUG - Loading model cost 1.025 seconds.
+2026-04-05 13:13:42,106 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 13:13:42,108 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 13:13:42,108 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 13:13:42,108 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 13:13:42,112 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 13:13:42,275 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 13:13:42,289 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 13:13:42,289 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 13:13:43,885 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 13:13:43,886 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 13:13:43,887 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 13:13:43,888 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 13:13:43,888 - __main__ - INFO - 所有组件启动完成
+2026-04-05 13:13:43,912 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 13:13:43,912 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 13:13:43,912 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 13:13:43,914 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 13:13:43,914 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:09:38,321 - __main__ - INFO - ============================================================
+2026-04-05 14:09:38,322 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 14:09:38,322 - __main__ - INFO - 启动时间: 2026-04-05 14:09:38
+2026-04-05 14:09:38,322 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 14:09:38,323 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 14:09:38,323 - __main__ - INFO - ============================================================
+2026-04-05 14:09:38,324 - __main__ - INFO - 验证配置...
+2026-04-05 14:09:38,472 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 14:09:38,474 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 14:09:38,474 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 14:09:39,740 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 14:09:39,745 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 14:09:39,773 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 14:09:39,774 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 14:09:40,643 - jieba - DEBUG - Loading model cost 0.869 seconds.
+2026-04-05 14:09:40,643 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 14:09:40,645 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 14:09:40,645 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 14:09:40,645 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 14:09:40,648 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 14:09:40,794 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:09:40,798 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 14:09:40,798 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 14:09:42,438 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 14:09:42,438 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 14:09:42,439 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 14:09:42,439 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 14:09:42,439 - __main__ - INFO - 所有组件启动完成
+2026-04-05 14:09:42,461 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 14:09:42,462 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:09:42,462 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 14:09:42,463 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 14:09:42,463 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:12:20,964 - telegram.ext.Application - CRITICAL - Fetching updates was aborted due to CancelledError(). Suppressing exception to ensure graceful shutdown.
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 636, in run_until_complete
+    self.run_forever()
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 603, in run_forever
+    self._run_once()
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 1909, in _run_once
+    handle._run()
+  File "/usr/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/opt/cedarstar/main.py", line 174, in run_fastapi_server
+    await server.serve()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 78, in serve
+    with self.capture_signals():
+  File "/usr/lib/python3.10/contextlib.py", line 142, in __exit__
+    next(self.gen)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 339, in capture_signals
+    signal.raise_signal(captured_signal)
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 1233, in _update_fetcher
+    await self.__update_fetcher()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 1212, in __update_fetcher
+    update = await self.update_queue.get()
+  File "/usr/lib/python3.10/asyncio/queues.py", line 159, in get
+    await getter
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 673, in stop
+    self.__update_fetcher_task.result()
+asyncio.exceptions.CancelledError
+2026-04-05 14:12:20,981 - bot.telegram_bot - INFO - Telegram 机器人已停止
+2026-04-05 14:12:20,984 - __main__ - INFO - 程序已终止
+2026-04-05 14:14:36,836 - __main__ - INFO - ============================================================
+2026-04-05 14:14:36,837 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 14:14:36,837 - __main__ - INFO - 启动时间: 2026-04-05 14:14:36
+2026-04-05 14:14:36,837 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 14:14:36,837 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 14:14:36,838 - __main__ - INFO - ============================================================
+2026-04-05 14:14:36,838 - __main__ - INFO - 验证配置...
+2026-04-05 14:14:36,945 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 14:14:36,947 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 14:14:36,948 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 14:14:38,158 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 14:14:38,163 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 14:14:38,183 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 14:14:38,183 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 14:14:38,937 - jieba - DEBUG - Loading model cost 0.754 seconds.
+2026-04-05 14:14:38,937 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 14:14:38,939 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 14:14:38,939 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 14:14:38,939 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 14:14:38,944 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 14:14:39,086 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:14:39,090 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 14:14:39,090 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 14:14:40,935 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 14:14:40,935 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 14:14:40,936 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 14:14:40,937 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 14:14:40,937 - __main__ - INFO - 所有组件启动完成
+2026-04-05 14:14:40,959 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 14:14:40,959 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:14:40,959 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 14:14:40,961 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 14:14:40,961 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:14:52,970 - __main__ - INFO - ============================================================
+2026-04-05 14:14:52,971 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 14:14:52,971 - __main__ - INFO - 启动时间: 2026-04-05 14:14:52
+2026-04-05 14:14:52,971 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 14:14:52,972 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 14:14:52,972 - __main__ - INFO - ============================================================
+2026-04-05 14:14:52,973 - __main__ - INFO - 验证配置...
+2026-04-05 14:14:53,120 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 14:14:53,122 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 14:14:53,122 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 14:14:54,387 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 14:14:54,390 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 14:14:54,409 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 14:14:54,409 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 14:14:55,313 - jieba - DEBUG - Loading model cost 0.904 seconds.
+2026-04-05 14:14:55,313 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 14:14:55,315 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 14:14:55,315 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 14:14:55,315 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 14:14:55,318 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 14:14:55,444 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:14:55,448 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 14:14:55,448 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 14:14:57,073 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 14:14:57,074 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 14:14:57,074 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 14:14:57,075 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 14:14:57,075 - __main__ - INFO - 所有组件启动完成
+2026-04-05 14:14:57,094 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 14:14:57,094 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:14:57,095 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 14:14:57,096 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 14:14:57,096 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:14:57,118 - telegram.ext.Application - CRITICAL - Fetching updates was aborted due to CancelledError(). Suppressing exception to ensure graceful shutdown.
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 172, in startup
+    server = await loop.create_server(
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 1519, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 636, in run_until_complete
+    self.run_forever()
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 603, in run_forever
+    self._run_once()
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 1909, in _run_once
+    handle._run()
+  File "/usr/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/opt/cedarstar/main.py", line 174, in run_fastapi_server
+    await server.serve()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 94, in _serve
+    await self.startup(sockets=sockets)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 182, in startup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 1233, in _update_fetcher
+    await self.__update_fetcher()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 1212, in __update_fetcher
+    update = await self.update_queue.get()
+  File "/usr/lib/python3.10/asyncio/queues.py", line 159, in get
+    await getter
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 673, in stop
+    self.__update_fetcher_task.result()
+asyncio.exceptions.CancelledError
+2026-04-05 14:14:57,127 - bot.telegram_bot - INFO - Telegram 机器人已停止
+2026-04-05 14:20:23,756 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583451
+2026-04-05 14:20:24,206 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583452
+2026-04-05 14:20:24,208 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-04-05 14:20:24,364 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583453
+2026-04-05 14:20:24,366 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=2
+2026-04-05 14:20:24,523 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583454
+2026-04-05 14:20:29,370 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=2
+2026-04-05 14:20:29,698 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-04-05 14:20:29,735 - memory.vector_store - ERROR - 获取文本向量失败: HTTPSConnectionPool(host='open.bigmodel.cn', port=443): Max retries exceeded with url: /api/paas/v4/embeddings (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:20:29,736 - memory.vector_store - ERROR - 搜索记忆失败，查询: 在吗小狗
+狗狗..., 错误: HTTPSConnectionPool(host='open.bigmodel.cn', port=443): Max retries exceeded with url: /api/paas/v4/embeddings (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:20:29,751 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:20:29,751 - bot.telegram_bot - INFO - 为缓冲区生成回复（流式）: session_id=telegram_8624126581, context 消息数量=2
+2026-04-05 14:20:29,756 - llm.llm_interface - ERROR - LLM 流式异常（建连或读 SSE 中断，常见 SSL/代理/上游断开） endpoint=https://api.siliconflow.cn/v1/chat/completions model=Pro/deepseek-ai/DeepSeek-V3.2 timeout=(30,300)s: ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:20:29,757 - bot.telegram_bot - ERROR - Telegram LLM 流式线程异常（上游 SSE / chat/completions 或网络）: ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/util/connection.py", line 85, in create_connection
+    raise err
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/util/connection.py", line 73, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connectionpool.py", line 773, in urlopen
+    self._prepare_proxy(conn)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connectionpool.py", line 1042, in _prepare_proxy
+    conn.connect()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connection.py", line 759, in connect
+    self.sock = sock = self._new_conn()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connection.py", line 219, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused"))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/adapters.py", line 645, in send
+    resp = conn.urlopen(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/util/retry.py", line 535, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/bot/telegram_bot.py", line 956, in run_stream
+    kind, chunk = next(gen)
+  File "/opt/cedarstar/llm/llm_interface.py", line 1066, in generate_stream
+    with requests.post(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/sessions.py", line 592, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/sessions.py", line 706, in send
+    r = adapter.send(request, **kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/adapters.py", line 672, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:20:31,773 - bot.telegram_bot - ERROR - Telegram 流式生成异常（见下方堆栈/摘要）: ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused"))) | 已缓冲 partial 正文=0 字符 partial 思维链=0 字符
+2026-04-05 14:21:01,649 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583455
+2026-04-05 14:21:08,281 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583456
+2026-04-05 14:21:08,283 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=6
+2026-04-05 14:21:13,288 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-04-05 14:21:13,939 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-04-05 14:21:13,956 - memory.vector_store - ERROR - 获取文本向量失败: HTTPSConnectionPool(host='open.bigmodel.cn', port=443): Max retries exceeded with url: /api/paas/v4/embeddings (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:21:13,956 - memory.vector_store - ERROR - 搜索记忆失败，查询: 小狗 你在吗..., 错误: HTTPSConnectionPool(host='open.bigmodel.cn', port=443): Max retries exceeded with url: /api/paas/v4/embeddings (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:21:13,970 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:21:13,970 - bot.telegram_bot - INFO - 为缓冲区生成回复（流式）: session_id=telegram_8624126581, context 消息数量=2
+2026-04-05 14:21:13,974 - llm.llm_interface - ERROR - LLM 流式异常（建连或读 SSE 中断，常见 SSL/代理/上游断开） endpoint=https://api.siliconflow.cn/v1/chat/completions model=Pro/deepseek-ai/DeepSeek-V3.2 timeout=(30,300)s: ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:21:13,975 - bot.telegram_bot - ERROR - Telegram LLM 流式线程异常（上游 SSE / chat/completions 或网络）: ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connection.py", line 204, in _new_conn
+    sock = connection.create_connection(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/util/connection.py", line 85, in create_connection
+    raise err
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/util/connection.py", line 73, in create_connection
+    sock.connect(sa)
+ConnectionRefusedError: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connectionpool.py", line 773, in urlopen
+    self._prepare_proxy(conn)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connectionpool.py", line 1042, in _prepare_proxy
+    conn.connect()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connection.py", line 759, in connect
+    self.sock = sock = self._new_conn()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connection.py", line 219, in _new_conn
+    raise NewConnectionError(
+urllib3.exceptions.NewConnectionError: HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused
+
+The above exception was the direct cause of the following exception:
+
+urllib3.exceptions.ProxyError: ('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused"))
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/adapters.py", line 645, in send
+    resp = conn.urlopen(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/connectionpool.py", line 841, in urlopen
+    retries = retries.increment(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/urllib3/util/retry.py", line 535, in increment
+    raise MaxRetryError(_pool, url, reason) from reason  # type: ignore[arg-type]
+urllib3.exceptions.MaxRetryError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/bot/telegram_bot.py", line 956, in run_stream
+    kind, chunk = next(gen)
+  File "/opt/cedarstar/llm/llm_interface.py", line 1066, in generate_stream
+    with requests.post(
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/api.py", line 115, in post
+    return request("post", url, data=data, json=json, **kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/api.py", line 59, in request
+    return session.request(method=method, url=url, **kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/sessions.py", line 592, in request
+    resp = self.send(prep, **send_kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/sessions.py", line 706, in send
+    r = adapter.send(request, **kwargs)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/requests/adapters.py", line 672, in send
+    raise ProxyError(e, request=request)
+requests.exceptions.ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused")))
+2026-04-05 14:21:15,985 - bot.telegram_bot - ERROR - Telegram 流式生成异常（见下方堆栈/摘要）: ProxyError: HTTPSConnectionPool(host='api.siliconflow.cn', port=443): Max retries exceeded with url: /v1/chat/completions (Caused by ProxyError('Unable to connect to proxy', NewConnectionError("HTTPSConnection(host='localhost', port=7897): Failed to establish a new connection: [Errno 111] Connection refused"))) | 已缓冲 partial 正文=0 字符 partial 思维链=0 字符
+2026-04-05 14:30:26,126 - __main__ - INFO - ============================================================
+2026-04-05 14:30:26,127 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 14:30:26,127 - __main__ - INFO - 启动时间: 2026-04-05 14:30:26
+2026-04-05 14:30:26,127 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 14:30:26,127 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 14:30:26,127 - __main__ - INFO - ============================================================
+2026-04-05 14:30:26,128 - __main__ - INFO - 验证配置...
+2026-04-05 14:30:26,258 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 14:30:26,260 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 14:30:26,260 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 14:30:27,528 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 14:30:27,532 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 14:30:27,553 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 14:30:27,554 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 14:30:28,486 - jieba - DEBUG - Loading model cost 0.933 seconds.
+2026-04-05 14:30:28,487 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 14:30:28,489 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 14:30:28,489 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 14:30:28,489 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 14:30:28,494 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 14:30:28,657 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:30:28,662 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 14:30:28,662 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 14:30:30,400 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 14:30:30,401 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 14:30:30,402 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 14:30:30,402 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 14:30:30,403 - __main__ - INFO - 所有组件启动完成
+2026-04-05 14:30:30,423 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 14:30:30,423 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:30:30,423 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 14:30:30,424 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 14:30:30,425 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:30:37,641 - __main__ - INFO - ============================================================
+2026-04-05 14:30:37,641 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 14:30:37,641 - __main__ - INFO - 启动时间: 2026-04-05 14:30:37
+2026-04-05 14:30:37,641 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 14:30:37,641 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 14:30:37,641 - __main__ - INFO - ============================================================
+2026-04-05 14:30:37,642 - __main__ - INFO - 验证配置...
+2026-04-05 14:30:37,791 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 14:30:37,793 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 14:30:37,793 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 14:30:38,954 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 14:30:38,956 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 14:30:38,980 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 14:30:38,981 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 14:30:39,737 - jieba - DEBUG - Loading model cost 0.757 seconds.
+2026-04-05 14:30:39,737 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 14:30:39,739 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 14:30:39,739 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 14:30:39,739 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 14:30:39,742 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 14:30:39,879 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:30:39,882 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 14:30:39,883 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 14:30:41,505 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 14:30:41,505 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 14:30:41,505 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 14:30:41,506 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 14:30:41,506 - __main__ - INFO - 所有组件启动完成
+2026-04-05 14:30:41,530 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 14:30:41,530 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:30:41,530 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 14:30:41,531 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 14:30:41,531 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:30:41,553 - telegram.ext.Application - CRITICAL - Fetching updates was aborted due to CancelledError(). Suppressing exception to ensure graceful shutdown.
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 172, in startup
+    server = await loop.create_server(
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 1519, in create_server
+    raise OSError(err.errno, 'error while attempting '
+OSError: [Errno 98] error while attempting to bind on address ('0.0.0.0', 8000): address already in use
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/usr/lib/python3.10/asyncio/runners.py", line 44, in run
+    return loop.run_until_complete(main)
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 636, in run_until_complete
+    self.run_forever()
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 603, in run_forever
+    self._run_once()
+  File "/usr/lib/python3.10/asyncio/base_events.py", line 1909, in _run_once
+    handle._run()
+  File "/usr/lib/python3.10/asyncio/events.py", line 80, in _run
+    self._context.run(self._callback, *self._args)
+  File "/opt/cedarstar/main.py", line 174, in run_fastapi_server
+    await server.serve()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 79, in serve
+    await self._serve(sockets)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 94, in _serve
+    await self.startup(sockets=sockets)
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/uvicorn/server.py", line 182, in startup
+    sys.exit(1)
+SystemExit: 1
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 1233, in _update_fetcher
+    await self.__update_fetcher()
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 1212, in __update_fetcher
+    update = await self.update_queue.get()
+  File "/usr/lib/python3.10/asyncio/queues.py", line 159, in get
+    await getter
+asyncio.exceptions.CancelledError
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/opt/cedarstar/venv/lib/python3.10/site-packages/telegram/ext/_application.py", line 673, in stop
+    self.__update_fetcher_task.result()
+asyncio.exceptions.CancelledError
+2026-04-05 14:30:41,556 - bot.telegram_bot - INFO - Telegram 机器人已停止
+2026-04-05 14:31:33,031 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583457
+2026-04-05 14:31:33,498 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583458
+2026-04-05 14:31:33,501 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-04-05 14:31:33,662 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583459
+2026-04-05 14:31:33,825 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583460
+2026-04-05 14:31:33,827 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=4
+2026-04-05 14:31:38,831 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=2
+2026-04-05 14:31:39,161 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-04-05 14:31:40,246 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:31:40,246 - bot.telegram_bot - INFO - 为缓冲区生成回复（流式）: session_id=telegram_8624126581, context 消息数量=2
+2026-04-05 14:34:13,821 - __main__ - INFO - ============================================================
+2026-04-05 14:34:13,822 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 14:34:13,822 - __main__ - INFO - 启动时间: 2026-04-05 14:34:13
+2026-04-05 14:34:13,822 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 14:34:13,822 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 14:34:13,822 - __main__ - INFO - ============================================================
+2026-04-05 14:34:13,822 - __main__ - INFO - 验证配置...
+2026-04-05 14:34:13,966 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 14:34:13,969 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 14:34:13,969 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 14:34:15,339 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 14:34:15,344 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 14:34:15,370 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 14:34:15,371 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 14:34:16,335 - jieba - DEBUG - Loading model cost 0.964 seconds.
+2026-04-05 14:34:16,335 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 14:34:16,337 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 14:34:16,337 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 14:34:16,337 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 14:34:16,341 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 14:34:16,520 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:34:16,525 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 14:34:16,525 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 14:34:18,131 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 14:34:18,131 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 14:34:18,132 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 14:34:18,132 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 14:34:18,132 - __main__ - INFO - 所有组件启动完成
+2026-04-05 14:34:18,157 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 14:34:18,157 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:34:18,158 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 14:34:18,159 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 14:34:18,159 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 14:35:14,751 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583461
+2026-04-05 14:35:14,755 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=7
+2026-04-05 14:35:19,761 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-04-05 14:35:20,439 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-04-05 14:35:21,476 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 14:35:21,476 - bot.telegram_bot - INFO - 为缓冲区生成回复（流式）: session_id=telegram_8624126581, context 消息数量=4
+2026-04-05 16:09:18,577 - __main__ - INFO - ============================================================
+2026-04-05 16:09:18,577 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 16:09:18,577 - __main__ - INFO - 启动时间: 2026-04-05 16:09:18
+2026-04-05 16:09:18,577 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 16:09:18,577 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 16:09:18,577 - __main__ - INFO - ============================================================
+2026-04-05 16:09:18,578 - __main__ - INFO - 验证配置...
+2026-04-05 16:09:18,693 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 16:09:18,694 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 16:09:18,695 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 16:09:20,024 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 16:09:20,030 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 16:09:20,058 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 16:09:20,058 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 16:09:21,039 - jieba - DEBUG - Loading model cost 0.982 seconds.
+2026-04-05 16:09:21,040 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 16:09:21,041 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 16:09:21,042 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 16:09:21,042 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 16:09:21,047 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 16:09:21,182 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 16:09:21,185 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 16:09:21,186 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 16:09:22,792 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 16:09:22,793 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 16:09:22,793 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 16:09:22,793 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 16:09:22,793 - __main__ - INFO - 所有组件启动完成
+2026-04-05 16:09:22,813 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 16:09:22,813 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:09:22,813 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 16:09:22,814 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 16:09:22,815 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:10:10,347 - __main__ - INFO - ============================================================
+2026-04-05 16:10:10,347 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 16:10:10,347 - __main__ - INFO - 启动时间: 2026-04-05 16:10:10
+2026-04-05 16:10:10,347 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 16:10:10,347 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 16:10:10,347 - __main__ - INFO - ============================================================
+2026-04-05 16:10:10,348 - __main__ - INFO - 验证配置...
+2026-04-05 16:10:10,510 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 16:10:10,513 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 16:10:10,514 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 16:10:11,895 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 16:10:11,899 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 16:10:11,926 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 16:10:11,927 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 16:10:12,959 - jieba - DEBUG - Loading model cost 1.032 seconds.
+2026-04-05 16:10:12,959 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 16:10:12,960 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 16:10:12,961 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 16:10:12,961 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 16:10:12,965 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 16:10:13,111 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 16:10:13,115 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 16:10:13,115 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 16:10:14,689 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 16:10:14,689 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 16:10:14,690 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 16:10:14,690 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 16:10:14,690 - __main__ - INFO - 所有组件启动完成
+2026-04-05 16:10:14,711 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 16:10:14,711 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:10:14,712 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 16:10:14,712 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 16:10:14,712 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:12:10,790 - __main__ - INFO - ============================================================
+2026-04-05 16:12:10,790 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 16:12:10,790 - __main__ - INFO - 启动时间: 2026-04-05 16:12:10
+2026-04-05 16:12:10,790 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 16:12:10,790 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 16:12:10,790 - __main__ - INFO - ============================================================
+2026-04-05 16:12:10,790 - __main__ - INFO - 验证配置...
+2026-04-05 16:12:10,923 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 16:12:10,926 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 16:12:10,926 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 16:12:12,242 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 16:12:12,247 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 16:12:12,276 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 16:12:12,277 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 16:12:13,118 - jieba - DEBUG - Loading model cost 0.841 seconds.
+2026-04-05 16:12:13,118 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 16:12:13,120 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 16:12:13,120 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 16:12:13,120 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 16:12:13,125 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 16:12:13,275 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 16:12:13,280 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 16:12:13,280 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 16:12:14,915 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 16:12:14,916 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 16:12:14,916 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 16:12:14,916 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 16:12:14,917 - __main__ - INFO - 所有组件启动完成
+2026-04-05 16:12:14,937 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 16:12:14,937 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:12:14,937 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 16:12:14,938 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 16:12:14,938 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:30:02,697 - __main__ - INFO - ============================================================
+2026-04-05 16:30:02,697 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 16:30:02,697 - __main__ - INFO - 启动时间: 2026-04-05 16:30:02
+2026-04-05 16:30:02,697 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 16:30:02,697 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 16:30:02,697 - __main__ - INFO - ============================================================
+2026-04-05 16:30:02,698 - __main__ - INFO - 验证配置...
+2026-04-05 16:30:02,866 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 16:30:02,868 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 16:30:02,869 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 16:30:04,311 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 16:30:04,316 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 16:30:04,368 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 16:30:04,369 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 16:30:05,395 - jieba - DEBUG - Loading model cost 1.027 seconds.
+2026-04-05 16:30:05,396 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 16:30:05,397 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 16:30:05,398 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 16:30:05,398 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 16:30:05,403 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 16:30:05,563 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 16:30:05,567 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 16:30:05,567 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 16:30:07,219 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 16:30:07,220 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 16:30:07,220 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 16:30:07,220 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 16:30:07,220 - __main__ - INFO - 所有组件启动完成
+2026-04-05 16:30:07,241 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 16:30:07,241 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:30:07,241 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 16:30:07,242 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 16:30:07,242 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:38:45,703 - __main__ - INFO - ============================================================
+2026-04-05 16:38:45,703 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 16:38:45,703 - __main__ - INFO - 启动时间: 2026-04-05 16:38:45
+2026-04-05 16:38:45,703 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 16:38:45,703 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 16:38:45,703 - __main__ - INFO - ============================================================
+2026-04-05 16:38:45,704 - __main__ - INFO - 验证配置...
+2026-04-05 16:38:45,876 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 16:38:45,879 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 16:38:45,879 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 16:38:47,133 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 16:38:47,137 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 16:38:47,165 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 16:38:47,166 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 16:38:48,062 - jieba - DEBUG - Loading model cost 0.896 seconds.
+2026-04-05 16:38:48,062 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 16:38:48,064 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 16:38:48,064 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 16:38:48,065 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 16:38:48,070 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 16:38:48,206 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 16:38:48,210 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 16:38:48,210 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 16:38:49,953 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 16:38:49,954 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 16:38:49,954 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 16:38:49,955 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 16:38:49,955 - __main__ - INFO - 所有组件启动完成
+2026-04-05 16:38:49,975 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 16:38:49,976 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:38:49,976 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 16:38:49,977 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 16:38:49,977 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:42:15,278 - __main__ - INFO - ============================================================
+2026-04-05 16:42:15,279 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 16:42:15,281 - __main__ - INFO - 启动时间: 2026-04-05 16:42:15
+2026-04-05 16:42:15,281 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 16:42:15,281 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 16:42:15,281 - __main__ - INFO - ============================================================
+2026-04-05 16:42:15,282 - __main__ - INFO - 验证配置...
+2026-04-05 16:42:15,447 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 16:42:15,449 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 16:42:15,449 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 16:42:16,684 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 16:42:16,688 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 16:42:16,714 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 16:42:16,715 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 16:42:17,562 - jieba - DEBUG - Loading model cost 0.847 seconds.
+2026-04-05 16:42:17,563 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 16:42:17,565 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 16:42:17,565 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 16:42:17,565 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 16:42:17,571 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 16:42:17,718 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 16:42:17,722 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 16:42:17,722 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 16:42:19,327 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 16:42:19,328 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 16:42:19,329 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 16:42:19,330 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 16:42:19,330 - __main__ - INFO - 所有组件启动完成
+2026-04-05 16:42:19,348 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 16:42:19,349 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 16:42:19,349 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 16:42:19,350 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 16:42:19,350 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
