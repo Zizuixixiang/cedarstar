@@ -28,7 +28,7 @@ if current_dir not in sys.path:
 
 from config import config, Platform
 from llm.llm_interface import LLMInterface
-from memory.micro_batch import SummaryLLMInterface
+from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display_names
 
 # 导入向量存储函数
 try:
@@ -169,6 +169,8 @@ class DailyBatchProcessor:
         self.llm: Optional[LLMInterface] = None
         self.summary_llm = SummaryLLMInterface()
         self._settled_temporal_snippets: List[str] = []
+        self._batch_char_name: str = "AI"
+        self._batch_user_name: str = "用户"
         
         # 维度列表
         self.dimensions = [
@@ -182,6 +184,10 @@ class DailyBatchProcessor:
         ]
         
         logger.info("日终跑批处理器初始化完成")
+
+    def _persona_dialogue_prefix(self) -> str:
+        """跑批 Prompt 统一前缀：标明角色称呼，减轻上下文断裂与名字丢失。"""
+        return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录。\n"
     
     async def run_daily_batch(self, batch_date: Optional[str] = None) -> bool:
         """
@@ -197,6 +203,9 @@ class DailyBatchProcessor:
         try:
             # 异步初始化 LLM 接口（读取最新激活配置）
             self.llm = await LLMInterface.create()
+            self._batch_char_name, self._batch_user_name = (
+                await fetch_active_persona_display_names()
+            )
 
             if batch_date is None:
                 batch_date = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
@@ -332,8 +341,9 @@ class DailyBatchProcessor:
 {json.dumps(contents, ensure_ascii=False)}"""
             
             try:
-                raw = self.summary_llm.generate_summary(
-                    [{"role": "user", "content": prompt}]
+                # 仅加人物前缀，不走 chunk 摘要外壳（避免「为对话生成摘要」误导任务）
+                raw = self._call_summary_llm_custom(
+                    self._persona_dialogue_prefix() + prompt
                 )
                 parsed = json.loads(raw)
                 if isinstance(parsed, list):
@@ -385,16 +395,12 @@ class DailyBatchProcessor:
                 logger.info(f"今日没有内容需要生成小传，日期: {batch_date}")
                 return True, None
             
-            prompt = f"""请基于以下材料，生成一份简洁的今日小传，总结今天的主要话题和重要信息：
-
+            prompt = self._persona_dialogue_prefix() + f"""请基于以下材料生成今日小传，按时间顺序概括今天的主要话题、重要事件和情感状态。篇幅视内容丰富度而定，必须保留重要的互动细节和羁绊，语气自然，不要分点列举：
 {today_content}
-
-今日小传（中文，简洁明了）:"""
+今日小传（中文）:"""
             
             try:
-                daily_summary = self.summary_llm.generate_summary(
-                    [{"role": "user", "content": prompt}]
-                )
+                daily_summary = self._call_summary_llm_custom(prompt)
             except Exception as e:
                 logger.error(f"生成今日小传失败: {e}")
                 daily_summary = f"今日总结：包含 {len(chunk_summaries)} 个对话片段。"
@@ -531,7 +537,7 @@ class DailyBatchProcessor:
                 "以今日新增为准修正或补充过时信息；相同事实只保留一份，整合为自然连贯的叙述，不要简单首尾拼接。"
             )
 
-        prompt = f"""你是记忆整理助手。请将「既有记忆卡片」与「今日新增摘要」合并为一段连贯的中文（可用逗号、分号连接，不要用 Markdown 列表或编号条）。
+        prompt = self._persona_dialogue_prefix() + f"""你是记忆整理助手。请将「既有记忆卡片」与「今日新增摘要」进行逻辑合并。要求：剔除重复内容，将新信息无缝整合进原有段落，形成连贯的中文（可用逗号、分号连接，不要用 Markdown 列表或编号条）。不要遗漏任何旧的有效设定，只做提炼，不做强行删减。
 
 维度代码：{dimension}
 维度说明：{dimension_label}
@@ -543,11 +549,11 @@ class DailyBatchProcessor:
 【今日新增】
 {new_content.strip()}
 
-合并要求：
-1. 去除重复、同义反复的内容，禁止把同样意思写两遍。
-2. {merge_rules}
-3. 总长度控制在 400 字以内。
-4. 严格只返回 JSON，格式为：{{"content":"合并后的正文"}}，不要 markdown 代码块或其他说明文字。"""
+维度补充：
+{merge_rules}
+
+输出要求：
+1. 严格只返回 JSON，格式为：{{"content":"合并后的正文"}}，不要 markdown 代码块或其他说明文字。"""
 
         fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
         try:
@@ -654,9 +660,11 @@ class DailyBatchProcessor:
             # 4. 调用 SUMMARY LLM 分析维度
             logger.info(f"调用 LLM 分析今日小传维度，日期: {batch_date}")
             try:
-                llm_response = self.summary_llm.generate_summary([
-                    {"role": "user", "content": prompt}
-                ])
+                llm_response = self.summary_llm.generate_summary(
+                    [{"role": "user", "content": prompt}],
+                    char_name=self._batch_char_name,
+                    user_name=self._batch_user_name,
+                )
             except Exception as e:
                 logger.error(f"LLM 调用失败，Step 3 中止: {e}")
                 return False, f"LLM 调用失败: {e}"
@@ -768,7 +776,9 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             tl_raw = ""
             try:
                 tl_raw = self.summary_llm.generate_summary(
-                    [{"role": "user", "content": tl_prompt}]
+                    [{"role": "user", "content": tl_prompt}],
+                    char_name=self._batch_char_name,
+                    user_name=self._batch_user_name,
                 )
                 tl_data = json.loads(tl_raw)
             except json.JSONDecodeError:
@@ -821,7 +831,7 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             summary_text = daily_summary['summary_text']
             summary_id = daily_summary['id']
             
-            prompt = f"""请评估以下今日小传的长期保留价值，给出评分和情绪强度。
+            prompt = self._persona_dialogue_prefix() + f"""请评估以下今日小传的长期保留价值，给出评分和情绪强度。
 
 今日小传内容：
 {summary_text}
@@ -917,7 +927,9 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             split_raw = ""
             try:
                 split_raw = self.summary_llm.generate_summary(
-                    [{"role": "user", "content": split_prompt}]
+                    [{"role": "user", "content": split_prompt}],
+                    char_name=self._batch_char_name,
+                    user_name=self._batch_user_name,
                 )
                 split_data = json.loads(split_raw)
             except json.JSONDecodeError:
