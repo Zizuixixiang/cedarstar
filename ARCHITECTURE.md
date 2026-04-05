@@ -341,6 +341,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
          批量标记消息 is_summarized=1
 ```
 
+**✅ 已改动（2026-04）：** `process_micro_batch` 开头 **`await fetch_active_persona_display_names()`**（`get_active_api_config('chat')` → `persona_id` → **`persona_configs`** 取 **`char_name` / `user_name`**，失败或空则 **`AI` / `用户`**），经 **`generate_summary_for_messages(..., char_name=..., user_name=...)`** 传入 **`SummaryLLMInterface.generate_summary`**。`generate_summary` 在 prompt 首行注入 **`这是 {char_name} 与 {user_name} 的对话记录。`**，拼装对话正文时用 **`{user_name}:`** / **`{char_name}:`** 替代原先的「用户:」「助手:」；chunk 摘要指令为 **约 150–200 字**，强调主要话题、**双方情绪起伏**、关键信息并弱化无意义语气词，结尾 **`摘要（中文）:`**。模块导出 **`fetch_active_persona_display_names`** 供日终跑批复用。
+
 #### 3.4.4 `daily_batch.py` — 日终跑批
 
 **职责：** 在东八区某业务日执行五步流水线（支持断点续跑）。**标准部署**下由 **cron（或同类）按 `config.daily_batch_hour` 所设整点**（默认 23:00）调用项目根目录 **`run_daily_batch.py`** 触发；`daily_batch_hour` 为业务约定，**cron 表达式须与之一致**（代码不会替运维「自动对齐」系统时钟）。
@@ -358,7 +360,14 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **Step 3 实现要点（与代码一致）：**
 - **维度 JSON：** 对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则。
 - **Upsert 行定位：** `get_latest_memory_card_for_dimension()`（不过滤 `is_active`），保证「全表 `is_active=0` 后重跑」仍更新同一逻辑行，而非误当作无记录而堆叠 `INSERT`。
-- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom` 使用摘要模型配置的 `LLMInterface.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（不经 `SummaryLLMInterface.generate_summary` 的「对话摘要」模板包装）；合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
+- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom` 使用摘要模型配置的 `LLMInterface.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 多轮摘要外壳）；prompt 含 **`_persona_dialogue_prefix()`**、新版「逻辑合并」说明（去重、无缝整合段落、勿 Markdown 列表、勿遗漏旧设定等）、**维度补充**（`interaction_patterns` 与其它维度不同细则）、**输出要求**为严格 JSON `{"content":"…"}`（**不再**在 prompt 中写死 400 字上限）。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
+
+**跑批 Prompt 与人物称呼（2026-04，与代码一致）：**
+- **`run_daily_batch`** 在 **`await LLMInterface.create()`** 之后 **`await fetch_active_persona_display_names()`**（同 §3.4.3，来自 `memory.micro_batch`），写入 **`_batch_char_name` / `_batch_user_name`**；**`_persona_dialogue_prefix()`** 返回 `这是 {char} 与 {user} 的对话记录。\n`。
+- **Step 1**（时效状态 JSON 数组改写）：**前缀 + 原任务正文**，仅 **`_call_summary_llm_custom`**，避免套 chunk「为对话生成摘要」模板。
+- **Step 2**（今日小传）：**前缀 +** 按时间顺序、话题/事件/情感、保留互动细节与羁绊、勿分点列举等指令 + **`today_content`** + **`今日小传（中文）:`**，**`_call_summary_llm_custom`**。
+- **Step 3**（七维 JSON、**关系时间轴** JSON）：仍 **`summary_llm.generate_summary([{"role":"user","content":prompt}], char_name=..., user_name=...)`**（内部带对话记录前缀，单条 user 承载完整任务文）。
+- **Step 4**（小传 **score/arousal**）：主 LLM 的 user **prompt 前加 `_persona_dialogue_prefix()`**；**事件拆分**仍 **`generate_summary`** 并传 `char_name` / `user_name`。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
 
@@ -976,7 +985,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
 5. **Upsert：** `get_latest_memory_card_for_dimension` 取该用户/角色/维度最近一条（**含 `is_active=0`**）；有则 `_merge_memory_card_contents`（`_call_summary_llm_custom` → `generate_with_context_and_tracking`，`platform=BATCH`）合并去重，`update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
 6. 单维度 `try/except + continue`，互不拖累
-7. 维度分析仍走 `summary_llm.generate_summary`（内部为 `generate_with_context_and_tracking`，`platform=BATCH`，经摘要模板包装）；**合并**走 `_call_summary_llm_custom`（不经该模板，避免干扰）
+7. 维度分析仍走 `summary_llm.generate_summary`（内部为 `generate_with_context_and_tracking`，`platform=BATCH`，经 **chunk 式**前缀 + 任务正文包装，并传入 `char_name`/`user_name`）；**合并**走 `_call_summary_llm_custom`（**不经** chunk 外壳；含人物前缀与逻辑合并文案，**无** prompt 内 400 字上限，见 §3.4.4）
 
 ---
 
@@ -984,7 +993,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 **问题（历史）：** 小传归档前价值打分路径曾把 `self.llm.generate(prompt)` 的返回值（`LLMResponse`）误当作字符串做正则，应先取 `.content`。
 
-**修复与后续：** 已改为先使用 `score_text = score_response.content` 再匹配；当前实现为 **`_step4_archive_daily_and_events`** 中 `score_text, _thinking = self.llm.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（返回 `(str, Optional[str])`，打分仅用正文），并异步写入 `token_usage`。
+**修复与后续：** 已改为先使用 `score_text = score_response.content` 再匹配；当前实现为 **`_step4_archive_daily_and_events`** 中 `score_text, _thinking = self.llm.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（返回 `(str, Optional[str])`，打分仅用正文），并异步写入 `token_usage`。**演进（2026-04）：** 打分用 **user `prompt`** 在任务正文前加 **`_persona_dialogue_prefix()`**（激活人设 `char_name`/`user_name`，见 §3.4.4）。
 
 ---
 
@@ -1087,6 +1096,16 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 ### 6.15 ✅ 已改动：运行日志 logrotate（宿主机）
 
 **说明（2026-04-05）：** 在部署机新增 **`/etc/logrotate.d/cedarstar`**，对项目根目录 **`cedarstar.log`** 做 **`daily`** 轮转、**`rotate 7`**（保留 7 份）、**`compress`**、**`missingok`**、**`notifempty`**、**`copytruncate`**（与常见 Python 单文件日志进程配合，避免移动文件后进程仍写旧 inode）。具体路径与策略以机上该文件为准。
+
+---
+
+### 6.16 ✅ 已改动（2026-04）：微批 / 日终跑批 Prompt 注入 persona 称呼与模板分流
+
+**背景：** 跑批链路中摘要与小传类任务缺少主对话里的 Char/用户显示名，易造成上下文断裂；部分任务套用「为对话生成摘要」的 chunk 模板与真实任务不符。
+
+**实现概要：**
+- **`memory/micro_batch.py`：** `fetch_active_persona_display_names`；`process_micro_batch` 入口读名；chunk 摘要 prompt 与对话行标签见 **§3.4.3**。
+- **`memory/daily_batch.py`：** `run_daily_batch` 入口读名；Step1 / Step2 / 记忆卡片合并 / Step4 打分等路径见 **§3.4.4**；记忆卡片合并文案与取消 prompt 内字数上限见该节 **合并写回** 条。
 
 ---
 

@@ -17,7 +17,7 @@ import asyncio
 import logging
 import sys
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from datetime import datetime
 
 # 添加项目根目录到 Python 路径
@@ -66,6 +66,37 @@ async def _micro_batch_threshold() -> int:
     return config.MICRO_BATCH_THRESHOLD
 
 
+DEFAULT_BATCH_CHAR_NAME = "AI"
+DEFAULT_BATCH_USER_NAME = "用户"
+
+
+async def fetch_active_persona_display_names() -> Tuple[str, str]:
+    """
+    读激活 chat 配置的 persona_id，从 persona_configs 取 char_name / user_name。
+    用于微批与日终跑批 Prompt 注入，避免上下文断裂与称呼丢失。
+    """
+    try:
+        db = get_database()
+        active = await db.get_active_api_config("chat")
+        if not active:
+            return DEFAULT_BATCH_CHAR_NAME, DEFAULT_BATCH_USER_NAME
+        persona_id = active.get("persona_id")
+        if persona_id is None or str(persona_id).strip() == "":
+            return DEFAULT_BATCH_CHAR_NAME, DEFAULT_BATCH_USER_NAME
+        row = await db.pool.fetchrow(
+            "SELECT char_name, user_name FROM persona_configs WHERE id = $1",
+            int(persona_id),
+        )
+        if not row:
+            return DEFAULT_BATCH_CHAR_NAME, DEFAULT_BATCH_USER_NAME
+        cn = (row.get("char_name") or "").strip() or DEFAULT_BATCH_CHAR_NAME
+        un = (row.get("user_name") or "").strip() or DEFAULT_BATCH_USER_NAME
+        return cn, un
+    except Exception as e:
+        logger.warning("fetch_active_persona_display_names 失败，使用默认称呼: %s", e)
+        return DEFAULT_BATCH_CHAR_NAME, DEFAULT_BATCH_USER_NAME
+
+
 class SummaryLLMInterface:
     """
     摘要专用的 LLM 接口类。
@@ -99,12 +130,19 @@ class SummaryLLMInterface:
             logger.error("摘要 API 密钥未设置，无法生成摘要")
             raise ValueError("摘要 API 密钥未设置")
     
-    def generate_summary(self, messages: List[Dict[str, Any]]) -> str:
+    def generate_summary(
+        self,
+        messages: List[Dict[str, Any]],
+        char_name: str = DEFAULT_BATCH_CHAR_NAME,
+        user_name: str = DEFAULT_BATCH_USER_NAME,
+    ) -> str:
         """
         生成消息摘要。
         
         Args:
             messages: 消息列表，格式为 [{"role": "user", "content": "..."}, ...]
+            char_name: 助手侧显示名（注入 Prompt 与对话行前缀）
+            user_name: 用户侧显示名
             
         Returns:
             str: 生成的摘要文本
@@ -116,16 +154,15 @@ class SummaryLLMInterface:
         if not self.api_key:
             raise ValueError("摘要 API 密钥未设置，无法生成摘要")
         
+        prefix = f"这是 {char_name} 与 {user_name} 的对话记录。\n"
         # 构建摘要提示
         conversation_text = ""
         for msg in messages:
-            role = "用户" if msg['role'] == 'user' else "助手"
-            conversation_text += f"{role}: {msg['content']}\n\n"
+            role_label = user_name if msg["role"] == "user" else char_name
+            conversation_text += f"{role_label}: {msg['content']}\n\n"
         
-        prompt = f"""请为以下对话生成一个简洁的摘要，突出主要话题和关键信息：
-
+        prompt = f"""{prefix}请为以下对话生成一段简洁摘要（约150-200字），重点提取主要话题、双方的情绪起伏和关键信息，去除无意义的语气词即可：
 {conversation_text}
-
 摘要（中文）:"""
         
         # 使用 LLMInterface 生成摘要
@@ -199,6 +236,7 @@ async def process_micro_batch(session_id: str) -> None:
     """
     try:
         await expire_stale_vision_pending(minutes=5)
+        char_name, user_name = await fetch_active_persona_display_names()
         threshold = await _micro_batch_threshold()
 
         # 1. 获取最早的未摘要消息（vision_processed=1）
@@ -216,7 +254,9 @@ async def process_micro_batch(session_id: str) -> None:
         end_message_id = max(message_ids)
         
         # 2. 生成摘要
-        summary_text = await generate_summary_for_messages(messages)
+        summary_text = await generate_summary_for_messages(
+            messages, char_name=char_name, user_name=user_name
+        )
         
         # 3. 保存摘要到数据库
         summary_id = await save_summary(
@@ -239,12 +279,18 @@ async def process_micro_batch(session_id: str) -> None:
         # 注意：这里不重新抛出异常，避免影响主流程
 
 
-async def generate_summary_for_messages(messages: List[Dict[str, Any]]) -> str:
+async def generate_summary_for_messages(
+    messages: List[Dict[str, Any]],
+    char_name: str = DEFAULT_BATCH_CHAR_NAME,
+    user_name: str = DEFAULT_BATCH_USER_NAME,
+) -> str:
     """
     为消息列表生成摘要。
     
     Args:
         messages: 消息列表
+        char_name: 助手侧显示名
+        user_name: 用户侧显示名
         
     Returns:
         str: 生成的摘要文本
@@ -263,7 +309,9 @@ async def generate_summary_for_messages(messages: List[Dict[str, Any]]) -> str:
             })
         
         # 生成摘要
-        summary = summary_llm.generate_summary(formatted_messages)
+        summary = summary_llm.generate_summary(
+            formatted_messages, char_name=char_name, user_name=user_name
+        )
         
         return summary
         
