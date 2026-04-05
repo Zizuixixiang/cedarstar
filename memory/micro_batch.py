@@ -53,10 +53,10 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-def _micro_batch_threshold() -> int:
+async def _micro_batch_threshold() -> int:
     """微批触发条数：优先 config 表 chunk_threshold，否则环境变量 MICRO_BATCH_THRESHOLD。"""
     try:
-        raw = get_database().get_config("chunk_threshold")
+        raw = await get_database().get_config("chunk_threshold")
         if raw is not None and str(raw).strip() != "":
             return max(1, int(str(raw).strip()))
     except (ValueError, TypeError):
@@ -161,11 +161,11 @@ async def check_and_process_micro_batch(session_id: str) -> bool:
         bool: 是否触发了微批处理
     """
     try:
-        expire_stale_vision_pending(minutes=5)
+        await expire_stale_vision_pending(minutes=5)
 
         # 获取未摘要消息数量（仅 vision_processed=1，避免未出视觉档案的行进入微批）
-        unsummarized_count = get_unsummarized_count_by_session(session_id)
-        threshold = _micro_batch_threshold()
+        unsummarized_count = await get_unsummarized_count_by_session(session_id)
+        threshold = await _micro_batch_threshold()
         
         logger.debug(f"会话 {session_id} 未摘要消息数量: {unsummarized_count}, 阈值: {threshold}")
         
@@ -198,11 +198,11 @@ async def process_micro_batch(session_id: str) -> None:
         session_id: 会话ID
     """
     try:
-        expire_stale_vision_pending(minutes=5)
-        threshold = _micro_batch_threshold()
+        await expire_stale_vision_pending(minutes=5)
+        threshold = await _micro_batch_threshold()
 
         # 1. 获取最早的未摘要消息（vision_processed=1）
-        messages = get_unsummarized_messages_by_session(session_id, limit=threshold)
+        messages = await get_unsummarized_messages_by_session(session_id, limit=threshold)
         
         if not messages:
             logger.warning(f"会话 {session_id} 没有未摘要消息，跳过处理")
@@ -219,7 +219,7 @@ async def process_micro_batch(session_id: str) -> None:
         summary_text = await generate_summary_for_messages(messages)
         
         # 3. 保存摘要到数据库
-        summary_id = save_summary(
+        summary_id = await save_summary(
             session_id=session_id,
             summary_text=summary_text,
             start_message_id=start_message_id,
@@ -230,7 +230,7 @@ async def process_micro_batch(session_id: str) -> None:
         logger.info(f"摘要保存成功，ID: {summary_id}, 会话: {session_id}")
         
         # 4. 标记消息为已摘要
-        updated_count = mark_messages_as_summarized_by_ids(message_ids)
+        updated_count = await mark_messages_as_summarized_by_ids(message_ids)
         
         logger.info(f"微批处理完成，会话: {session_id}, 摘要ID: {summary_id}, 标记消息: {updated_count} 条")
         
@@ -307,7 +307,7 @@ def test_micro_batch() -> None:
     
     try:
         # 测试配置
-        print(f"微批处理阈值: {_micro_batch_threshold()}")
+        print(f"微批处理阈值: {asyncio.run(_micro_batch_threshold())}")
         print(f"摘要模型: {config.SUMMARY_MODEL_NAME}")
         print(f"摘要 API 密钥: {'已设置' if config.SUMMARY_API_KEY else '未设置'}")
         

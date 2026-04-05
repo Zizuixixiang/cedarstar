@@ -32,7 +32,11 @@ class Config:
         if not token:
             raise ValueError("DISCORD_BOT_TOKEN 未在 .env 文件中设置")
         return token
-    
+
+    @property
+    def ENABLE_DISCORD(self) -> bool:
+        return os.getenv("ENABLE_DISCORD", "true").lower() == "true"
+
     # ChromaDB 配置
     @property
     def CHROMADB_URL(self) -> Optional[str]:
@@ -376,7 +380,24 @@ class Config:
             Optional[str]: Telegram 机器人令牌，如果未设置则返回 None
         """
         return os.getenv("TELEGRAM_BOT_TOKEN")
-    
+
+    @property
+    def TELEGRAM_WEBHOOK_SECRET(self) -> str:
+        """BotFather setWebhook 可选 secret；与 X-Telegram-Bot-Api-Secret-Token 比对。"""
+        return os.getenv("TELEGRAM_WEBHOOK_SECRET", "")
+
+    @property
+    def TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC(self) -> float:
+        """
+        流式思维链占位消息两次 edit_message_text 之间的最短间隔（秒）。
+        过小易触发 Telegram Flood control；历史默认曾为 0.45。
+        """
+        try:
+            v = float(os.getenv("TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC", "0.9"))
+        except ValueError:
+            v = 0.9
+        return max(0.15, v)
+
     # ChromaDB 本地存储配置
     @property
     def CHROMADB_PERSIST_DIR(self) -> str:
@@ -493,11 +514,12 @@ def validate_config() -> None:
     Raises:
         ValueError: 如果必要配置项缺失
     """
-    # 验证 Discord 配置
-    try:
-        config.DISCORD_BOT_TOKEN
-    except ValueError as e:
-        raise ValueError(f"Discord 配置验证失败: {e}")
+    # 验证 Discord 配置（关闭 ENABLE_DISCORD 时不校验令牌）
+    if config.ENABLE_DISCORD:
+        try:
+            config.DISCORD_BOT_TOKEN
+        except ValueError as e:
+            raise ValueError(f"Discord 配置验证失败: {e}")
     
     # 验证 LLM 配置
     if not config.LLM_API_KEY:

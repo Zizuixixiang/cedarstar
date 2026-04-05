@@ -141,10 +141,10 @@ async def get_memory_cards(
         db = get_database()
         
         if user_id and character_id:
-            cards = db.get_memory_cards(user_id, character_id, dimension, limit)
+            cards = await db.get_memory_cards(user_id, character_id, dimension, limit)
         else:
             # 获取所有激活的卡片
-            cards = db.get_all_active_memory_cards(limit=limit)
+            cards = await db.get_all_active_memory_cards(limit=limit)
         
         return create_response(True, cards, "获取记忆卡片成功")
     except Exception as e:
@@ -158,7 +158,7 @@ async def create_memory_card(card_data: MemoryCardCreate):
     from memory.database import save_memory_card
     
     try:
-        card_id = save_memory_card(
+        card_id = await save_memory_card(
             card_data.user_id,
             card_data.character_id,
             card_data.dimension,
@@ -177,7 +177,7 @@ async def update_memory_card(card_id: int, body: MemoryCardUpdate):
     from memory.database import update_memory_card
     
     try:
-        updated = update_memory_card(card_id, body.content, body.dimension)
+        updated = await update_memory_card(card_id, body.content, body.dimension)
         if updated:
             return create_response(True, {"card_id": card_id}, "更新记忆卡片成功")
         else:
@@ -193,7 +193,7 @@ async def deactivate_memory_card(card_id: int):
     from memory.database import deactivate_memory_card
     
     try:
-        deactivated = deactivate_memory_card(card_id)
+        deactivated = await deactivate_memory_card(card_id)
         if deactivated:
             return create_response(True, {"card_id": card_id}, "停用记忆卡片成功")
         else:
@@ -218,7 +218,7 @@ async def get_longterm_memories(
     
     try:
         db = get_database()
-        result = db.get_longterm_memories(keyword=keyword, page=page, page_size=page_size)
+        result = await db.get_longterm_memories(keyword=keyword, page=page, page_size=page_size)
         result = _annotate_longterm_query_result(result)
         result = _annotate_longterm_chroma_stats(result)
         return create_response(True, result, "获取长期记忆成功")
@@ -266,7 +266,7 @@ async def create_longterm_memory(body: LongTermMemoryCreate):
         return create_response(False, None, "创建长期记忆失败：ChromaDB 写入未成功")
     
     try:
-        memory_id = db.create_longterm_memory(
+        memory_id = await db.create_longterm_memory(
             content=content, chroma_doc_id=chroma_doc_id, score=5
         )
     except Exception as e:
@@ -301,7 +301,7 @@ async def delete_longterm_memory(memory_id: int):
     
     db = get_database()
     
-    record = db.get_longterm_memory(memory_id)
+    record = await db.get_longterm_memory(memory_id)
     if not record:
         return create_response(False, None, "记忆不存在")
     
@@ -309,7 +309,7 @@ async def delete_longterm_memory(memory_id: int):
     
     sqlite_deleted = False
     try:
-        sqlite_deleted = db.delete_longterm_memory(memory_id)
+        sqlite_deleted = await db.delete_longterm_memory(memory_id)
     except Exception as e:
         logger.error(f"从 SQLite 删除长期记忆失败 memory_id={memory_id}: {e}")
     
@@ -345,7 +345,7 @@ async def list_temporal_states():
     from memory.database import list_temporal_states_all
 
     try:
-        rows = list_temporal_states_all()
+        rows = await list_temporal_states_all()
         return create_response(True, rows, "获取时效状态成功")
     except Exception as e:
         logger.error(f"获取时效状态失败: {e}")
@@ -361,7 +361,7 @@ async def create_temporal_state(body: TemporalStateCreate):
     if not content:
         return create_response(False, None, "state_content 不能为空")
     try:
-        eid = insert_temporal_state(
+        eid = await insert_temporal_state(
             state_content=content,
             action_rule=(body.action_rule or "").strip() or None,
             expire_at=(body.expire_at or "").strip() or None,
@@ -378,7 +378,7 @@ async def soft_delete_temporal_state(state_id: str):
     from memory.database import deactivate_temporal_states_by_ids
 
     try:
-        n = deactivate_temporal_states_by_ids([state_id])
+        n = await deactivate_temporal_states_by_ids([state_id])
         if n:
             return create_response(True, {"id": state_id}, "已停用该时效状态")
         return create_response(False, None, "记录不存在或已停用")
@@ -398,7 +398,7 @@ async def list_relationship_timeline_all():
     from memory.database import list_relationship_timeline_all_desc
 
     try:
-        rows = list_relationship_timeline_all_desc()
+        rows = await list_relationship_timeline_all_desc()
         return create_response(True, rows, "获取关系时间线成功")
     except Exception as e:
         logger.error(f"获取关系时间线失败: {e}")

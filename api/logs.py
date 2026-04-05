@@ -27,7 +27,7 @@ async def get_logs(
 
     db = get_database()
 
-    result = db.get_logs_filtered(
+    result = await db.get_logs_filtered(
         platform=platform or None,
         level=level or None,
         keyword=keyword or None,

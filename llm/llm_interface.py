@@ -781,13 +781,9 @@ class LLMInterface:
                     )
                 )
             else:
-                db = get_database()
-                db.save_token_usage(
-                    prompt_tokens=prompt_tokens,
-                    completion_tokens=completion_tokens,
-                    total_tokens=total_tokens,
-                    model=self.model_name,
-                    platform=platform,
+                # 无线程内事件循环时（如 executor 内同步 LLM）：勿 asyncio.run 共用池，避免 asyncpg 跨 loop
+                logger.debug(
+                    "token 使用量未写入数据库（当前上下文无 running loop；主路径上会 create_task 落库）"
                 )
         except Exception as e:
             logger.error("保存 token 使用量失败: %s", exc_detail(e))
@@ -805,7 +801,7 @@ class LLMInterface:
         """
         try:
             db = get_database()
-            db.save_token_usage(
+            await db.save_token_usage(
                 prompt_tokens=prompt_tokens,
                 completion_tokens=completion_tokens,
                 total_tokens=total_tokens,

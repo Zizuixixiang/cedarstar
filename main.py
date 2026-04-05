@@ -4,9 +4,10 @@ CedarStar 项目主入口。
 负责初始化并启动所有组件，包括：
 1. 配置校验后、Bot 收消息前阻塞重建 BM25 索引（对齐 Chroma）
 2. Discord 机器人
-3. Telegram 机器人
-4. 日终跑批定时任务
-5. FastAPI REST API 服务
+3. Telegram：初始化 Application，由 FastAPI `/webhook/telegram` 接收推送（无 polling）
+4. FastAPI REST API 服务
+
+日终跑批由 cron 调用项目根目录 `run_daily_batch.py`，不再在进程内定时调度。
 """
 
 import asyncio
@@ -26,6 +27,7 @@ if current_dir not in sys.path:
 
 from config import config, validate_config
 from api.router import api_router
+from api.webhook import router as telegram_webhook_router
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -52,6 +54,9 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# Telegram webhook：不带 /api，与控制台 /api/* 的 Access 规则分离
+app.include_router(telegram_webhook_router)
 
 # 包含 API 路由
 app.include_router(api_router, prefix="/api")
@@ -148,69 +153,6 @@ async def run_discord_bot():
         raise
 
 
-async def run_telegram_bot():
-    """
-    运行 Telegram 机器人。
-    
-    使用 python-telegram-bot v20+ 的异步启动方式：
-    app.initialize() + app.start() + app.updater.start_polling()
-    确保不阻塞主事件循环。
-    
-    Returns:
-        asyncio.Task: Telegram 机器人任务
-    """
-    from bot.telegram_bot import TelegramBot
-    
-    logger = logging.getLogger(__name__)
-    
-    try:
-        # 检查 Telegram 令牌是否设置
-        token = config.TELEGRAM_BOT_TOKEN
-        if not token:
-            logger.warning("TELEGRAM_BOT_TOKEN 未设置，跳过 Telegram 机器人启动")
-            # 返回一个已完成的任务
-            return asyncio.Future()
-        
-        logger.info("启动 Telegram 机器人...")
-        
-        # 创建 Telegram 机器人实例
-        bot = TelegramBot()
-        
-        # 使用 bot 的 run_async 方法
-        logger.info("使用异步模式启动 Telegram 机器人...")
-        telegram_task = await bot.run_async()
-        
-        return telegram_task
-        
-    except Exception as e:
-        logger.error(f"启动 Telegram 机器人失败: {e}")
-        # 如果 Telegram 机器人启动失败，返回一个已完成的任务
-        return asyncio.Future()
-
-
-async def run_daily_batch_scheduler():
-    """
-    运行日终跑批定时调度器。
-    
-    Returns:
-        asyncio.Task: 日终跑批定时调度器任务
-    """
-    from memory.daily_batch import schedule_daily_batch
-    
-    logger = logging.getLogger(__name__)
-    logger.info("启动日终跑批定时调度器...")
-    
-    try:
-        # 启动定时调度器
-        scheduler_task = asyncio.create_task(schedule_daily_batch())
-        
-        return scheduler_task
-        
-    except Exception as e:
-        logger.error(f"启动日终跑批定时调度器失败: {e}")
-        raise
-
-
 async def run_fastapi_server():
     """
     运行 FastAPI 服务器。
@@ -240,11 +182,12 @@ async def main_async():
     """
     异步主函数。
     
-    并行启动四个任务：
-    1. Discord 机器人
-    2. Telegram 机器人
-    3. 日终跑批定时调度器
-    4. FastAPI REST API 服务器
+    并行启动任务：
+    1. Discord 机器人（可选，见 ENABLE_DISCORD）
+    2. FastAPI REST API 服务器（含 Telegram webhook 路由）
+
+    Telegram Application 在收请求前由 setup_telegram_webhook_app() 初始化，无独立长驻任务。
+    日终跑批见根目录 run_daily_batch.py（cron）。
     """
     logger = logging.getLogger(__name__)
     
@@ -265,41 +208,34 @@ async def main_async():
             logger.warning(
                 "BM25 索引刷新未成功，关键词检索可能为空；服务仍继续启动"
             )
-        
-        # 并行启动四个任务
-        logger.info("并行启动四个任务...")
-        
-        # 启动 Discord 机器人
-        discord_task = asyncio.create_task(run_discord_bot())
-        
-        # 启动 Telegram 机器人
-        telegram_task = asyncio.create_task(run_telegram_bot())
-        
-        # 启动日终跑批定时调度器
-        scheduler_task = asyncio.create_task(run_daily_batch_scheduler())
-        
-        # 启动 FastAPI 服务器
-        fastapi_task = asyncio.create_task(run_fastapi_server())
-        
-        logger.info("所有组件启动完成")
-        logger.info(f"当前时区: {pytz.timezone('Asia/Shanghai')}")
-        try:
-            from memory.database import get_database as _gdb
-            _h = await _gdb().get_config("daily_batch_hour")
-            _hour = int(str(_h).strip()) if _h and str(_h).strip() != "" else 23
-            if not (0 <= _hour <= 23):
-                _hour = 23
-        except Exception:
-            _hour = 23
-        logger.info(
-            "日终跑批触发时间: 每天 %02d:00 (Asia/Shanghai)，可由 config 表 daily_batch_hour 调整",
-            _hour,
+
+        from bot.telegram_bot import (
+            setup_telegram_webhook_app,
+            shutdown_telegram_webhook_app,
         )
-        logger.info(f"API 文档地址: http://localhost:8000/docs")
-        
-        # 等待所有任务完成（实际上会一直运行）
-        await asyncio.gather(discord_task, telegram_task, scheduler_task, fastapi_task)
-        
+
+        await setup_telegram_webhook_app()
+
+        try:
+            # 并行启动任务
+            logger.info("并行启动任务（Discord / FastAPI）...")
+
+            tasks = []
+            if config.ENABLE_DISCORD:
+                tasks.append(asyncio.create_task(run_discord_bot()))
+
+            # 启动 FastAPI 服务器
+            tasks.append(asyncio.create_task(run_fastapi_server()))
+
+            logger.info("所有组件启动完成")
+            logger.info(f"当前时区: {pytz.timezone('Asia/Shanghai')}")
+            logger.info(f"API 文档地址: http://localhost:8000/docs")
+
+            # 等待所有任务完成（实际上会一直运行）
+            await asyncio.gather(*tasks)
+        finally:
+            await shutdown_telegram_webhook_app()
+
     except KeyboardInterrupt:
         logger.info("收到中断信号，正在关闭...")
     except Exception as e:

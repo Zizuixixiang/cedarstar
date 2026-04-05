@@ -9,7 +9,11 @@ from __future__ import annotations
 import logging
 from typing import Any, Dict, List
 
-from memory.meme_store import get_meme_store, siliconflow_embed_text
+from memory.meme_store import (
+    get_meme_store,
+    siliconflow_embed_text,
+    siliconflow_embed_text_async,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +37,43 @@ def search_meme(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
         rows = get_meme_store().search_by_vector(vec, top_k=k)
     except Exception as e:
         logger.warning("search_meme 失败: %s", e)
+        return []
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        try:
+            isa = int(row.get("is_animated", 0))
+        except (TypeError, ValueError):
+            isa = 0
+        rid = row.get("id")
+        out.append(
+            {
+                "id": rid,
+                "name": row.get("name") or "",
+                "url": row.get("url") or "",
+                "is_animated": isa,
+            }
+        )
+    return out
+
+
+async def search_meme_async(query: str, top_k: int = 3) -> List[Dict[str, Any]]:
+    """
+    异步检索表情包（在主事件循环中调用，可正确 await 库内 Embedding 配置）。
+    """
+    q = (query or "").strip()
+    if not q:
+        return []
+    try:
+        k = max(1, int(top_k))
+    except (TypeError, ValueError):
+        k = 3
+    try:
+        vec = await siliconflow_embed_text_async(q)
+        rows = get_meme_store().search_by_vector(vec, top_k=k)
+    except Exception as e:
+        logger.warning("search_meme_async 失败: %s", e)
         return []
     out: List[Dict[str, Any]] = []
     for row in rows:

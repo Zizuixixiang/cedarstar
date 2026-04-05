@@ -45,7 +45,7 @@ async def list_api_configs(config_type: Optional[str] = None):
     from memory.database import get_database
     
     db = get_database()
-    configs = db.get_all_api_configs(config_type=config_type)
+    configs = await db.get_all_api_configs(config_type=config_type)
     
     # 脱敏处理
     for config in configs:
@@ -74,7 +74,7 @@ async def create_api_config(config: ApiConfigCreate):
     db = get_database()
     payload = config.model_dump()
     payload["config_type"] = ct
-    config_id = db.save_api_config(payload)
+    config_id = await db.save_api_config(payload)
     
     return create_response(True, {"id": config_id}, "创建成功")
 
@@ -87,7 +87,7 @@ async def update_api_config(config_id: int, config: ApiConfigUpdate):
     db = get_database()
     
     # 检查是否存在
-    existing = db.get_api_config(config_id)
+    existing = await db.get_api_config(config_id)
     if not existing:
         raise HTTPException(status_code=404, detail="API 配置不存在")
     
@@ -98,7 +98,7 @@ async def update_api_config(config_id: int, config: ApiConfigUpdate):
             status_code=400,
             detail=f"无效的 config_type，允许: {', '.join(sorted(ALLOWED_API_CONFIG_TYPES))}",
         )
-    db.update_api_config(config_id, update_data)
+    await db.update_api_config(config_id, update_data)
     
     return create_response(True, None, "更新成功")
 
@@ -111,11 +111,11 @@ async def delete_api_config(config_id: int):
     db = get_database()
     
     # 检查是否存在
-    existing = db.get_api_config(config_id)
+    existing = await db.get_api_config(config_id)
     if not existing:
         raise HTTPException(status_code=404, detail="API 配置不存在")
     
-    db.delete_api_config(config_id)
+    await db.delete_api_config(config_id)
     
     return create_response(True, None, "删除成功")
 
@@ -128,12 +128,12 @@ async def activate_api_config(config_id: int):
     db = get_database()
     
     # 检查是否存在
-    existing = db.get_api_config(config_id)
+    existing = await db.get_api_config(config_id)
     if not existing:
         raise HTTPException(status_code=404, detail="API 配置不存在")
     
     # 激活该配置
-    db.activate_api_config(config_id)
+    await db.activate_api_config(config_id)
     
     return create_response(True, None, "激活成功")
 
@@ -192,6 +192,6 @@ async def get_token_usage(
         raise HTTPException(status_code=400, detail="无效的统计周期")
     
     # 获取统计数据
-    stats = db.get_token_usage_stats(start_date, platform)
+    stats = await db.get_token_usage_stats(start_date, platform)
     
     return create_response(True, stats)

@@ -410,7 +410,7 @@ class DiscordBot:
         """
         try:
             # 使用 context builder 构建完整的对话上下文
-            context = build_context(
+            context = await build_context(
                 session_id,
                 combined_content,
                 images=images or None,
@@ -435,7 +435,7 @@ class DiscordBot:
             # 保存用户消息到数据库（合并后的消息）
             has_img = bool(images)
             media_t = ordered_media_type_from_buffer(buffer_messages)
-            user_row_id = save_message(
+            user_row_id = await save_message(
                 session_id=session_id,
                 role="user",
                 content=combined_content,
@@ -457,7 +457,7 @@ class DiscordBot:
                 )
             
             # 保存AI回复到数据库
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="assistant",
                 content=reply,
@@ -519,7 +519,7 @@ class DiscordBot:
             content = message.clean_content
             
             # 使用 context builder 构建完整的对话上下文
-            context = build_context(session_id, content)
+            context = await build_context(session_id, content)
             
             # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")
@@ -537,7 +537,7 @@ class DiscordBot:
             reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
             
             # 保存用户消息到数据库
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="user",
                 content=content,
@@ -549,7 +549,7 @@ class DiscordBot:
             )
             
             # 保存AI回复到数据库
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="assistant",
                 content=reply,

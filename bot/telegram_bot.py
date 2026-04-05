@@ -67,7 +67,7 @@ from memory.database import (
 )
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
-from tools.meme import search_meme, send_meme
+from tools.meme import search_meme_async, send_meme
 
 
 # 设置日志
@@ -134,9 +134,9 @@ def _telegram_reaction_emoji_label(rt: Any) -> Optional[str]:
     return None
 
 
-def _character_id_for_reaction_save() -> str:
+async def _character_id_for_reaction_save() -> str:
     """激活 chat 行 `persona_id`；否则 `DEFAULT_CHARACTER_ID`（不经 LLMInterface）。"""
-    cfg = get_database().get_active_api_config("chat")
+    cfg = await get_database().get_active_api_config("chat")
     if cfg:
         pid = cfg.get("persona_id")
         if pid is not None:
@@ -321,7 +321,7 @@ class TelegramBot:
         # 清除对话历史（在数据库中标记为已摘要）
         from memory.database import get_database
         db = get_database()
-        db.clear_session_messages(session_id)
+        await db.clear_session_messages(session_id)
         
         await update.message.reply_text("✅ 对话历史已清除")
 
@@ -558,7 +558,7 @@ class TelegramBot:
         fallback = "（贴纸）"
 
         for _ in range(32):
-            row = db.get_sticker_cache(fid)
+            row = await db.get_sticker_cache(fid)
             if row and (row.get("description") or "").strip():
                 return str(row["description"]).strip()
 
@@ -566,10 +566,10 @@ class TelegramBot:
                 t0 = time.monotonic()
                 while fid in processing_stickers and time.monotonic() - t0 < 3.0:
                     await asyncio.sleep(0.1)
-                    row = db.get_sticker_cache(fid)
+                    row = await db.get_sticker_cache(fid)
                     if row and (row.get("description") or "").strip():
                         return str(row["description"]).strip()
-                row = db.get_sticker_cache(fid)
+                row = await db.get_sticker_cache(fid)
                 if row and (row.get("description") or "").strip():
                     return str(row["description"]).strip()
                 if fid in processing_stickers:
@@ -578,7 +578,7 @@ class TelegramBot:
                 continue
 
             async with _sticker_coord_lock:
-                row = db.get_sticker_cache(fid)
+                row = await db.get_sticker_cache(fid)
                 if row and (row.get("description") or "").strip():
                     return str(row["description"]).strip()
                 if fid in processing_stickers:
@@ -621,7 +621,7 @@ class TelegramBot:
                 )
                 desc = fallback
             finally:
-                db.save_sticker_cache(fid, emoji, set_name, desc)
+                await db.save_sticker_cache(fid, emoji, set_name, desc)
                 async with _sticker_coord_lock:
                     processing_stickers.discard(fid)
             return desc
@@ -645,7 +645,7 @@ class TelegramBot:
         try:
             if session_id in pending_rescan:
                 db = get_database()
-                db.delete_sticker_cache(fid)
+                await db.delete_sticker_cache(fid)
                 processing_stickers.discard(fid)
                 _cancel_rescan_timeout_task(session_id)
                 pending_rescan.discard(session_id)
@@ -754,6 +754,7 @@ class TelegramBot:
 
     def _telegram_thinking_blockquote_html(self, think_plain: str) -> str:
         """思维链定稿：可折叠 blockquote（仅流式结束后的最后一次编辑使用）。"""
+        think_plain = (think_plain or "").replace("\x00", "")
         esc = self._escape_telegram_html(think_plain)
         head = "<blockquote expandable>🧠 思维链\n"
         tail = "</blockquote>"
@@ -813,7 +814,7 @@ class TelegramBot:
         q = (query or "").strip()
         if not q:
             return False, None
-        results = await asyncio.to_thread(search_meme, q, 1)
+        results = await search_meme_async(q, 1)
         if not results:
             return False, None
         row = results[0]
@@ -1018,7 +1019,7 @@ class TelegramBot:
                     sent = await base_message.reply_text(_TELEGRAM_THINK_PLACEHOLDER)
                     thinking_msg_id = sent.message_id
                 now = time.monotonic()
-                if now - last_think_edit >= 0.45:
+                if now - last_think_edit >= config.TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC:
                     plain = cur or _TELEGRAM_THINK_PLACEHOLDER
                     if len(plain) > 4096:
                         plain = plain[:4096]
@@ -1085,12 +1086,45 @@ class TelegramBot:
             think_plain_show = think_plain
 
         out_mid = thinking_msg_id
+        think_plain_show = (think_plain_show or "").replace("\x00", "")
         if thinking_msg_id is not None:
             if think_plain_show.strip():
                 html_th = self._telegram_thinking_blockquote_html(think_plain_show)
-                await self._telegram_safe_edit_text(
-                    bot, chat_id, thinking_msg_id, html_th, parse_mode="HTML"
-                )
+                edited_ok = False
+                try:
+                    await bot.edit_message_text(
+                        chat_id=chat_id,
+                        message_id=thinking_msg_id,
+                        text=html_th,
+                        parse_mode="HTML",
+                    )
+                    edited_ok = True
+                except Exception as e:
+                    logger.warning(
+                        "思维链定稿 edit_message(HTML 可折叠) 失败，将尝试删旧消息并重发: %s",
+                        exc_detail(e),
+                    )
+                if not edited_ok:
+                    deleted_ok = False
+                    try:
+                        await bot.delete_message(
+                            chat_id=chat_id, message_id=thinking_msg_id
+                        )
+                        deleted_ok = True
+                    except Exception:
+                        pass
+                    try:
+                        sent_th = await base_message.reply_text(
+                            html_th, parse_mode="HTML"
+                        )
+                        out_mid = sent_th.message_id
+                    except Exception as e2:
+                        logger.warning(
+                            "思维链删旧后重发仍失败: %s",
+                            exc_detail(e2),
+                        )
+                        if deleted_ok:
+                            out_mid = None
             else:
                 try:
                     await bot.delete_message(
@@ -1101,8 +1135,12 @@ class TelegramBot:
                 out_mid = None
         elif think_plain_show.strip():
             html_th = self._telegram_thinking_blockquote_html(think_plain_show)
-            sent_th = await base_message.reply_text(html_th, parse_mode="HTML")
-            out_mid = sent_th.message_id
+            try:
+                sent_th = await base_message.reply_text(html_th, parse_mode="HTML")
+                out_mid = sent_th.message_id
+            except Exception as e:
+                logger.warning("思维链首条发送(HTML 可折叠) 失败: %s", exc_detail(e))
+                out_mid = None
         return out_mid
 
     async def _telegram_finalize_sse_round_outcome(
@@ -1307,7 +1345,7 @@ class TelegramBot:
     ) -> _BufferGenResult:
         """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条），并视结果落库用户消息。"""
         try:
-            context = build_context(
+            context = await build_context(
                 session_id,
                 combined_content,
                 images=images or None,
@@ -1349,35 +1387,43 @@ class TelegramBot:
                     llm, messages, base_message, bot
                 )
 
-            has_img = bool(images)
-            media_t = ordered_media_type_from_buffer(buffer_messages)
-            user_row_id = None
-            if outcome.save_user:
-                user_row_id = save_message(
-                    session_id=session_id,
-                    role="user",
-                    content=combined_content,
-                    user_id=user_id,
-                    channel_id=chat_id,
-                    message_id=message_id,
-                    character_id=llm.character_id,
-                    platform=Platform.TELEGRAM,
-                    media_type=media_t,
-                    image_caption=None,
-                    vision_processed=0 if has_img else 1,
-                    is_summarized=_telegram_user_content_error_fallback_is_summarized(
-                        combined_content
-                    ),
-                )
-                if has_img and user_row_id:
-                    schedule_generate_image_caption(
-                        user_row_id,
-                        images or [],
-                        (text_for_llm or "").strip(),
+            # 回复已发到 Telegram；落库 / 微批失败不得再向用户发通用错误（否则会多一条「抱歉…」）
+            try:
+                has_img = bool(images)
+                media_t = ordered_media_type_from_buffer(buffer_messages)
+                user_row_id = None
+                if outcome.save_user:
+                    user_row_id = await save_message(
+                        session_id=session_id,
+                        role="user",
+                        content=combined_content,
+                        user_id=user_id,
+                        channel_id=chat_id,
+                        message_id=message_id,
+                        character_id=llm.character_id,
                         platform=Platform.TELEGRAM,
+                        media_type=media_t,
+                        image_caption=None,
+                        vision_processed=0 if has_img else 1,
+                        is_summarized=_telegram_user_content_error_fallback_is_summarized(
+                            combined_content
+                        ),
                     )
+                    if has_img and user_row_id:
+                        schedule_generate_image_caption(
+                            user_row_id,
+                            images or [],
+                            (text_for_llm or "").strip(),
+                            platform=Platform.TELEGRAM,
+                        )
 
-            asyncio.create_task(trigger_micro_batch_check(session_id))
+                asyncio.create_task(trigger_micro_batch_check(session_id))
+            except Exception as persist_e:
+                logger.exception(
+                    "缓冲回复已送达用户后落库或微批调度失败 session_id=%s: %s",
+                    session_id,
+                    exc_detail(persist_e),
+                )
 
             persist = bool(outcome.body_for_db.strip())
             return _BufferGenResult(
@@ -1411,6 +1457,19 @@ class TelegramBot:
             return _BufferGenResult(
                 "抱歉，模型响应超时。若对话上下文很长或上游较慢，"
                 "请在 .env 提高 LLM_TIMEOUT（默认 60 秒）。",
+                None,
+                False,
+            )
+        except TelegramNetworkError as e:
+            logger.warning(
+                "缓冲区路径：发往 Telegram 失败（多为网络或 TELEGRAM_PROXY）"
+                " session_id=%s: %s",
+                session_id,
+                exc_detail(e),
+            )
+            return _BufferGenResult(
+                "抱歉，当前连不上 Telegram 服务器（网络或代理异常）。"
+                "请确认本机网络与 .env 中 TELEGRAM_PROXY 可用后重试。",
                 None,
                 False,
             )
@@ -1501,7 +1560,7 @@ class TelegramBot:
             bot=base_context.bot,
         )
         if gen.assistant_message_id and gen.persist_assistant and gen.reply.strip():
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="assistant",
                 content=gen.reply,
@@ -1512,7 +1571,13 @@ class TelegramBot:
                 platform=Platform.TELEGRAM,
             )
         elif gen.reply and not gen.assistant_message_id:
-            await base_message.reply_text(gen.reply, parse_mode=None)
+            try:
+                await base_message.reply_text(gen.reply, parse_mode=None)
+            except TelegramNetworkError as e:
+                logger.warning(
+                    "缓冲收尾：向用户发送说明失败（Telegram 仍不可达）: %s",
+                    exc_detail(e),
+                )
     
     async def _generate_reply(
         self,
@@ -1528,7 +1593,7 @@ class TelegramBot:
         传入 telegram_bot 时：发送思维链、去掉 [meme:…] 后的正文与检索到的表情包。
         """
         try:
-            context = build_context(session_id, content)
+            context = await build_context(session_id, content)
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
             if not messages:
@@ -1571,7 +1636,7 @@ class TelegramBot:
             else:
                 reply = ""
 
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="user",
                 content=content,
@@ -1584,7 +1649,7 @@ class TelegramBot:
                     content
                 ),
             )
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="assistant",
                 content=reply,
@@ -1610,6 +1675,16 @@ class TelegramBot:
             logger.error("LLM 请求超时（可调 LLM_TIMEOUT，默认 60 秒）")
             return (
                 "抱歉，模型响应超时。可在 .env 提高 LLM_TIMEOUT（默认 60 秒）。"
+            )
+        except TelegramNetworkError as e:
+            logger.warning(
+                "_generate_reply：发往 Telegram 失败 session_id=%s: %s",
+                session_id,
+                exc_detail(e),
+            )
+            return (
+                "抱歉，当前连不上 Telegram（网络或 TELEGRAM_PROXY）。"
+                "请检查代理与网络后重试。"
             )
         except Exception as e:
             logger.exception(
@@ -1638,7 +1713,7 @@ class TelegramBot:
             return
         chat_id = mr.chat.id
         session_id = f"telegram_{chat_id}"
-        raw = get_assistant_content_for_platform_message_id(
+        raw = await get_assistant_content_for_platform_message_id(
             session_id, str(mr.message_id)
         )
         if raw:
@@ -1653,14 +1728,14 @@ class TelegramBot:
         else:
             uid = "unknown"
         try:
-            save_message(
+            await save_message(
                 session_id=session_id,
                 role="user",
                 content=content,
                 user_id=uid,
                 channel_id=str(chat_id),
                 message_id=f"reaction_{update.update_id}",
-                character_id=_character_id_for_reaction_save(),
+                character_id=await _character_id_for_reaction_save(),
                 platform=Platform.TELEGRAM,
                 media_type="reaction",
                 vision_processed=1,
@@ -1669,24 +1744,17 @@ class TelegramBot:
         except Exception as e:
             logger.error("保存反应消息失败: %s", exc_detail(e))
     
-    async def run_async(self):
+    async def setup_webhook(self) -> None:
         """
-        异步运行 Telegram 机器人。
-        
-        使用 python-telegram-bot v20+ 的异步启动方式：
-        app.initialize() + app.start() + app.updater.start_polling()
-        确保不阻塞主事件循环。
-        
-        Raises:
-            ValueError: 如果 Telegram 令牌未设置
+        初始化 Application 并 start，供 FastAPI webhook 接收更新；不启动 polling。
         """
         try:
             token = config.TELEGRAM_BOT_TOKEN
             if not token:
                 logger.warning("TELEGRAM_BOT_TOKEN 未设置，Telegram 机器人将不会启动")
                 return
-            
-            logger.info("启动 Telegram 机器人...")
+
+            logger.info("启动 Telegram 机器人（webhook 模式）...")
 
             # 不显式传 proxy 时 trust_env=False → 直连 api.telegram.org（不受 Discord 写入的
             # HTTP_PROXY 影响）。国内直连常被墙 → initialize 易 Timed out；请在 .env 设
@@ -1708,7 +1776,7 @@ class TelegramBot:
                 .get_updates_request(_tg_http_request())
                 .build()
             )
-            
+
             # 添加命令处理器
             self.application.add_handler(CommandHandler("start", self.start_command))
             self.application.add_handler(CommandHandler("help", self.help_command))
@@ -1734,9 +1802,7 @@ class TelegramBot:
             self.application.add_handler(
                 MessageReactionHandler(self.handle_message_reaction)
             )
-            
-            # 启动机器人（使用 polling 模式）
-            logger.info("Telegram 机器人开始 polling...")
+
             await self.application.initialize()
             _bot_cmds = [
                 BotCommand("start", "显示欢迎信息"),
@@ -1756,12 +1822,9 @@ class TelegramBot:
                 "Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）"
             )
             await self.application.start()
-            await self.application.updater.start_polling(
-                allowed_updates=Update.ALL_TYPES,
-            )
-            
-            logger.info("Telegram 机器人已启动（异步 polling 模式）")
-            
+
+            logger.info("Telegram 机器人已就绪（webhook，无 polling）")
+
             # 通知 dashboard 模块：Telegram 已上线
             try:
                 from api.dashboard import set_bot_online
@@ -1771,27 +1834,30 @@ class TelegramBot:
                 logger.warning(
                     "更新 Telegram 在线状态失败: %s", exc_detail(e)
                 )
-            
-            # 保持运行直到收到停止信号
-            stop_event = asyncio.Event()
-            await stop_event.wait()
-            
+
         except Exception as e:
             logger.exception(
                 "启动 Telegram 机器人时出错: %s", exc_detail(e)
             )
             raise
-    
+
+    async def run_async(self) -> None:
+        """
+        兼容旧名：等价于 setup_webhook()，不再启动 polling。
+        """
+        await self.setup_webhook()
+
     async def run(self):
         """
-        运行 Telegram 机器人（兼容旧接口）。
-        
-        注意：这个方法会阻塞，建议使用 run_async()。
+        单独运行本模块时：完成 webhook 侧初始化后阻塞，避免进程立即退出。
+        正常部署请使用 main.py 启动 FastAPI 接收 webhook。
         """
         try:
-            await self.run_async()
-            # 保持运行
-            await self.application.updater.idle()
+            await self.setup_webhook()
+            if not getattr(self, "application", None):
+                return
+            stop_event = asyncio.Event()
+            await stop_event.wait()
         except Exception as e:
             logger.exception(
                 "Telegram 机器人 run() 失败: %s", exc_detail(e)
@@ -1806,6 +1872,50 @@ class TelegramBot:
             await self.application.stop()
             await self.application.shutdown()
             logger.info("Telegram 机器人已停止")
+
+
+_webhook_telegram_bot: Optional["TelegramBot"] = None
+_webhook_setup_done: bool = False
+
+
+async def setup_telegram_webhook_app() -> None:
+    """由 main 在 FastAPI 收消息前调用：构建 Application、注册 handler、initialize/start。"""
+    global _webhook_telegram_bot, _webhook_setup_done
+    if _webhook_setup_done:
+        return
+    if not config.TELEGRAM_BOT_TOKEN:
+        logger.warning("TELEGRAM_BOT_TOKEN 未设置，跳过 Telegram webhook 初始化")
+        _webhook_setup_done = True
+        return
+    bot = TelegramBot()
+    await bot.setup_webhook()
+    _webhook_telegram_bot = bot
+    _webhook_setup_done = True
+
+
+async def process_update(update_data: dict) -> None:
+    """供 FastAPI webhook 后台任务调用：将 JSON update 交给 Application 处理。"""
+    bot = _webhook_telegram_bot
+    app = getattr(bot, "application", None) if bot else None
+    if app is None:
+        logger.warning("Telegram Application 未初始化，忽略 update")
+        return
+    try:
+        update = Update.de_json(update_data, app.bot)
+        await app.process_update(update)
+    except Exception as e:
+        logger.exception("process_update 失败: %s", exc_detail(e))
+
+
+async def shutdown_telegram_webhook_app() -> None:
+    global _webhook_telegram_bot, _webhook_setup_done
+    if _webhook_telegram_bot is not None:
+        try:
+            await _webhook_telegram_bot.stop()
+        except Exception as e:
+            logger.warning("shutdown_telegram_webhook_app: %s", exc_detail(e))
+        _webhook_telegram_bot = None
+    _webhook_setup_done = False
 
 
 async def run_telegram_bot():

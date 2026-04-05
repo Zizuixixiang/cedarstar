@@ -156,7 +156,7 @@ class MessageBuffer:
             from memory.database import get_database
 
             db = get_database()
-            buffer_delay_str = db.get_config("buffer_delay", "5")
+            buffer_delay_str = await db.get_config("buffer_delay", "5")
             try:
                 buffer_delay = int(buffer_delay_str)
             except ValueError:

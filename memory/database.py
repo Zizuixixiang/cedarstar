@@ -499,6 +499,13 @@ class MessageDatabase:
         """
         vp = 1 if vision_processed is None else int(vision_processed)
         is_sum = int(is_summarized)
+        # asyncpg 绑定 TEXT 列须为 str；Telegram/上游可能传入 int（如 user_id）
+        uid = None if user_id is None else str(user_id)
+        cid = None if channel_id is None else str(channel_id)
+        mid = None if message_id is None else str(message_id)
+        chrid = None if character_id is None else str(character_id)
+        plat = None if platform is None else str(platform)
+        mt = None if media_type is None else str(media_type)
         async with self.pool.acquire() as conn:
             new_id = await conn.fetchval(
                 """
@@ -510,8 +517,8 @@ class MessageDatabase:
                 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
                 RETURNING id
                 """,
-                role, content, session_id, user_id, channel_id, message_id,
-                character_id, platform, media_type, image_caption, vp, is_sum,
+                role, content, session_id, uid, cid, mid,
+                chrid, plat, mt, image_caption, vp, is_sum,
             )
         logger.debug(
             "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, "
@@ -2361,9 +2368,16 @@ async def save_message(
     vision_processed: Optional[int] = None,
     is_summarized: int = 0,
 ) -> int:
+    # 与 MessageDatabase.save_message 一致：asyncpg TEXT 绑定必须为 str
+    uid = None if user_id is None else str(user_id)
+    cid = None if channel_id is None else str(channel_id)
+    mid = None if message_id is None else str(message_id)
+    chrid = None if character_id is None else str(character_id)
+    plat = None if platform is None else str(platform)
+    mt = None if media_type is None else str(media_type)
     return await get_database().save_message(
-        role, content, session_id, user_id, channel_id, message_id,
-        character_id, platform, media_type, image_caption, vision_processed,
+        role, content, session_id, uid, cid, mid,
+        chrid, plat, mt, image_caption, vision_processed,
         is_summarized,
     )
 

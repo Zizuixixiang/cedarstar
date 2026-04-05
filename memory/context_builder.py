@@ -193,10 +193,10 @@ def format_user_message_for_context(msg: Dict[str, Any]) -> str:
     return "\n\n".join(chunks)
 
 
-def _short_term_recent_message_limit() -> int:
+async def _short_term_recent_message_limit() -> int:
     """最近原文条数：优先 config 表 short_term_limit，否则环境变量 CONTEXT_MAX_RECENT_MESSAGES。"""
     try:
-        raw = get_database().get_config("short_term_limit")
+        raw = await get_database().get_config("short_term_limit")
         if raw is not None and str(raw).strip() != "":
             return max(1, int(str(raw).strip()))
     except (ValueError, TypeError):
@@ -206,10 +206,10 @@ def _short_term_recent_message_limit() -> int:
     return config.CONTEXT_MAX_RECENT_MESSAGES
 
 
-def _context_max_daily_summaries_limit() -> int:
+async def _context_max_daily_summaries_limit() -> int:
     """每日小传注入条数：优先 config 表 context_max_daily_summaries，否则环境变量 CONTEXT_MAX_DAILY_SUMMARIES。"""
     try:
-        raw = get_database().get_config("context_max_daily_summaries")
+        raw = await get_database().get_config("context_max_daily_summaries")
         if raw is not None and str(raw).strip() != "":
             return max(1, min(100, int(str(raw).strip())))
     except (ValueError, TypeError):
@@ -219,10 +219,10 @@ def _context_max_daily_summaries_limit() -> int:
     return max(1, min(100, config.CONTEXT_MAX_DAILY_SUMMARIES))
 
 
-def _context_max_longterm_count() -> int:
+async def _context_max_longterm_count() -> int:
     """长期记忆注入 Top N：优先 config 表 context_max_longterm，否则默认 3。"""
     try:
-        raw = get_database().get_config("context_max_longterm")
+        raw = await get_database().get_config("context_max_longterm")
         if raw is not None and str(raw).strip() != "":
             return max(1, min(20, int(str(raw).strip())))
     except (ValueError, TypeError):
@@ -232,10 +232,10 @@ def _context_max_longterm_count() -> int:
     return 3
 
 
-def _relationship_timeline_limit() -> int:
+async def _relationship_timeline_limit() -> int:
     """关系时间线条数：优先 config 表 relationship_timeline_limit，否则默认 3。"""
     try:
-        raw = get_database().get_config("relationship_timeline_limit")
+        raw = await get_database().get_config("relationship_timeline_limit")
         if raw is not None and str(raw).strip() != "":
             return max(1, min(50, int(str(raw).strip())))
     except (ValueError, TypeError):
@@ -245,10 +245,10 @@ def _relationship_timeline_limit() -> int:
     return 3
 
 
-def _retrieval_top_k() -> int:
+async def _retrieval_top_k() -> int:
     """双路检索各路 top_k：优先 config 表 retrieval_top_k，否则默认 5。"""
     try:
-        raw = get_database().get_config("retrieval_top_k")
+        raw = await get_database().get_config("retrieval_top_k")
         if raw is not None and str(raw).strip() != "":
             return max(1, min(30, int(str(raw).strip())))
     except (ValueError, TypeError):
@@ -267,12 +267,12 @@ THINKING_LANGUAGE_DIRECTIVE = (
     "你的思维链（thinking / reasoning）必须使用中文。"
 )
 
-def _telegram_segment_limits_from_db() -> Tuple[int, int]:
+async def _telegram_segment_limits_from_db() -> Tuple[int, int]:
     """读取 config 表中的 Telegram 分段参数（与 api.config DEFAULT 及校验范围一致）。"""
     db = get_database()
 
-    def _int_key(name: str, default: int, lo: int, hi: int) -> int:
-        raw = db.get_config(name)
+    async def _int_key(name: str, default: int, lo: int, hi: int) -> int:
+        raw = await db.get_config(name)
         if raw is None or not str(raw).strip():
             return default
         try:
@@ -281,15 +281,15 @@ def _telegram_segment_limits_from_db() -> Tuple[int, int]:
             return default
         return max(lo, min(hi, v))
 
-    max_chars = _int_key("telegram_max_chars", 50, 10, 1000)
+    max_chars = await _int_key("telegram_max_chars", 50, 10, 1000)
     max_chars = max(10, min(1000, round(max_chars / 10) * 10))
-    max_msg = _int_key("telegram_max_msg", 8, 1, 20)
+    max_msg = await _int_key("telegram_max_msg", 8, 1, 20)
     return max_chars, max_msg
 
 
-def format_telegram_reply_segment_hint() -> str:
+async def format_telegram_reply_segment_hint() -> str:
     """Telegram 缓冲回复：追加于 system 末尾；MAX_CHARS / MAX_MSG 来自数据库。"""
-    max_chars, max_msg = _telegram_segment_limits_from_db()
+    max_chars, max_msg = await _telegram_segment_limits_from_db()
     return (
         "\n\n"
         "【Telegram 排版与分段指令】\n\n"
@@ -505,7 +505,7 @@ class ContextBuilder:
         """
         logger.info("Context 构建器初始化完成")
     
-    def build_context(
+    async def build_context(
         self,
         session_id: str,
         user_message: str,
@@ -540,24 +540,24 @@ class ContextBuilder:
             # 1. 获取 system prompt
             system_prompt = self._build_system_prompt()
 
-            temporal_section = self._build_temporal_states_section()
+            temporal_section = await self._build_temporal_states_section()
             
             # 2. 获取 memory cards
-            memory_cards_section = self._build_memory_cards_section()
+            memory_cards_section = await self._build_memory_cards_section()
 
-            relationship_timeline_section = self._build_relationship_timeline_section()
+            relationship_timeline_section = await self._build_relationship_timeline_section()
             
             # 3. 获取 daily summaries
-            daily_summaries_section = self._build_daily_summaries_section()
+            daily_summaries_section = await self._build_daily_summaries_section()
             
             # 4. 获取 today's chunk summaries
-            chunk_summaries_section = self._build_chunk_summaries_section()
+            chunk_summaries_section = await self._build_chunk_summaries_section()
             
             # 5. 获取向量检索结果
-            vector_search_section = self._build_vector_search_section(user_message)
+            vector_search_section = await self._build_vector_search_section(user_message)
             
             # 6. 获取最近消息
-            recent_messages_section = self._build_recent_messages_section(session_id)
+            recent_messages_section = await self._build_recent_messages_section(session_id)
             
             # 7. 添加当前用户消息
             cut = (
@@ -578,7 +578,7 @@ class ContextBuilder:
                 vector_search_section
             )
             if telegram_segment_hint:
-                full_system_prompt = full_system_prompt + format_telegram_reply_segment_hint()
+                full_system_prompt = full_system_prompt + await format_telegram_reply_segment_hint()
             
             # 组装 messages 数组
             messages = self._assemble_messages(
@@ -642,24 +642,24 @@ class ContextBuilder:
             # 1. 获取 system prompt
             system_prompt = self._build_system_prompt()
 
-            temporal_section = self._build_temporal_states_section()
+            temporal_section = await self._build_temporal_states_section()
             
             # 2. 获取 memory cards
-            memory_cards_section = self._build_memory_cards_section()
+            memory_cards_section = await self._build_memory_cards_section()
 
-            relationship_timeline_section = self._build_relationship_timeline_section()
+            relationship_timeline_section = await self._build_relationship_timeline_section()
             
             # 3. 获取 daily summaries
-            daily_summaries_section = self._build_daily_summaries_section()
+            daily_summaries_section = await self._build_daily_summaries_section()
             
             # 4. 获取 today's chunk summaries
-            chunk_summaries_section = self._build_chunk_summaries_section()
+            chunk_summaries_section = await self._build_chunk_summaries_section()
             
             # 5. 获取向量检索结果（带 Reranker）
             vector_search_section = await self._build_vector_search_section_async(user_message)
             
             # 6. 获取最近消息
-            recent_messages_section = self._build_recent_messages_section(session_id)
+            recent_messages_section = await self._build_recent_messages_section(session_id)
             
             # 7. 添加当前用户消息
             cut = (
@@ -680,7 +680,7 @@ class ContextBuilder:
                 vector_search_section
             )
             if telegram_segment_hint:
-                full_system_prompt = full_system_prompt + format_telegram_reply_segment_hint()
+                full_system_prompt = full_system_prompt + await format_telegram_reply_segment_hint()
             
             # 组装 messages 数组
             messages = self._assemble_messages(
@@ -715,10 +715,10 @@ class ContextBuilder:
         """
         return config.SYSTEM_PROMPT
 
-    def _build_temporal_states_section(self) -> str:
+    async def _build_temporal_states_section(self) -> str:
         """temporal_states 中 is_active=1 的全部记录（置于记忆卡片之前）。"""
         try:
-            rows = get_all_active_temporal_states()
+            rows = await get_all_active_temporal_states()
             if not rows:
                 return ""
             lines: List[str] = ["# 时效状态（进行中）", ""]
@@ -736,7 +736,7 @@ class ContextBuilder:
             logger.error(f"构建 temporal_states 部分失败: {e}")
             return ""
 
-    def _build_relationship_timeline_section(self) -> str:
+    async def _build_relationship_timeline_section(self) -> str:
         """relationship_timeline：库内取最近若干条（见 _relationship_timeline_limit），拼入前按 created_at 升序排列。"""
         type_labels = {
             "milestone": "里程碑",
@@ -745,8 +745,8 @@ class ContextBuilder:
             "daily_warmth": "日常温情",
         }
         try:
-            rows = get_recent_relationship_timeline(
-                limit=_relationship_timeline_limit(),
+            rows = await get_recent_relationship_timeline(
+                limit=await _relationship_timeline_limit(),
             )
             if not rows:
                 return ""
@@ -774,7 +774,7 @@ class ContextBuilder:
             logger.error(f"构建 relationship_timeline 部分失败: {e}")
             return ""
     
-    def _build_memory_cards_section(self) -> str:
+    async def _build_memory_cards_section(self) -> str:
         """
         构建 memory cards 部分。
         
@@ -784,7 +784,7 @@ class ContextBuilder:
             str: memory cards 部分的文本，如果没有则返回空字符串
         """
         try:
-            memory_cards = get_all_active_memory_cards(limit=100)
+            memory_cards = await get_all_active_memory_cards(limit=100)
             
             if not memory_cards:
                 return ""
@@ -840,7 +840,7 @@ class ContextBuilder:
             logger.error(f"构建 memory cards 部分失败: {e}")
             return ""
     
-    def _build_daily_summaries_section(self) -> str:
+    async def _build_daily_summaries_section(self) -> str:
         """
         构建 daily summary 部分。
         
@@ -851,8 +851,8 @@ class ContextBuilder:
             str: daily summary 部分的文本，如果没有则返回空字符串
         """
         try:
-            daily_summaries = get_recent_daily_summaries(
-                limit=_context_max_daily_summaries_limit(),
+            daily_summaries = await get_recent_daily_summaries(
+                limit=await _context_max_daily_summaries_limit(),
             )
             
             if not daily_summaries:
@@ -886,7 +886,7 @@ class ContextBuilder:
             logger.error(f"构建 daily summary 部分失败: {e}")
             return ""
     
-    def _build_chunk_summaries_section(self) -> str:
+    async def _build_chunk_summaries_section(self) -> str:
         """
         构建 chunk summary 部分。
         
@@ -897,7 +897,7 @@ class ContextBuilder:
             str: chunk summary 部分的文本，如果没有则返回空字符串
         """
         try:
-            chunk_summaries = get_today_chunk_summaries()
+            chunk_summaries = await get_today_chunk_summaries()
             
             if not chunk_summaries:
                 return ""
@@ -938,7 +938,7 @@ class ContextBuilder:
             logger.error(f"构建 chunk summary 部分失败: {e}")
             return ""
     
-    def _build_vector_search_section(self, user_message: str) -> str:
+    async def _build_vector_search_section(self, user_message: str) -> str:
         """
         构建向量检索部分（同步，无 Cohere 精排）。
         
@@ -949,14 +949,14 @@ class ContextBuilder:
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
 
-            tk = _retrieval_top_k()
+            tk = await _retrieval_top_k()
             vector_results = search_memory(user_message, top_k=tk)
             bm25_results = search_bm25(user_message, top_k=tk)
             all_results = _merge_vector_bm25_dedupe(
                 vector_results, bm25_results, max(1, 2 * tk)
             )
             all_results = collapse_longterm_by_parent_id(all_results)
-            n_long = _context_max_longterm_count()
+            n_long = await _context_max_longterm_count()
             all_results = all_results[:n_long]
 
             if not all_results:
@@ -1009,12 +1009,12 @@ class ContextBuilder:
 
             if not config.COHERE_API_KEY or config.COHERE_API_KEY == "your_cohere_api_key_here":
                 logger.warning("COHERE_API_KEY 未设置或为默认值，使用普通双路检索")
-                return self._build_vector_search_section(user_message)
+                return await self._build_vector_search_section(user_message)
 
             import asyncio
 
-            tk = _retrieval_top_k()
-            n_long = _context_max_longterm_count()
+            tk = await _retrieval_top_k()
+            n_long = await _context_max_longterm_count()
             logger.debug(f"开始并行检索，查询: '{user_message[:50]}...'")
             loop = asyncio.get_event_loop()
             vector_future = loop.run_in_executor(
@@ -1083,9 +1083,9 @@ class ContextBuilder:
         except Exception as e:
             logger.error(f"构建向量检索部分失败（异步）: {e}")
             logger.warning("异步检索失败，回退到同步检索")
-            return self._build_vector_search_section(user_message)
+            return await self._build_vector_search_section(user_message)
     
-    def _build_recent_messages_section(self, session_id: str) -> List[Dict[str, Any]]:
+    async def _build_recent_messages_section(self, session_id: str) -> List[Dict[str, Any]]:
         """
         构建最近消息部分。
         
@@ -1099,9 +1099,9 @@ class ContextBuilder:
             List[Dict[str, Any]]: 消息列表，每条消息包含 role 和 content（纯文本）
         """
         try:
-            recent_messages = get_unsummarized_messages_desc(
+            recent_messages = await get_unsummarized_messages_desc(
                 session_id,
-                limit=_short_term_recent_message_limit(),
+                limit=await _short_term_recent_message_limit(),
             )
             
             if not recent_messages:
@@ -1237,7 +1237,7 @@ class ContextBuilder:
 
 
 # 便捷函数
-def build_context(
+async def build_context(
     session_id: str,
     user_message: str,
     images: Optional[List[Dict[str, Any]]] = None,
@@ -1258,7 +1258,7 @@ def build_context(
         Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
     """
     builder = ContextBuilder()
-    return builder.build_context(
+    return await builder.build_context(
         session_id,
         user_message,
         images=images,
@@ -1269,60 +1269,65 @@ def build_context(
 
 if __name__ == "__main__":
     """Context 构建模块测试入口。"""
+    import asyncio
     import sys
     import os
-    
+
     # 添加项目根目录到 Python 路径
     current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     if current_dir not in sys.path:
         sys.path.insert(0, current_dir)
-    
+
     # 设置日志
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
-    
-    print("测试 Context 构建器...")
-    
-    try:
-        # 创建测试数据
-        from memory.database import get_database
-        db = get_database()
-        
+
+    async def _main_test() -> None:
+        from memory.database import (
+            clear_session_messages,
+            initialize_database,
+            save_message,
+        )
+
+        await initialize_database()
+
         test_session = "context_builder_test_session"
-        
-        # 清理测试数据
-        db.clear_session_messages(test_session)
-        
-        # 保存测试消息
+        await clear_session_messages(test_session)
+
         for i in range(10):
-            db.save_message("user", f"测试用户消息 {i+1}", test_session)
-            db.save_message("assistant", f"测试助手回复 {i+1}", test_session)
-        
-        # 测试构建 context
+            await save_message("user", f"测试用户消息 {i+1}", test_session)
+            await save_message("assistant", f"测试助手回复 {i+1}", test_session)
+
         builder = ContextBuilder()
-        context = builder.build_context(test_session, "你好，这是一个测试消息")
-        
-        print(f"Context 构建成功:")
+        context = await builder.build_context(
+            test_session, "你好，这是一个测试消息"
+        )
+
+        print("Context 构建成功:")
         print(f"System Prompt 长度: {len(context['system_prompt'])}")
         print(f"Messages 数量: {len(context['messages'])}")
-        
-        # 显示结构
+
         print("\nSystem Prompt 预览:")
-        print(context['system_prompt'][:200] + "..." if len(context['system_prompt']) > 200 else context['system_prompt'])
-        
+        sp = context["system_prompt"]
+        print(sp[:200] + "..." if len(sp) > 200 else sp)
+
         print("\nMessages 结构:")
-        for i, msg in enumerate(context['messages']):
-            role = msg['role']
-            content_preview = msg['content'][:50] + "..." if len(msg['content']) > 50 else msg['content']
+        for i, msg in enumerate(context["messages"]):
+            role = msg["role"]
+            c = msg["content"]
+            content_preview = c[:50] + "..." if len(c) > 50 else c
             print(f"  [{i}] {role}: {content_preview}")
-        
-        # 清理测试数据
-        db.clear_session_messages(test_session)
+
+        await clear_session_messages(test_session)
         print("\nContext 构建器测试完成！")
-        
+
+    print("测试 Context 构建器...")
+    try:
+        asyncio.run(_main_test())
     except Exception as e:
         print(f"Context 构建器测试失败: {e}")
         import traceback
+
         traceback.print_exc()

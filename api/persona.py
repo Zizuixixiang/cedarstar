@@ -58,7 +58,7 @@ async def list_personas():
     from memory.database import get_database
     
     db = get_database()
-    personas = db.get_all_persona_configs()
+    personas = await db.get_all_persona_configs()
     
     return create_response(True, personas)
 
@@ -69,7 +69,7 @@ async def get_persona(persona_id: int):
     from memory.database import get_database
     
     db = get_database()
-    persona = db.get_persona_config(persona_id)
+    persona = await db.get_persona_config(persona_id)
     
     if not persona:
         raise HTTPException(status_code=404, detail="人设配置不存在")
@@ -83,7 +83,7 @@ async def create_persona(persona: PersonaCreate):
     from memory.database import get_database
     
     db = get_database()
-    persona_id = db.save_persona_config(persona.model_dump())
+    persona_id = await db.save_persona_config(persona.model_dump())
     
     return create_response(True, {"id": persona_id}, "创建成功")
 
@@ -96,13 +96,13 @@ async def update_persona(persona_id: int, persona: PersonaUpdate):
     db = get_database()
     
     # 检查是否存在
-    existing = db.get_persona_config(persona_id)
+    existing = await db.get_persona_config(persona_id)
     if not existing:
         raise HTTPException(status_code=404, detail="人设配置不存在")
     
     # 只更新非 None 的字段
     update_data = {k: v for k, v in persona.model_dump().items() if v is not None}
-    db.update_persona_config(persona_id, update_data)
+    await db.update_persona_config(persona_id, update_data)
     
     return create_response(True, None, "更新成功")
 
@@ -115,11 +115,11 @@ async def delete_persona(persona_id: int):
     db = get_database()
     
     # 检查是否存在
-    existing = db.get_persona_config(persona_id)
+    existing = await db.get_persona_config(persona_id)
     if not existing:
         raise HTTPException(status_code=404, detail="人设配置不存在")
     
-    db.delete_persona_config(persona_id)
+    await db.delete_persona_config(persona_id)
     
     return create_response(True, None, "删除成功")
 
@@ -130,7 +130,7 @@ async def preview_persona(persona_id: int):
     from memory.database import get_database
     
     db = get_database()
-    persona = db.get_persona_config(persona_id)
+    persona = await db.get_persona_config(persona_id)
     
     if not persona:
         raise HTTPException(status_code=404, detail="人设配置不存在")

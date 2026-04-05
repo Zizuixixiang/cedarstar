@@ -33,7 +33,7 @@ async def get_history(
     date_from_str = date_from.isoformat() if date_from else None
     date_to_str = date_to.isoformat() if date_to else None
 
-    result = db.get_messages_filtered(
+    result = await db.get_messages_filtered(
         platform=platform or None,
         keyword=keyword or None,
         date_from=date_from_str,

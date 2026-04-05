@@ -26,11 +26,22 @@ _meme_store_singleton: Optional["MemeStore"] = None
 
 def _resolve_embedding_api() -> tuple[str, str, str]:
     """
-    仅使用 api_configs 中 config_type=embedding 的激活行提供 base_url / model / api_key；
-    api_key 若库内为空则回退 config.SILICONFLOW_API_KEY（.env，优先级低于库内已填 key）。
+    同步路径（脚本 / Chroma upsert）：仅用 .env，不访问数据库（避免无事件循环处 coroutine 未 await）。
+    运行时检索请用 ``await _resolve_embedding_api_async()``。
+    """
+    base = _DEFAULT_EMBEDDING_BASE.rstrip("/")
+    model = _DEFAULT_EMBEDDING_MODEL
+    key = (config.SILICONFLOW_API_KEY or "").strip()
+    return key, base, model
+
+
+async def _resolve_embedding_api_async() -> tuple[str, str, str]:
+    """
+    使用 api_configs 中 config_type=embedding 的激活行提供 base_url / model / api_key；
+    api_key 若库内为空则回退 config.SILICONFLOW_API_KEY。
     """
     db = get_database()
-    row = db.get_active_api_config("embedding")
+    row = await db.get_active_api_config("embedding")
     base = _DEFAULT_EMBEDDING_BASE.rstrip("/")
     model = _DEFAULT_EMBEDDING_MODEL
     key = ""
@@ -50,6 +61,40 @@ def _resolve_embedding_api() -> tuple[str, str, str]:
 def siliconflow_embed_text(text: str) -> List[float]:
     """调用 OpenAI 兼容 /v1/embeddings。"""
     key, base, model = _resolve_embedding_api()
+    if not key:
+        raise ValueError(
+            "未配置表情包向量：请在核心设置 → API 配置 → Embedding 填写 API Key 并激活，"
+            "或在 .env 设置 SILICONFLOW_API_KEY 作为兜底"
+        )
+    t = (text or "").strip()
+    if not t:
+        raise ValueError("向量化文本不能为空")
+    url = f"{base}/embeddings"
+    resp = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json",
+            "User-Agent": "CedarStar/import_memes",
+        },
+        json={"model": model, "input": t},
+        timeout=60,
+        proxies=config.proxy_dict,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    arr = data.get("data") or []
+    if not arr:
+        raise ValueError("embeddings 响应无 data")
+    emb = arr[0].get("embedding")
+    if not isinstance(emb, list):
+        raise ValueError("embedding 格式无效")
+    return [float(x) for x in emb]
+
+
+async def siliconflow_embed_text_async(text: str) -> List[float]:
+    """异步路径：读取库内 Embedding 配置后调用 /v1/embeddings。"""
+    key, base, model = await _resolve_embedding_api_async()
     if not key:
         raise ValueError(
             "未配置表情包向量：请在核心设置 → API 配置 → Embedding 填写 API Key 并激活，"

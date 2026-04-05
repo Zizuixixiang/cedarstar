@@ -63,7 +63,7 @@ def _normalize_telegram_config_value(key: str, value: Any) -> Optional[int]:
 _config = None
 
 
-def _load_config_from_db() -> Dict[str, Any]:
+async def _load_config_from_db() -> Dict[str, Any]:
     """
     从数据库加载配置。
     
@@ -71,7 +71,7 @@ def _load_config_from_db() -> Dict[str, Any]:
         Dict[str, Any]: 配置字典
     """
     db = get_database()
-    db_configs = db.get_all_configs()
+    db_configs = await db.get_all_configs()
     
     # 合并默认配置和数据库配置
     config = DEFAULT_CONFIG.copy()
@@ -95,7 +95,7 @@ def _load_config_from_db() -> Dict[str, Any]:
     return config
 
 
-def _save_config_to_db(config: Dict[str, Any]) -> bool:
+async def _save_config_to_db(config: Dict[str, Any]) -> bool:
     """
     保存配置到数据库。
     
@@ -110,13 +110,13 @@ def _save_config_to_db(config: Dict[str, Any]) -> bool:
     
     for key, value in config.items():
         if key in DEFAULT_CONFIG:
-            if not db.set_config(key, str(value)):
+            if not await db.set_config(key, str(value)):
                 success = False
     
     return success
 
 
-def _get_config() -> Dict[str, Any]:
+async def _get_config() -> Dict[str, Any]:
     """
     获取配置（每次从数据库加载，确保获取最新值）。
     
@@ -126,15 +126,15 @@ def _get_config() -> Dict[str, Any]:
     global _config
     
     # 每次调用都从数据库重新加载，确保获取最新配置
-    _config = _load_config_from_db()
+    _config = await _load_config_from_db()
     
     return _config
 
 
-def _payload_with_meta(config_dict: Dict[str, Any]) -> Dict[str, Any]:
+async def _payload_with_meta(config_dict: Dict[str, Any]) -> Dict[str, Any]:
     """在配置字典上附加 _meta.updated_at（助手相关 key 在库中的最近更新时间）。"""
     db = get_database()
-    ts = db.get_config_max_updated_at_for_keys(list(DEFAULT_CONFIG.keys()))
+    ts = await db.get_config_max_updated_at_for_keys(list(DEFAULT_CONFIG.keys()))
     out = dict(config_dict)
     out["_meta"] = {"updated_at": ts}
     return out
@@ -145,8 +145,8 @@ async def get_config():
     """
     获取当前所有配置参数。
     """
-    config = _get_config()
-    return create_response(True, _payload_with_meta(config))
+    config = await _get_config()
+    return create_response(True, await _payload_with_meta(config))
 
 
 @router.put("/config")
@@ -163,7 +163,7 @@ async def update_config(new_config: Dict[str, Any]):
     global _config
     
     # 获取当前配置
-    config = _get_config()
+    config = await _get_config()
     
     # 验证并更新配置
     updated = False
@@ -194,10 +194,10 @@ async def update_config(new_config: Dict[str, Any]):
     
     if updated:
         # 保存到数据库
-        if _save_config_to_db(config):
+        if await _save_config_to_db(config):
             # _get_config() 会刷新全局缓存；附带 _meta 供前端展示真实落库时间
-            fresh = _get_config()
-            return create_response(True, _payload_with_meta(fresh), "配置更新成功")
+            fresh = await _get_config()
+            return create_response(True, await _payload_with_meta(fresh), "配置更新成功")
         else:
             return create_response(False, None, "配置保存到数据库失败")
     else:

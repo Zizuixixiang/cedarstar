@@ -23,13 +23,13 @@ DEFAULT_STT_MODEL = "whisper-1"
 STT_TIMEOUT_SEC = 300.0
 
 
-def _resolve_stt_credentials() -> Tuple[str, str, str]:
+async def _resolve_stt_credentials_async() -> Tuple[str, str, str]:
     """返回 (api_key, api_base, model)。无可用 key 时抛出 ValueError。"""
     from memory.database import get_database
 
     row: Optional[Dict[str, Any]] = None
     try:
-        row = get_database().get_active_api_config("stt")
+        row = await get_database().get_active_api_config("stt")
     except Exception as e:
         logger.debug("读取 stt api_config 失败，将尝试环境变量: %s", e)
 
@@ -55,7 +55,7 @@ async def transcribe_voice(voice_bytes: bytes, mime_type: str = "audio/ogg") -> 
     调用 /audio/transcriptions，返回转录正文（不含 [语音] 前缀）。
     失败时抛出异常，由调用方兜底为「转录失败」等文案。
     """
-    api_key, api_base, model = _resolve_stt_credentials()
+    api_key, api_base, model = await _resolve_stt_credentials_async()
     url = api_base.rstrip("/") + "/audio/transcriptions"
 
     if mime_type.lower() in ("audio/mpeg", "audio/mp3"):

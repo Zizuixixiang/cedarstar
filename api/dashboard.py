@@ -40,7 +40,7 @@ async def get_status():
     model_name = "未设置"
 
     try:
-        active = db.get_active_api_config("chat")
+        active = await db.get_active_api_config("chat")
         if active:
             active_config_name = active.get("name", "未设置")
             model_name = active.get("model") or "未设置"
@@ -66,7 +66,7 @@ async def get_batch_log():
     from memory.database import get_database
 
     db = get_database()
-    logs = db.get_recent_daily_batch_logs(limit=7)
+    logs = await db.get_recent_daily_batch_logs(limit=7)
     return create_response(True, logs)
 
 
@@ -80,25 +80,22 @@ async def get_memory_overview():
     - chunk_summary_count：今日 chunk 摘要数量
     - latest_daily_summary_time：summaries 表最新 daily 记录的 created_at
     """
-    import sqlite3
     from memory.database import get_database
 
     db = get_database()
 
-    # 1. longterm_memories 条数（直接 COUNT，不加载所有数据）
+    # 1. longterm_memories 条数（复用分页查询的 total_items，不加载全表）
     longterm_count = 0
     try:
-        with sqlite3.connect(db.db_path) as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT COUNT(*) FROM longterm_memories")
-            longterm_count = cursor.fetchone()[0] or 0
+        lt = await db.get_longterm_memories(keyword="", page=1, page_size=1)
+        longterm_count = int(lt.get("total_items") or 0)
     except Exception:
         pass
 
     # 2. 配置参数
     short_term_limit = 40
     try:
-        val2 = db.get_config('short_term_limit')
+        val2 = await db.get_config('short_term_limit')
         if val2 is not None:
             short_term_limit = int(val2)
     except Exception:
@@ -111,7 +108,7 @@ async def get_memory_overview():
     ]
     dimension_status = {d: False for d in dimensions}
     try:
-        cards = db.get_all_active_memory_cards()
+        cards = await db.get_all_active_memory_cards()
         for card in cards:
             dim = card.get('dimension')
             if dim in dimension_status:
@@ -122,7 +119,7 @@ async def get_memory_overview():
     # 4. 今日 chunk 摘要数量
     chunk_count = 0
     try:
-        chunk_summaries = db.get_today_chunk_summaries()
+        chunk_summaries = await db.get_today_chunk_summaries()
         chunk_count = len(chunk_summaries)
     except Exception:
         pass
@@ -130,7 +127,7 @@ async def get_memory_overview():
     # 5. 最近 daily 摘要时间
     latest_daily_time = None
     try:
-        daily_summaries = db.get_recent_daily_summaries(limit=1)
+        daily_summaries = await db.get_recent_daily_summaries(limit=1)
         if daily_summaries:
             latest_daily_time = daily_summaries[0].get('created_at')
     except Exception:
