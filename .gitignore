@@ -201,3 +201,4 @@ chroma_db/
 miniapp/node_modules/
 backups/
 test/
+miniapp/.env.production

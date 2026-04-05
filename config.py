@@ -197,6 +197,11 @@ class Config:
             str: 日志级别，默认为 "INFO"
         """
         return os.getenv("LOG_LEVEL", "INFO").upper()
+
+    @property
+    def MINIAPP_TOKEN(self) -> str:
+        """Mini App /api 鉴权：请求头 X-Cedarstar-Token 须与本值一致；在 .env 中设置 MINIAPP_TOKEN。"""
+        return os.getenv("MINIAPP_TOKEN", "")
     
     @property
     def MAX_HISTORY_MESSAGES(self) -> int:

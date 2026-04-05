@@ -12,3 +12,15 @@ export function apiUrl(path) {
   const p = path.startsWith('/') ? path : `/${path}`;
   return API_BASE_URL ? `${API_BASE_URL}${p}` : p;
 }
+
+export const MINIAPP_TOKEN = import.meta.env.VITE_MINIAPP_TOKEN || '';
+
+export async function apiFetch(path, options = {}) {
+  const url = apiUrl(path);
+  const headers = {
+    'Content-Type': 'application/json',
+    'X-Cedarstar-Token': MINIAPP_TOKEN,
+    ...(options.headers || {}),
+  };
+  return fetch(url, { ...options, headers });
+}

@@ -16,8 +16,9 @@ import sys
 import os
 from datetime import datetime
 import pytz
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
@@ -59,8 +60,16 @@ app.add_middleware(
 # Telegram webhook：不带 /api，与控制台 /api/* 的 Access 规则分离
 app.include_router(telegram_webhook_router)
 
-# 包含 API 路由
-app.include_router(api_router, prefix="/api")
+API_KEY_HEADER = APIKeyHeader(name="X-Cedarstar-Token", auto_error=False)
+
+
+async def verify_token(token: str | None = Depends(API_KEY_HEADER)):
+    if token != config.MINIAPP_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+
+# 包含 API 路由（Mini App 控制台：须带 X-Cedarstar-Token）
+app.include_router(api_router, prefix="/api", dependencies=[Depends(verify_token)])
 
 # 根路径
 @app.get("/")
