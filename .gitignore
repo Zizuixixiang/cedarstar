@@ -197,3 +197,7 @@ Thumbs.db
 # Windows
 Thumbs.db
 Desktop.ini
+chroma_db/
+miniapp/node_modules/
+backups/
+test/
