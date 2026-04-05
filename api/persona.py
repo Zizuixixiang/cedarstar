@@ -24,6 +24,7 @@ class PersonaCreate(BaseModel):
     char_speech_style: Optional[str] = ""
     user_name: Optional[str] = ""
     user_body: Optional[str] = ""
+    user_work: Optional[str] = ""
     user_habits: Optional[str] = ""
     user_likes_dislikes: Optional[str] = ""
     user_values: Optional[str] = ""
@@ -42,6 +43,7 @@ class PersonaUpdate(BaseModel):
     char_speech_style: Optional[str] = None
     user_name: Optional[str] = None
     user_body: Optional[str] = None
+    user_work: Optional[str] = None
     user_habits: Optional[str] = None
     user_likes_dislikes: Optional[str] = None
     user_values: Optional[str] = None
@@ -155,6 +157,9 @@ async def preview_persona(persona_id: int):
     
     if persona.get('user_body'):
         parts.append(f"【用户身体特征】\n{persona['user_body']}")
+    
+    if persona.get('user_work'):
+        parts.append(f"【用户工作】\n{persona['user_work']}")
     
     if persona.get('user_habits'):
         parts.append(f"【用户习惯】\n{persona['user_habits']}")

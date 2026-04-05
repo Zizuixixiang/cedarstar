@@ -286,6 +286,8 @@ cedarstar/                          # 项目根目录
 - Context 只读：`get_all_active_temporal_states()`（`temporal_states.is_active=1` 全量）、`get_recent_relationship_timeline(limit)`（数据库按 `created_at` 倒序取前 `limit` 条；`context_builder` 注入前对关系时间线再按 `created_at` 正序排列）
 - 记忆卡片：`get_memory_cards()` 仅返回 `is_active=1`（供 API / Context）；日终 Step 3 Upsert 使用 `get_latest_memory_card_for_dimension()`，按 `user_id` + `character_id` + `dimension` 取**最近一条且不过滤 `is_active`**，避免批量软删后无法命中旧行；`update_memory_card(..., reactivate=True)` 在更新正文同时将 `is_active` 置 1（跑批合并写回后重新展示）
 
+**✅ 已修复（2026-04-05）：** `get_messages_filtered` 的 **`date_from` / `date_to`** 若以字符串传入（如查询参数），在 SQL 绑定 `created_at::date` 条件前用 **`date.fromisoformat`** 转为 **`datetime.date`**，避免 asyncpg 类型不匹配导致 **`GET /api/history` 500**（History 页日期筛选）。
+
 #### 3.4.2 `context_builder.py` — Context 组装
 
 **职责：** 在每次 LLM 调用前，将多个记忆来源组装成完整的 `messages` 数组。
@@ -316,6 +318,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - 异步版 `build_context_async()`：并行检索 + 折叠 + Cohere 全候选打分 + 上述融合公式取 top2；`COHERE_API_KEY` 不可用时回退为同步双路逻辑
 - System 块末尾固定追加引用死命令：若参考了上述历史记忆，须在回复文末标注 `[[used:uid]]`（可多个）；**勿**用单括号 `[used:…]` 或 `【used:…】`（`MEMORY_CITATION_DIRECTIVE`）；并追加思维链须中文（`THINKING_LANGUAGE_DIRECTIVE`：thinking / reasoning 使用中文）
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 Telegram **HTML 白名单、`|||` 分段、勿滥用 Markdown `>` / `<blockquote>`、`[meme:描述]` 与 `|||` 同级顺序分隔、表情包自然融入对话的指引**（见 `context_builder.format_telegram_reply_segment_hint()`，其中 MAX_CHARS / MAX_MSG 读自 `config` 表的 `telegram_max_chars` / `telegram_max_msg`；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
+
+**✅ 已改动（2026-04-05）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`** 组装 system 正文（【Char 人设】/【我的人设】/【系统规则】等，与 Mini App `Persona.jsx` 预览格式一致）；无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**（`.env` 的 `SYSTEM_PROMPT`）。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
 
 #### 3.4.3 `micro_batch.py` — 微批处理
 
@@ -447,6 +451,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写数据库；`DELETE /longterm/{id}` 先删数据库再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列），并按 `chroma_doc_id` 批量读取 Chroma 元数据附加 `hits`、`halflife_days`、`last_access_ts`（孤儿行三项为 `null`）
 - `memory.py` 时效状态：`GET/POST /temporal-states`、`DELETE /temporal-states/{id}`（将 `is_active` 置 0）；`GET /relationship-timeline` 返回全表按 `created_at` 倒序（只读）
 
+**✅ 已改动（2026-04-05）：** **`/api/persona`** 人设 CRUD 与预览已读写 **`persona_configs.user_work`**，与库迁移、Mini App Persona 页、`context_builder._build_system_prompt` 一致。
+
 ---
 
 ### 3.6 `miniapp/` — 前端管理界面
@@ -475,6 +481,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Persona 页（`Persona.jsx` / `persona.css`）：** 右侧 System Prompt 预览区使用 `position: sticky`（配合 `align-self: flex-start`、`max-height` 与预览正文区域内部滚动），主内容区纵向滚动时预览与「复制全文」仍留在视口内，便于对照长表单编辑。「系统规则」区块下含 **Telegram HTML 格式化** 提示（与 `bot/telegram_bot.py` 正文 `parse_mode=HTML` 一致）。
 
+**✅ 已改动（2026-04-05）：** 表单与预览增加 **用户工作**（`user_work`），与 **`persona_configs.user_work`**、后端预览及 **`context_builder._build_system_prompt`** 对齐。
+
 **Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 120px)`（可按主内容区 padding 微调）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab 使用 **`.memory-tabs button.memory-tab`** 暖橙选中样式。
 
 **History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。
@@ -482,6 +490,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **API 根地址与请求封装：** 各页通过 `src/apiBase.js` 的 **`apiFetch(path, options)`** 调用后端（内部用 **`apiUrl()`** 拼 URL）。**`apiFetch`** 会为每次请求自动设置 **`Content-Type: application/json`** 与 **`X-Cedarstar-Token`**，令牌来自构建时环境变量 **`VITE_MINIAPP_TOKEN`**（未设置则为空字符串），须与服务器 `.env` 中的 **`MINIAPP_TOKEN`** 一致，否则 `/api/*` 返回 401。环境变量 **`VITE_API_BASE_URL`** 未设置或为空时 **`API_BASE_URL`** 为空字符串，URL 为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。
 
 **路由入口：** `src/router.jsx` 导出 `navItems` 与 `routes`，文件顶部 `import React from 'react'`（见 §6.11）。
+
+**✅ 已修复（2026-04-05）：** **`miniapp/src/App.jsx`** 中 **`BrowserRouter`** 设置 **`basename={routerBasename()}`**（由 **`import.meta.env.BASE_URL`** 推导，与 **`vite.config.js` 的 `base`** 一致）。生产静态资源挂在 **`/app`** 时，无 basename 会导致路径 **`/app/`** 无法匹配路由 **`/`**，Telegram Mini App 打开白屏；设置后与 **`StaticFiles(..., html=True)`** 挂载前缀一致。
 
 ---
 
@@ -819,6 +829,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `char_speech_style` | TEXT | 角色说话方式 |
 | `user_name` | TEXT | 用户名称 |
 | `user_body` | TEXT | 用户身体特征 |
+| `user_work` | TEXT | 用户工作 / 职业等信息（迁移默认 `''`） |
 | `user_habits` | TEXT | 用户习惯 |
 | `user_likes_dislikes` | TEXT | 用户喜恶 |
 | `user_values` | TEXT | 用户价值观 |
@@ -829,6 +840,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `system_rules` | TEXT | 系统规则 |
 | `created_at` | TIMESTAMP | 创建时间 |
 | `updated_at` | TIMESTAMP | 更新时间 |
+
+**✅ 已改动（2026-04-05）：** 表新增列 **`user_work`**（`migrate_database_schema` 中 `ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS user_work …`）。**`api/persona.py`**（Pydantic 模型、预览拼装 **「【用户工作】」**）、**`miniapp/src/pages/Persona.jsx`**（表单字段与预览 **「工作：…」**）、**`memory/context_builder.py`** 的 **`_build_system_prompt`** 用户块（**`工作：…`**）已同步。
 
 ---
 
@@ -986,6 +999,8 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 `api/history.py` 和 `api/logs.py` 改为直接调用上述新方法，删除了原有的全量加载、Python 内存过滤、手动排序和切片逻辑。过滤条件为空时不拼接对应 `WHERE` 子句。前端接口格式（`total / page / page_size / messages|logs`）保持不变。
 
+**✅ 已修复（2026-04-05）：** `get_messages_filtered` 内将 **`date_from` / `date_to`** 从字符串 **`date.fromisoformat`** 转为 **`datetime.date`** 再绑定 SQL（见 §3.4.1），修复带日期筛选时 History 接口 **500**。
+
 ---
 
 ### 6.6 ✅ 已修复：`BM25Retriever` 初始化时索引为空
@@ -1066,6 +1081,12 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 **背景：** Discord 启动会向进程环境写入 `HTTP_PROXY`/`HTTPS_PROXY`。`python-telegram-bot` 使用的 httpx 默认 `trust_env=True`，会把 Bot API 请求也走同一 HTTP 代理，对 `api.telegram.org` 常出现 `ConnectError`（经代理 `start_tls` 失败）。关闭 `trust_env` 后直连，在国内等环境又易 `Timed out`。
 
 **演进（2026-03-28）：** `config.TELEGRAM_PROXY`（`.env`）仅用于 Telegram：`HTTPXRequest(proxy=..., httpx_kwargs={"trust_env": False})`，与 LLM 的 `requests`、Discord 代理解耦。推荐 **SOCKS5** URL（与 Clash 混合端口或 SOCKS 端口一致）；`requirements.txt` 使用 `python-telegram-bot[socks]`、`httpx[socks]`。详见 §3.1 配置表、§3.2「Telegram Bot 特有」。
+
+---
+
+### 6.15 ✅ 已改动：运行日志 logrotate（宿主机）
+
+**说明（2026-04-05）：** 在部署机新增 **`/etc/logrotate.d/cedarstar`**，对项目根目录 **`cedarstar.log`** 做 **`daily`** 轮转、**`rotate 7`**（保留 7 份）、**`compress`**、**`missingok`**、**`notifempty`**、**`copytruncate`**（与常见 Python 单文件日志进程配合，避免移动文件后进程仍写旧 inode）。具体路径与策略以机上该文件为准。
 
 ---
 

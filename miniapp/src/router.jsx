@@ -3,6 +3,7 @@
  * 定义所有页面路由
  */
 import React from 'react'
+import { Navigate } from 'react-router-dom'
 import Dashboard from './pages/Dashboard.jsx'
 import Persona from './pages/Persona.jsx'
 import Memory from './pages/Memory.jsx'
@@ -36,4 +37,5 @@ export const routes = [
   { path: '/logs', element: <Logs /> },
   { path: '/config', element: <Config /> },
   { path: '/settings', element: <Settings /> },
+  { path: '*', element: <Navigate to="/" replace /> },
 ]

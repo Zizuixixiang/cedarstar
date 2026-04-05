@@ -80,6 +80,13 @@ function MainContent({ sidebarCollapsed, onOpenMobileSidebar }) {
   )
 }
 
+/** 与 vite.config.js 的 base 对齐；生产环境挂在 /app，无 basename 时路径 /app/ 无法匹配路由 "/" */
+function routerBasename() {
+  const raw = import.meta.env.BASE_URL || '/'
+  const trimmed = raw.replace(/\/$/, '')
+  return trimmed === '' ? undefined : trimmed
+}
+
 /**
  * 应用根组件
  */
@@ -95,7 +102,7 @@ function App() {
   }
 
   return (
-    <BrowserRouter>
+    <BrowserRouter basename={routerBasename()}>
       <div className="app-container">
         <Sidebar 
           collapsed={sidebarCollapsed} 

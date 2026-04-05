@@ -538,7 +538,7 @@ class ContextBuilder:
         """
         try:
             # 1. 获取 system prompt
-            system_prompt = self._build_system_prompt()
+            system_prompt = await self._build_system_prompt()
 
             temporal_section = await self._build_temporal_states_section()
             
@@ -640,7 +640,7 @@ class ContextBuilder:
         """
         try:
             # 1. 获取 system prompt
-            system_prompt = self._build_system_prompt()
+            system_prompt = await self._build_system_prompt()
 
             temporal_section = await self._build_temporal_states_section()
             
@@ -706,14 +706,80 @@ class ContextBuilder:
                 ]
             }
     
-    def _build_system_prompt(self) -> str:
+    async def _build_system_prompt(self) -> str:
         """
-        构建基础 system prompt。
-        
-        Returns:
-            str: 基础 system prompt
+        从激活的 persona_configs 行组装 system prompt。
+        无法读取时回退到 config.SYSTEM_PROMPT。
         """
-        return config.SYSTEM_PROMPT
+        try:
+            db = get_database()
+            # 读激活的 chat api_config，拿 persona_id
+            active = await db.get_active_api_config('chat')
+            persona_id = active.get('persona_id') if active else None
+            if not persona_id:
+                return config.SYSTEM_PROMPT
+
+            row = await db.pool.fetchrow(
+                'SELECT * FROM persona_configs WHERE id = $1', int(persona_id)
+            )
+            if not row:
+                return config.SYSTEM_PROMPT
+
+            def _s(key: str) -> str:
+                v = row.get(key)
+                return (v or "").strip() if v is not None else ""
+
+            # 与 miniapp Persona.jsx buildPreview 格式一致
+            parts: List[str] = []
+
+            char_name = _s("char_name")
+            char_personality = _s("char_personality")
+            char_speech_style = _s("char_speech_style")
+            if char_name or char_personality or char_speech_style:
+                char_lines: List[str] = []
+                if char_name:
+                    char_lines.append(f"姓名：{char_name}")
+                if char_personality:
+                    char_lines.append(f"性格：{char_personality}")
+                if char_speech_style:
+                    char_lines.append(f"说话方式：{char_speech_style}")
+                parts.append("【Char 人设】\n" + "\n".join(char_lines))
+
+            user_lines: List[str] = []
+            if _s("user_name"):
+                user_lines.append(f"姓名：{_s('user_name')}")
+            if _s("user_body"):
+                user_lines.append(f"身体特征：{_s('user_body')}")
+            if _s("user_work"):
+                user_lines.append(f"工作：{_s('user_work')}")
+            if _s("user_habits"):
+                user_lines.append(f"生活习惯：{_s('user_habits')}")
+            if _s("user_likes_dislikes"):
+                user_lines.append(f"喜恶：{_s('user_likes_dislikes')}")
+            if _s("user_values"):
+                user_lines.append(f"价值观与世界观：{_s('user_values')}")
+            if _s("user_hobbies"):
+                user_lines.append(f"兴趣娱乐：{_s('user_hobbies')}")
+            if _s("user_taboos"):
+                user_lines.append(f"禁忌：{_s('user_taboos')}")
+            if _s("user_nsfw"):
+                user_lines.append(f"NSFW 偏好：{_s('user_nsfw')}")
+            if _s("user_other"):
+                user_lines.append(f"其他：{_s('user_other')}")
+
+            if user_lines:
+                parts.append("【我的人设】\n" + "\n".join(user_lines))
+
+            if _s("system_rules"):
+                parts.append(f"【系统规则】\n{_s('system_rules')}")
+
+            assembled = "\n\n".join(parts).strip()
+            return assembled if assembled else config.SYSTEM_PROMPT
+
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).warning(f"读取 persona 失败，回退 SYSTEM_PROMPT: {e}")
+            return config.SYSTEM_PROMPT
 
     async def _build_temporal_states_section(self) -> str:
         """temporal_states 中 is_active=1 的全部记录（置于记忆卡片之前）。"""

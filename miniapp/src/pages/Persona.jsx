@@ -15,6 +15,7 @@ const EMPTY_FORM = {
   char_speech_style: '',
   user_name: '',
   user_body: '',
+  user_work: '',
   user_habits: '',
   user_likes_dislikes: '',
   user_values: '',
@@ -44,6 +45,8 @@ function buildPreview(form) {
     userParts.push(`姓名：${form.user_name.trim()}`);
   if (form.user_body?.trim())
     userParts.push(`身体特征：${form.user_body.trim()}`);
+  if (form.user_work?.trim())
+    userParts.push(`工作：${form.user_work.trim()}`);
   if (form.user_habits?.trim())
     userParts.push(`生活习惯：${form.user_habits.trim()}`);
   if (form.user_likes_dislikes?.trim())
@@ -135,6 +138,7 @@ function Persona() {
         char_speech_style: d.char_speech_style || '',
         user_name: d.user_name || '',
         user_body: d.user_body || '',
+        user_work: d.user_work || '',
         user_habits: d.user_habits || '',
         user_likes_dislikes: d.user_likes_dislikes || '',
         user_values: d.user_values || '',
@@ -379,6 +383,17 @@ function Persona() {
                 value={form.user_body}
                 onChange={e => handleChange('user_body', e.target.value)}
                 placeholder="身高体重等体征，后续可接智能手环自动更新"
+              />
+            </div>
+
+            <div className="field-row">
+              <label className="field-label">工作</label>
+              <textarea
+                className="field-textarea"
+                rows={3}
+                value={form.user_work}
+                onChange={e => handleChange('user_work', e.target.value)}
+                placeholder="职业、所在行业等"
               />
             </div>
 

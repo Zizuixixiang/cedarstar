@@ -23848,3 +23848,208 @@ asyncio.exceptions.CancelledError
 2026-04-05 18:22:40,161 - __main__ - INFO - 启动 FastAPI 服务器...
 2026-04-05 18:22:40,162 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
 2026-04-05 18:22:40,162 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 18:48:40,319 - __main__ - INFO - ============================================================
+2026-04-05 18:48:40,319 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 18:48:40,320 - __main__ - INFO - 启动时间: 2026-04-05 18:48:40
+2026-04-05 18:48:40,320 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 18:48:40,320 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 18:48:40,320 - __main__ - INFO - ============================================================
+2026-04-05 18:48:40,322 - __main__ - INFO - 验证配置...
+2026-04-05 18:48:40,458 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 18:48:40,461 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 18:48:40,461 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 18:48:41,642 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 18:48:41,646 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 18:48:41,669 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 18:48:41,670 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 18:48:42,573 - jieba - DEBUG - Loading model cost 0.903 seconds.
+2026-04-05 18:48:42,574 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 18:48:42,575 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 18:48:42,576 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 18:48:42,576 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 18:48:42,580 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 18:48:42,718 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 18:48:42,721 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 18:48:42,722 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 18:48:44,414 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 18:48:44,416 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 18:48:44,416 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 18:48:44,417 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 18:48:44,417 - __main__ - INFO - 所有组件启动完成
+2026-04-05 18:48:44,438 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 18:48:44,439 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 18:48:44,439 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 18:48:44,440 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 18:48:44,441 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 18:53:48,594 - __main__ - INFO - ============================================================
+2026-04-05 18:53:48,596 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 18:53:48,597 - __main__ - INFO - 启动时间: 2026-04-05 18:53:48
+2026-04-05 18:53:48,597 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 18:53:48,597 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 18:53:48,597 - __main__ - INFO - ============================================================
+2026-04-05 18:53:48,599 - __main__ - INFO - 验证配置...
+2026-04-05 18:53:48,732 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 18:53:48,734 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 18:53:48,735 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 18:53:50,371 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 18:53:50,380 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 18:53:50,411 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 18:53:50,413 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 18:53:51,457 - jieba - DEBUG - Loading model cost 1.044 seconds.
+2026-04-05 18:53:51,457 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 18:53:51,459 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 18:53:51,460 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 18:53:51,460 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 18:53:51,464 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 18:53:51,641 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 18:53:51,669 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 18:53:51,671 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 18:53:53,422 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 18:53:53,423 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 18:53:53,424 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 18:53:53,424 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 18:53:53,425 - __main__ - INFO - 所有组件启动完成
+2026-04-05 18:53:53,450 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 18:53:53,451 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 18:53:53,451 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 18:53:53,452 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 18:53:53,453 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 19:00:42,961 - __main__ - INFO - ============================================================
+2026-04-05 19:00:42,961 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 19:00:42,961 - __main__ - INFO - 启动时间: 2026-04-05 19:00:42
+2026-04-05 19:00:42,962 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 19:00:42,962 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 19:00:42,962 - __main__ - INFO - ============================================================
+2026-04-05 19:00:42,963 - __main__ - INFO - 验证配置...
+2026-04-05 19:00:43,144 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 19:00:43,147 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 19:00:43,147 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 19:00:44,700 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 19:00:44,705 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 19:00:44,728 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 19:00:44,729 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 19:00:45,741 - jieba - DEBUG - Loading model cost 1.012 seconds.
+2026-04-05 19:00:45,742 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 19:00:45,744 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 19:00:45,745 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 19:00:45,745 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 19:00:45,751 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 19:00:45,973 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 19:00:45,993 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 19:00:45,993 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 19:00:47,716 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 19:00:47,718 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 19:00:47,718 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 19:00:47,719 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 19:00:47,719 - __main__ - INFO - 所有组件启动完成
+2026-04-05 19:00:47,741 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 19:00:47,741 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 19:00:47,742 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 19:00:47,744 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 19:00:47,744 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 19:09:15,571 - __main__ - INFO - ============================================================
+2026-04-05 19:09:15,572 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 19:09:15,572 - __main__ - INFO - 启动时间: 2026-04-05 19:09:15
+2026-04-05 19:09:15,572 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 19:09:15,573 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 19:09:15,573 - __main__ - INFO - ============================================================
+2026-04-05 19:09:15,575 - __main__ - INFO - 验证配置...
+2026-04-05 19:09:15,696 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 19:09:15,699 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 19:09:15,699 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 19:09:17,032 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 19:09:17,037 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 19:09:17,069 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 19:09:17,070 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 19:09:18,010 - jieba - DEBUG - Loading model cost 0.940 seconds.
+2026-04-05 19:09:18,011 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 19:09:18,015 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 19:09:18,016 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 19:09:18,016 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 19:09:18,021 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 19:09:18,249 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 19:09:18,267 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 19:09:18,268 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 19:09:19,930 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 19:09:19,930 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 19:09:19,930 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 19:09:19,930 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 19:09:19,930 - __main__ - INFO - 所有组件启动完成
+2026-04-05 19:09:19,946 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 19:09:19,946 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 19:09:19,947 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 19:09:19,948 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 19:09:19,948 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 19:12:52,215 - api.webhook - INFO - Telegram webhook 已接收 update_id=769583462
+2026-04-05 19:12:52,222 - bot.telegram_bot - INFO - 收到 Telegram 消息: chat_id=8624126581, user_id=8624126581, 内容长度=7
+2026-04-05 19:13:00,232 - bot.telegram_bot - INFO - 处理缓冲区消息: session_id=telegram_8624126581, 消息数量=1
+2026-04-05 19:13:00,899 - memory.context_builder - INFO - Context 构建器初始化完成
+2026-04-05 19:13:01,836 - llm.llm_interface - INFO - LLMInterface 使用数据库激活配置: [GG] config_type=chat, model=gemini-3.1-pro-preview, base_url=https://gcli.ggchan.dev/v1
+2026-04-05 19:13:01,837 - bot.telegram_bot - INFO - 为缓冲区生成回复（流式）: session_id=telegram_8624126581, context 消息数量=6
+2026-04-05 19:13:13,103 - tools.meme - WARNING - search_meme_async 失败: 未配置表情包向量：请在核心设置 → API 配置 → Embedding 填写 API Key 并激活，或在 .env 设置 SILICONFLOW_API_KEY 作为兜底
+2026-04-05 19:14:45,267 - __main__ - INFO - ============================================================
+2026-04-05 19:14:45,267 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 19:14:45,267 - __main__ - INFO - 启动时间: 2026-04-05 19:14:45
+2026-04-05 19:14:45,267 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 19:14:45,267 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 19:14:45,267 - __main__ - INFO - ============================================================
+2026-04-05 19:14:45,269 - __main__ - INFO - 验证配置...
+2026-04-05 19:14:45,429 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 19:14:45,432 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 19:14:45,433 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 19:14:46,708 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 19:14:46,712 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 19:14:46,743 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 19:14:46,743 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 19:14:47,552 - jieba - DEBUG - Loading model cost 0.809 seconds.
+2026-04-05 19:14:47,553 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 19:14:47,555 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 19:14:47,555 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 19:14:47,555 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 19:14:47,559 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 19:14:47,699 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 19:14:47,703 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 19:14:47,703 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 19:14:49,307 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 19:14:49,308 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 19:14:49,308 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 19:14:49,308 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 19:14:49,308 - __main__ - INFO - 所有组件启动完成
+2026-04-05 19:14:49,325 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 19:14:49,326 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 19:14:49,326 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 19:14:49,327 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 19:14:49,327 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 20:04:01,191 - __main__ - INFO - ============================================================
+2026-04-05 20:04:01,192 - __main__ - INFO - CedarStar 项目启动
+2026-04-05 20:04:01,192 - __main__ - INFO - 启动时间: 2026-04-05 20:04:01
+2026-04-05 20:04:01,192 - __main__ - INFO - Python 版本: 3.10.12 (main, Mar  3 2026, 11:56:32) [GCC 11.4.0]
+2026-04-05 20:04:01,192 - __main__ - INFO - 工作目录: /opt/cedarstar
+2026-04-05 20:04:01,192 - __main__ - INFO - ============================================================
+2026-04-05 20:04:01,193 - __main__ - INFO - 验证配置...
+2026-04-05 20:04:01,314 - memory.database - INFO - 数据库 schema 迁移（索引/列）已执行
+2026-04-05 20:04:01,316 - memory.database - INFO - PostgreSQL 连接池初始化完成
+2026-04-05 20:04:01,316 - __main__ - INFO - 重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...
+2026-04-05 20:04:02,765 - memory.vector_store - INFO - 智谱 Embedding 客户端初始化完成，模型: embedding-3
+2026-04-05 20:04:02,769 - memory.vector_store - INFO - 向量存储管理器初始化完成，目录: chroma_db
+2026-04-05 20:04:02,799 - jieba - DEBUG - Building prefix dict from the default dictionary ...
+2026-04-05 20:04:02,800 - jieba - DEBUG - Loading model from cache /tmp/jieba.cache
+2026-04-05 20:04:03,714 - jieba - DEBUG - Loading model cost 0.915 seconds.
+2026-04-05 20:04:03,714 - jieba - DEBUG - Prefix dict has been built successfully.
+2026-04-05 20:04:03,716 - memory.bm25_retriever - INFO - BM25 索引初始化完成，已从 ChromaDB 加载 2 条文档
+2026-04-05 20:04:03,716 - memory.bm25_retriever - INFO - BM25 检索器初始化完成
+2026-04-05 20:04:03,716 - memory.bm25_retriever - INFO - 开始刷新 BM25 索引...
+2026-04-05 20:04:03,720 - memory.bm25_retriever - INFO - BM25 索引刷新完成，文档数量: 2
+2026-04-05 20:04:03,963 - llm.llm_interface - INFO - LLMInterface 使用环境变量配置: config_type=chat, model=Pro/deepseek-ai/DeepSeek-V3.2
+2026-04-05 20:04:03,981 - bot.telegram_bot - INFO - Telegram 机器人初始化完成
+2026-04-05 20:04:03,981 - bot.telegram_bot - INFO - 启动 Telegram 机器人（webhook 模式）...
+2026-04-05 20:04:05,651 - bot.telegram_bot - INFO - Telegram set_my_commands 已成功执行（5 条命令 × Default/私聊/群聊 三 scope）
+2026-04-05 20:04:05,653 - bot.telegram_bot - INFO - Telegram 机器人已就绪（webhook，无 polling）
+2026-04-05 20:04:05,653 - bot.telegram_bot - INFO - 已更新 Telegram 在线状态 → True
+2026-04-05 20:04:05,654 - __main__ - INFO - 并行启动任务（Discord / FastAPI）...
+2026-04-05 20:04:05,655 - __main__ - INFO - 所有组件启动完成
+2026-04-05 20:04:05,681 - __main__ - INFO - 当前时区: Asia/Shanghai
+2026-04-05 20:04:05,681 - __main__ - INFO - API 文档地址: http://localhost:8000/docs
+2026-04-05 20:04:05,682 - __main__ - INFO - 启动 FastAPI 服务器...
+2026-04-05 20:04:05,683 - __main__ - INFO - FastAPI 服务器已启动，端口 8000
+2026-04-05 20:04:05,683 - __main__ - INFO - API 文档地址: http://localhost:8000/docs

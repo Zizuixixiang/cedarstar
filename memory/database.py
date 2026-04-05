@@ -11,6 +11,7 @@ import asyncpg
 import logging
 import datetime as _dt
 import uuid
+from datetime import date
 from typing import List, Dict, Any, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -214,6 +215,10 @@ async def migrate_database_schema(conn) -> None:
     await _daily_batch_log_ensure_step45_columns(conn)
     await _backfill_daily_batch_step45_legacy_once(conn)
     await _messages_ensure_vision_columns(conn)
+
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS user_work TEXT DEFAULT ''"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -455,6 +460,7 @@ class MessageDatabase:
                         char_speech_style TEXT,
                         user_name TEXT,
                         user_body TEXT,
+                        user_work TEXT,
                         user_habits TEXT,
                         user_likes_dislikes TEXT,
                         user_values TEXT,
@@ -673,6 +679,11 @@ class MessageDatabase:
         Returns:
             {"total": int, "messages": List[Dict]}
         """
+        if isinstance(date_from, str):
+            date_from = date.fromisoformat(date_from)
+        if isinstance(date_to, str):
+            date_to = date.fromisoformat(date_to)
+
         conditions: List[str] = []
         params: List[Any] = []
         idx = 1
@@ -1919,7 +1930,7 @@ class MessageDatabase:
         """新增人设配置，返回新插入的 id。"""
         fields = [
             "name", "char_name", "char_personality", "char_speech_style",
-            "user_name", "user_body", "user_habits",
+            "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules",
         ]
@@ -1937,7 +1948,7 @@ class MessageDatabase:
         """更新人设配置。"""
         allowed = {
             "name", "char_name", "char_personality", "char_speech_style",
-            "user_name", "user_body", "user_habits",
+            "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules",
         }
