@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { apiUrl } from '../apiBase';
+import { apiFetch } from '../apiBase';
 import '../styles/config.css';
 
 // 配置项默认值（与 api/config.py DEFAULT_CONFIG 一致，供合并与重置）
@@ -262,7 +262,7 @@ function Config() {
     setIsLoading(true);
     setLoadError(null);
     try {
-      const response = await fetch(apiUrl('/api/config/config'));
+      const response = await apiFetch('/api/config/config');
       const data = await response.json();
       if (response.ok && data.success && data.data) {
         const merged = mergeConfigApiPayload(data.data);
@@ -362,7 +362,7 @@ function Config() {
     setConfig((prev) => ({ ...prev, [key]: v }));
     setSavingTelegramKey(key);
     try {
-      const response = await fetch(apiUrl('/api/config/config'), {
+      const response = await apiFetch('/api/config/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ [key]: v }),
@@ -387,7 +387,7 @@ function Config() {
     if (isSaving) return;
     setIsSaving(true);
     try {
-      const response = await fetch(apiUrl('/api/config/config'), {
+      const response = await apiFetch('/api/config/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)

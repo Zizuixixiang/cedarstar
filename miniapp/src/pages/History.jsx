@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiUrl } from '../apiBase';
+import { apiFetch } from '../apiBase';
 import './../styles/history.css';
 
 // 平台选项
@@ -294,7 +294,7 @@ function History() {
 
       console.log('API请求参数:', params.toString());
 
-      const response = await fetch(apiUrl(`/api/history?${params}`));
+      const response = await apiFetch(`/api/history?${params}`);
       if (!response.ok) {
         throw new Error('获取对话历史失败');
       }

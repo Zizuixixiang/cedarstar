@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { apiUrl } from '../apiBase';
+import { apiFetch } from '../apiBase';
 import './../styles/dashboard.css';
 
 /**
@@ -387,9 +387,9 @@ function Dashboard() {
       try {
         // 并发请求三个接口
         const [statusRes, batchLogRes, memoryRes] = await Promise.all([
-          fetch(apiUrl('/api/dashboard/status')),
-          fetch(apiUrl('/api/dashboard/batch-log')),
-          fetch(apiUrl('/api/dashboard/memory-overview'))
+          apiFetch('/api/dashboard/status'),
+          apiFetch('/api/dashboard/batch-log'),
+          apiFetch('/api/dashboard/memory-overview')
         ]);
 
         // 检查响应状态

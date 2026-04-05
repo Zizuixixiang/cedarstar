@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { apiUrl } from '../apiBase';
+import { apiFetch } from '../apiBase';
 import './../styles/logs.css';
 
 // 平台选项
@@ -232,7 +232,7 @@ function Logs() {
       if (level) params.append('level', level);
       if (keyword.trim()) params.append('keyword', keyword.trim());
 
-      const response = await fetch(apiUrl(`/api/logs?${params}`));
+      const response = await apiFetch(`/api/logs?${params}`);
       if (!response.ok) throw new Error('获取日志失败');
 
       const data = await response.json();
