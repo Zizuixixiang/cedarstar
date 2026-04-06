@@ -10,13 +10,13 @@
   display: flex;
   flex-direction: column;
   gap: 20px;
-  height: calc(100vh - 120px);
+  height: calc(100vh - 80px);
   min-height: 0;
   overflow: hidden;
   box-sizing: border-box;
 }
 
-/* 120px ≈ .main-content 上下 padding(24×2) + 顶区留白；若仍出现外层滚动可改为 128～136 */
+/* 80px ≈ .main-content 上下 padding(20×2) + 顶区留白 */
 
 /* Tab 外层：桌面端不参与布局（子级 .memory-tabs 仍直接参与 flex 列） */
 .memory-tabs-scroll {
@@ -30,7 +30,8 @@
   flex-wrap: wrap;
   gap: 8px;
   padding-bottom: 4px;
-  border-bottom: 1px solid rgba(244, 162, 97, 0.2);
+  border-bottom: none;
+  box-shadow: 0 4px 8px -4px rgba(197, 201, 205, 0.5);
 }
 
 /* Tab 内容区：仅此区域纵向滚动 */
@@ -53,32 +54,31 @@
   -webkit-appearance: none;
   margin: 0;
   padding: 10px 18px;
-  border: 2px dashed rgba(244, 162, 97, 0.32);
+  border: none;
   border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface);
   color: var(--text-sub);
   font-size: 0.95rem;
   font-weight: 500;
   cursor: pointer;
   line-height: 1.25;
-  transition: color var(--transition), border-color var(--transition), background var(--transition),
-    box-shadow var(--transition), border-style 0.2s ease;
+  box-shadow: var(--shadow-raised);
+  transition: color var(--transition), box-shadow 0.15s, transform 0.1s;
 }
 
 .memory-tabs button.memory-tab:hover {
   color: var(--text-main);
-  border-color: rgba(244, 162, 97, 0.55);
-  background: rgba(255, 255, 255, 0.72);
+  filter: brightness(1.02);
 }
 
 .memory-tabs button.memory-tab.active {
   color: var(--accent);
-  border-style: solid;
-  border-color: var(--accent);
-  border-width: 2px;
-  background: rgba(244, 162, 97, 0.14);
   font-weight: 600;
-  box-shadow: 0 2px 10px rgba(244, 162, 97, 0.12);
+  box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent-muted);
+}
+
+.memory-tabs button.memory-tab:active {
+  box-shadow: var(--shadow-inset);
 }
 
 .memory-tabs button.memory-tab:focus {
@@ -87,11 +87,11 @@
 
 .memory-tabs button.memory-tab:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.35);
+  box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent-muted);
 }
 
 .memory-tabs button.memory-tab.active:focus-visible {
-  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.35), 0 2px 10px rgba(244, 162, 97, 0.12);
+  box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent-muted);
 }
 
 .tab-loading {
@@ -171,27 +171,24 @@ h2.memory-tab-header__title,
 
 /* 记忆卡片 */
 .memory-card {
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-card);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  box-shadow: var(--shadow-card);
-  padding: 20px;
-  transition: transform var(--transition), box-shadow var(--transition);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  padding: var(--card-padding);
+  transition: filter var(--transition), box-shadow var(--transition);
   position: relative;
   min-height: 200px;
 }
 
 .memory-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 12px 24px rgba(109, 89, 122, 0.1);
+  filter: brightness(1.02);
 }
 
 .memory-card.empty {
-  border-style: dashed;
-  border-color: rgba(244, 162, 97, 0.5);
-  background: rgba(255, 255, 255, 0.4);
+  border: none;
+  box-shadow: var(--shadow-inset);
+  background: var(--surface);
 }
 
 /* 卡片头部 */
@@ -201,7 +198,7 @@ h2.memory-tab-header__title,
   justify-content: space-between;
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid rgba(244, 162, 97, 0.1);
+  border-bottom: 1px solid rgba(74, 85, 104, 0.1);
 }
 
 .card-title {
@@ -262,19 +259,18 @@ h2.memory-tab-header__title,
 .search-input {
   flex: 1;
   padding: 12px 16px;
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-btn);
-  background: var(--card-bg);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
   color: var(--text-main);
   font-size: 0.95rem;
-  transition: border-color var(--transition);
+  transition: box-shadow 0.2s;
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--accent);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
 }
 
 .add-button {
@@ -285,12 +281,17 @@ h2.memory-tab-header__title,
   border-radius: var(--radius-btn);
   font-weight: 500;
   cursor: pointer;
-  transition: opacity var(--transition);
+  box-shadow: var(--shadow-raised);
+  transition: filter var(--transition), box-shadow 0.15s;
   white-space: nowrap;
 }
 
 .add-button:hover {
-  opacity: 0.9;
+  filter: brightness(1.06);
+}
+
+.add-button:active {
+  box-shadow: var(--shadow-inset);
 }
 
 /* 长期记忆列表 */
@@ -301,17 +302,16 @@ h2.memory-tab-header__title,
 }
 
 .memory-item {
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-card);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  padding: 20px;
-  transition: border-color var(--transition);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  padding: var(--card-padding);
+  transition: filter 0.2s;
 }
 
 .memory-item:hover {
-  border-color: rgba(244, 162, 97, 0.5);
+  filter: brightness(1.02);
 }
 
 .memory-summary {
@@ -377,7 +377,7 @@ h2.memory-tab-header__title,
 
 .score-badge {
   display: inline-block;
-  background: rgba(244, 162, 97, 0.12);
+  background: var(--accent-muted);
   color: var(--accent);
   padding: 4px 10px;
   border-radius: 12px;
@@ -404,17 +404,22 @@ h2.memory-tab-header__title,
 
 .delete-button {
   padding: 6px 12px;
-  background: rgba(224, 112, 112, 0.1);
-  color: #E07070;
-  border: 1px solid rgba(224, 112, 112, 0.3);
+  background: var(--surface);
+  color: #e07070;
+  border: none;
   border-radius: var(--radius-btn);
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all var(--transition);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s;
 }
 
 .delete-button:hover {
-  background: rgba(224, 112, 112, 0.2);
+  filter: brightness(1.02);
+}
+
+.delete-button:active {
+  box-shadow: var(--shadow-inset);
 }
 
 /* 分页控件 */
@@ -429,17 +434,21 @@ h2.memory-tab-header__title,
 
 .pagination-button {
   padding: 8px 16px;
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-btn);
-  background: var(--card-bg);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
   color: var(--text-main);
   cursor: pointer;
-  transition: all var(--transition);
+  transition: box-shadow 0.15s, color 0.2s;
 }
 
 .pagination-button:hover:not(:disabled) {
-  border-color: var(--accent);
   color: var(--accent);
+}
+
+.pagination-button:active:not(:disabled) {
+  box-shadow: var(--shadow-inset);
 }
 
 .pagination-button:disabled {
@@ -473,13 +482,11 @@ h2.memory-tab-header__title,
 .modal-container {
   width: 100%;
   max-width: 500px;
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-card);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  box-shadow: var(--shadow-card);
-  padding: 32px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  padding: var(--card-padding);
 }
 
 .modal-title {
@@ -502,9 +509,10 @@ h2.memory-tab-header__title,
 }
 
 .current-content {
-  background: rgba(244, 162, 97, 0.08);
-  border: 1px solid rgba(244, 162, 97, 0.2);
+  background: var(--surface);
+  border: none;
   border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-inset);
   padding: 12px 16px;
   color: var(--text-main);
   font-size: 0.95rem;
@@ -517,22 +525,21 @@ h2.memory-tab-header__title,
   width: 100%;
   min-height: 150px;
   padding: 12px 16px;
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-btn);
-  background: var(--card-bg);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
   color: var(--text-main);
   font-size: 0.95rem;
   line-height: 1.5;
   resize: vertical;
-  transition: border-color var(--transition);
+  transition: box-shadow 0.2s;
   font-family: inherit;
 }
 
 .edit-textarea:focus {
   outline: none;
-  border-color: var(--accent);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
 }
 
 .modal-actions {
@@ -548,11 +555,12 @@ h2.memory-tab-header__title,
   border-radius: var(--radius-btn);
   font-weight: 500;
   cursor: pointer;
-  transition: opacity var(--transition);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s, filter 0.2s;
 }
 
 .modal-button.cancel {
-  background: rgba(109, 89, 122, 0.1);
+  background: var(--surface);
   color: var(--text-main);
 }
 
@@ -562,12 +570,16 @@ h2.memory-tab-header__title,
 }
 
 .modal-button.delete {
-  background: #E07070;
+  background: #e07070;
   color: white;
 }
 
 .modal-button:hover {
-  opacity: 0.9;
+  filter: brightness(1.05);
+}
+
+.modal-button:active {
+  box-shadow: var(--shadow-inset);
 }
 
 /* 确认弹窗 */
@@ -602,11 +614,9 @@ h2.memory-tab-header__title,
 .toast {
   padding: 16px 24px;
   border-radius: var(--radius-btn);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  border: var(--border-dashed);
-  box-shadow: var(--shadow-card);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-raised);
   color: var(--text-main);
   font-size: 0.95rem;
   display: flex;
@@ -663,21 +673,31 @@ h2.memory-tab-header__title,
 }
 
 .edit-button {
-  background: rgba(244, 162, 97, 0.1);
+  background: var(--surface);
   color: var(--accent);
+  box-shadow: var(--shadow-raised);
 }
 
 .edit-button:hover {
-  background: rgba(244, 162, 97, 0.2);
+  filter: brightness(1.03);
+}
+
+.edit-button:active {
+  box-shadow: var(--shadow-inset);
 }
 
 .delete-card-button {
-  background: rgba(224, 112, 112, 0.1);
-  color: #E07070;
+  background: var(--surface);
+  color: #e07070;
+  box-shadow: var(--shadow-raised);
 }
 
 .delete-card-button:hover {
-  background: rgba(224, 112, 112, 0.2);
+  filter: brightness(1.03);
+}
+
+.delete-card-button:active {
+  box-shadow: var(--shadow-inset);
 }
 
 /* 骨架屏 */
@@ -688,10 +708,11 @@ h2.memory-tab-header__title,
 }
 
 .skeleton-card {
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-card);
-  background: var(--card-bg);
-  padding: 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  padding: var(--card-padding);
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -699,10 +720,10 @@ h2.memory-tab-header__title,
 
 .skeleton-line {
   height: 16px;
-  background: linear-gradient(90deg, 
-    rgba(244, 162, 97, 0.1) 25%, 
-    rgba(244, 162, 97, 0.2) 50%, 
-    rgba(244, 162, 97, 0.1) 75%);
+  background: linear-gradient(90deg,
+    rgba(124, 107, 196, 0.08) 25%,
+    rgba(124, 107, 196, 0.14) 50%,
+    rgba(124, 107, 196, 0.08) 75%);
   background-size: 200% 100%;
   border-radius: 4px;
   animation: shimmer 1.5s infinite;
@@ -743,12 +764,11 @@ h2.memory-tab-header__title,
 }
 
 .temporal-item {
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-card);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  padding: 18px 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  padding: var(--card-padding);
 }
 
 .temporal-item-head {
@@ -801,12 +821,11 @@ h2.memory-tab-header__title,
 }
 
 .timeline-item {
-  border: var(--border-dashed);
+  border: none;
   border-radius: var(--radius-card);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  padding: 16px 20px;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
+  padding: var(--card-padding);
 }
 
 .timeline-item-head {
@@ -827,7 +846,7 @@ h2.memory-tab-header__title,
   font-weight: 600;
   padding: 3px 10px;
   border-radius: 999px;
-  background: rgba(244, 162, 97, 0.14);
+  background: var(--accent-muted);
   color: var(--accent);
 }
 

@@ -1,25 +1,25 @@
 /* 对话历史页面样式 */
 
 .history-container {
-  padding: 24px;
+  padding: var(--space-page);
   max-width: 1200px;
-  width: 100%; /* 强制占满可用宽度，防止切换平台时宽度变化 */
+  width: 100%;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
-  min-height: 100vh; /* 保证容器至少有屏幕高度，防止滚动条消失导致宽度跳动 */
+  min-height: 100vh;
+  gap: var(--card-gap);
 }
 
 /* 筛选栏 */
 .filter-bar {
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  border: var(--border-card);
+  background: var(--surface);
+  border: none;
   border-radius: var(--radius-card);
-  padding: 24px;
-  margin-bottom: 32px;
-  box-shadow: var(--shadow-card);
+  padding: var(--card-padding);
+  margin-bottom: 0;
+  box-shadow: var(--shadow-raised);
 }
 
 .filter-controls-row {
@@ -55,17 +55,18 @@
   display: inline-flex;
   flex-wrap: nowrap;
   align-items: center;
-  height: 44px; /* 统一高度为 44px */
+  height: 44px;
   max-width: 100%;
   box-sizing: border-box;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  background: rgba(255, 255, 255, 0.5);
+  background: var(--surface);
   border-radius: var(--radius-btn);
   padding: 4px;
-  border: 1px solid rgba(244, 162, 97, 0.2);
+  border: none;
+  box-shadow: var(--shadow-inset);
 }
 
 .platform-tabs::-webkit-scrollbar {
@@ -93,13 +94,17 @@
 }
 
 .tab-button:hover {
-  background: rgba(244, 162, 97, 0.05);
+  filter: brightness(1.03);
 }
 
 .tab-button.active {
-  background: white;
+  background: var(--surface);
   color: var(--accent);
-  box-shadow: 0 2px 8px rgba(244, 162, 97, 0.15);
+  box-shadow: var(--shadow-raised);
+}
+
+.tab-button:active {
+  box-shadow: var(--shadow-inset);
 }
 
 .tab-button.disabled {
@@ -110,12 +115,13 @@
 /* 搜索框（与平台 Tab、日期下拉同高） */
 .history-search-input {
   width: 100%;
-  height: 44px; /* 统一高度为 44px */
+  height: 44px;
   box-sizing: border-box;
   padding: 0 16px;
-  border: 1px solid rgba(244, 162, 97, 0.3);
+  border: none;
   border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
   color: var(--text-main);
   font-family: 'Noto Sans SC', sans-serif;
   font-size: 0.9rem;
@@ -126,19 +132,19 @@
 
 .history-search-input:focus {
   outline: none;
-  border-color: var(--accent);
-  box-shadow: 0 0 0 2px rgba(244, 162, 97, 0.1);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
 }
 
 /* 日期选择器 / 日期输入 */
 .date-select {
-  height: 44px; /* 统一高度为 44px */
-  width: 100%; /* 确保它填满容器 */
+  height: 44px;
+  width: 100%;
   box-sizing: border-box;
   padding: 0 16px;
-  border: 1px solid rgba(244, 162, 97, 0.3);
+  border: none;
   border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
   color: var(--text-main);
   font-family: 'Noto Sans SC', sans-serif;
   font-size: 0.9rem;
@@ -165,16 +171,14 @@
   flex-shrink: 0;
 }
 
-/* 消息列表：左右略贴边（约 10px），上下保持留白 */
+/* 消息列表：明亮毛玻璃 + 柔和外阴影 */
 .message-list-container {
-  background: rgba(255, 250, 248, 0.55);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  border: 1px solid rgba(244, 162, 97, 0.12);
+  background: var(--surface);
+  border: none;
   border-radius: var(--radius-card);
-  padding: 24px; /* 恢复四周的内边距，让对话框离边框远一点 */
-  margin-bottom: 32px;
-  box-shadow: var(--shadow-card);
+  padding: var(--card-padding);
+  margin-bottom: 0;
+  box-shadow: var(--shadow-raised);
   display: flex;
   flex-direction: column;
 }
@@ -195,7 +199,7 @@
   font-size: 18px;
   font-weight: 600;
   color: var(--text-main);
-  margin-bottom: 24px;
+  margin-bottom: 14px;
   padding-left: 0;
   padding-right: 0;
   display: flex;
@@ -203,11 +207,11 @@
   gap: 8px;
 }
 
-/* 消息列表：不在两侧再加 padding，由外层 10px 承担贴边 */
+/* 消息列表：不在两侧再加 padding，由外层承担贴边；间距收紧便于一屏 6～8 条 */
 .message-list {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 6px;
   padding-left: 0;
   padding-right: 0;
   width: 100%;
@@ -216,12 +220,12 @@
   min-height: 400px; /* 保证即使内容少，列表区域也有足够的高度 */
 }
 
-/* 消息行：左贴 / 右贴；增加行间距 */
+/* 消息行：左贴 / 右贴（纵向间距由 .message-list gap 承担） */
 .message-row {
   display: flex;
   width: 100%;
   justify-content: flex-start;
-  margin-bottom: 8px; /* 增加消息之间的间距 */
+  margin-bottom: 0;
 }
 
 .message-row.assistant-row {
@@ -232,7 +236,7 @@
   justify-content: flex-end;
 }
 
-/* 消息气泡：恢复自适应宽度，但限制最大宽度；用户行 flex-end、助手行 flex-start 贴边 */
+/* 消息气泡：内边距收紧，更贴合文字 */
 .message-bubble {
   position: relative;
   display: flex;
@@ -240,9 +244,9 @@
   align-items: stretch;
   width: fit-content;
   max-width: 65%;
-  min-width: 200px; /* 给一个最小宽度，让短消息不至于太局促 */
+  min-width: 140px;
   flex-shrink: 0;
-  padding: 16px 20px; /* 稍微增加内边距让气泡更舒展 */
+  padding: 8px 12px;
   word-wrap: break-word;
   overflow-wrap: break-word;
   transition: opacity var(--transition);
@@ -250,30 +254,28 @@
 }
 
 .message-bubble.user {
-  background: rgba(244, 162, 97, 0.38);
+  background: var(--surface);
   border: none;
   border-radius: 12px 2px 12px 12px;
-  box-shadow: 0 2px 10px rgba(244, 162, 97, 0.14);
+  box-shadow: var(--shadow-raised);
 }
 
 .message-bubble.assistant {
-  background: rgba(255, 255, 255, 0.88);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
+  background: var(--surface);
   border: none;
   border-radius: 2px 12px 12px 12px;
-  box-shadow: 0 2px 10px rgba(109, 89, 122, 0.07);
+  box-shadow: var(--shadow-raised);
 }
 
-/* 消息头部：助手侧标签左、时间右；用户侧整体靠右 */
+/* 消息头部：来源 Tag + 时间，字号略小、与正文更贴近 */
 .message-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
   min-width: 0;
   max-width: 100%;
-  gap: 10px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 5px;
   box-sizing: border-box;
 }
 
@@ -295,33 +297,38 @@
 }
 
 .platform-tag {
-  padding: 2px 8px;
-  border-radius: 12px;
-  font-size: 12px;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-size: 10px;
   font-weight: 500;
   flex-shrink: 0;
+  line-height: 1.35;
 }
 
 .platform-tag.telegram {
-  background: rgba(0, 136, 204, 0.1);
-  color: rgba(0, 136, 204, 0.9);
+  background: linear-gradient(135deg, rgba(0, 149, 224, 0.2) 0%, rgba(0, 136, 204, 0.14) 100%);
+  color: #0077b6;
+  font-weight: 600;
 }
 
 .platform-tag.discord {
-  background: rgba(88, 101, 242, 0.1);
-  color: rgba(88, 101, 242, 0.9);
+  background: linear-gradient(135deg, rgba(99, 112, 255, 0.22) 0%, rgba(88, 101, 242, 0.16) 100%);
+  color: #4e5dff;
+  font-weight: 600;
 }
 
 .time-text {
   color: var(--text-sub);
-  font-size: 12px;
+  font-size: 10px;
   flex-shrink: 0;
+  line-height: 1.35;
 }
 
-/* 消息内容：统一左对齐 */
+/* 消息内容：统一左对齐，行高略紧便于多行扫读 */
 .message-content {
   color: var(--text-main);
-  line-height: 1.5;
+  font-size: 0.9rem;
+  line-height: 1.38;
   white-space: pre-wrap;
   min-width: 0;
   max-width: 100%;
@@ -331,8 +338,8 @@
 
 /* 关键词高亮 */
 .highlight-keyword {
-  background: rgba(244, 162, 97, 0.35);
-  color: #c96a00;
+  background: var(--accent-muted);
+  color: var(--accent);
   border-radius: 3px;
   padding: 0 2px;
   font-weight: 600;
@@ -340,22 +347,28 @@
 
 /* 折叠/展开按钮 */
 .toggle-content-btn {
-  background: none;
+  background: var(--surface);
   border: none;
   color: var(--accent);
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  padding: 4px 8px;
-  margin-top: 8px;
+  padding: 4px 10px;
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: color var(--transition);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s, transform 0.1s;
 }
 
 .toggle-content-btn:hover {
-  color: #E07B00;
+  filter: brightness(1.02);
+}
+
+.toggle-content-btn:active {
+  box-shadow: var(--shadow-inset);
 }
 
 .message-bubble.user .toggle-content-btn,
@@ -365,14 +378,15 @@
 
 /* 思维链内容 */
 .thinking-container {
-  margin-top: 12px;
-  padding: 12px;
-  background: rgba(109, 89, 122, 0.06);
-  border: var(--border-dashed);
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: var(--surface);
+  border: none;
   border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-inset);
   font-family: 'Courier New', monospace;
-  font-size: 14px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.4;
   color: var(--text-main);
   text-align: left;
   min-width: 0;
@@ -381,21 +395,27 @@
 }
 
 .toggle-thinking-btn {
-  background: none;
+  background: var(--surface);
   border: none;
   color: var(--text-sub);
-  font-size: 14px;
+  font-size: 13px;
   cursor: pointer;
-  padding: 4px 8px;
-  margin-top: 8px;
+  padding: 4px 10px;
+  margin-top: 4px;
   display: flex;
   align-items: center;
   gap: 4px;
-  transition: color var(--transition);
+  border-radius: var(--radius-btn);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s, color 0.2s;
 }
 
 .toggle-thinking-btn:hover {
   color: var(--accent);
+}
+
+.toggle-thinking-btn:active {
+  box-shadow: var(--shadow-inset);
 }
 
 /* 空状态 */
@@ -432,18 +452,23 @@
 
 .pagination-button {
   padding: 8px 16px;
-  border: 1px solid rgba(244, 162, 97, 0.3);
+  border: none;
   border-radius: var(--radius-btn);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface);
   color: var(--text-main);
   font-weight: 500;
   cursor: pointer;
-  transition: all var(--transition);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s, transform 0.1s;
 }
 
 .pagination-button:hover:not(:disabled) {
-  background: rgba(244, 162, 97, 0.05);
-  border-color: var(--accent);
+  filter: brightness(1.02);
+}
+
+.pagination-button:active:not(:disabled) {
+  box-shadow: var(--shadow-pressed);
+  transform: translateY(1px);
 }
 
 .pagination-button:disabled {
@@ -470,10 +495,9 @@
 .toast {
   padding: 12px 20px;
   border-radius: var(--radius-btn);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  border: var(--border-card);
-  box-shadow: var(--shadow-card);
+  background: var(--surface);
+  border: none;
+  box-shadow: var(--shadow-raised);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -516,18 +540,20 @@
 .skeleton-filter {
   height: 100px;
   border-radius: var(--radius-card);
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(90deg, #e0e4e8 25%, #eceff2 50%, #e0e4e8 75%);
   background-size: 200% 100%;
+  box-shadow: var(--shadow-inset);
   animation: loading 1.5s infinite;
 }
 
 .skeleton-message {
-  height: 120px;
+  height: 88px;
   border-radius: var(--radius-card);
-  background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+  background: linear-gradient(90deg, #e0e4e8 25%, #eceff2 50%, #e0e4e8 75%);
   background-size: 200% 100%;
+  box-shadow: var(--shadow-raised);
+  margin-bottom: 6px;
   animation: loading 1.5s infinite;
-  margin-bottom: 16px;
 }
 
 @keyframes loading {
@@ -597,9 +623,9 @@
     box-sizing: border-box;
   }
 
-  /* 释放对话列宽度，减少外层 padding */
+  /* 释放对话列宽度，与桌面一致的紧凑内边距 */
   .message-list-container {
-    padding: 24px 10px;
+    padding: 14px 10px;
   }
 
   .history-chat-column {

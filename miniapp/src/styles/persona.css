@@ -24,13 +24,10 @@
   max-width: 1200px;
   display: flex;
   flex-direction: column;
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  border: var(--border-card);
+  background: var(--surface);
+  border: none;
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-card);
-  /* 仅裁切横向，避免 overflow:hidden 切断右侧预览 position:sticky 相对视口吸顶 */
+  box-shadow: var(--shadow-raised);
   overflow-x: hidden;
   overflow-y: visible;
   min-height: calc(100vh - 48px);
@@ -42,9 +39,10 @@
 .persona-tabs {
   display: flex;
   align-items: center;
-  padding: 0 24px;
-  border-bottom: 1px solid rgba(109, 89, 122, 0.1);
-  background: rgba(255, 255, 255, 0.5);
+  padding: 0 var(--card-padding);
+  border-bottom: none;
+  box-shadow: 0 4px 8px -2px rgba(197, 201, 205, 0.5);
+  background: var(--surface);
   min-height: 52px;
   flex-shrink: 0;
 }
@@ -91,21 +89,24 @@
   padding: 8px 16px;
   font-size: 0.82rem;
   color: var(--text-sub);
-  border: 1px dashed rgba(109, 89, 122, 0.3);
-  border-radius: 8px;
-  background: transparent;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
   white-space: nowrap;
   cursor: pointer;
   margin-left: 12px;
   flex-shrink: 0;
-  transition: all var(--transition);
+  transition: box-shadow 0.15s, transform 0.1s, color 0.2s;
   font-family: inherit;
 }
 
 .persona-tab-new:hover {
   color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(244, 162, 97, 0.05);
+}
+
+.persona-tab-new:active {
+  box-shadow: var(--shadow-inset);
 }
 
 /* ========================================
@@ -121,22 +122,23 @@
 /* 左栏：编辑区 60% */
 .persona-editor {
   width: 60%;
-  padding: 24px;
+  padding: var(--card-padding);
   overflow-y: auto;
-  border-right: 1px solid rgba(109, 89, 122, 0.08);
+  border-right: none;
+  box-shadow: inset -4px 0 8px -6px rgba(197, 201, 205, 0.6);
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: var(--card-gap);
 }
 
 /* 右栏：预览区 40%（吸顶：长表单滚动时预览仍留在视口内） */
 .persona-preview {
   width: 40%;
-  padding: 24px;
+  padding: var(--card-padding);
   display: flex;
   flex-direction: column;
   gap: 14px;
-  background: rgba(255, 255, 255, 0.2);
+  background: var(--surface);
   position: sticky;
   top: 20px;
   align-self: flex-start;
@@ -167,10 +169,11 @@
   display: flex;
   flex-direction: column;
   gap: 12px;
-  padding: 16px;
-  border: 1px solid rgba(109, 89, 122, 0.08);
-  border-radius: 12px;
-  background: rgba(255, 255, 255, 0.3);
+  padding: var(--card-padding);
+  border: none;
+  border-radius: var(--radius-card);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
   margin-bottom: 12px;
 }
 
@@ -184,7 +187,7 @@
   color: var(--accent);
   margin: 0 0 4px 0;
   padding-bottom: 6px;
-  border-bottom: 1px solid rgba(244, 162, 97, 0.15);
+  border-bottom: 1px solid var(--accent-muted);
 }
 
 /* label + 输入框的行 */
@@ -204,14 +207,15 @@
 .field-textarea {
   width: 100%;
   padding: 10px 14px;
-  border: 1px solid rgba(109, 89, 122, 0.18);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.6);
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+  box-shadow: var(--shadow-inset);
   color: var(--text-main);
   font-family: inherit;
   font-size: 0.9rem;
   line-height: 1.65;
-  transition: border-color 0.25s, background 0.25s;
+  transition: box-shadow 0.2s;
   resize: vertical;
   outline: none;
 }
@@ -222,9 +226,7 @@
 
 .field-input:focus,
 .field-textarea:focus {
-  border-color: var(--accent);
-  background: rgba(255, 255, 255, 0.85);
-  box-shadow: 0 0 0 3px rgba(244, 162, 97, 0.1);
+  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
 }
 
 .field-input::placeholder,
@@ -295,19 +297,22 @@
 .copy-btn {
   font-size: 0.78rem;
   color: var(--text-sub);
-  padding: 5px 12px;
-  border: 1px solid rgba(109, 89, 122, 0.2);
-  border-radius: 6px;
-  background: transparent;
+  padding: 6px 12px;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.2s;
+  transition: box-shadow 0.15s, color 0.2s;
 }
 
 .copy-btn:hover:not(:disabled) {
   color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(244, 162, 97, 0.06);
+}
+
+.copy-btn:active:not(:disabled) {
+  box-shadow: var(--shadow-inset);
 }
 
 .copy-btn:disabled {
@@ -322,9 +327,10 @@
   font-size: 0.8rem;
   line-height: 1.75;
   color: var(--text-main);
-  background: rgba(109, 89, 122, 0.04);
-  border: var(--border-dashed);
-  border-radius: 12px;
+  background: var(--surface);
+  border: none;
+  border-radius: var(--radius-card);
+  box-shadow: var(--shadow-inset);
   padding: 16px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -340,9 +346,10 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 14px 24px;
-  border-top: 1px solid rgba(109, 89, 122, 0.08);
-  background: rgba(255, 255, 255, 0.5);
+  padding: var(--card-padding);
+  border-top: none;
+  box-shadow: 0 -4px 8px -4px rgba(197, 201, 205, 0.45);
+  background: var(--surface);
   flex-shrink: 0;
 }
 
@@ -362,35 +369,42 @@
   font-size: 0.82rem;
   color: var(--text-sub);
   padding: 6px 14px;
-  border: 1px solid rgba(109, 89, 122, 0.25);
-  border-radius: 8px;
-  background: transparent;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.2s;
+  transition: box-shadow 0.15s, color 0.2s;
 }
 
 .btn-rename:hover {
   color: var(--accent);
-  border-color: var(--accent);
-  background: rgba(244, 162, 97, 0.06);
+}
+
+.btn-rename:active {
+  box-shadow: var(--shadow-inset);
 }
 
 .btn-danger {
   font-size: 0.82rem;
   color: #c0392b;
   padding: 6px 14px;
-  border: 1px solid rgba(192, 57, 43, 0.35);
-  border-radius: 8px;
-  background: transparent;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
   cursor: pointer;
   font-family: inherit;
-  transition: all 0.2s;
+  transition: box-shadow 0.15s;
 }
 
 .btn-danger:hover {
-  background: rgba(192, 57, 43, 0.08);
-  border-color: #c0392b;
+  filter: brightness(1.02);
+}
+
+.btn-danger:active {
+  box-shadow: var(--shadow-inset);
 }
 
 .footer-right {
@@ -409,26 +423,29 @@
   border-radius: var(--radius-btn);
   cursor: pointer;
   font-family: inherit;
-  transition: all var(--transition);
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s, filter 0.2s;
 }
 
 .btn-save:hover:not(:disabled) {
-  opacity: 0.88;
-  transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(244, 162, 97, 0.35);
+  filter: brightness(1.08);
+}
+
+.btn-save:active:not(:disabled) {
+  box-shadow: var(--shadow-inset);
 }
 
 .btn-save:disabled {
   opacity: 0.38;
   cursor: not-allowed;
-  transform: none;
+  box-shadow: none;
 }
 
 /* 脉冲动画：有未保存修改时 */
 @keyframes persona-pulse {
-  0%   { box-shadow: 0 0 0 0   rgba(244, 162, 97, 0.5); }
-  70%  { box-shadow: 0 0 0 8px rgba(244, 162, 97, 0);   }
-  100% { box-shadow: 0 0 0 0   rgba(244, 162, 97, 0);   }
+  0%   { box-shadow: var(--shadow-raised), 0 0 0 0   rgba(124, 107, 196, 0.45); }
+  70%  { box-shadow: var(--shadow-raised), 0 0 0 8px rgba(124, 107, 196, 0);   }
+  100% { box-shadow: var(--shadow-raised), 0 0 0 0   rgba(124, 107, 196, 0);   }
 }
 
 .btn-save.pulse {
@@ -447,9 +464,9 @@
   border-radius: 6px;
   background: linear-gradient(
     90deg,
-    rgba(109,89,122,0.07) 25%,
-    rgba(109,89,122,0.13) 50%,
-    rgba(109,89,122,0.07) 75%
+    rgba(124, 107, 196, 0.08) 25%,
+    rgba(124, 107, 196, 0.14) 50%,
+    rgba(124, 107, 196, 0.08) 75%
   );
   background-size: 400% 100%;
   animation: shimmer 1.8s infinite;

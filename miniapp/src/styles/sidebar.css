@@ -1,22 +1,19 @@
 /**
- * 侧边栏样式
- * 支持展开/收起状态，带平滑动画
+ * 侧边栏 — 与页面同色新拟态
  */
 
-/* 侧边栏容器 */
 .sidebar {
   position: fixed;
   left: 0;
   top: 0;
   height: 100vh;
   width: var(--sidebar-width);
-  background: var(--card-bg);
-  backdrop-filter: var(--card-blur);
-  -webkit-backdrop-filter: var(--card-blur);
-  border-right: var(--border-dashed);
+  background: var(--surface);
+  border-right: none;
+  box-shadow: var(--shadow-raised);
   display: flex;
   flex-direction: column;
-  padding: 20px 12px;
+  padding: var(--card-padding);
   transition: width var(--transition), transform var(--transition);
   z-index: 100;
   overflow: hidden;
@@ -26,17 +23,15 @@
   width: var(--sidebar-collapsed-width);
 }
 
-/* 侧边栏头部 */
 .sidebar-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 8px;
-  margin-bottom: 32px;
+  margin-bottom: 24px;
   min-height: 40px;
 }
 
-/* Logo 文字 */
 .sidebar-logo {
   font-family: 'Lora', serif;
   font-size: 1.1rem;
@@ -52,7 +47,6 @@
   opacity: 0;
 }
 
-/* 汉堡按钮 */
 .sidebar-toggle {
   width: 36px;
   height: 36px;
@@ -63,22 +57,25 @@
   color: var(--text-main);
   border-radius: var(--radius-btn);
   flex-shrink: 0;
+  background: var(--surface);
+  box-shadow: var(--shadow-raised);
 }
 
 .sidebar-toggle:hover {
-  background: rgba(244, 162, 97, 0.12);
-  color: var(--accent);
+  filter: brightness(1.03);
 }
 
-/* 导航菜单 */
+.sidebar-toggle:active {
+  box-shadow: var(--shadow-inset);
+}
+
 .sidebar-nav {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
   flex: 1;
 }
 
-/* 导航项 */
 .nav-item {
   display: flex;
   align-items: center;
@@ -86,17 +83,21 @@
   border-radius: var(--radius-btn);
   color: var(--text-main);
   text-decoration: none;
-  transition: all var(--transition);
+  transition: box-shadow 0.15s ease, transform 0.1s ease;
   position: relative;
   overflow: hidden;
-  border: 2px solid transparent;
+  border: none;
+  background: transparent;
 }
 
 .nav-item:hover {
-  background: rgba(244, 162, 97, 0.08);
+  box-shadow: var(--shadow-raised);
 }
 
-/* 导航项图标 */
+.nav-item:active {
+  box-shadow: var(--shadow-inset);
+}
+
 .nav-icon {
   font-size: 1.3rem;
   width: 28px;
@@ -109,7 +110,6 @@
   width: 100%;
 }
 
-/* 导航项文字 */
 .nav-text {
   margin-left: 12px;
   font-size: 0.95rem;
@@ -122,11 +122,10 @@
   opacity: 0;
 }
 
-/* 激活状态 */
 .nav-item.active {
-  background: rgba(244, 162, 97, 0.12);
+  background: var(--surface);
   color: var(--accent);
-  border: var(--border-dashed);
+  box-shadow: var(--shadow-raised);
 }
 
 .nav-item.active::before {
@@ -142,15 +141,14 @@
 }
 
 .nav-item.active .nav-icon {
-  transform: scale(1.1);
+  transform: scale(1.05);
 }
 
-/* 移动端响应式 */
 @media screen and (max-width: 767px) {
   .sidebar {
     transform: translateX(-100%);
-    width: 180px !important; /* 240px -> 180px */
-    padding: 12px 8px;
+    width: 180px !important;
+    padding: 12px;
   }
 
   .sidebar.mobile-open {
@@ -163,14 +161,13 @@
 
   .sidebar.collapsed .sidebar-logo,
   .sidebar.collapsed .nav-text {
-    opacity: 1; /* 移动端保持文字显示 */
+    opacity: 1;
   }
 
   .sidebar.collapsed .nav-icon {
-    width: 20px; /* 移动端保持图标宽度 */
+    width: 20px;
   }
 
-  /* 移动端精简侧边栏排版 (75% 缩放) */
   .sidebar-header {
     margin-bottom: 16px;
     min-height: 28px;
@@ -182,7 +179,6 @@
 
   .nav-item {
     padding: 8px 10px;
-    border-radius: 10px;
   }
 
   .nav-text {
