@@ -4,12 +4,26 @@
 
 .dashboard-container {
   width: 100%;
-  max-width: 1200px;
+  max-width: min(1200px, 100%);
   margin: 0 auto;
   display: flex;
   flex-direction: column;
   gap: var(--card-gap);
+  box-sizing: border-box;
+  min-width: 0;
+  align-self: stretch;
+  /* 滑到底部时与屏幕下缘留出空隙（滚动内容包含此内边距） */
+  padding-bottom: 32px;
   --batch-success-text: #2d8659;
+}
+
+/* 顶栏健康卡、主网格、骨架外层等与容器同宽，仅靠父级 padding 对齐左右 */
+.dashboard-container > * {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex-shrink: 0;
+  align-self: stretch;
 }
 
 .visually-hidden {
@@ -36,6 +50,7 @@
   align-items: center;
   justify-content: space-between;
   gap: 16px;
+  box-sizing: border-box;
 }
 
 .health-item {
@@ -60,6 +75,12 @@
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+/* Discord / Telegram：避免「活跃中」在窄屏断成两行（安卓 WebView 常见） */
+.health-value--status {
+  white-space: nowrap;
+  font-size: 0.85rem;
 }
 
 .health-value--batch {
@@ -113,14 +134,18 @@
   grid-template-columns: 1fr 1fr;
   gap: var(--card-gap);
   margin-top: 16px;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .dashboard-container .dashboard-card {
+  width: 100%;
   border: none;
   border-radius: var(--radius-card);
   background: var(--surface);
   box-shadow: var(--shadow-raised);
   padding: var(--card-padding);
+  box-sizing: border-box;
 }
 
 .dashboard-container .card-title {
@@ -191,9 +216,11 @@
 }
 
 /* 日历：平日与底同色、无阴影；今日数字凸起 + 淡紫高光 */
+/* 固定第一行高度，使「日期/今日圆」与下方状态点对齐 */
 .dashboard-container .calendar-day {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-rows: 2.85rem auto;
+  justify-items: center;
   align-items: center;
   gap: 8px;
   padding: 12px 8px;
@@ -216,14 +243,19 @@
 }
 
 .dashboard-container .calendar-date {
+  display: flex;
+  align-items: center;
+  justify-content: center;
   font-size: 0.9rem;
   color: var(--text-sub);
+  box-sizing: border-box;
+  /* 占满第一行网格，文字与今日圆都在同一行框内垂直居中 */
+  width: 100%;
+  min-height: 100%;
 }
 
 .dashboard-container .calendar-day--today .calendar-date {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
+  width: auto;
   min-width: 2.35rem;
   min-height: 2.35rem;
   padding: 4px;
@@ -270,12 +302,14 @@
 }
 
 .dashboard-container .batch-detail-panel {
+  width: 100%;
   margin-top: var(--card-gap);
   padding: var(--card-padding);
   background: var(--surface);
   border-radius: var(--radius-card);
   border: none;
   box-shadow: var(--shadow-raised);
+  box-sizing: border-box;
 }
 
 .dashboard-container .batch-step {
@@ -317,11 +351,14 @@
 }
 
 .dashboard-container .memory-section {
+  width: 100%;
   padding: var(--card-padding);
   background: var(--surface);
   border-radius: var(--radius-card);
   border: none;
   box-shadow: var(--shadow-raised);
+  box-sizing: border-box;
+  min-width: 0;
 }
 
 .dashboard-container .section-title {
@@ -416,6 +453,7 @@
 }
 
 .dashboard-container .skeleton-card:not(.calendar-day) {
+  width: 100%;
   border: none;
   border-radius: var(--radius-card);
   background: var(--surface);
@@ -424,6 +462,7 @@
   display: flex;
   flex-direction: column;
   gap: 16px;
+  box-sizing: border-box;
 }
 
 .dashboard-container .calendar-day.skeleton-card {
@@ -458,6 +497,10 @@
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--card-gap);
+  box-sizing: border-box;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
 }
 
 @media (max-width: 900px) {
@@ -484,6 +527,14 @@
 @media screen and (max-width: 767px) {
   .dashboard-container {
     gap: 16px;
+    /* 整页统一内边距；底部在 16px 基础上再加 32px，避免滑到底时贴边 */
+    padding: 16px;
+    padding-bottom: calc(16px + 32px);
+    box-sizing: border-box;
+    margin-left: 0;
+    margin-right: 0;
+    width: 100%;
+    max-width: 100%;
   }
 
   .dashboard-container .health-card {
@@ -499,8 +550,13 @@
     font-size: 0.85rem;
   }
 
+  .health-value--status {
+    font-size: 0.78rem;
+  }
+
+  /* 与健康卡同一内边距，左右边缘与上方卡片视觉对齐 */
   .dashboard-container .dashboard-card {
-    padding: 16px 20px;
+    padding: 16px;
   }
 
   .dashboard-container .card-title {
@@ -525,6 +581,7 @@
   .dashboard-container .calendar-day {
     padding: 8px 4px;
     gap: 6px;
+    grid-template-rows: 2.55rem auto;
   }
 
   .dashboard-container .calendar-date {

@@ -13,6 +13,8 @@ const EMPTY_FORM = {
   char_name: '',
   char_personality: '',
   char_speech_style: '',
+  char_appearance: '',
+  char_relationships: '',
   user_name: '',
   user_body: '',
   user_work: '',
@@ -31,11 +33,13 @@ function buildPreview(form) {
   const parts = [];
   
   // Char 人设部分
-  if (form.char_name?.trim() || form.char_personality?.trim() || form.char_speech_style?.trim()) {
+    if (form.char_name?.trim() || form.char_personality?.trim() || form.char_speech_style?.trim() || form.char_appearance?.trim() || form.char_relationships?.trim()) {
     const charParts = [];
     if (form.char_name?.trim()) charParts.push(`姓名：${form.char_name.trim()}`);
     if (form.char_personality?.trim()) charParts.push(`性格：${form.char_personality.trim()}`);
     if (form.char_speech_style?.trim()) charParts.push(`说话方式：${form.char_speech_style.trim()}`);
+    if (form.char_appearance?.trim()) charParts.push(`形象：${form.char_appearance.trim()}`);
+    if (form.char_relationships?.trim()) charParts.push(`机际关系：${form.char_relationships.trim()}`);
     if (charParts.length > 0) parts.push(`【Char 人设】\n${charParts.join('\n')}`);
   }
   
@@ -63,7 +67,7 @@ function buildPreview(form) {
     userParts.push(`其他：${form.user_other.trim()}`);
   
   if (userParts.length > 0) {
-    parts.push(`【我的人设】\n${userParts.join('\n')}`);
+    parts.push(`【User 的人设】\n${userParts.join('\n')}`);
   }
   
   if (form.system_rules?.trim())
@@ -136,6 +140,8 @@ function Persona() {
         char_name: d.char_name || '',
         char_personality: d.char_personality || '',
         char_speech_style: d.char_speech_style || '',
+        char_appearance: d.char_appearance || '',
+        char_relationships: d.char_relationships || '',
         user_name: d.user_name || '',
         user_body: d.user_body || '',
         user_work: d.user_work || '',
@@ -358,11 +364,33 @@ function Persona() {
                 placeholder="Char的口头禅、语气、措辞风格等"
               />
             </div>
+
+            <div className="field-row">
+              <label className="field-label">形象</label>
+              <textarea
+                className="field-textarea"
+                rows={3}
+                value={form.char_appearance}
+                onChange={e => handleChange('char_appearance', e.target.value)}
+                placeholder="Char的形象特征、外貌、穿着等"
+              />
+            </div>
+
+            <div className="field-row">
+              <label className="field-label">机际关系</label>
+              <textarea
+                className="field-textarea"
+                rows={3}
+                value={form.char_relationships}
+                onChange={e => handleChange('char_relationships', e.target.value)}
+                placeholder="Char与其他AI或实体的机际关系"
+              />
+            </div>
           </div>
 
-          {/* 我的人设 */}
+          {/* User 的人设 */}
           <div className="field-section">
-            <h2 className="section-title">🪐 我的人设</h2>
+            <h2 className="section-title">🪐 User 的人设</h2>
 
             <div className="field-row">
               <label className="field-label">姓名</label>

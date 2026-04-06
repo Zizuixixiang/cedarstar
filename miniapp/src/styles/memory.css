@@ -192,16 +192,17 @@ h2.memory-tab-header__title,
 }
 
 /* 卡片头部 */
-.card-header {
+.memory-card-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: nowrap !important;
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(74, 85, 104, 0.1);
 }
 
-.card-title {
+.memory-card-header .card-title {
   font-weight: 600;
   color: var(--text-main);
   font-size: 1.1rem;
@@ -948,15 +949,18 @@ h2.memory-tab-header__title,
     grid-template-columns: minmax(0, 1fr);
   }
 
-  /* 卡片头：标题可收缩换行，操作按钮不挤爆布局 */
-  .card-header {
+  /* 卡片头：确保在同一行显示，编辑按钮居右 */
+  .memory-card-header {
     min-width: 0;
     gap: 8px;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    justify-content: space-between;
   }
 
-  .card-header .card-title {
+  .memory-card-header .card-title {
     min-width: 0;
-    flex: 1;
+    flex: 1 1 auto;
     overflow-wrap: anywhere;
   }
 

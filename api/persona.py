@@ -22,6 +22,8 @@ class PersonaCreate(BaseModel):
     char_name: Optional[str] = ""
     char_personality: Optional[str] = ""
     char_speech_style: Optional[str] = ""
+    char_appearance: Optional[str] = ""
+    char_relationships: Optional[str] = ""
     user_name: Optional[str] = ""
     user_body: Optional[str] = ""
     user_work: Optional[str] = ""
@@ -41,6 +43,8 @@ class PersonaUpdate(BaseModel):
     char_name: Optional[str] = None
     char_personality: Optional[str] = None
     char_speech_style: Optional[str] = None
+    char_appearance: Optional[str] = None
+    char_relationships: Optional[str] = None
     user_name: Optional[str] = None
     user_body: Optional[str] = None
     user_work: Optional[str] = None
@@ -141,7 +145,7 @@ async def preview_persona(persona_id: int):
     parts = []
     
     # Char 人设部分
-    if persona.get('char_name') or persona.get('char_personality') or persona.get('char_speech_style'):
+    if persona.get('char_name') or persona.get('char_personality') or persona.get('char_speech_style') or persona.get('char_appearance') or persona.get('char_relationships'):
         char_parts = []
         if persona.get('char_name'):
             char_parts.append(f"姓名：{persona['char_name']}")
@@ -149,6 +153,10 @@ async def preview_persona(persona_id: int):
             char_parts.append(f"性格：{persona['char_personality']}")
         if persona.get('char_speech_style'):
             char_parts.append(f"说话方式：{persona['char_speech_style']}")
+        if persona.get('char_appearance'):
+            char_parts.append(f"形象：{persona['char_appearance']}")
+        if persona.get('char_relationships'):
+            char_parts.append(f"机际关系：{persona['char_relationships']}")
         if char_parts:
             parts.append("【Char 人设】\n" + "\n".join(char_parts))
     

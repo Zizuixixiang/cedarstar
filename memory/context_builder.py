@@ -735,7 +735,9 @@ class ContextBuilder:
             char_name = _s("char_name")
             char_personality = _s("char_personality")
             char_speech_style = _s("char_speech_style")
-            if char_name or char_personality or char_speech_style:
+            char_appearance = _s("char_appearance")
+            char_relationships = _s("char_relationships")
+            if char_name or char_personality or char_speech_style or char_appearance or char_relationships:
                 char_lines: List[str] = []
                 if char_name:
                     char_lines.append(f"姓名：{char_name}")
@@ -743,6 +745,10 @@ class ContextBuilder:
                     char_lines.append(f"性格：{char_personality}")
                 if char_speech_style:
                     char_lines.append(f"说话方式：{char_speech_style}")
+                if char_appearance:
+                    char_lines.append(f"形象：{char_appearance}")
+                if char_relationships:
+                    char_lines.append(f"机际关系：{char_relationships}")
                 parts.append("【Char 人设】\n" + "\n".join(char_lines))
 
             user_lines: List[str] = []
@@ -768,7 +774,7 @@ class ContextBuilder:
                 user_lines.append(f"其他：{_s('user_other')}")
 
             if user_lines:
-                parts.append("【我的人设】\n" + "\n".join(user_lines))
+                parts.append("【User 的人设】\n" + "\n".join(user_lines))
 
             if _s("system_rules"):
                 parts.append(f"【系统规则】\n{_s('system_rules')}")

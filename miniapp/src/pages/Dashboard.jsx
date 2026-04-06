@@ -48,16 +48,14 @@ function HealthCard({ data, loading, batchLogs }) {
     <div className="health-card">
       <div className="health-item">
         <span className="health-label">Discord</span>
-        <div className="health-value">
-          <span className={`status-dot ${discord_online ? 'online' : 'offline'}`}></span>
-          {discord_online ? '活跃中' : '离线'}
+        <div className="health-value health-value--status" title={discord_online ? '活跃中' : '离线'}>
+          <span className={`status-dot ${discord_online ? 'online' : 'offline'}`} style={{ marginRight: 0 }}></span>
         </div>
       </div>
       <div className="health-item">
         <span className="health-label">Telegram</span>
-        <div className="health-value">
-          <span className={`status-dot ${telegram_online ? 'online' : 'offline'}`}></span>
-          {telegram_online ? '活跃中' : '离线'}
+        <div className="health-value health-value--status" title={telegram_online ? '活跃中' : '离线'}>
+          <span className={`status-dot ${telegram_online ? 'online' : 'offline'}`} style={{ marginRight: 0 }}></span>
         </div>
       </div>
       <div className="health-item">

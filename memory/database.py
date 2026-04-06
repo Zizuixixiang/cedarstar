@@ -219,6 +219,12 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS user_work TEXT DEFAULT ''"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_appearance TEXT DEFAULT ''"
+    )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_relationships TEXT DEFAULT ''"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -1670,6 +1676,12 @@ class MessageDatabase:
         expire_at: Optional[str] = None,
     ) -> str:
         """插入一条 temporal_states，返回主键 id（UUID hex）。"""
+        dt_expire = None
+        if expire_at:
+            try:
+                dt_expire = _dt.datetime.fromisoformat(expire_at.replace("Z", "+00:00"))
+            except ValueError:
+                logger.warning("解析 expire_at 失败: %s", expire_at)
         eid = uuid.uuid4().hex
         async with self.pool.acquire() as conn:
             await conn.execute(
@@ -1677,7 +1689,7 @@ class MessageDatabase:
                 INSERT INTO temporal_states (id, state_content, action_rule, expire_at, is_active)
                 VALUES ($1, $2, $3, $4, 1)
                 """,
-                eid, state_content, action_rule or "", expire_at,
+                eid, state_content, action_rule or "", dt_expire,
             )
         return eid
 

@@ -4,6 +4,15 @@
  */
 import React from 'react'
 import { Navigate } from 'react-router-dom'
+import {
+  LayoutDashboard,
+  UserCircle,
+  BookMarked,
+  History as HistoryIcon,
+  ScrollText,
+  SlidersHorizontal,
+  KeyRound,
+} from 'lucide-react'
 import Dashboard from './pages/Dashboard.jsx'
 import Persona from './pages/Persona.jsx'
 import Memory from './pages/Memory.jsx'
@@ -17,13 +26,13 @@ import Settings from './pages/Settings.jsx'
  * 包含图标、文字和路由路径
  */
 export const navItems = [
-  { icon: '✨', text: '控制台概览', path: '/' },
-  { icon: '🪐', text: '人设与参数', path: '/persona' },
-  { icon: '📓', text: '记忆日记本', path: '/memory' },
-  { icon: '🕰️', text: '时光机历史', path: '/history' },
-  { icon: '🪵', text: '系统日志', path: '/logs' },
-  { icon: '⚙️', text: '助手配置', path: '/config' },
-  { icon: '🔑', text: '核心设置', path: '/settings' },
+  { Icon: LayoutDashboard, text: '控制台概览', path: '/' },
+  { Icon: UserCircle, text: '人设与参数', path: '/persona' },
+  { Icon: BookMarked, text: '记忆日记本', path: '/memory' },
+  { Icon: HistoryIcon, text: '时光机历史', path: '/history' },
+  { Icon: ScrollText, text: '系统日志', path: '/logs' },
+  { Icon: SlidersHorizontal, text: '助手配置', path: '/config' },
+  { Icon: KeyRound, text: '核心设置', path: '/settings' },
 ]
 
 /**

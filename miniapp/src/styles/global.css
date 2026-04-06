@@ -187,23 +187,41 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.6rem;
-  color: var(--text-main);
+  color: #8a98af;
   border-radius: var(--radius-btn);
   margin-right: 12px;
   background: var(--surface);
   box-shadow: var(--shadow-raised);
+  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  -webkit-tap-highlight-color: transparent;
 }
 
 .mobile-menu-btn:active {
+  transform: scale(0.96);
   box-shadow: var(--shadow-inset);
+  filter: brightness(0.97);
 }
 
 .mobile-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
   font-family: 'Lora', serif;
   font-size: 1.2rem;
   font-weight: 600;
   color: var(--accent);
+}
+
+.mobile-logo-icon {
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.mobile-logo-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sidebar-overlay {
@@ -283,8 +301,12 @@ h1, h2, h3, h4, h5, h6 {
   .mobile-menu-btn {
     width: 36px;
     height: 36px;
-    font-size: 18px;
     margin-right: 8px;
+  }
+
+  .mobile-menu-btn svg {
+    width: 20px;
+    height: 20px;
   }
 
   .mobile-logo {

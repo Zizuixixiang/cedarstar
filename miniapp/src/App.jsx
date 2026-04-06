@@ -3,7 +3,8 @@
  * 包含侧边栏和路由出口，管理侧边栏展开/收起状态
  */
 import { useState } from 'react'
-import { BrowserRouter, Routes, Route, NavLink, useLocation } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
+import { Menu, Sparkles } from 'lucide-react'
 import { navItems, routes } from './router.jsx'
 import './styles/sidebar.css'
 
@@ -26,23 +27,28 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
       <aside className={`sidebar ${collapsed ? 'collapsed' : ''} ${mobileOpen ? 'mobile-open' : ''}`}>
         {/* 侧边栏头部 */}
         <div className="sidebar-header">
-          <span className="sidebar-logo">✦ Sirius Core</span>
-          <button className="sidebar-toggle desktop-only" onClick={onToggle} aria-label="切换侧边栏">
-            ☰
+          <span className="sidebar-logo">
+            <Sparkles className="sidebar-logo-icon" size={18} strokeWidth={2} aria-hidden />
+            <span className="sidebar-logo-text">CedarStar</span>
+          </span>
+          <button type="button" className="sidebar-toggle desktop-only" onClick={onToggle} aria-label="切换侧边栏">
+            <Menu size={22} strokeWidth={1.75} aria-hidden />
           </button>
         </div>
 
         {/* 导航菜单 */}
         <nav className="sidebar-nav">
-          {navItems.map((item) => (
+          {navItems.map(({ Icon, text, path }) => (
             <NavLink
-              key={item.path}
-              to={item.path}
+              key={path}
+              to={path}
               className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
               onClick={onMobileClose}
             >
-              <span className="nav-icon">{item.icon}</span>
-              <span className="nav-text">{item.text}</span>
+              <span className="nav-icon">
+                <Icon size={22} strokeWidth={1.75} aria-hidden />
+              </span>
+              <span className="nav-text">{text}</span>
             </NavLink>
           ))}
         </nav>
@@ -61,10 +67,13 @@ function MainContent({ sidebarCollapsed, onOpenMobileSidebar }) {
     <main className={`main-content ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       {/* 移动端 Header 区域 */}
       <div className="mobile-header">
-        <button className="mobile-menu-btn" onClick={onOpenMobileSidebar} aria-label="打开菜单">
-          ☰
+        <button type="button" className="mobile-menu-btn" onClick={onOpenMobileSidebar} aria-label="打开菜单">
+          <Menu size={22} strokeWidth={1.75} aria-hidden />
         </button>
-        <span className="mobile-logo">✦ Sirius Core</span>
+        <span className="mobile-logo">
+          <Sparkles className="mobile-logo-icon" size={18} strokeWidth={2} aria-hidden />
+          <span className="mobile-logo-text">CedarStar</span>
+        </span>
       </div>
       
       <div className="main-content-inner">

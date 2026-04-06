@@ -32,6 +32,8 @@ class MemoryCardUpdate(BaseModel):
 
 class LongTermMemoryCreate(BaseModel):
     content: str
+    score: Optional[int] = 5
+    halflife_days: Optional[int] = 30
 
 
 class TemporalStateCreate(BaseModel):
@@ -254,7 +256,8 @@ async def create_longterm_memory(body: LongTermMemoryCreate):
                 "session_id": "manual",
                 "summary_type": "manual",
                 "source": "miniapp_manual",
-                "base_score": 5.0,
+                "base_score": float(body.score if body.score is not None else 5),
+                "halflife_days": int(body.halflife_days if body.halflife_days is not None else 30),
             }
         )
     except Exception as e:
@@ -267,7 +270,7 @@ async def create_longterm_memory(body: LongTermMemoryCreate):
     
     try:
         memory_id = await db.create_longterm_memory(
-            content=content, chroma_doc_id=chroma_doc_id, score=5
+            content=content, chroma_doc_id=chroma_doc_id, score=(body.score if body.score is not None else 5)
         )
     except Exception as e:
         logger.error(f"ChromaDB 已成功但写入 SQLite 长期记忆失败: {e}")
@@ -283,7 +286,7 @@ async def create_longterm_memory(body: LongTermMemoryCreate):
         "id": memory_id,
         "content": content,
         "chroma_doc_id": chroma_doc_id,
-        "score": 5,
+        "score": body.score if body.score is not None else 5,
         "created_at": datetime.datetime.now().isoformat(),
         "is_orphan": False,
     }

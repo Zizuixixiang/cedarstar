@@ -188,6 +188,8 @@ function DeleteConfirmModal({ dimension, onClose, onConfirm }) {
  */
 function AddMemoryModal({ onClose, onSubmit }) {
   const [content, setContent] = useState('');
+  const [score, setScore] = useState(5);
+  const [halflifeDays, setHalflifeDays] = useState(30);
   const [submitting, setSubmitting] = useState(false);
   
   const handleSubmit = async () => {
@@ -196,7 +198,11 @@ function AddMemoryModal({ onClose, onSubmit }) {
     }
     setSubmitting(true);
     try {
-      await onSubmit(content);
+      await onSubmit({
+        content: content.trim(),
+        score: parseInt(score, 10) || 5,
+        halflife_days: parseInt(halflifeDays, 10) || 30
+      });
     } finally {
       setSubmitting(false);
     }
@@ -216,6 +222,30 @@ function AddMemoryModal({ onClose, onSubmit }) {
             autoFocus
             disabled={submitting}
           />
+        </div>
+        <div className="modal-section" style={{ display: 'flex', gap: '16px' }}>
+          <div style={{ flex: 1 }}>
+            <div className="modal-label">分数 (1-10)：</div>
+            <input
+              type="number"
+              className="search-input"
+              value={score}
+              onChange={e => setScore(e.target.value)}
+              min="1" max="10"
+              disabled={submitting}
+            />
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="modal-label">半衰期 (天)：</div>
+            <input
+              type="number"
+              className="search-input"
+              value={halflifeDays}
+              onChange={e => setHalflifeDays(e.target.value)}
+              min="1"
+              disabled={submitting}
+            />
+          </div>
         </div>
         <div className="modal-actions">
           <button className="modal-button cancel" onClick={onClose} disabled={submitting}>
@@ -388,7 +418,7 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
   
   return (
     <div className={`memory-card ${isEmpty ? 'empty' : ''}`}>
-      <div className="card-header">
+      <div className="memory-card-header">
         <div className="card-title">{DIMENSION_MAP[dimension]}</div>
         <div className="card-actions">
           <button className="action-button edit-button" onClick={() => onEdit(dimension)}>
@@ -916,7 +946,7 @@ function Memory() {
   };
   
   // 处理新增长期记忆
-  const handleAddMemory = async (content) => {
+  const handleAddMemory = async (payload) => {
     try {
       // 调用新增API
       const response = await apiFetch('/api/memory/longterm', {
@@ -924,9 +954,7 @@ function Memory() {
         headers: {
           'Content-Type': 'application/json',
         },
-        body: JSON.stringify({
-          content
-        })
+        body: JSON.stringify(payload)
       });
       
       if (!response.ok) {

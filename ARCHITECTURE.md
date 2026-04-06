@@ -319,7 +319,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - System 块末尾固定追加引用死命令：若参考了上述历史记忆，须在回复文末标注 `[[used:uid]]`（可多个）；**勿**用单括号 `[used:…]` 或 `【used:…】`（`MEMORY_CITATION_DIRECTIVE`）；并追加思维链须中文（`THINKING_LANGUAGE_DIRECTIVE`：thinking / reasoning 使用中文）
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 Telegram **HTML 白名单、`|||` 分段、勿滥用 Markdown `>` / `<blockquote>`、`[meme:描述]` 与 `|||` 同级顺序分隔、表情包自然融入对话的指引**（见 `context_builder.format_telegram_reply_segment_hint()`，其中 MAX_CHARS / MAX_MSG 读自 `config` 表的 `telegram_max_chars` / `telegram_max_msg`；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 
-**✅ 已改动（2026-04-05）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`** 组装 system 正文（【Char 人设】/【我的人设】/【系统规则】等，与 Mini App `Persona.jsx` 预览格式一致）；无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**（`.env` 的 `SYSTEM_PROMPT`）。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
+**✅ 已改动（2026-04-05）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`** 组装 system 正文（【Char 人设】/【User 的人设】/【系统规则】等，与 Mini App `Persona.jsx` 预览格式一致）；无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**（`.env` 的 `SYSTEM_PROMPT`）。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
 
 #### 3.4.3 `micro_batch.py` — 微批处理
 
@@ -797,9 +797,11 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 > 此表是 ChromaDB 的数据库镜像，用于 Mini App 展示，两者通过 `chroma_doc_id` 关联。
 
-**API 说明：** `GET /api/memory/longterm` 返回的每条 `items[]` 在表字段之外包含：
-- `is_orphan`（布尔）：当 `chroma_doc_id` 为空或仅空白时为 `true`（历史双写失败遗留）；新通过 Mini App 创建的长期记忆在正常路径下恒为 `false`。
-- `hits`、`halflife_days`、`last_access_ts`：来自 Chroma 文档元数据（与 `memory/vector_store.py` 写入规则一致）；当 `is_orphan` 为 `true` 时三项均为 `null`。`last_access_ts` 为 Unix 时间戳（秒，浮点）。
+**API 说明：** 
+- `GET /api/memory/longterm` 返回的每条 `items[]` 在表字段之外包含：
+  - `is_orphan`（布尔）：当 `chroma_doc_id` 为空或仅空白时为 `true`（历史双写失败遗留）；新通过 Mini App 创建的长期记忆在正常路径下恒为 `false`。
+  - `hits`、`halflife_days`、`last_access_ts`：来自 Chroma 文档元数据（与 `memory/vector_store.py` 写入规则一致）；当 `is_orphan` 为 `true` 时三项均为 `null`。`last_access_ts` 为 Unix 时间戳（秒，浮点）。
+- `POST /api/memory/longterm`（2026-04 最新增加）：支持经由 Mini App 手动新增，且可手动配置 `score` (默认5分) 与 `halflife_days` (默认30天) 等级参数，数据会在 ChromaDB 与 SQLite 保持双写一致。
 
 ---
 
@@ -838,6 +840,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `char_name` | TEXT | 角色姓名 |
 | `char_personality` | TEXT | 角色性格描述 |
 | `char_speech_style` | TEXT | 角色说话方式 |
+| `char_appearance` | TEXT | 角色形象（新增） |
+| `char_relationships` | TEXT | 角色机际关系（新增） |
 | `user_name` | TEXT | 用户名称 |
 | `user_body` | TEXT | 用户身体特征 |
 | `user_work` | TEXT | 用户工作 / 职业等信息（迁移默认 `''`） |
