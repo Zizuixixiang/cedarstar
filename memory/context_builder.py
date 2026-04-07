@@ -299,7 +299,7 @@ async def format_telegram_reply_segment_hint() -> str:
         "思维链 / 思考过程中禁止使用 |||；||| 仅用于最终对用户的正文。\n"
         f"可调变量：MAX_CHARS = {max_chars}，MAX_MSG = {max_msg}\n"
         "- 每段约 10～MAX_CHARS 字，总段数 ≤ MAX_MSG\n"
-        "- 按语气 / 停顿 / 情绪切分，用 ||| 分隔分段，禁止在句子中间截断\n"
+        "- 按语气 / 停顿 / 情绪切分，使用 0 到 MAX_MSG-1 个 ||| 分隔符，禁止在句子中间截断\n"
         "- 每段只表达一个小点，允许极短句（嗯 / 好的 / 亲亲）\n\n"
         "(3) 聊天感\n"
         "像真人发消息，不像写文章：可用语气词；可有停顿和转折；避免长段解释。\n\n"
@@ -1244,10 +1244,15 @@ class ContextBuilder:
         """
         组装完整的 system prompt。
 
-        顺序：system → temporal_states → memory_cards → relationship_timeline
+        顺序：系统时间 → system → temporal_states → memory_cards → relationship_timeline
         → daily → chunk → 长期记忆检索；末尾注入引用死命令与思维链语言要求。
         """
-        sections = [system_prompt]
+        from datetime import datetime, timezone, timedelta
+        tz_utc_8 = timezone(timedelta(hours=8))
+        now_str = datetime.now(tz_utc_8).strftime("%Y年%m月%d日 %H:%M")
+        time_section = f"【当前系统时间（东八区）：{now_str}】\n(提示：在对话中若关注时间信息，请以此时间为基准！)"
+
+        sections = [time_section, system_prompt]
 
         if temporal_states_section:
             sections.append(temporal_states_section)

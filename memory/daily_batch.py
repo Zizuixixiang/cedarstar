@@ -188,7 +188,23 @@ class DailyBatchProcessor:
     def _persona_dialogue_prefix(self) -> str:
         """跑批 Prompt 统一前缀：标明角色称呼，减轻上下文断裂与名字丢失。"""
         return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录。\n"
-    
+
+    async def _retry_call_and_parse(self, task_name: str, generate_func, parse_func, max_retries: int = 5):
+        import asyncio
+        last_err = None
+        for attempt in range(1, max_retries + 1):
+            try:
+                raw_resp = generate_func()
+                parsed = parse_func(raw_resp)
+                return parsed
+            except Exception as e:
+                last_err = e
+                logger.warning(f"[{task_name}] 第 {attempt}/{max_retries} 次失败: {e}")
+                if attempt < max_retries:
+                    await asyncio.sleep(2)
+        logger.error(f"[{task_name}] 重试 {max_retries} 次后仍失败")
+        raise last_err
+
     async def run_daily_batch(self, batch_date: Optional[str] = None) -> bool:
         """
         执行日终跑批处理。
@@ -340,18 +356,19 @@ class DailyBatchProcessor:
 输入 JSON 数组：
 {json.dumps(contents, ensure_ascii=False)}"""
             
-            try:
-                # 仅加人物前缀，不走 chunk 摘要外壳（避免「为对话生成摘要」误导任务）
-                raw = self._call_summary_llm_custom(
-                    self._persona_dialogue_prefix() + prompt
-                )
+            def _gen():
+                return self._call_summary_llm_custom(self._persona_dialogue_prefix() + prompt)
+                
+            def _parse(raw):
                 parsed = json.loads(raw)
-                if isinstance(parsed, list):
-                    self._settled_temporal_snippets = [str(x) for x in parsed]
-                else:
+                if not isinstance(parsed, list):
                     raise ValueError("not a list")
+                return [str(x) for x in parsed]
+
+            try:
+                self._settled_temporal_snippets = await self._retry_call_and_parse("时效状态改写", _gen, _parse)
             except Exception as e:
-                logger.warning(f"时效状态改写 JSON 解析失败，使用原文兜底: {e}")
+                logger.warning(f"时效状态改写 JSON 解析最终失败，使用原文兜底: {e}")
                 self._settled_temporal_snippets = list(contents)
             
             return True, None
@@ -399,10 +416,18 @@ class DailyBatchProcessor:
 {today_content}
 今日小传（中文）:"""
             
+            def _gen():
+                return self._call_summary_llm_custom(prompt)
+                
+            def _parse(raw):
+                if not str(raw).strip():
+                    raise ValueError("Empty summary")
+                return str(raw).strip()
+                
             try:
-                daily_summary = self._call_summary_llm_custom(prompt)
+                daily_summary = await self._retry_call_and_parse("生成今日小传", _gen, _parse)
             except Exception as e:
-                logger.error(f"生成今日小传失败: {e}")
+                logger.error(f"生成今日小传最终失败: {e}")
                 daily_summary = f"今日总结：包含 {len(chunk_summaries)} 个对话片段。"
             
             await save_summary(
@@ -511,7 +536,7 @@ class DailyBatchProcessor:
                     return t[i : j + 1]
         return None
 
-    def _merge_memory_card_contents(
+    async def _merge_memory_card_contents(
         self,
         dimension: str,
         dimension_label: str,
@@ -556,21 +581,21 @@ class DailyBatchProcessor:
 1. 严格只返回 JSON，格式为：{{"content":"合并后的正文"}}，不要 markdown 代码块或其他说明文字。"""
 
         fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
+        
+        def _gen():
+            return self._call_summary_llm_custom(prompt)
+            
+        def _parse(raw):
+            m = self._parse_merged_content_json(raw)
+            if m:
+                return m
+            raise ValueError(f"记忆卡片合并 JSON 解析失败; 原始片段: {raw[:200] if raw else '(空)'}")
+
         try:
-            raw = self._call_summary_llm_custom(prompt)
+            return await self._retry_call_and_parse("合并记忆卡片", _gen, _parse)
         except Exception as e:
-            logger.warning(f"记忆卡片合并 LLM 调用失败，使用拼接回退: {e}")
+            logger.warning(f"使用拼接回退: {e}")
             return fallback
-
-        merged = self._parse_merged_content_json(raw)
-        if merged:
-            return merged
-
-        logger.warning(
-            "记忆卡片合并 JSON 解析失败，使用拼接回退；原始片段: %s",
-            raw[:200] if raw else "(空)",
-        )
-        return fallback
     
     async def _step3_memory_cards_and_timeline(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """
@@ -659,46 +684,36 @@ class DailyBatchProcessor:
 
             # 4. 调用 SUMMARY LLM 分析维度
             logger.info(f"调用 LLM 分析今日小传维度，日期: {batch_date}")
-            try:
-                llm_response = self.summary_llm.generate_summary(
+
+            def _gen_dim():
+                return self.summary_llm.generate_summary(
                     [{"role": "user", "content": prompt}],
                     char_name=self._batch_char_name,
                     user_name=self._batch_user_name,
                 )
-            except Exception as e:
-                logger.error(f"LLM 调用失败，Step 3 中止: {e}")
-                return False, f"LLM 调用失败: {e}"
 
-            # 5. 解析 LLM 返回的 JSON（容忍前置说明、markdown 代码块）
-            dimension_data: Dict[str, Any] = {}
-            raw_resp = (llm_response or "").strip()
-            parse_err: Optional[Exception] = None
-            try:
-                dimension_data = json.loads(raw_resp)
-            except json.JSONDecodeError as e:
-                parse_err = e
-                slice_json = self._extract_first_json_object(raw_resp)
-                if slice_json:
-                    try:
-                        dimension_data = json.loads(slice_json)
-                        parse_err = None
-                    except json.JSONDecodeError as e2:
-                        parse_err = e2
-                if parse_err is not None:
+            def _parse_dim(raw_resp):
+                raw_resp = (raw_resp or "").strip()
+                try:
+                    return json.loads(raw_resp)
+                except json.JSONDecodeError as e:
+                    slice_json = self._extract_first_json_object(raw_resp)
+                    if slice_json:
+                        try:
+                            return json.loads(slice_json)
+                        except json.JSONDecodeError: pass
                     json_match = re.search(r"\{[\s\S]*\}", raw_resp)
                     if json_match:
                         try:
-                            dimension_data = json.loads(json_match.group())
-                            parse_err = None
-                        except json.JSONDecodeError as e3:
-                            parse_err = e3
-                if parse_err is not None:
-                    logger.error(
-                        "无法解析 LLM 维度分析 JSON: %s，原始响应前 500 字: %s",
-                        parse_err,
-                        raw_resp[:500],
-                    )
-                    return False, f"JSON 解析失败: {parse_err}"
+                            return json.loads(json_match.group())
+                        except json.JSONDecodeError: pass
+                    raise ValueError(f"JSON 解析失败: {e}, 原始响应前500字: {raw_resp[:500]}")
+
+            try:
+                dimension_data = await self._retry_call_and_parse("提取今日小传维度", _gen_dim, _parse_dim)
+            except Exception as e:
+                logger.error(f"提取今日小传维度失败，Step 3 中止: {e}")
+                return False, f"LLM 调用或解析失败: {e}"
 
             logger.info(f"LLM 维度分析完成，有内容的维度: {[k for k, v in dimension_data.items() if v and v != 'null']}")
 
@@ -726,7 +741,7 @@ class DailyBatchProcessor:
                             card_id = existing_card["id"]
                             old_content = existing_card["content"]
                             dim_label = dimensions_desc.get(dimension, dimension)
-                            merged_content = self._merge_memory_card_contents(
+                            merged_content = await self._merge_memory_card_contents(
                                 dimension,
                                 dim_label,
                                 old_content,
@@ -773,19 +788,26 @@ class DailyBatchProcessor:
 若有，返回严格 JSON，格式：{{"events":[{{"event_type":"milestone|emotional_shift|conflict|daily_warmth","content":"..."}}]}}；若无则 {{"events":[]}}。
 event_type 必须四选一：milestone、emotional_shift、conflict、daily_warmth。不要其他文字。"""
 
-            tl_raw = ""
-            try:
-                tl_raw = self.summary_llm.generate_summary(
+            def _gen_tl():
+                return self.summary_llm.generate_summary(
                     [{"role": "user", "content": tl_prompt}],
                     char_name=self._batch_char_name,
                     user_name=self._batch_user_name,
                 )
-                tl_data = json.loads(tl_raw)
-            except json.JSONDecodeError:
-                jm = re.search(r"\{[\s\S]*\}", tl_raw)
-                tl_data = json.loads(jm.group()) if jm else {"events": []}
+
+            def _parse_tl(raw):
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    jm = re.search(r"\{[\s\S]*\}", raw)
+                    if jm:
+                        return json.loads(jm.group())
+                    raise ValueError("JSON parse error")
+
+            try:
+                tl_data = await self._retry_call_and_parse("提取关系时间轴", _gen_tl, _parse_tl)
             except Exception as e:
-                logger.warning(f"关系时间轴 LLM 解析失败，跳过写入: {e}")
+                logger.warning(f"关系时间轴 LLM 解析最终失败，跳过写入: {e}")
                 tl_data = {"events": []}
 
             events_tl = tl_data.get("events") if isinstance(tl_data, dict) else []
@@ -851,36 +873,34 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             
             score = 5
             arousal = 0.1
-            try:
+            def _gen_score():
                 llm_resp = self.llm.generate_with_context_and_tracking(
                     [{"role": "user", "content": prompt}],
                     platform=Platform.BATCH,
                 )
-                score_text = (llm_resp.content or "").strip()
+                return (llm_resp.content or "").strip()
+
+            def _parse_score(raw):
                 try:
-                    score_data = json.loads(score_text)
-                    if isinstance(score_data, dict):
-                        raw_score = score_data.get("score", 5)
-                        raw_arousal = score_data.get("arousal", 0.1)
-                        score = max(1, min(10, int(raw_score)))
-                        arousal = max(0.0, min(1.0, float(raw_arousal)))
-                    else:
-                        raise ValueError("not a dict")
-                except (json.JSONDecodeError, ValueError, TypeError):
-                    score_match = re.search(r'\b([1-9]|10)\b', score_text)
-                    score = int(score_match.group(1)) if score_match else 5
-                    arousal_match = re.search(r'"arousal"\s*:\s*([0-9]*\.?[0-9]+)', score_text)
-                    if arousal_match:
-                        arousal = max(0.0, min(1.0, float(arousal_match.group(1))))
-                    logger.warning(
-                        "无法完整解析打分 JSON，回退提取: score=%s arousal=%s, 原始: %s",
-                        score, arousal, score_text[:200],
-                    )
-                logger.info(f"今日小传价值分: {score}/10, arousal: {arousal:.2f}")
+                    sd = json.loads(raw)
+                    if isinstance(sd, dict) and "score" in sd and "arousal" in sd:
+                        return sd
+                except: pass
+                s_match = re.search(r'\b([1-9]|10)\b', raw)
+                a_match = re.search(r'"arousal"\s*:\s*([0-9]*\.?[0-9]+)', raw)
+                if not s_match or not a_match:
+                    raise ValueError(f"无法提取 score 和 arousal: {raw[:200]}")
+                return {"score": int(s_match.group(1)), "arousal": float(a_match.group(1))}
+
+            try:
+                score_data = await self._retry_call_and_parse("今日小传打分", _gen_score, _parse_score)
+                score = max(1, min(10, int(score_data.get("score", 5))))
+                arousal = max(0.0, min(1.0, float(score_data.get("arousal", 0.1))))
             except Exception as e:
-                logger.error(f"LLM 价值打分失败: {e}")
+                logger.warning(f"LLM 价值打分最终失败: {e}")
                 score = 5
                 arousal = 0.1
+            logger.info(f"今日小传价值分: {score}/10, arousal: {arousal:.2f}")
             
             halflife = _score_to_halflife_days(score)
             parent_doc_id = build_daily_summary_doc_id(batch_date)
@@ -924,19 +944,27 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
 {summary_text}"""
             
             event_texts: List[str] = []
-            split_raw = ""
-            try:
-                split_raw = self.summary_llm.generate_summary(
+            
+            def _gen_split():
+                return self.summary_llm.generate_summary(
                     [{"role": "user", "content": split_prompt}],
                     char_name=self._batch_char_name,
                     user_name=self._batch_user_name,
                 )
-                split_data = json.loads(split_raw)
-            except json.JSONDecodeError:
-                sm = re.search(r"\{[\s\S]*\}", split_raw)
-                split_data = json.loads(sm.group()) if sm else {"events": []}
+
+            def _parse_split(raw):
+                try:
+                    return json.loads(raw)
+                except json.JSONDecodeError:
+                    sm = re.search(r"\{[\s\S]*\}", raw)
+                    if sm:
+                        return json.loads(sm.group())
+                    raise ValueError("JSON parse error")
+
+            try:
+                split_data = await self._retry_call_and_parse("事件拆分解析", _gen_split, _parse_split)
             except Exception as e:
-                logger.warning(f"事件拆分解析失败，跳过子文档: {e}")
+                logger.warning(f"事件拆分最终解析失败，跳过子文档: {e}")
                 split_data = {"events": []}
             
             if isinstance(split_data, dict):

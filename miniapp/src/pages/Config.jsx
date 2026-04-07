@@ -20,6 +20,7 @@ const DEFAULT_CONFIG = {
   retrieval_top_k: 5,
   telegram_max_chars: 50,
   telegram_max_msg: 8,
+  send_cot_to_telegram: 1,
 };
 
 /** Telegram 分段参数：单独 PUT 保存，与 api/config.py 一致 */
@@ -549,11 +550,62 @@ function Config() {
         <hr className="config-divider" />
         <div className="config-telegram-section">
           <div className="config-telegram-section-header">
-            <div className="config-name">Telegram 回复分段</div>
+            <div className="config-name">Telegram 参数</div>
             <div className="config-desc">
-              与提示词中 MAX_CHARS / MAX_MSG 对应；每项修改后可点「保存此项」单独提交
+              流式与分段设置；每项修改后可点「保存此项」单独提交
             </div>
           </div>
+
+          <div className="config-item">
+            <div className="config-info">
+              <div className="config-name">发送思维链</div>
+              <div className="config-desc">是否将长考模型的思维链内容发送至 Telegram 对话。</div>
+            </div>
+            <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  checked={config.send_cot_to_telegram === 1}
+                  onChange={(e) => {
+                    const val = e.target.checked ? 1 : 0;
+                    setConfig((prev) => ({ ...prev, send_cot_to_telegram: val }));
+                    setHasUnsavedChanges(true);
+                  }}
+                />
+                <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>启用思维链显示</span>
+              </label>
+              <button
+                type="button"
+                className="config-btn-secondary config-btn-telegram-inline-save"
+                onClick={async () => {
+                  const val = config.send_cot_to_telegram;
+                  setSavingTelegramKey('send_cot_to_telegram');
+                  try {
+                    const response = await apiFetch('/api/config/config', {
+                      method: 'PUT',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ send_cot_to_telegram: val }),
+                    });
+                    const data = await response.json();
+                    if (data.success) {
+                      showToast('✓ 已保存', 'success');
+                      setHasUnsavedChanges(false);
+                    } else showToast('保存失败', 'error');
+                  } catch(e) {
+                    showToast('网络错误', 'error');
+                  } finally {
+                    setSavingTelegramKey(null);
+                  }
+                }}
+                disabled={savingTelegramKey === 'send_cot_to_telegram'}
+              >
+                {savingTelegramKey === 'send_cot_to_telegram' ? '保存中…' : '保存此项'}
+              </button>
+            </div>
+          </div>
+          <hr className="config-divider" />
+
           {TELEGRAM_CONFIG_ROWS.map((row, idx) => (
             <div key={row.key}>
               <div className="config-item">

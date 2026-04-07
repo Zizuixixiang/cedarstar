@@ -898,7 +898,14 @@ class TelegramBot:
         self, llm_resp: Any, base_message, bot
     ) -> _TelegramStreamOutcome:
         """非流式 LLM 结果：思维链 blockquote + 正文分段（与流式结束态一致）。"""
+        from memory.database import get_database
+        send_cot_cfg = await get_database().get_config("send_cot_to_telegram", "1")
+        send_cot = str(send_cot_cfg).strip() in ("1", "true", "True")
+
         think_plain = (llm_resp.thinking or "").strip() or None
+        if not send_cot:
+            think_plain = None
+
         if think_plain:
             html_th = self._telegram_thinking_blockquote_html(think_plain)
             await base_message.reply_text(html_th, parse_mode="HTML")
@@ -941,6 +948,9 @@ class TelegramBot:
     ) -> _TelegramSseRound:
         """一轮 SSE：实时编辑思维链占位；结束态供 _telegram_finalize_sse_round_outcome 定稿。"""
         chat_id = base_message.chat.id
+        from memory.database import get_database
+        send_cot_cfg = await get_database().get_config("send_cot_to_telegram", "1")
+        send_cot = str(send_cot_cfg).strip() in ("1", "true", "True")
         loop = asyncio.get_running_loop()
         q: asyncio.Queue = asyncio.Queue()
 
@@ -1013,6 +1023,8 @@ class TelegramBot:
             item = await q.get()
             tag = item[0]
             if tag == "delta_th":
+                if not send_cot:
+                    continue
                 thinking_parts.append(item[1])
                 cur = "".join(thinking_parts)
                 if thinking_msg_id is None:
@@ -1045,10 +1057,13 @@ class TelegramBot:
             if not isinstance(raw_content, str):
                 raw_content = str(raw_content)
             t_api = done_payload.get("thinking")
-            if isinstance(t_api, str) and t_api.strip():
-                think_plain = t_api.strip()
+            if send_cot:
+                if isinstance(t_api, str) and t_api.strip():
+                    think_plain = t_api.strip()
+                else:
+                    think_plain = think_from_delta
             else:
-                think_plain = think_from_delta
+                think_plain = ""
             interrupted = False
             
             # 保存 Token (流式在子线程丢弃了记录，这里在主 loop 补记)
@@ -1064,11 +1079,14 @@ class TelegramBot:
         elif err_pack is not None:
             _ex, c_partial, t_partial = err_pack
             raw_content = c_partial or ""
-            think_plain = think_from_delta or (t_partial or "").strip()
+            if send_cot:
+                think_plain = think_from_delta or (t_partial or "").strip()
+            else:
+                think_plain = ""
             interrupted = True
         else:
             raw_content = ""
-            think_plain = think_from_delta
+            think_plain = think_from_delta if send_cot else ""
             interrupted = False
 
         return _TelegramSseRound(

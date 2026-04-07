@@ -43,6 +43,7 @@ DEFAULT_CONFIG = {
     "retrieval_top_k": 5,
     "telegram_max_chars": 50,
     "telegram_max_msg": 8,
+    "send_cot_to_telegram": 1,
 }
 
 

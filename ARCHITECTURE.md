@@ -1,6 +1,6 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化）
+> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入）
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -228,7 +228,7 @@ cedarstar/                          # 项目根目录
 - **`main.py` 启动顺序：** `await initialize_database()` → BM25 `refresh_index()` → **`await setup_telegram_webhook_app()`**（内部 `TelegramBot.setup_webhook()`：`Application.builder()`… **`initialize()`** → **`set_my_commands`**（三 scope）→ **`start()`**，**不调用** `updater.start_polling`）。进程退出路径上 **`shutdown_telegram_webhook_app()`** 执行 `stop`/`shutdown`。
 - 响应文本、语音、贴纸与图片消息（`VOICE` / `PHOTO` / `TEXT` / `Sticker`）
 - 支持 `/start` / `/help` / `/model` / `/clear` / `/rescanpic` 命令；`initialize()` 后对 **`BotCommandScopeDefault`**、**`BotCommandScopeAllPrivateChats`**、**`BotCommandScopeAllGroupChats`** 各调用一次 **`bot.set_my_commands`**（同一组 5 条，含 `rescanpic`「重新识别贴纸图片」），避免仅写默认 scope 时部分会话里输入 `/` 不出现命令补全。客户端会缓存命令表，更新后若仍无补全可重开与该 Bot 的对话或重启 Telegram
-- 消息长度限制 4096 字符（自动分割）。**缓冲回复（OpenAI 兼容主路径）：** SSE 流式编辑思维链占位消息，节流间隔为 **`config.TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC`**（默认 **0.9s**，环境变量可覆盖，下限 0.15），结束时**定稿为单独一条**消息（`<blockquote expandable>🧠 思维链`…，`parse_mode=HTML`）；若 **`edit_message_text(HTML)`** 失败则 **WARNING** 并尝试**删占位**后以 **`reply_text`** 重发同内容（内文去 `\x00` 以降低实体解析失败概率）。随后按 **`parse_telegram_segments_with_memes`** 将 **`|||`** 与 **`[meme:…]`** 拆成有序段，**交替**发送 HTML 正文与表情包（非「全文后发完再逐条发图」）。**非缓冲路径**（`_generate_reply`）：可选传入 **`telegram_bot`** 时同样先发思维链，再按上述有序段交付
+- 消息长度限制 4096 字符（自动分割）。**缓冲回复（OpenAI 兼容主路径）：** SSE 流式编辑思维链占位消息，节流间隔为 **`config.TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC`**（默认 **1.1s**，环境变量可覆盖，下限 0.15），结束时**定稿为单独一条**消息（`<blockquote expandable>🧠 思维链`…，`parse_mode=HTML`），**若 `send_cot_to_telegram` 配置开启则随之发送，否则将不再展示并隐去此占位消息**；若 **`edit_message_text(HTML)`** 失败则 **WARNING** 并尝试**删占位**后以 **`reply_text`** 重发同内容（内文去 `\x00` 以降低实体解析失败概率）。随后按 **`parse_telegram_segments_with_memes`** 将 **`|||`** 与 **`[meme:…]`** 拆成有序段，**交替**发送 HTML 正文与表情包（非「全文后发完再逐条发图」）。**非缓冲路径**（`_generate_reply`）：可选传入 **`telegram_bot`** 时同样先判断 `send_cot` 后再决定是否发思维链，最后按上述有序段交付
 - session_id 格式：`telegram_{chat_id}`（Discord 为 `{user_id}_{channel_id}`）
 - **Bot API 网络（出站）：** `Application.builder().token(...).request(HTTPXRequest(...)).get_updates_request(HTTPXRequest(...)).build()`。两处 `HTTPXRequest` 使用 `config.TELEGRAM_PROXY` 作为 `proxy`、并 `httpx_kwargs={"trust_env": False}`，避免 httpx 默认继承环境变量代理（Discord 会设置 `HTTP_PROXY` 等）。未配置 `TELEGRAM_PROXY` 时为直连；`connect_timeout`/`read_timeout`/`write_timeout` 相对默认放宽（约 25s / 120s / 120s）。**入站更新**不再使用 `getUpdates` 轮询；`send_message` / `edit_message` / `get_file` 等仍经上述 httpx 客户端访问 `api.telegram.org`。**说明：** 缓冲 flush 时 **`send_chat_action`（正在输入）** 若报 `httpx.ConnectError` / `NetworkError`，仅 **WARNING**、不中断生成，多见于当前进程**无法稳定连上** `api.telegram.org`（需检查 `TELEGRAM_PROXY`、防火墙或国际链路）。**发往用户的 `reply_text` / `send_message` 若在同一轮仍报 `telegram.error.NetworkError`**，`_generate_reply_from_buffer` **单独捕获**，用户可见提示侧重「连不上 Telegram / 检查代理」，与统称「生成回复出错」区分；`_flush_buffered_messages` 对无 `assistant_message_id` 时的补发 **`reply_text` 单次 try**，避免代理不可达时未处理异常刷屏
 
@@ -295,7 +295,7 @@ cedarstar/                          # 项目根目录
 **职责：** 在每次 LLM 调用前，将多个记忆来源组装成完整的 `messages` 数组。
 
 **组装顺序（优先级从高到低）：**
-1. `system_prompt`（来自 `.env` 的 `SYSTEM_PROMPT`）
+1. 包含当前系统时区/时间的 `系统时间块` 提示 + `system_prompt`（来自 `.env` 的 `SYSTEM_PROMPT`）
 2. `temporal_states`（`temporal_states` 表中 `is_active=1` 的全部记录，置于记忆卡片之前）
 3. `memory_cards`（`memory_cards` 表中 `is_active=1` 的记录，按维度分组）
 4. `relationship_timeline`（数据库倒序取最近 3 条，注入 Context 前按 `created_at` 正序排列；紧接记忆卡片之后）
@@ -362,7 +362,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
 **Step 3 实现要点（与代码一致）：**
-- **维度 JSON：** 对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则。
+- **维度 JSON 提取与重试策略：** 对所有 SUMMARY LLM 相关 JSON 结构和主 LLM 的 `score` / `arousal` 分数结果提取，均已统一采用基于 `_retry_call_and_parse` 的重试机制，出错时最多重试 5 次，并在内部对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则；如果仍失败且未达上限将触发 asyncio 等待并重新生成。
 - **Upsert 行定位：** `get_latest_memory_card_for_dimension()`（不过滤 `is_active`），保证「全表 `is_active=0` 后重跑」仍更新同一逻辑行，而非误当作无记录而堆叠 `INSERT`。
 - **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom` 使用摘要模型配置的 `LLMInterface.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 多轮摘要外壳）；prompt 含 **`_persona_dialogue_prefix()`**、新版「逻辑合并」说明（去重、无缝整合段落、勿 Markdown 列表、勿遗漏旧设定等）、**维度补充**（`interaction_patterns` 与其它维度不同细则）、**输出要求**为严格 JSON `{"content":"…"}`（**不再**在 prompt 中写死 400 字上限）。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
 
@@ -492,7 +492,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」「摘要 API」「视觉 API」「语音转录 API」「**Embedding**」五个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=…`（`chat` / `summary` / `vision` / `stt` / `embedding`），切换 Tab 时重新拉取。首次迁移会在 `api_configs` 插入默认 **`config_type=embedding`** 行（名称「硅基流动 bge-m3」、`base_url`/`model` 预填、`api_key` 空、**已激活**），用户在 Mini App 中补 Key 即可。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表。`POST`/`PUT` 允许的 `config_type` 含 `embedding`（表情包向量用，与 `stt` 同理独立激活）。Tab 样式见 `settings.css` 中 `.config-tabs` / `.config-tab` / `.embedding-type`。移动端（<768px）为竖向堆叠布局与 2x2 Token 网格。**Token 平台进度条（2026-04-07 更新）：** 不再硬编码 Telegram / Discord 两条；改为动态遍历 `tokenStats.by_platform` 所有键，过滤值为 0 的条目后按用量降序展示，颜色通过 `PLATFORM_COLOR` 字典映射（`telegram`→`#5ba4cf`，`discord`→`#7289da`，`batch`→`#a0aec0`，其余→紫色兜底），新增平台无需改代码。**Period Tabs 布局（2026-04-07 更新）：** 桌面端 `.period-tabs` 加 `margin-left: auto` 对齐卡片右侧；移动端改为宽度 100%、左对齐展示。
 
-**Config 页（`Config.jsx` / `config.css`）：** 与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐：上方为通用运行参数（**滑块 + 数字步进**），底部 **「保存并立即生效」** 一次 `PUT /api/config/config` 写回当前页全部键。其下 **「Telegram 回复分段」** 为 `telegram_max_chars`（10–1000、步长 10）与 `telegram_max_msg`（1–20），控件布局与同页其它行一致；每项可点 **「保存此项」** 单独 `PUT`，请求体仅含该键（仍走同一接口）。`memory/database.py` 的 `migrate_database_schema` 通过 `_config_insert_defaults_if_missing` 为缺失行插入两键默认值 **50 / 8**（`INSERT OR IGNORE`，不覆盖已有值）。
+**Config 页（`Config.jsx` / `config.css`）：** 与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐：上方为通用运行参数（**滑块 + 数字步进**），底部 **「保存并立即生效」** 一次 `PUT /api/config/config` 写回当前页全部键。其下 **「Telegram 参数」** 包含流式思维链发送开关 `send_cot_to_telegram`（默认选 1），以及 `telegram_max_chars`（10–1000、步长 10）与 `telegram_max_msg`（1–20），控件布局与同页其它行一致；每项可点 **「保存此项」** 单独 `PUT`，请求体仅含该键（仍走同一接口）。`memory/database.py` 的 `migrate_database_schema` 通过 `_config_insert_defaults_if_missing` 为缺失行插入默认值（`INSERT OR IGNORE`，不覆盖已有值）。
 
 **Persona 页（`Persona.jsx` / `persona.css`）：** 右侧 System Prompt 预览区使用 `position: sticky`（配合 `align-self: flex-start`、`max-height` 与预览正文区域内部滚动），主内容区纵向滚动时预览与「复制全文」仍留在视口内，便于对照长表单编辑。「系统规则」区块下含 **Telegram HTML 格式化** 提示（与 `bot/telegram_bot.py` 正文 `parse_mode=HTML` 一致）。
 

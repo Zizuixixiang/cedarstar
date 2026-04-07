@@ -398,9 +398,9 @@ class Config:
         过小易触发 Telegram Flood control；历史默认曾为 0.45。
         """
         try:
-            v = float(os.getenv("TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC", "0.9"))
+            v = float(os.getenv("TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC", "1.1"))
         except ValueError:
-            v = 0.9
+            v = 1.1
         return max(0.15, v)
 
     # ChromaDB 本地存储配置

@@ -1292,6 +1292,7 @@ class MessageDatabase:
         Returns:
             List of dicts with keys 'user_id' and 'character_id'.
         """
+        dt_val = _dt.datetime.strptime(batch_date, "%Y-%m-%d").date()
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -1302,7 +1303,7 @@ class MessageDatabase:
                   AND user_id != ''
                   AND role = 'user'
                 """,
-                batch_date,
+                dt_val,
             )
         return [dict(r) for r in rows]
 
