@@ -216,6 +216,11 @@ async def main_async():
         from memory.database import initialize_database
         await initialize_database()
 
+        # 挂载异步系统日志以供 MiniApp 面板查询
+        from memory.async_log_handler import setup_async_logging, log_flusher_task
+        setup_async_logging("SYSTEM")
+        asyncio.create_task(log_flusher_task())
+
         # 任一 Bot 开始收消息前，阻塞重建 BM25 索引（与 Chroma 全量对齐；无文档时为空索引，不抛错）
         logger.info("重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...")
         from memory.bm25_retriever import get_bm25_retriever

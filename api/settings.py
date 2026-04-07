@@ -182,7 +182,10 @@ async def get_token_usage(
     
     # 计算时间范围
     now = datetime.now()
-    if period == "today":
+    if period == "latest":
+        stats = await db.get_latest_token_usage_stats(platform)
+        return create_response(True, stats)
+    elif period == "today":
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
         start_date = now - timedelta(days=7)

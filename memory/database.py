@@ -1800,6 +1800,41 @@ class MessageDatabase:
         )
         return usage_id
 
+    async def get_latest_token_usage_stats(self, platform: Optional[str] = None) -> Dict[str, Any]:
+        """获取最新一次调用的 token 使用量。"""
+        idx = 1
+        base_cond = ""
+        params: List[Any] = []
+        if platform:
+            base_cond = "WHERE platform = $1"
+            params.append(platform)
+
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                f"""
+                SELECT total_tokens, prompt_tokens, completion_tokens, platform
+                FROM token_usage
+                {base_cond}
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                *params,
+            )
+            if not row:
+                return {
+                    "total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                    "call_count": 0, "by_platform": {}
+                }
+            
+            p = row[3] or "unknown"
+            return {
+                "total_tokens": row[0] or 0,
+                "prompt_tokens": row[1] or 0,
+                "completion_tokens": row[2] or 0,
+                "call_count": 1,
+                "by_platform": {p: row[0] or 0},
+            }
+
     async def get_token_usage_stats(
         self, start_date, platform: Optional[str] = None
     ) -> Dict[str, Any]:

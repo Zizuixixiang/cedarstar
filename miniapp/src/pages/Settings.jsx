@@ -281,7 +281,7 @@ function Settings() {
   const [configs, setConfigs] = useState([]);
   const [personas, setPersonas] = useState([]);
   const [tokenStats, setTokenStats] = useState(null);
-  const [period, setPeriod] = useState('today');
+  const [period, setPeriod] = useState('latest');
   const [isLoading, setIsLoading] = useState(true);
   const [modalData, setModalData] = useState(null); // null=关闭, {}=新增, {...}=编辑
   const [confirmDeleteId, setConfirmDeleteId] = useState(null); // 待确认删除的 cfg.id
@@ -528,7 +528,7 @@ function Settings() {
         <div className="card-header">
           <h2 className="card-title">📊 Token 消耗统计</h2>
           <div className="period-tabs">
-            {[['today','今日'], ['week','本周'], ['month','本月']].map(([v, l]) => (
+            {[['latest','本次'], ['today','今日'], ['week','本周'], ['month','本月']].map(([v, l]) => (
               <button
                 key={v}
                 className={`period-tab ${period === v ? 'active' : ''}`}
@@ -550,11 +550,11 @@ function Settings() {
               </div>
               <div className="token-num-card">
                 <span className="token-num-val">{fmt(tokenStats.prompt_tokens)}</span>
-                <span className="token-num-label">Prompt tokens</span>
+                <span className="token-num-label">输入消耗</span>
               </div>
               <div className="token-num-card">
                 <span className="token-num-val">{fmt(tokenStats.completion_tokens)}</span>
-                <span className="token-num-label">Completion tokens</span>
+                <span className="token-num-label">生成消耗</span>
               </div>
             </div>
 

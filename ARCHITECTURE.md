@@ -1231,4 +1231,19 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ---
 
+### 7.7 ✅ 已修复与优化（2026-04-07）：系统日志异步入库重构与 Token 实时单机展示
+
+**文件：** `memory/async_log_handler.py`、`main.py`、`api/settings.py`、`memory/database.py`、`miniapp/src/pages/Settings.jsx`、`miniapp/src/styles/settings.css`
+
+**说明：**
+1. **系统日志彻底修复（重构 `async_log_handler.py`）：**
+   - 彻底移除了原 `AsyncDatabaseLogHandler` 中基于 `threading.Thread` 的错误实现（跨事件循环或无 loop 时调用 `asyncpg.Pool` 会引发严重报错，且原来的实现遗漏了 `await`）。
+   - 重新架构：采用无锁的全局内存缓冲队列（`_log_buffer`），配合在主事件循环启动的一枚轻量常驻协程 `log_flusher_task`（1.5s 定时）。成功解决后台报错黑洞，恢复了 MiniApp 中对于运行时内部信息的捕获和显示。
+2. **单一请求 Token 消耗展示功能：**
+   - 在前端 Settings 页面统计区默认提供「**本次**」独立查询项，取代原先纯全天汇聚模式。
+   - 数据标签进一步本土化（“Prompt tokens” -> “输入消耗”，“Completion tokens” -> “生成消耗”）且样式已针对全 Flex 均匀居中。
+   - 底层于 `memory/database.py` 实装 `get_latest_token_usage_stats` (`ORDER BY created_at DESC LIMIT 1`)。
+
+---
+
 *文档由代码自动分析生成，如有遗漏请以实际代码为准。*
