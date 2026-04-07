@@ -464,6 +464,8 @@ class MessageDatabase:
                         char_name TEXT,
                         char_personality TEXT,
                         char_speech_style TEXT,
+                        char_appearance TEXT,
+                        char_relationships TEXT,
                         user_name TEXT,
                         user_body TEXT,
                         user_work TEXT,
@@ -1950,6 +1952,7 @@ class MessageDatabase:
         """新增人设配置，返回新插入的 id。"""
         fields = [
             "name", "char_name", "char_personality", "char_speech_style",
+            "char_appearance", "char_relationships",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules",
@@ -1968,6 +1971,7 @@ class MessageDatabase:
         """更新人设配置。"""
         allowed = {
             "name", "char_name", "char_personality", "char_speech_style",
+            "char_appearance", "char_relationships",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules",

@@ -62,11 +62,9 @@ function clampTelegramMsg(raw) {
 function parseConfigUpdatedAt(ts) {
   if (ts == null || typeof ts !== 'string' || !ts.trim()) return null;
   const s = ts.trim();
-  // SQLite 的 CURRENT_TIMESTAMP 默认保存的是 UTC 时间
-  // 我们需要给字符串加上 'Z'，让浏览器知道这是 UTC 时间，从而正确转换为本地时区（东八区）
+  // 数据库存储的是东八区本地时间（无时区信息），直接作为本地时间解析，不加 Z（加了会被当 UTC 再偏移 +8）
   const normalized = s.includes('T') ? s : s.replace(' ', 'T');
-  const utcString = normalized.endsWith('Z') || normalized.includes('+') ? normalized : normalized + 'Z';
-  const d = new Date(utcString);
+  const d = new Date(normalized);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -407,9 +405,6 @@ function Config() {
         }
         setHasUnsavedChanges(false);
         showToast('✓ 配置已生效', 'success');
-        
-        // 强制重新获取最新配置，以确保获取到后端更新后的时间戳
-        fetchConfig();
       } else {
         throw new Error(data.message || '保存失败');
       }

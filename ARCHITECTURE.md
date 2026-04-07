@@ -862,6 +862,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 **✅ 已改动（2026-04-05）：** 表新增列 **`user_work`**（`migrate_database_schema` 中 `ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS user_work …`）。**`api/persona.py`**（Pydantic 模型、预览拼装 **「【用户工作】」**）、**`miniapp/src/pages/Persona.jsx`**（表单字段与预览 **「工作：…」**）、**`memory/context_builder.py`** 的 **`_build_system_prompt`** 用户块（**`工作：…`**）已同步。
 
+**✅ 已修复（2026-04-07）：** 补全 `persona_configs` 数据库 CRUD 操作的字段白名单（`char_appearance` 与 `char_relationships`），解决 Mini App 调整人设后无法存入数据库的 bug；并在建表语句中同步新增该两列。
+
 ---
 
 ### 5.9 `api_configs` — API 配置表
@@ -1213,6 +1215,19 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 **文件：** `miniapp/src/router.jsx`（路由与 `navItems` / `routes` 配置，非页面组件）
 
 **说明：** 该文件内使用 JSX（如 `<Dashboard />`），此前未导入 React。已在顶部补充 `import React from 'react'`，与 §6.11 一致；构建侧仍可配合 Vite 的 React 插件使用。
+
+---
+
+### 7.6 ✅ 已改动（2026-04-07）：WebView 删除失效、时区解析及内建 Prompt 深度调优
+
+**文件：** `miniapp/src/pages/Settings.jsx`、`miniapp/src/styles/settings.css`、`miniapp/src/pages/Config.jsx`、`memory/daily_batch.py`、`memory/micro_batch.py`
+
+**说明：**
+1. **WebView 兼容：** 将 API 密钥配置页底层的 `window.confirm` 删除逻辑改为**行内内联状态确认机制**（`confirmDeleteId`），修复了因 Telegram WebView 环境禁用原生 `confirm` 弹窗导致的删除按钮点击毫无响应的问题。
+2. **时区显示修复：** 修正了 Config 页面由于将本地数据库时间粗暴加上 `Z` 后因本地浏览器默认东八区而再次附加 8 小时偏移的 Bug。
+3. **内建 Prompt 全面升级：** `daily_batch` 及 `micro_batch` 记忆压缩逻辑深度重写：
+   - 强化了记忆、事件提取中的**第一人称代入约束**与 **JSON 输出隔离约束**（严禁 Markdown 代码块及冗余文字）。
+   - 事件时间拆分与关系时间轴逻辑修改为：严格替换代词为角色/用户本名、限制长度在特定字数范围、**严禁相对时间表述（今天/昨天）** 进而避免独立检索时带来的明显指代歧义和时序错乱。
 
 ---
 

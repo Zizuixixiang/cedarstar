@@ -308,6 +308,59 @@
   transform: translateY(1px);
 }
 
+/* 行内二次确认删除 */
+.cfg-del-confirm-text {
+  font-size: 0.78rem;
+  color: #c0392b;
+  white-space: nowrap;
+}
+
+.btn-del-confirm {
+  font-size: 0.78rem;
+  color: #fff;
+  background: #c0392b;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 7px;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 600;
+  box-shadow: 0 2px 6px rgba(192, 57, 43, 0.3);
+  transition: opacity 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn-del-confirm:hover {
+  opacity: 0.88;
+}
+
+.btn-del-confirm:active {
+  transform: translateY(1px);
+}
+
+.btn-del-cancel {
+  font-size: 0.78rem;
+  color: var(--text-sub);
+  padding: 5px 10px;
+  border: none;
+  border-radius: 7px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: inherit;
+  box-shadow: var(--shadow-raised);
+  transition: box-shadow 0.15s, transform 0.1s;
+  white-space: nowrap;
+}
+
+.btn-del-cancel:hover {
+  filter: brightness(1.02);
+}
+
+.btn-del-cancel:active {
+  box-shadow: var(--shadow-pressed);
+  transform: translateY(1px);
+}
+
 /* ========================================
    Token 统计
    ======================================== */

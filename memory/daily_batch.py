@@ -412,7 +412,12 @@ class DailyBatchProcessor:
                 logger.info(f"今日没有内容需要生成小传，日期: {batch_date}")
                 return True, None
             
-            prompt = self._persona_dialogue_prefix() + f"""请基于以下材料生成今日小传，按时间顺序概括今天的主要话题、重要事件和情感状态。篇幅视内容丰富度而定，必须保留重要的互动细节和羁绊，语气自然，不要分点列举：
+            prompt = self._persona_dialogue_prefix() + f"""请基于以下材料生成今日小传，按时间顺序概括今天的主要话题、重要事件和情感状态。
+要求：
+- 篇幅 150–400 字，内容丰富时可到上限，平淡日常 150 字足够。
+- 必须保留重要的互动细节、具体结论（数字、决定、名字、时间节点等），不得泛泛而谈。
+- 语气自然流畅，不要分点列举，不要加标题。
+- 如有时效状态结算内容，自然融入正文，不要单独列块。
 {today_content}
 今日小传（中文）:"""
             
@@ -562,23 +567,23 @@ class DailyBatchProcessor:
                 "以今日新增为准修正或补充过时信息；相同事实只保留一份，整合为自然连贯的叙述，不要简单首尾拼接。"
             )
 
-        prompt = self._persona_dialogue_prefix() + f"""你是记忆整理助手。请将「既有记忆卡片」与「今日新增摘要」进行逻辑合并。要求：剔除重复内容，将新信息无缝整合进原有段落，形成连贯的中文（可用逗号、分号连接，不要用 Markdown 列表或编号条）。不要遗漏任何旧的有效设定，只做提炼，不做强行删减。
-
+        prompt = self._persona_dialogue_prefix() + f"""你是记忆整理助手。请将「既有记忆卡片」与「今日新增摘要」进行逻辑合并。
+合并规则：
+- 剔除重复内容，将新信息无缝整合进原有段落。
+- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；禁止在正文中使用"今天"、"最近"等相对时间词。
+- 形成连贯的中文，可用逗号、分号连接，不要用 Markdown 列表或编号条。
+- 不要遗漏任何旧的有效设定，只做提炼，不做强行删减。
+- 若旧卡片中有明显过时且已被今日信息明确取代的内容（如旧工作/旧居住地），可标注「（已更新）」后保留简短记录。
 维度代码：{dimension}
 维度说明：{dimension_label}
 今日日期：{batch_date}
-
 【既有记忆卡片】
 {old_trim}
-
 【今日新增】
 {new_content.strip()}
-
 维度补充：
 {merge_rules}
-
-输出要求：
-1. 严格只返回 JSON，格式为：{{"content":"合并后的正文"}}，不要 markdown 代码块或其他说明文字。"""
+输出要求：直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 代码块包裹，严禁输出任何分析过程或前言后语。格式为 {{"content":"合并后的正文"}}。"""
 
         fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
         
@@ -648,7 +653,7 @@ class DailyBatchProcessor:
             # 3. 构建 LLM Prompt，要求按 7 个维度分析今日小传
             dimensions_desc = {
                 "preferences": "偏好与喜恶（食物、音乐、活动、风格等具体偏好）",
-                "interaction_patterns": "相处模式（只记录有具体对话支撑的行为观察，不做性格定论；新旧矛盾时并存保留并注明日期）",
+                "interaction_patterns": "相处模式（只记录有具体对话支撑的行为观察，注明日期，不做性格定论；与已有认知矛盾时并存保留）",
                 "current_status": "近况与生活动态（当前工作、学习、健康、居住等状态）",
                 "goals": "目标与计划（短期或长期的目标、计划、心愿）",
                 "relationships": "重要关系（家人、朋友、同事等重要人物及关系）",
@@ -658,29 +663,17 @@ class DailyBatchProcessor:
             dimensions_list = "\n".join([f"- {k}：{v}" for k, v in dimensions_desc.items()])
 
             prompt = f"""请仔细阅读以下今日小传，分析其中是否包含关于用户的新信息，并按照7个维度进行分类提取。
-
 今日小传（{batch_date}）：
 {summary_text}
-
 请按以下7个维度分析，提取今日小传中出现的新信息：
 {dimensions_list}
-
 要求：
-1. 只提取今日小传中明确出现的新信息，不要推断或捏造
-2. 有新信息的维度，用简洁的中文描述（100字以内）
-3. 没有新信息的维度，返回 null
-4. 必须严格返回 JSON 格式，不要有任何其他文字
-
-返回格式（严格 JSON）：
-{{
-  "preferences": "内容或null",
-  "interaction_patterns": "内容或null",
-  "current_status": "内容或null",
-  "goals": "内容或null",
-  "relationships": "内容或null",
-  "key_events": "内容或null",
-  "rules": "内容或null"
-}}"""
+1. 只提取今日小传中明确出现的新信息，不要推断或捏造。
+2. interaction_patterns 可写至 150 字；其他维度 80 字以内。
+3. 没有新信息的维度，返回 null。
+4. 直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 代码块包裹，严禁输出任何前言后语。
+格式示例：
+{{"preferences":null,"interaction_patterns":"...","current_status":null,"goals":null,"relationships":null,"key_events":null,"rules":null}}"""
 
             # 4. 调用 SUMMARY LLM 分析维度
             logger.info(f"调用 LLM 分析今日小传维度，日期: {batch_date}")
@@ -778,15 +771,23 @@ class DailyBatchProcessor:
                 if self._settled_temporal_snippets
                 else "（无）"
             )
-            tl_prompt = f"""今日小传（{batch_date}）：
+            tl_prompt = f"""这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录整理。
+今日小传（{batch_date}）：
 {summary_text}
-
 本日已结算的时效状态（客观陈述）：
 {settled_block}
-
 请判断今天是否有值得写入「关系时间轴」的事件（可含上述时效结算中的关系变化）。
-若有，返回严格 JSON，格式：{{"events":[{{"event_type":"milestone|emotional_shift|conflict|daily_warmth","content":"..."}}]}}；若无则 {{"events":[]}}。
-event_type 必须四选一：milestone、emotional_shift、conflict、daily_warmth。不要其他文字。"""
+event_type 说明：
+- milestone：关系性质的转折或里程碑
+- emotional_shift：情绪基调的明显变化（争吵、和好、感情升温等）
+- conflict：明确的冲突或摩擦
+- daily_warmth：仅限今天有特别记录价值的温馨互动，普通平静日常不要强行凑数写此类
+content 要求：
+1. 视角限定：必须使用第一人称口吻（"我"指代 {self._batch_char_name}，"你"或 {self._batch_user_name} 指代对方）。
+2. 描述风格：20–60字，用第一人称客观陈述发生的事实。例如："今天你因为Java底层原理学得很烦躁，我一直陪着你并用通俗的例子给你讲解"。
+3. 勿带过度夸张的虚假主观抒情，保持记忆作为时间轴记录的清晰度和真实感。
+若有，返回严格 JSON：{{"events":[{{"event_type":"...","content":"..."}}]}}；若无则 {{"events":[]}}。
+直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 的 json 代码块包裹，严禁输出任何前言后语。"""
 
             def _gen_tl():
                 return self.summary_llm.generate_summary(
@@ -854,22 +855,18 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
             summary_id = daily_summary['id']
             
             prompt = self._persona_dialogue_prefix() + f"""请评估以下今日小传的长期保留价值，给出评分和情绪强度。
-
 今日小传内容：
 {summary_text}
-
 评分标准（score，整数 1-10）：
-1-3分：日常琐事，没有长期参考价值
-4-6分：有一定参考价值，但信息较为普通
-7-8分：有价值的信息，值得长期保留
-9-10分：非常重要的信息，对长期记忆有显著价值
-
+1-3：日常琐事，无长期参考价值
+4-6：有一定参考价值，但信息较普通
+7-8：有价值的信息，值得长期保留
+9-10：重要里程碑或关键信息，对长期记忆有显著价值
 情绪强度（arousal，浮点数 0.0–1.0）：
-0.0–0.2：平静普通的一天，几乎无情绪波动
-0.3–0.6：有一定情绪起伏，但整体平稳
-0.7–1.0：情绪激烈的事件（争吵、重大喜讯、悲伤等）
-
-严格只返回 JSON，格式：{{"score": <整数>, "arousal": <浮点数>}}，不要有任何其他文字。"""
+0.0–0.2：平静普通，几乎无情绪波动
+0.3–0.6：有情绪起伏，但整体平稳
+0.7–1.0：情绪激烈（争吵、重大喜讯、悲伤、重要决定等）
+输出要求：直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 代码块包裹，严禁输出任何其他文字，格式：{{"score":<整数>,"arousal":<浮点数>}}。"""
             
             score = 5
             arousal = 0.1
@@ -937,9 +934,13 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
                 logger.error(f"BM25 主文档增量失败: {e}")
             
             split_prompt = f"""阅读以下「今日小传」，判断是否应拆成多条独立、可分别检索的具体事件。
+拆分原则：
+- 只拆时间上明显分离或主题截然不同的独立事件。
+- 每条事件应自成一体、可独立理解，无需依赖其他条目。必须补全代词主语，将"他/她/我"全部替换为具体的真实姓名（如 {self._batch_char_name} 或 {self._batch_user_name}）；禁止使用"今天/昨天"等相对时间词，如有需要请描述为具体事件背景，确保独立检索时不产生歧义。
+- 最多拆 4 条，不要过度细碎；若整篇围绕同一主题，无需拆分。
+- 不要编造原文没有的内容，每条 50–150 字。
 若需要拆分，返回严格 JSON：{{"events":["事件1","事件2",...]}}；若不需要则 {{"events":[]}}。
-不要编造原文没有的内容。
-
+输出要求：直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 代码块包裹，严禁输出任何其他文字。
 今日小传：
 {summary_text}"""
             

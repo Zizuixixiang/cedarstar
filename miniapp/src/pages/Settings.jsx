@@ -284,6 +284,7 @@ function Settings() {
   const [period, setPeriod] = useState('today');
   const [isLoading, setIsLoading] = useState(true);
   const [modalData, setModalData] = useState(null); // null=关闭, {}=新增, {...}=编辑
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null); // 待确认删除的 cfg.id
 
   /* 切换 tab 时同步更新 ref */
   const switchTab = (tab) => {
@@ -356,13 +357,17 @@ function Settings() {
     }
   };
 
-  /* 删除配置 */
-  const handleDelete = async (cfg) => {
+  /* 删除配置（第一次点击进入待确认态，再次点击才真正删除） */
+  const handleDeleteClick = (cfg) => {
     if (cfg.is_active == 1 || cfg.is_active === true) {
       toast.warning('请先切换到其他配置再删除');
       return;
     }
-    if (!window.confirm(`确定删除「${cfg.name}」？`)) return;
+    setConfirmDeleteId(cfg.id);
+  };
+
+  const handleDeleteConfirm = async (cfg) => {
+    setConfirmDeleteId(null);
     try {
       const res = await apiFetch(`/api/settings/api-configs/${cfg.id}`, { method: 'DELETE' });
       const data = await res.json();
@@ -494,13 +499,23 @@ function Settings() {
                 </div>
                 {/* 右：操作 */}
                 <div className="cfg-actions">
-                  {!cfg.is_active && (
-                    <button className="btn-activate" onClick={() => handleActivate(cfg.id)}>
-                      设为激活
-                    </button>
+                  {confirmDeleteId === cfg.id ? (
+                    <>
+                      <span className="cfg-del-confirm-text">确认删除？</span>
+                      <button className="btn-del-confirm" onClick={() => handleDeleteConfirm(cfg)}>确认</button>
+                      <button className="btn-del-cancel" onClick={() => setConfirmDeleteId(null)}>取消</button>
+                    </>
+                  ) : (
+                    <>
+                      {!cfg.is_active && (
+                        <button className="btn-activate" onClick={() => handleActivate(cfg.id)}>
+                          设为激活
+                        </button>
+                      )}
+                      <button className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
+                      <button className="btn-del" onClick={() => handleDeleteClick(cfg)}>删除</button>
+                    </>
                   )}
-                  <button className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
-                  <button className="btn-del" onClick={() => handleDelete(cfg)}>删除</button>
                 </div>
               </div>
             ))}
