@@ -1957,6 +1957,74 @@ class MessageDatabase:
             return _norm(row[0])
         return None
 
+    async def toggle_offline_mode(self, enable: bool) -> bool:
+        """
+        开启或关闭线下极速模式的“影子备份”。
+        开启时备份当前的 buffer_delay、telegram_max_chars、telegram_max_msg 到 backup_* 键，
+        并将这三个键设置为 0.1、800、1，最后写入 offline_mode_active=1。
+        关闭时从 backup_* 键还原（若没有则使用系统默认值），并置 offline_mode_active=0。
+        """
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                if enable:
+                    # 备份
+                    for key in ["buffer_delay", "telegram_max_chars", "telegram_max_msg"]:
+                        val = await conn.fetchval("SELECT value FROM config WHERE key = $1", key)
+                        if val is not None:
+                            await conn.execute(
+                                """
+                                INSERT INTO config (key, value, updated_at) VALUES ($1, $2, NOW())
+                                ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                                """,
+                                f"backup_{key}", val
+                            )
+                    
+                    # 覆写极速参数
+                    fast_values = {
+                        "buffer_delay": "0.1",
+                        "telegram_max_chars": "800",
+                        "telegram_max_msg": "1",
+                        "offline_mode_active": "1"
+                    }
+                    for k, v in fast_values.items():
+                        await conn.execute(
+                            """
+                            INSERT INTO config (key, value, updated_at) VALUES ($1, $2, NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                            """,
+                            k, v
+                        )
+                else:
+                    # 还原参数
+                    fallback_defaults = {
+                        "buffer_delay": "5",
+                        "telegram_max_chars": "50",
+                        "telegram_max_msg": "8",
+                    }
+                    for key in ["buffer_delay", "telegram_max_chars", "telegram_max_msg"]:
+                        backup_val = await conn.fetchval(
+                            "SELECT value FROM config WHERE key = $1", f"backup_{key}"
+                        )
+                        restore_val = backup_val if backup_val is not None else fallback_defaults[key]
+                        await conn.execute(
+                            """
+                            INSERT INTO config (key, value, updated_at) VALUES ($1, $2, NOW())
+                            ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                            """,
+                            key, restore_val
+                        )
+                    
+                    # 取消激活状态
+                    await conn.execute(
+                        """
+                        INSERT INTO config (key, value, updated_at) VALUES ($1, $2, NOW())
+                        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()
+                        """,
+                        "offline_mode_active", "0"
+                    )
+        logger.info("线下模式已%s", "开启" if enable else "关闭")
+        return True
+
     # ------------------------------------------------------------------
     # persona_configs CRUD
     # ------------------------------------------------------------------

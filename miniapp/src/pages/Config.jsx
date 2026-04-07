@@ -381,6 +381,35 @@ function Config() {
     }
   };
 
+  // 切换线下模式
+  const handleToggleOfflineMode = async () => {
+    if (isSaving || !config) return;
+    const isCurrentlyActive = parseInt(config.offline_mode_active || '0', 10) === 1;
+    const enable = !isCurrentlyActive;
+    
+    setIsSaving(true);
+    try {
+      const response = await apiFetch('/api/config/offline-mode/toggle', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enable })
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast(data.message || (enable ? '线下模式已开启' : '线下模式已关闭'), 'success');
+        await fetchConfig();
+        setHasUnsavedChanges(false);
+      } else {
+        throw new Error(data.message || '切换失败');
+      }
+    } catch (error) {
+      console.error('切换线下模式失败:', error);
+      showToast(`切换失败：${error.message}`, 'error');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
   // 保存配置
   const handleSave = async () => {
     if (isSaving) return;
@@ -484,6 +513,37 @@ function Config() {
       <div className="config-card">
         <div className="config-card-title">助手配置</div>
         <div className="config-card-subtitle">修改后点击保存即时生效，无需重启服务</div>
+
+        {/* 线下模式开关 */}
+        <div style={{ padding: '16px 20px', background: '#f8fafc', borderRadius: '12px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e2e8f0' }}>
+          <div style={{ flex: 1, paddingRight: '16px' }}>
+            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>线下极速模式</div>
+            <div style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>
+              一键开启可自动备份修改前的状态，并进入极速响应（延迟 {0.1}s、消息字数 {800} 不分段）。关闭后恢复原配置。
+            </div>
+          </div>
+          <div>
+            <button
+              onClick={handleToggleOfflineMode}
+              disabled={isSaving}
+              style={{
+                background: parseInt(config.offline_mode_active || '0', 10) === 1 ? '#3b82f6' : '#cbd5e1',
+                color: '#fff',
+                border: 'none',
+                padding: '8px 16px',
+                borderRadius: '20px',
+                fontWeight: 600,
+                cursor: isSaving ? 'not-allowed' : 'pointer',
+                transition: 'background 0.2s',
+                whiteSpace: 'nowrap',
+                minWidth: '80px',
+                outline: 'none',
+              }}
+            >
+              {parseInt(config.offline_mode_active || '0', 10) === 1 ? '已开启' : '已关闭'}
+            </button>
+          </div>
+        </div>
 
         {CONFIG_METADATA.map((item, index) => (
           <div key={item.key}>

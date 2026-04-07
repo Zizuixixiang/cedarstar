@@ -203,3 +203,23 @@ async def update_config(new_config: Dict[str, Any]):
             return create_response(False, None, "配置保存到数据库失败")
     else:
         return create_response(False, None, "没有有效的配置更新")
+
+from pydantic import BaseModel
+
+class OfflineModeToggleRequest(BaseModel):
+    enable: bool
+
+@router.post("/offline-mode/toggle")
+async def toggle_offline_mode(request: OfflineModeToggleRequest):
+    """
+    开启或关闭线下模式。
+    开启：备份延迟和分段参数并应用极速预设。
+    关闭：从备份还原参数。
+    """
+    db = get_database()
+    success = await db.toggle_offline_mode(request.enable)
+    if success:
+        # 更新完成后，主动拉取一次最新配置确保全局缓存更新
+        fresh = await _get_config()
+        return create_response(True, await _payload_with_meta(fresh), "线下模式已" + ("开启" if request.enable else "关闭"))
+    return create_response(False, None, "切换线下模式失败")
