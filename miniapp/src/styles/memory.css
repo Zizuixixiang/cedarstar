@@ -23,24 +23,27 @@
   display: contents;
 }
 
-/* Tab 条不参与压缩 */
+/* Tab 条大框变身为精美的内凹圆角容器 */
 .memory-tabs {
   flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  padding-bottom: 4px;
-  border-bottom: none;
-  box-shadow: 0 4px 8px -4px rgba(197, 201, 205, 0.5);
+  padding: 6px;
+  background: var(--surface);
+  border-radius: var(--radius-card); /* 使包裹这四个选项的大框呈现圆角 */
+  box-shadow: var(--shadow-inset); /* 给整个容器加个内凹光影，形成天然轨道 */
 }
 
 /* Tab 内容区：仅此区域纵向滚动 */
 .memory-content-scroll-area {
   flex: 1;
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: visible; /* 允许阴影向两侧横向溢出 */
   overflow-y: auto;
   scrollbar-gutter: stable;
+  margin: 0 -16px; /* 利用负 margin 把盒子撑大，突破裁切边界 */
+  padding: 0 16px 24px 16px; /* 补回内边距确保内容对齐，并增加底部 padding 防止最底下卡片的阴影被截断 */
 }
 
 .memory-tabs.skeleton-tabs {
@@ -866,33 +869,35 @@ h2.memory-tab-header__title,
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    overflow-x: hidden;
+    overflow-x: visible; /* 允许阴影向两侧横向溢出 */
     box-sizing: border-box;
     height: auto;
     min-height: calc(100vh - 120px);
+    padding: 16px; /* 移动端 main-content 无 padding，因此需要在业务容器补上，防止卡片贴住屏幕边缘并被裁剪 */
   }
 
   .memory-content-scroll-area {
     width: 100%;
     max-width: 100%;
     min-width: 0;
-    overflow-x: hidden;
+    overflow-x: visible;
     overflow-y: visible;
     box-sizing: border-box;
     scrollbar-gutter: auto;
+    margin: 0; /* 重置桌面端的负 margin trick，防止整个版面偏左 */
+    padding: 0; /* 移动端不再需要额外 padding，因为 memory-container 已经有了 padding */
   }
 
   /* 移动端 Tab 栏：平分宽度，每个 Tab 占 25%，缩小字体和内边距 */
+  /* 移动端 Tab 栏：平分宽度，每个 Tab 占 25%，突破外层 padding 制约 */
   .memory-tabs-scroll {
     display: block;
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
+    width: auto;
+    margin: 0 -16px; /* 向两边突破 16px padding 的限制 */
+    padding: 0 8px; /* 稍微给真实屏幕边缘留一点点内边距 */
     flex-shrink: 0;
     box-sizing: border-box;
     overflow: hidden; /* 取消横向滚动 */
-    padding-left: 0;
-    padding-right: 0;
   }
 
   .memory-tabs {
@@ -901,19 +906,18 @@ h2.memory-tab-header__title,
     min-width: 0;
     flex-wrap: nowrap;
     box-sizing: border-box;
-    overflow: hidden;
-    padding-left: 0;
-    padding-right: 0;
+    /* 移除掉 padding 0 和 overflow hidden 的重置，保留它圆润内凹的效果 */
     gap: 4px; /* 减小间距 */
   }
 
-  /* 强制每个 Tab 按钮平分宽度，并缩小字体以适应屏幕 */
+  /* 强制每个 Tab 按钮平分宽度，并稍微缩小字体以适应屏幕 */
   .memory-tabs button.memory-tab {
     flex: 1;
     min-width: 0;
     width: 25%;
-    padding: 8px 2px;
-    font-size: 0.8rem; /* 缩小字体 */
+    padding: 8px 1px;
+    font-size: 0.78rem; /* 稍微再调小一点点避免极限情况溢出 */
+    letter-spacing: -0.2px; /* 微微缩紧字距拯救空间 */
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;

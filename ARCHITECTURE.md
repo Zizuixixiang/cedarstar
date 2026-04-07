@@ -498,7 +498,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **✅ 已改动（2026-04-05）：** 表单与预览增加 **用户工作**（`user_work`），与 **`persona_configs.user_work`**、后端预览及 **`context_builder._build_system_prompt`** 对齐。
 
-**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，强调色与 §3.6「视觉」一致。
+**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。
 
 **History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。
 
@@ -1243,6 +1243,19 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
    - 在前端 Settings 页面统计区默认提供「**本次**」独立查询项，取代原先纯全天汇聚模式。
    - 数据标签进一步本土化（“Prompt tokens” -> “输入消耗”，“Completion tokens” -> “生成消耗”）且样式已针对全 Flex 均匀居中。
    - 底层于 `memory/database.py` 实装 `get_latest_token_usage_stats` (`ORDER BY created_at DESC LIMIT 1`)。
+   
+### 7.8 ✅ 已修复与优化（2026-04-07）：Memory Tab 视觉统一与对话历史思维链回显修复
+
+**文件：** `miniapp/src/styles/memory.css`、`memory/database.py`、`bot/telegram_bot.py`、`bot/discord_bot.py`
+
+**说明：**
+1. **Memory 页面容器质感提升：**
+   - 原先包裹 4 个顶部 Tab 的大框在移动端和桌面端不够整体，通过重新定义 `.memory-tabs`，给该容器添加上了标准的新拟态圆润倒角（`var(--radius-card)`）和专属的内凹跑道光影（`box-shadow: var(--shadow-inset)`）。
+   - 去除了曾用于适配小屏幕但破坏了整块 UI 圆角的移动端 padding / overflow 重置。现在长得就像放进了一个高级凹槽内。
+2. **对话历史页（时光机）漏掉的思维链展示（`thinking`）：**
+   - 彻底调查了前端逻辑在获取 `history` 数据时不渲染思维链 `<details>` 区域的疑问。
+   - 源头确定为 Python 后端库操作 API `save_message` 在此前经历重构（添加媒体或 `is_summarized` 标记等）时，其内部 `INSERT INTO messages` 的调用签名意外**丢失了 `thinking` 参数**，导致新发生的所有对话其思维链信息全部落库为 `NULL`。
+   - 己经成功补上缺漏参数列。并在 Discord 和 Telegram 生成回复的调用上端均追加显式传入 `gen.thinking` / `llm_resp.thinking`，未来新的长思考聊天都可以保留 `thinking` 数据了。
 
 ---
 

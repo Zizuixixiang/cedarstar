@@ -504,6 +504,7 @@ class MessageDatabase:
         image_caption: Optional[str] = None,
         vision_processed: Optional[int] = None,
         is_summarized: int = 0,
+        thinking: Optional[str] = None,
     ) -> int:
         """
         保存一条消息到数据库。
@@ -520,24 +521,25 @@ class MessageDatabase:
         chrid = None if character_id is None else str(character_id)
         plat = None if platform is None else str(platform)
         mt = None if media_type is None else str(media_type)
+        tking = None if thinking is None else str(thinking)
         async with self.pool.acquire() as conn:
             new_id = await conn.fetchval(
                 """
                 INSERT INTO messages (
                     role, content, session_id, user_id, channel_id, message_id,
                     character_id, platform, media_type, image_caption, vision_processed,
-                    is_summarized
+                    is_summarized, thinking
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
                 RETURNING id
                 """,
                 role, content, session_id, uid, cid, mid,
-                chrid, plat, mt, image_caption, vp, is_sum,
+                chrid, plat, mt, image_caption, vp, is_sum, tking,
             )
         logger.debug(
             "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, "
-            "vision_processed=%s, is_summarized=%s",
-            new_id, role, session_id, platform, vp, is_sum,
+            "vision_processed=%s, is_summarized=%s, thinking=%s",
+            new_id, role, session_id, platform, vp, is_sum, bool(tking),
         )
         return new_id
 

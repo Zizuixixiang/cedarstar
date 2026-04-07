@@ -465,7 +465,8 @@ class DiscordBot:
                 channel_id=str(base_message.channel.id),
                 message_id=f"ai_{base_message.id}",
                 character_id=llm.character_id,
-                platform=Platform.DISCORD
+                platform=Platform.DISCORD,
+                thinking=llm_resp.thinking
             )
             
             logger.info(f"为缓冲区生成回复: session_id={session_id}, context 消息数量={len(messages)}")
@@ -557,7 +558,8 @@ class DiscordBot:
                 channel_id=str(message.channel.id),
                 message_id=f"ai_{message.id}",
                 character_id=llm.character_id,
-                platform=Platform.DISCORD
+                platform=Platform.DISCORD,
+                thinking=llm_resp.thinking
             )
             
             logger.info(f"为用户 {message.author.name} 生成回复，context 消息数量: {len(messages)}")

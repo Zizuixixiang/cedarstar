@@ -1601,6 +1601,7 @@ class TelegramBot:
                 message_id=gen.assistant_message_id,
                 character_id=gen.character_id,
                 platform=Platform.TELEGRAM,
+                thinking=gen.thinking,
             )
         elif gen.reply and not gen.assistant_message_id:
             try:
@@ -1693,6 +1694,7 @@ class TelegramBot:
                 message_id=f"ai_{message_id}",
                 character_id=llm.character_id,
                 platform=Platform.TELEGRAM,
+                thinking=think_plain,
             )
             logger.info(
                 "为 Telegram 用户 %s 生成回复，context 消息数量: %s",

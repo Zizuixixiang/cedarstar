@@ -169,25 +169,27 @@
 .logs-content-scroll-area {
   flex: 1;
   min-height: 0;
-  overflow-x: hidden;
+  overflow-x: visible; /* 允许阴影水平溢出 */
   overflow-y: auto;
   scrollbar-gutter: stable;
-  border-radius: var(--radius-card); /* 给滚动区域加圆角，防止内部卡片滚动时边角溢出 */
+  margin: 0 -16px; /* 左右扩展以提供阴影空间 */
+  padding: 0 16px; /* 补回内边距，使内部可用宽度正好与上方容器 100% 对齐 */
 }
 
 /* 日志列表容器 */
 .logs-list-container {
-  background: var(--surface);
+  background: transparent;
   border: none;
-  border-radius: var(--radius-card);
-  box-shadow: var(--shadow-raised);
-  padding: var(--card-padding);
+  border-radius: 0;
+  box-shadow: none;
+  padding: 0; /* 移除内边距，使宽度完全贴合 */
 }
 
 .section-title {
   font-size: 1.5rem;
   color: var(--text-main);
-  margin-bottom: 20px;
+  margin-bottom: 12px;
+  padding: 0; /* 标题与下方卡片完美左对齐 */
   display: flex;
   align-items: center;
   gap: 8px;
@@ -197,18 +199,22 @@
 .logs-list {
   display: flex;
   flex-direction: column;
-  gap: 1px;
+  gap: 16px;
+  padding: 12px 0; /* 上下留冗余防止阴影裁剪，左右为0使得卡片填满100%宽度 */
 }
 
 /* 日志行 */
 .log-row {
   display: grid;
-  grid-template-columns: 160px 180px 1fr auto; /* 桌面端合并徽章列 */
+  grid-template-columns: 140px 150px 1fr auto;
   gap: 16px;
-  padding: 12px 16px;
+  padding: 16px 20px;
   align-items: center;
-  border-bottom: 1px solid rgba(109, 89, 122, 0.06);
-  transition: background-color var(--transition);
+  background: var(--surface);
+  border-radius: var(--radius-card); /* 使圆角和外部容器保持一致的柔和度 */
+  box-shadow: var(--shadow-raised); /* 直接使用全局统一的阴影变量，消除“糊住”感 */
+  border: none;
+  transition: all var(--transition);
 }
 
 .log-badges {
@@ -218,15 +224,13 @@
 }
 
 .log-row:hover {
-  background-color: rgba(109, 89, 122, 0.02);
+  transform: translateY(-1px);
+  box-shadow: var(--shadow-raised); /* 悬浮时完全浮起 */
 }
 
 .log-row.error {
-  background-color: rgba(239, 68, 68, 0.03); /* 极低透明度，避免大面积撞色 */
-}
-
-.log-row.error:hover {
-  background-color: rgba(239, 68, 68, 0.06);
+  border-left: 3px solid #ef4444;
+  padding-left: 13px; /* 补偿边框带来的位移(16px - 3px) */
 }
 
 /* 时间戳 */
@@ -294,13 +298,7 @@
   color: #6b7280;
 }
 
-/* 移除平台专属颜色，统一使用幽灵样式 */
-.platform-tag.telegram,
-.platform-tag.discord,
-.platform-tag.batch,
-.platform-tag.system {
-  /* 统一由 .platform-tag 基础类控制 */
-}
+
 
 /* 消息内容 */
 .log-message {
