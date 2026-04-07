@@ -212,10 +212,10 @@ class DailyBatchProcessor:
             
             logger.info(f"开始日终跑批处理，日期: {batch_date}")
             
-            batch_log = get_daily_batch_log(batch_date)
+            batch_log = await get_daily_batch_log(batch_date)
             
             if batch_log is None:
-                save_daily_batch_log(
+                await save_daily_batch_log(
                     batch_date,
                     step1_status=0,
                     step2_status=0,
@@ -223,7 +223,7 @@ class DailyBatchProcessor:
                     step4_status=0,
                     step5_status=0,
                 )
-                batch_log = get_daily_batch_log(batch_date)
+                batch_log = await get_daily_batch_log(batch_date)
             
             assert batch_log is not None
             
@@ -237,11 +237,11 @@ class DailyBatchProcessor:
                 logger.info(f"执行 Step 1 - 到期 temporal_states 结算，日期: {batch_date}")
                 success, error_message = await self._step1_expire_temporal_states(batch_date)
                 if success:
-                    update_daily_batch_step_status(batch_date, 1, 1)
+                    await update_daily_batch_step_status(batch_date, 1, 1)
                     batch_log["step1_status"] = 1
                     logger.info(f"Step 1 完成，日期: {batch_date}")
                 else:
-                    update_daily_batch_step_status(batch_date, 1, 0, error_message)
+                    await update_daily_batch_step_status(batch_date, 1, 0, error_message)
                     logger.error(f"Step 1 失败，日期: {batch_date}, 错误: {error_message}")
                     return False
             else:
@@ -252,11 +252,11 @@ class DailyBatchProcessor:
                 logger.info(f"执行 Step 2 - 生成今日小传，日期: {batch_date}")
                 success, error_message = await self._step2_generate_daily_summary(batch_date)
                 if success:
-                    update_daily_batch_step_status(batch_date, 2, 1)
+                    await update_daily_batch_step_status(batch_date, 2, 1)
                     batch_log["step2_status"] = 1
                     logger.info(f"Step 2 完成，日期: {batch_date}")
                 else:
-                    update_daily_batch_step_status(batch_date, 2, 0, error_message)
+                    await update_daily_batch_step_status(batch_date, 2, 0, error_message)
                     logger.error(f"Step 2 失败，日期: {batch_date}, 错误: {error_message}")
                     return False
             else:
@@ -267,11 +267,11 @@ class DailyBatchProcessor:
                 logger.info(f"执行 Step 3 - 记忆卡片与关系时间轴，日期: {batch_date}")
                 success, error_message = await self._step3_memory_cards_and_timeline(batch_date)
                 if success:
-                    update_daily_batch_step_status(batch_date, 3, 1)
+                    await update_daily_batch_step_status(batch_date, 3, 1)
                     batch_log["step3_status"] = 1
                     logger.info(f"Step 3 完成，日期: {batch_date}")
                 else:
-                    update_daily_batch_step_status(batch_date, 3, 0, error_message)
+                    await update_daily_batch_step_status(batch_date, 3, 0, error_message)
                     logger.error(f"Step 3 失败，日期: {batch_date}, 错误: {error_message}")
                     return False
             else:
@@ -282,11 +282,11 @@ class DailyBatchProcessor:
                 logger.info(f"执行 Step 4 - 向量归档与事件拆分，日期: {batch_date}")
                 success, error_message = await self._step4_archive_daily_and_events(batch_date)
                 if success:
-                    update_daily_batch_step_status(batch_date, 4, 1)
+                    await update_daily_batch_step_status(batch_date, 4, 1)
                     batch_log["step4_status"] = 1
                     logger.info(f"Step 4 完成，日期: {batch_date}")
                 else:
-                    update_daily_batch_step_status(batch_date, 4, 0, error_message)
+                    await update_daily_batch_step_status(batch_date, 4, 0, error_message)
                     logger.error(f"Step 4 失败，日期: {batch_date}, 错误: {error_message}")
                     return False
             else:
@@ -297,10 +297,10 @@ class DailyBatchProcessor:
                 logger.info(f"执行 Step 5 - Chroma 记忆 GC，日期: {batch_date}")
                 success, error_message = await self._step5_chroma_gc(batch_date)
                 if success:
-                    update_daily_batch_step_status(batch_date, 5, 1)
+                    await update_daily_batch_step_status(batch_date, 5, 1)
                     logger.info(f"Step 5 完成，日期: {batch_date}")
                 else:
-                    update_daily_batch_step_status(batch_date, 5, 0, error_message)
+                    await update_daily_batch_step_status(batch_date, 5, 0, error_message)
                     logger.error(f"Step 5 失败，日期: {batch_date}, 错误: {error_message}")
                     return False
             else:
@@ -313,7 +313,7 @@ class DailyBatchProcessor:
             logger.error(f"日终跑批处理失败，日期: {batch_date}, 错误: {e}")
             if batch_date:
                 try:
-                    update_daily_batch_step_status(batch_date, 1, 0, str(e))
+                    await update_daily_batch_step_status(batch_date, 1, 0, str(e))
                 except Exception:
                     pass
             return False
@@ -323,13 +323,13 @@ class DailyBatchProcessor:
         self._settled_temporal_snippets = []
         try:
             now_iso = datetime.now(TIMEZONE).strftime("%Y-%m-%d %H:%M:%S")
-            rows = list_expired_active_temporal_states(now_iso)
+            rows = await list_expired_active_temporal_states(now_iso)
             if not rows:
                 logger.info(f"无到期 temporal_states，Step 1 空跑，日期: {batch_date}")
                 return True, None
             
             ids = [str(r["id"]) for r in rows if r.get("id")]
-            deactivate_temporal_states_by_ids(ids)
+            await deactivate_temporal_states_by_ids(ids)
             logger.info(f"已停用 {len(ids)} 条 temporal_states，日期: {batch_date}")
             
             contents = [str(r.get("state_content") or "").strip() or "（空）" for r in rows]
@@ -364,7 +364,7 @@ class DailyBatchProcessor:
         Step 2 - 生成今日小传（prompt 开头附带 Step 1 结算的时效事件）。
         """
         try:
-            chunk_summaries = get_today_chunk_summaries()
+            chunk_summaries = await get_today_chunk_summaries()
             
             today_content = ""
             if self._settled_temporal_snippets:
@@ -405,7 +405,7 @@ class DailyBatchProcessor:
                 logger.error(f"生成今日小传失败: {e}")
                 daily_summary = f"今日总结：包含 {len(chunk_summaries)} 个对话片段。"
             
-            save_summary(
+            await save_summary(
                 session_id="daily_batch",
                 summary_text=daily_summary,
                 start_message_id=0,
@@ -591,7 +591,7 @@ class DailyBatchProcessor:
         """
         try:
             # 1. 获取今日 daily 摘要（取最新一条）
-            daily_summaries = get_recent_daily_summaries(limit=1)
+            daily_summaries = await get_recent_daily_summaries(limit=1)
             if not daily_summaries:
                 logger.info(f"今日没有 daily 摘要，跳过 Step 3，日期: {batch_date}")
                 return True, None
@@ -717,7 +717,7 @@ class DailyBatchProcessor:
                             continue
 
                         # 该维度最近一条（含 is_active=0），便于「全表软删后重跑」仍更新同一行
-                        existing_card = get_latest_memory_card_for_dimension(
+                        existing_card = await get_latest_memory_card_for_dimension(
                             user_id, character_id, dimension
                         )
 
@@ -734,7 +734,7 @@ class DailyBatchProcessor:
                                 batch_date,
                             )
 
-                            update_memory_card(
+                            await update_memory_card(
                                 card_id,
                                 merged_content,
                                 dimension=None,
@@ -744,7 +744,7 @@ class DailyBatchProcessor:
 
                         else:
                             # 无记录 → INSERT
-                            card_id = save_memory_card(
+                            card_id = await save_memory_card(
                                 user_id=user_id,
                                 character_id=character_id,
                                 dimension=dimension,
@@ -799,7 +799,7 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
                     if not content:
                         continue
                     try:
-                        insert_relationship_timeline_event(
+                        await insert_relationship_timeline_event(
                             event_type=et,
                             content=content,
                             source_summary_id=sid,
@@ -822,7 +822,7 @@ event_type 必须四选一：milestone、emotional_shift、conflict、daily_warm
         Step 4 - 今日小传全量入库 Chroma，按分映射 halflife_days，可选事件拆分 + BM25。
         """
         try:
-            daily_summaries = get_recent_daily_summaries(limit=1)
+            daily_summaries = await get_recent_daily_summaries(limit=1)
             if not daily_summaries:
                 logger.info(f"今日没有小传，跳过 Step 4，日期: {batch_date}")
                 return True, None
@@ -1033,9 +1033,9 @@ async def schedule_daily_batch():
             window_start_d = today_d - timedelta(days=6)
             window_start_s = window_start_d.isoformat()
             
-            mark_expired_skipped_daily_batch_logs_before(window_start_s)
+            await mark_expired_skipped_daily_batch_logs_before(window_start_s)
             
-            pending = list_incomplete_daily_batch_dates_in_range(
+            pending = await list_incomplete_daily_batch_dates_in_range(
                 window_start_s, today_s
             )
             ran_today = False

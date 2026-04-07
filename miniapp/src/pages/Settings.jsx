@@ -393,12 +393,21 @@ function Settings() {
   /* Token 数值格式化 */
   const fmt = (n) => n == null ? '—' : Number(n).toLocaleString();
 
-  /* 平台进度条 */
+  /* 平台进度条：动态读取 by_platform，避免硬编码 */
   const totalTokens = tokenStats?.total_tokens || 0;
-  const platforms = [
-    { label: 'Telegram', value: tokenStats?.by_platform?.telegram || 0, color: '#5ba4cf' },
-    { label: 'Discord',  value: tokenStats?.by_platform?.discord  || 0, color: '#7289da' },
-  ];
+  const PLATFORM_COLOR = {
+    telegram: '#5ba4cf',
+    discord:  '#7289da',
+    batch:    '#a0aec0',
+  };
+  const platforms = Object.entries(tokenStats?.by_platform || {})
+    .filter(([, v]) => Number(v) > 0)
+    .map(([key, value]) => ({
+      label: key.charAt(0).toUpperCase() + key.slice(1),
+      value: Number(value),
+      color: PLATFORM_COLOR[key.toLowerCase()] || '#b794f4',
+    }))
+    .sort((a, b) => b.value - a.value);
 
   if (isLoading) {
     return (

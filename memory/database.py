@@ -1042,7 +1042,7 @@ class MessageDatabase:
             raise ValueError(
                 f"summary_type '{summary_type}' 不在允许的值中。允许的值: {{'chunk', 'daily'}}"
             )
-        source_date = _dt.datetime.now().strftime("%Y-%m-%d")
+        source_date = _dt.datetime.now().date()
         async with self.pool.acquire() as conn:
             summary_id = await conn.fetchval(
                 """
@@ -1361,6 +1361,7 @@ class MessageDatabase:
         error_message: Optional[str] = None,
     ) -> bool:
         """保存或更新每日批处理日志。"""
+        dt_val = _dt.datetime.strptime(batch_date, "%Y-%m-%d").date()
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """
@@ -1377,7 +1378,7 @@ class MessageDatabase:
                     error_message = EXCLUDED.error_message,
                     updated_at = NOW()
                 """,
-                batch_date,
+                dt_val,
                 step1_status, step2_status, step3_status,
                 step4_status, step5_status,
                 error_message,
@@ -1391,6 +1392,7 @@ class MessageDatabase:
 
     async def get_daily_batch_log(self, batch_date: str) -> Optional[Dict[str, Any]]:
         """获取指定日期的批处理日志。"""
+        dt_val = _dt.datetime.strptime(batch_date, "%Y-%m-%d").date()
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
@@ -1399,7 +1401,7 @@ class MessageDatabase:
                 FROM daily_batch_log
                 WHERE batch_date = $1
                 """,
-                batch_date,
+                dt_val,
             )
         if not row:
             logger.debug("每日批处理日志不存在: date=%s", batch_date)
@@ -1459,6 +1461,7 @@ class MessageDatabase:
         if step_number not in {1, 2, 3, 4, 5}:
             raise ValueError(f"步骤编号 {step_number} 无效，必须是 1 至 5")
         col = f"step{step_number}_status"
+        dt_val = _dt.datetime.strptime(batch_date, "%Y-%m-%d").date()
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 f"""
@@ -1466,7 +1469,7 @@ class MessageDatabase:
                 SET {col} = $1, error_message = $2, updated_at = NOW()
                 WHERE batch_date = $3
                 """,
-                status, error_message, batch_date,
+                status, error_message, dt_val,
             )
         updated = _rowcount(result) > 0
         if updated:
@@ -1488,6 +1491,8 @@ class MessageDatabase:
         self, start_date: str, end_date: str
     ) -> List[str]:
         """列出 batch_date 在范围内且五步未全部完成的日期，升序。"""
+        dt_start = _dt.datetime.strptime(start_date, "%Y-%m-%d").date()
+        dt_end = _dt.datetime.strptime(end_date, "%Y-%m-%d").date()
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
@@ -1496,7 +1501,7 @@ class MessageDatabase:
                   AND {self._DAILY_BATCH_INCOMPLETE_SQL}
                 ORDER BY batch_date ASC
                 """,
-                start_date, end_date,
+                dt_start, dt_end,
             )
         return [_norm(r["batch_date"]) for r in rows]
 
@@ -1507,6 +1512,7 @@ class MessageDatabase:
         batch_date 早于 before_date 且仍有未完成步骤的行：五步均置 1，
         error_message='expired, skipped'。返回更新行数。
         """
+        dt_before = _dt.datetime.strptime(before_date, "%Y-%m-%d").date()
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 f"""
@@ -1518,7 +1524,7 @@ class MessageDatabase:
                 WHERE batch_date < $1
                   AND {self._DAILY_BATCH_INCOMPLETE_SQL}
                 """,
-                before_date,
+                dt_before,
             )
         n = _rowcount(result)
         if n:
@@ -1539,6 +1545,7 @@ class MessageDatabase:
         self, as_of_iso: str
     ) -> List[Dict[str, Any]]:
         """列出已到期且仍激活的 temporal_states（expire_at <= as_of_iso，is_active=1）。"""
+        dt_as_of = _dt.datetime.strptime(as_of_iso, "%Y-%m-%d %H:%M:%S")
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -1549,7 +1556,7 @@ class MessageDatabase:
                   AND expire_at <= $1::timestamp
                 ORDER BY expire_at ASC
                 """,
-                as_of_iso,
+                dt_as_of,
             )
         return [
             {
@@ -1794,14 +1801,14 @@ class MessageDatabase:
         self, start_date, platform: Optional[str] = None
     ) -> Dict[str, Any]:
         """统计从 start_date 开始的 token 使用量。"""
-        start_str = (
-            start_date.strftime("%Y-%m-%d %H:%M:%S")
-            if hasattr(start_date, "strftime")
-            else str(start_date)
+        # asyncpg 要求传 datetime 对象，不能传字符串（否则 DataError）
+        dt_start: _dt.datetime = (
+            start_date if isinstance(start_date, _dt.datetime)
+            else _dt.datetime.fromisoformat(str(start_date))
         )
         idx = 2
         base_cond = "WHERE created_at >= $1"
-        params: List[Any] = [start_str]
+        params: List[Any] = [dt_start]
         if platform:
             base_cond += f" AND platform = ${idx}"
             params.append(platform)

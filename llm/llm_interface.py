@@ -1014,6 +1014,7 @@ class LLMInterface:
         endpoint = f"{self.api_base}/chat/completions"
         payload = self._prepare_openai_payload(messages, tools)
         payload["stream"] = True
+        payload["stream_options"] = {"include_usage": True}
         req_timeout = self._request_timeout_seconds(messages)
         # 流式：timeout 元组 (连接, 读) —— 读超时指「两次 SSE 片段之间」最长等待，须大于推理间隙
         stream_read = config.LLM_STREAM_READ_TIMEOUT

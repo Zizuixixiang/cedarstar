@@ -1050,6 +1050,17 @@ class TelegramBot:
             else:
                 think_plain = think_from_delta
             interrupted = False
+            
+            # 保存 Token (流式在子线程丢弃了记录，这里在主 loop 补记)
+            u_data = done_payload.get("usage")
+            if u_data:
+                await llm._async_save_token_usage(
+                    u_data.get("prompt_tokens", 0), 
+                    u_data.get("completion_tokens", 0), 
+                    u_data.get("total_tokens", 0), 
+                    Platform.TELEGRAM
+                )
+
         elif err_pack is not None:
             _ex, c_partial, t_partial = err_pack
             raw_content = c_partial or ""
@@ -1379,6 +1390,9 @@ class TelegramBot:
                     )
 
                 llm_resp = await asyncio.to_thread(_call_sync)
+                if hasattr(llm_resp, 'usage') and llm_resp.usage:
+                    llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
+
                 outcome = await self._telegram_deliver_prefetched_llm_response(
                     llm_resp, base_message, bot
                 )
@@ -1607,6 +1621,9 @@ class TelegramBot:
                 )
 
             llm_resp = await asyncio.to_thread(_call)
+            if hasattr(llm_resp, 'usage') and llm_resp.usage:
+                llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
+
             cid = int(chat_id)
             think_plain = (llm_resp.thinking or "").strip()
             if telegram_bot and think_plain:

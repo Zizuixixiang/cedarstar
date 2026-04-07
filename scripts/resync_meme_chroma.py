@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+import asyncio
+
 from dotenv import load_dotenv
 
 load_dotenv(ROOT / ".env")
@@ -25,11 +27,12 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
 
 
-def main() -> int:
-    from memory.database import get_database
+async def main() -> int:
+    from memory.database import initialize_database
     from memory.meme_store import get_meme_store
 
-    rows = get_database().fetch_all_meme_pack()
+    db = await initialize_database()
+    rows = await db.fetch_all_meme_pack()
     if not rows:
         logger.info("meme_pack 表为空，无需同步")
         return 0
@@ -52,9 +55,9 @@ def main() -> int:
             logger.error("id=%s 失败: %s", rid, e)
             return 1
 
-    logger.info("完成：%s / %s 条已写入 Chroma", ok, len(rows))
+    logger.info("✅ 全部完成：%s / %s 条已写入 Chroma", ok, len(rows))
     return 0
 
 
 if __name__ == "__main__":
-    raise SystemExit(main())
+    raise SystemExit(asyncio.run(main()))

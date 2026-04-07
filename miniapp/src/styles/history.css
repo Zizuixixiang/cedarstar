@@ -254,17 +254,21 @@
 }
 
 .message-bubble.user {
-  background: var(--surface);
+  /* 用户侧：淡青-蓝色调，呼应整体冷灰基色 */
+  background: #e4eef5;
   border: none;
+  border-right: 3px solid rgba(72, 199, 142, 0.50);
   border-radius: 12px 2px 12px 12px;
-  box-shadow: var(--shadow-raised);
+  box-shadow: 4px 4px 10px #c2ccd4, -4px -4px 10px #ffffff;
 }
 
 .message-bubble.assistant {
-  background: var(--surface);
+  /* Char 侧：极淡紫灰，仅一丝紫意，不抢主色调 */
+  background: #eaeaf1;
   border: none;
+  border-left: 3px solid rgba(124, 107, 196, 0.25);
   border-radius: 2px 12px 12px 12px;
-  box-shadow: var(--shadow-raised);
+  box-shadow: 5px 5px 10px #c8c5d2, -5px -5px 10px #ffffff;
 }
 
 /* 消息头部：来源 Tag + 时间，字号略小、与正文更贴近 */

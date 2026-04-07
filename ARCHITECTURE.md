@@ -1,6 +1,6 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐）
+> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化）
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -204,7 +204,7 @@ cedarstar/                          # 项目根目录
 - **Telegram 贴纸（`message.sticker`）：** 以 `file_unique_id` 查 **`sticker_cache`**（§5.13）；**`MessageDatabase.get_sticker_cache` / `save_sticker_cache` / `delete_sticker_cache` 均为 `async`，机器人内须 `await`**（含 `/rescanpic` 删缓存）。未命中则模块级 `processing_stickers` + `asyncio.Lock` 去重，已在处理中的 id 轮询等待最多约 3 秒再读库。下载贴纸（跳过 `.tgs` / `.webm` 等、大于 10MB 跳过）转 Base64，**`asyncio.to_thread`** 内调用 **`LLMInterface(config_type='vision')`**，提示词要求 40 字以内描述含义与情绪，图内文字原样引用、不描述技术细节；结果写入缓存，失败亦写入 **`（贴纸）`**。正文 `content='[贴纸] {emoji} {description}'`；`media_type` 在缓冲顺序中与其它类型一并去重拼接（可与 `image`/`voice` 同轮，如 `image,sticker,voice`），`vision_processed=1`。**`/rescanpic`：** 用户先发命令后进入待重扫（模块集 `pending_rescan` + 60s 超时任务）；下一条贴纸会先 **`await delete_sticker_cache`** 并 `processing_stickers.discard` 再照常走识图；超时未发贴纸回复「已取消」，下一条非贴纸消息回复「未检测到贴纸，已取消」并照常处理该消息
 - **Telegram 消息反应：** `MessageReactionHandler` 处理 `MessageReactionUpdated`。更新由 **webhook** 推送的 JSON 经 **`process_update`** → `Application.process_update` 进入同一套 handler，**无需** `start_polling`。取 `new_reaction` 中第一个可展示项（标准 emoji 或自定义表情 id）；**`new_reaction` 为空**（用户撤回反应）**不写库**。用 `message_id` 查同会话 `messages` 中 **`role='assistant'`** 且 **`message_id` 等于该条 Bot 发出消息的平台 ID** 的正文，取前 20 字作摘要；**查不到**时用摘要「某条消息」。合成 `content='[用户对你的消息「摘要…」点了 …]'`，`media_type='reaction'`，`role='user'`，**不入 MessageBuffer**，直接 `save_message` 并可触发微批检查。**`character_id`：** 查 `api_configs` 中 `config_type='chat'` 且 `is_active=1` 的 `persona_id`（转字符串）；无有效 `persona_id` 时用环境变量 **`DEFAULT_CHARACTER_ID`**（未设则 `sirius`），**不实例化 `LLMInterface`**。**说明：** 助手行自本逻辑起以 Telegram **真实发出**的 `message_id` 落库，旧数据中 `ai_{用户消息id}` 无法与反应事件对齐，反应摘要会走兜底文案
 - 助手原始回复中的记忆引用由 **`bot/reply_citations.py`** 的 **`schedule_update_memory_hits_and_clean_reply`** 处理：规范格式为 `[[used:uid]]`；另兼容模型误写的 **单括号 `[used:…]`** 与 **全角 `【used:…】`**（均参与 `update_memory_hits` 并从正文剥离）。**Telegram** 在同一清洗之后由 **`reply_citations.parse_telegram_segments_with_memes`** 将 **`|||`** 与 **`[meme:描述]`** 一并作为顺序分隔符拆段，**`telegram_bot`** 按该顺序**交替**发送 HTML 文字与表情包；**`messages` 落库正文**为各文字段按序换行拼接（无 meme 标记）（见上条缓冲说明）
-- 主对话 LLM：**Discord** 缓冲 flush 使用 `generate_with_context_and_tracking`。**Telegram 缓冲 flush**：OpenAI 兼容为 **SSE `generate_stream`（单轮、无 tools）**；Anthropic 为 **`generate_with_context_and_tracking`（无 tools）**（见上条）。非缓冲 **`_generate_reply`** 为单次 **`generate_with_context_and_tracking`**；若传入 **`telegram_bot`** 则先发思维链，再与缓冲路径相同按 **`parse_telegram_segments_with_memes`** 有序交替发文字与表情包。上述带 `usage` 的路径异步写入 `token_usage`（见 §3.3、§5.11）。`_assistant_outgoing_chunks` 仍保留（思维链转义 + 正文白名单净化）
+- 主对话 LLM：**Discord** 缓冲 flush 使用 `generate_with_context_and_tracking`。**Telegram 缓冲 flush**：OpenAI 兼容为 **SSE `generate_stream`（单轮、无 tools）**；Anthropic 为 **`generate_with_context_and_tracking`（无 tools）**（见上条）。非缓冲 **`_generate_reply`** 为单次 **`generate_with_context_and_tracking`**；若传入 **`telegram_bot`** 则先发思维链，再与缓冲路径相同按 **`parse_telegram_segments_with_memes`** 有序交替发文字与表情包。上述带 `usage` 的路径异步写入 `token_usage`（见 §3.3、§5.11）。**Telegram 流式路径 Token 补记（2026-04）：** SSE 子线程无 asyncio 事件循环，原先流式 usage 被丢弃；现已在主线程的 `done_payload` 中读取 `usage` 并调用 `llm._async_save_token_usage`；Anthropic 与非缓冲路径亦在 `llm_resp.usage` 存在时调用 `llm._save_token_usage_async`，确保 Telegram 各路径均落库。`_assistant_outgoing_chunks` 仍保留（思维链转义 + 正文白名单净化）
 - **`requests.exceptions.Timeout`（缓冲生成路径）：** 日志与用户可见提示按 **`images`（相册/拍照类多模态 payload）是否非空** 分支——无 payload 时仅提示上下文/上游慢、建议调大 `LLM_TIMEOUT`（**不**写「未带图片」，避免与「贴纸已转文本进主对话」混淆）；有 payload 时才提示多模态更慢及 `LLM_VISION_TIMEOUT`
 
 **消息缓冲机制：**
@@ -245,7 +245,7 @@ cedarstar/                          # 项目根目录
 - 不维护对话历史状态（无状态）
 - 支持思维链内容提取（DeepSeek R1 的 `reasoning_content`、Gemini 的 `thinking`），由 `generate_with_context_and_tracking` / `generate_with_thinking` 等在完整响应中解析；**流式**由 `generate_stream` 在 SSE `delta` 中读取 **`reasoning_content` / `reasoning` / `thinking`** 逐段 yield `("thinking", chunk)`，正文 yield `("content", chunk)`；若此前 delta 无推理片段，则在 **`choices[0].message`** 中同名字段补一次整段（适配仅末包给推理的网关）。生成器返回 `{"content","thinking","usage"}`
 - **Tool calling（OpenAI 兼容）：** `generate` / `generate_with_token_tracking` / `generate_with_context_and_tracking` / `generate_with_thinking` / `generate_stream` 可选传入 `tools`；`_prepare_openai_payload` 在有 `tools` 时附带 `tool_choice: "auto"`；`_parse_openai_response` 将 `choices[0].message.tool_calls` 规范为 `LLMResponse.tool_calls`（每项 `id` / `name` / `arguments` 字符串）。Anthropic Messages API 路径暂不注入 tools，解析侧 `tool_calls` 恒为 `None`
-- **Token 统计：**仅当调用带 tracking 的方法且响应中含 `usage` 时才会写入 `token_usage`（见 §5.11）：若当前线程存在**正在运行的** asyncio 事件循环，则 `create_task` 走 `_async_save_token_usage`；否则（例如 `bot/vision_caption.py` 在 `run_in_executor` 线程内调 vision LLM）**同步**调用 `get_database().save_token_usage(...)`，避免 `no running event loop` 与未 await 的协程告警。`generate` / `generate_simple` / `generate_with_context` / `chat` **不会**落库用量。
+- **Token 统计：**仅当调用带 tracking 的方法且响应中含 `usage` 时才会写入 `token_usage`（见 §5.11）：若当前线程存在**正在运行的** asyncio 事件循环，则 `create_task` 走 `_async_save_token_usage`；否则（例如 `bot/vision_caption.py` 在 `run_in_executor` 线程内调 vision LLM）**同步**调用 `get_database().save_token_usage(...)`，避免 `no running event loop` 与未 await 的协程告警。`generate` / `generate_simple` / `generate_with_context` / `chat` **不会**落库用量。**`generate_stream`（SSE）** 在 payload 中加入 `stream_options: {"include_usage": true}`，使 OpenAI 兼容网关在末包携带 usage 数据；Telegram 缓冲 flush 的流式路径在主线程(`done_payload`) 收到 usage 后调用 `_async_save_token_usage`（原子补记，绕过子线程无事件循环限制），Anthropic 与非缓冲路径亦同步补调 `_save_token_usage_async`。
 
 **主要方法：**
 
@@ -287,6 +287,8 @@ cedarstar/                          # 项目根目录
 - 记忆卡片：`get_memory_cards()` 仅返回 `is_active=1`（供 API / Context）；日终 Step 3 Upsert 使用 `get_latest_memory_card_for_dimension()`，按 `user_id` + `character_id` + `dimension` 取**最近一条且不过滤 `is_active`**，避免批量软删后无法命中旧行；`update_memory_card(..., reactivate=True)` 在更新正文同时将 `is_active` 置 1（跑批合并写回后重新展示）
 
 **✅ 已修复（2026-04-05）：** `get_messages_filtered` 的 **`date_from` / `date_to`** 若以字符串传入（如查询参数），在 SQL 绑定 `created_at::date` 条件前用 **`date.fromisoformat`** 转为 **`datetime.date`**，避免 asyncpg 类型不匹配导致 **`GET /api/history` 500**（History 页日期筛选）。
+
+**✅ 已修复（2026-04-07）：** asyncpg 不接受字符串形式的日期/时间参数。以下方法在绑定 SQL 前统一将字符串转为对应 Python 类型：`update_daily_batch_step_status`（`batch_date` → `datetime.date`）、`list_incomplete_daily_batch_dates_in_range`（`start_date`/`end_date` → `datetime.date`）、`mark_expired_skipped_daily_batch_logs_before`（`before_date` → `datetime.date`）、`list_expired_active_temporal_states`（`as_of_iso` → `datetime.datetime`）；`get_token_usage_stats` 的 `start_date` 也改为传 `datetime.datetime` 对象，避免 `DataError`。
 
 #### 3.4.2 `context_builder.py` — Context 组装
 
@@ -346,6 +348,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 #### 3.4.4 `daily_batch.py` — 日终跑批
 
 **职责：** 在东八区某业务日执行五步流水线（支持断点续跑）。**标准部署**下由 **cron（或同类）按 `config.daily_batch_hour` 所设整点**（默认 23:00）调用项目根目录 **`run_daily_batch.py`** 触发；`daily_batch_hour` 为业务约定，**cron 表达式须与之一致**（代码不会替运维「自动对齐」系统时钟）。
+
+**✅ 已修复（2026-04-07）：** `run_daily_batch`（`DailyBatchProcessor`）内对所有 DB 便捷函数的调用均已正确加 `await`，包括 `update_daily_batch_step_status`、`list_expired_active_temporal_states`、`deactivate_temporal_states_by_ids`、`get_today_chunk_summaries`、`save_summary`、`get_recent_daily_summaries`、`get_latest_memory_card_for_dimension`、`update_memory_card`、`save_memory_card`、`insert_relationship_timeline_event`、`mark_expired_skipped_daily_batch_logs_before`、`list_incomplete_daily_batch_dates_in_range`。此前缺少 `await` 会导致协程对象未执行，跑批静默跳过大量步骤且不报错。
 
 **五步流水线：**
 
@@ -486,7 +490,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Dashboard 页（`Dashboard.jsx` / `dashboard.css`）：** 挂载时并发请求 §3.5 三个控制台接口。顶栏为 Discord/Telegram 在线、**对话**侧激活配置名与模型（`/status`，与 `get_active_api_config('chat')` 一致）、批处理结论（由同页已拉取的 `/batch-log` 最近一条的 `step1_status`～`step5_status` 推导）。下方为跑批日历与记忆库概览；概览数据来自 `/memory-overview`，含 `chromadb_count`、`short_term_limit`、`chunk_summary_count`（今日微批摘要条数）、`dimension_status`（七维度圆点）、`latest_daily_summary_time` 等，具体字段以 `api/dashboard.py` 为准。样式层含核心 KPI 大字、今日日历高亮、维度 Tooltip 等（纯前端，不改变接口）。
 
-**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」「摘要 API」「视觉 API」「语音转录 API」「**Embedding**」五个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=…`（`chat` / `summary` / `vision` / `stt` / `embedding`），切换 Tab 时重新拉取。首次迁移会在 `api_configs` 插入默认 **`config_type=embedding`** 行（名称「硅基流动 bge-m3」、`base_url`/`model` 预填、`api_key` 空、**已激活**），用户在 Mini App 中补 Key 即可。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表。`POST`/`PUT` 允许的 `config_type` 含 `embedding`（表情包向量用，与 `stt` 同理独立激活）。Tab 样式见 `settings.css` 中 `.config-tabs` / `.config-tab` / `.embedding-type`。移动端（<768px）为竖向堆叠布局与 2x2 Token 网格。
+**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」「摘要 API」「视觉 API」「语音转录 API」「**Embedding**」五个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=…`（`chat` / `summary` / `vision` / `stt` / `embedding`），切换 Tab 时重新拉取。首次迁移会在 `api_configs` 插入默认 **`config_type=embedding`** 行（名称「硅基流动 bge-m3」、`base_url`/`model` 预填、`api_key` 空、**已激活**），用户在 Mini App 中补 Key 即可。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表。`POST`/`PUT` 允许的 `config_type` 含 `embedding`（表情包向量用，与 `stt` 同理独立激活）。Tab 样式见 `settings.css` 中 `.config-tabs` / `.config-tab` / `.embedding-type`。移动端（<768px）为竖向堆叠布局与 2x2 Token 网格。**Token 平台进度条（2026-04-07 更新）：** 不再硬编码 Telegram / Discord 两条；改为动态遍历 `tokenStats.by_platform` 所有键，过滤值为 0 的条目后按用量降序展示，颜色通过 `PLATFORM_COLOR` 字典映射（`telegram`→`#5ba4cf`，`discord`→`#7289da`，`batch`→`#a0aec0`，其余→紫色兜底），新增平台无需改代码。**Period Tabs 布局（2026-04-07 更新）：** 桌面端 `.period-tabs` 加 `margin-left: auto` 对齐卡片右侧；移动端改为宽度 100%、左对齐展示。
 
 **Config 页（`Config.jsx` / `config.css`）：** 与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐：上方为通用运行参数（**滑块 + 数字步进**），底部 **「保存并立即生效」** 一次 `PUT /api/config/config` 写回当前页全部键。其下 **「Telegram 回复分段」** 为 `telegram_max_chars`（10–1000、步长 10）与 `telegram_max_msg`（1–20），控件布局与同页其它行一致；每项可点 **「保存此项」** 单独 `PUT`，请求体仅含该键（仍走同一接口）。`memory/database.py` 的 `migrate_database_schema` 通过 `_config_insert_defaults_if_missing` 为缺失行插入两键默认值 **50 / 8**（`INSERT OR IGNORE`，不覆盖已有值）。
 
@@ -496,7 +500,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，强调色与 §3.6「视觉」一致。
 
-**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。
+**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。
 
 **API 根地址与请求封装：** 各页通过 `src/apiBase.js` 的 **`apiFetch(path, options)`** 调用后端（内部用 **`apiUrl()`** 拼 URL）。**`apiFetch`** 会为每次请求自动设置 **`Content-Type: application/json`** 与 **`X-Cedarstar-Token`**，令牌来自构建时环境变量 **`VITE_MINIAPP_TOKEN`**（未设置则为空字符串），须与服务器 `.env` 中的 **`MINIAPP_TOKEN`** 一致，否则 `/api/*` 返回 401。环境变量 **`VITE_API_BASE_URL`** 未设置或为空时 **`API_BASE_URL`** 为空字符串，URL 为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。
 
@@ -898,7 +902,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 |------|------|------|
 | `id` | INTEGER PK | 自增主键 |
 | `created_at` | TIMESTAMP | 记录时间 |
-| `platform` | TEXT | 调用来源：`config.Platform` 常量，常见值 `discord` / `telegram` / `batch`（日终与微批摘要等）；可为空 |
+| `platform` | TEXT | 调用来源：`config.Platform` 常量，常见值 `discord` / `telegram` / `batch`（日终与微批摘要等）；可为空。**Settings 页 Token 进度条按此字段分平台动态展示，新增平台无需改前端代码（见 §3.6 Settings 页）** |
 | `prompt_tokens` | INTEGER | 输入 Token 数 |
 | `completion_tokens` | INTEGER | 输出 Token 数 |
 | `total_tokens` | INTEGER | 总 Token 数 |
