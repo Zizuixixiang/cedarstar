@@ -44,6 +44,7 @@ DEFAULT_CONFIG = {
     "telegram_max_chars": 50,
     "telegram_max_msg": 8,
     "send_cot_to_telegram": 1,
+    "offline_mode_active": 0,
 }
 
 

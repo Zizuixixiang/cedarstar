@@ -21,6 +21,7 @@ const DEFAULT_CONFIG = {
   telegram_max_chars: 50,
   telegram_max_msg: 8,
   send_cot_to_telegram: 1,
+  offline_mode_active: 0,
 };
 
 /** Telegram 分段参数：单独 PUT 保存，与 api/config.py 一致 */
@@ -515,35 +516,24 @@ function Config() {
         <div className="config-card-subtitle">修改后点击保存即时生效，无需重启服务</div>
 
         {/* 线下模式开关 */}
-        <div style={{ padding: '16px 20px', background: '#f8fafc', borderRadius: '12px', marginBottom: '24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', border: '1px solid #e2e8f0' }}>
-          <div style={{ flex: 1, paddingRight: '16px' }}>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#0f172a', marginBottom: '4px' }}>线下极速模式</div>
-            <div style={{ fontSize: '0.85rem', color: '#64748b', lineHeight: 1.4 }}>
-              一键开启可自动备份修改前的状态，并进入极速响应（延迟 {0.1}s、消息字数 {800} 不分段）。关闭后恢复原配置。
-            </div>
+        <div className="config-item">
+          <div className="config-info">
+            <div className="config-name">线下极速模式</div>
+            <div className="config-desc">一键进入极速响应状态（延迟 0.1s，独立消息不分段）。</div>
           </div>
-          <div>
+          <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px', justifyContent: 'flex-end', flex: 1 }}>
             <button
+              type="button"
+              className={parseInt(config.offline_mode_active || '0', 10) === 1 ? "config-btn-primary" : "config-btn-secondary"}
+              style={{ minWidth: '90px' }}
               onClick={handleToggleOfflineMode}
               disabled={isSaving}
-              style={{
-                background: parseInt(config.offline_mode_active || '0', 10) === 1 ? '#3b82f6' : '#cbd5e1',
-                color: '#fff',
-                border: 'none',
-                padding: '8px 16px',
-                borderRadius: '20px',
-                fontWeight: 600,
-                cursor: isSaving ? 'not-allowed' : 'pointer',
-                transition: 'background 0.2s',
-                whiteSpace: 'nowrap',
-                minWidth: '80px',
-                outline: 'none',
-              }}
             >
-              {parseInt(config.offline_mode_active || '0', 10) === 1 ? '已开启' : '已关闭'}
+              {parseInt(config.offline_mode_active || '0', 10) === 1 ? '已开启' : '点击开启'}
             </button>
           </div>
         </div>
+        <hr className="config-divider" />
 
         {CONFIG_METADATA.map((item, index) => (
           <div key={item.key}>
