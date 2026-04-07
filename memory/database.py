@@ -1981,7 +1981,7 @@ class MessageDatabase:
                     
                     # 覆写极速参数
                     fast_values = {
-                        "buffer_delay": "0.1",
+                        "buffer_delay": "1",
                         "telegram_max_chars": "800",
                         "telegram_max_msg": "1",
                         "offline_mode_active": "1"

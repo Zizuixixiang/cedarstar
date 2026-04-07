@@ -519,7 +519,7 @@ function Config() {
         <div className="config-item">
           <div className="config-info">
             <div className="config-name">线下极速模式</div>
-            <div className="config-desc">一键进入极速响应状态（延迟 0.1s，独立消息不分段）。</div>
+            <div className="config-desc">一键进入极速响应状态（延迟 1s，独立消息不分段）。</div>
           </div>
           <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px', justifyContent: 'flex-end', flex: 1 }}>
             <button
