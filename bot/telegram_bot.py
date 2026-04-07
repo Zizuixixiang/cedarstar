@@ -1362,6 +1362,7 @@ class TelegramBot:
     async def _generate_reply_from_buffer(
         self,
         session_id: str,
+        combined_raw: str,
         combined_content: str,
         user_id: str,
         chat_id: str,
@@ -1428,7 +1429,7 @@ class TelegramBot:
                     user_row_id = await save_message(
                         session_id=session_id,
                         role="user",
-                        content=combined_content,
+                        content=combined_raw,
                         user_id=user_id,
                         channel_id=chat_id,
                         message_id=message_id,
@@ -1438,7 +1439,7 @@ class TelegramBot:
                         image_caption=None,
                         vision_processed=0 if has_img else 1,
                         is_summarized=_telegram_user_content_error_fallback_is_summarized(
-                            combined_content
+                            combined_raw
                         ),
                     )
                     if has_img and user_row_id:
@@ -1513,6 +1514,26 @@ class TelegramBot:
             )
             return _BufferGenResult("抱歉，生成回复时出错了，请稍后再试。", None, False)
 
+    @staticmethod
+    def _extract_reply_prefix(message) -> str:
+        """若用户引用了某条消息，返回前缀提示字符串（发给 LLM，用户不可见）；否则返回空字符串。"""
+        replied = getattr(message, "reply_to_message", None)
+        if not replied:
+            return ""
+        text = (
+            getattr(replied, "text", None) or getattr(replied, "caption", None) or ""
+        ).strip()
+        if not text:
+            return ""
+        _MAX_QUOTE = 200
+        if len(text) > _MAX_QUOTE:
+            text = text[:_MAX_QUOTE] + "…"
+        from_user = getattr(replied, "from_user", None)
+        is_bot = getattr(from_user, "is_bot", False) if from_user else False
+        if is_bot:
+            return f"[你正在回复 AI 的消息：「{text}」]\n\n"
+        return f"[你正在回复你之前的消息：「{text}」]\n\n"
+
     async def _add_to_buffer(
         self,
         update: Update,
@@ -1529,6 +1550,9 @@ class TelegramBot:
         """
         将消息添加到缓冲区，并启动/重置缓冲定时器。
         
+        若用户使用了 Telegram 引用回复，则在 content 前拼接引用上下文提示
+        （仅发给 LLM，用户不可见，历史记录存原始 content）。
+        
         Args:
             update: Telegram 更新对象
             context: 上下文对象
@@ -1538,13 +1562,16 @@ class TelegramBot:
             user_id: 用户ID
             message_id: 消息ID
         """
+        reply_prefix = self._extract_reply_prefix(message)
+        content_for_llm = reply_prefix + content if reply_prefix else content
         await self._message_buffer.add_to_buffer(
             session_id,
             {
                 "update": update,
                 "context": context,
                 "message": message,
-                "content": content,
+                "content": content_for_llm,   # 包含引用前缀，供 LLM 使用
+                "raw_content": content,        # 原始消息，不含前缀，供落库使用
                 "user_id": user_id,
                 "message_id": message_id,
                 "from_voice": from_voice,
@@ -1556,6 +1583,7 @@ class TelegramBot:
     async def _flush_buffered_messages(
         self,
         session_id: str,
+        combined_raw: str,
         combined_content: str,
         images: List[Dict[str, Any]],
         buffer_messages: List[Dict[str, Any]],
@@ -1581,6 +1609,7 @@ class TelegramBot:
 
         gen = await self._generate_reply_from_buffer(
             session_id=session_id,
+            combined_raw=combined_raw,
             combined_content=combined_content,
             user_id=base_user_id,
             chat_id=str(base_message.chat.id),

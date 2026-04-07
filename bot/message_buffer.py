@@ -21,17 +21,27 @@ logger = logging.getLogger(__name__)
 
 def aggregate_buffer_entries(
     buffer_messages: List[Dict[str, Any]],
-) -> Tuple[str, List[Dict[str, Any]], str]:
+) -> Tuple[str, str, List[Dict[str, Any]], str]:
     """
-    合并缓冲条目：生成落库用 combined_content、image_payload 列表、以及多模态请求用纯文本。
+    合并缓冲条目：返回三元组
+    - combined_raw: 落库用（使用 raw_content 字段，不含引用前缀）
+    - combined_content: LLM 用（使用 content 字段，可能包含引用前缀）
+    - images: 图片 payload 列表
+    - text_for_llm: 多模态请求用纯文本
     """
-    text_parts: List[str] = []
+    text_parts: List[str] = []       # LLM 用（含引用前缀）
+    raw_parts: List[str] = []        # 落库用（原始消息）
     images: List[Dict[str, Any]] = []
 
     for e in buffer_messages:
-        raw = (e.get("content") or "").strip()
-        if raw:
-            text_parts.append(raw)
+        # LLM 用 content（包含前缀）
+        raw_llm = (e.get("content") or "").strip()
+        if raw_llm:
+            text_parts.append(raw_llm)
+        # 落库用 raw_content（原始）；如果没有 raw_content（旧路径兼容）则 fallback 到 content
+        raw_db = (e.get("raw_content") or e.get("content") or "").strip()
+        if raw_db:
+            raw_parts.append(raw_db)
         ips = list(e.get("image_payloads") or [])
         if e.get("image_payload"):
             ips.append(e["image_payload"])
@@ -40,18 +50,22 @@ def aggregate_buffer_entries(
             cap = (ip.get("caption") or "").strip()
             if cap:
                 text_parts.append(cap)
+                raw_parts.append(cap)
 
     if images:
-        body = "\n".join(text_parts).strip()
-        combined = f"[发送了{len(images)}张图片]" + (f" {body}" if body else "")
+        body_llm = "\n".join(text_parts).strip()
+        combined_content = f"[发送了{len(images)}张图片]" + (f" {body_llm}" if body_llm else "")
+        body_raw = "\n".join(raw_parts).strip()
+        combined_raw = f"[发送了{len(images)}张图片]" + (f" {body_raw}" if body_raw else "")
     else:
-        combined = "\n".join(text_parts).strip()
+        combined_content = "\n".join(text_parts).strip()
+        combined_raw = "\n".join(raw_parts).strip()
 
     text_for_llm = "\n".join(text_parts).strip()
     if images and not text_for_llm:
         text_for_llm = "请结合用户发送的图片进行理解和回复。"
 
-    return combined, images, text_for_llm
+    return combined_raw, combined_content, images, text_for_llm
 
 
 def ordered_media_type_from_buffer(buffer_messages: List[Dict[str, Any]]) -> Optional[str]:
@@ -74,9 +88,9 @@ def ordered_media_type_from_buffer(buffer_messages: List[Dict[str, Any]]) -> Opt
     return ",".join(media_types) if media_types else None
 
 
-# (session_id, combined_content, images, buffer_messages, text_for_llm) -> None
+# (session_id, combined_raw, combined_content, images, buffer_messages, text_for_llm) -> None
 BufferFlushCallback = Callable[
-    [str, str, List[Dict[str, Any]], List[Dict[str, Any]], str],
+    [str, str, str, List[Dict[str, Any]], List[Dict[str, Any]], str],
     Awaitable[None],
 ]
 
@@ -191,12 +205,13 @@ class MessageBuffer:
                     len(buffer_messages),
                 )
 
-                combined_content, images, text_for_llm = aggregate_buffer_entries(
+                combined_raw, combined_content, images, text_for_llm = aggregate_buffer_entries(
                     buffer_messages
                 )
 
                 await self._flush_callback(
                     session_id,
+                    combined_raw,
                     combined_content,
                     images,
                     buffer_messages,

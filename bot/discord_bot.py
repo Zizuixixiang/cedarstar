@@ -360,6 +360,7 @@ class DiscordBot:
     async def _flush_buffered_messages(
         self,
         session_id: str,
+        combined_raw: str,
         combined_content: str,
         images: List[Dict[str, Any]],
         buffer_messages: List[Dict[str, Any]],
@@ -370,6 +371,7 @@ class DiscordBot:
         async with base_message.channel.typing():
             reply = await self._generate_reply_from_buffer(
                 base_message,
+                combined_raw,
                 combined_content,
                 session_id,
                 buffer_messages=buffer_messages,
@@ -388,6 +390,7 @@ class DiscordBot:
     async def _generate_reply_from_buffer(
         self,
         base_message: discord.Message,
+        combined_raw: str,
         combined_content: str,
         session_id: str,
         buffer_messages: List[Dict[str, Any]],
@@ -399,7 +402,8 @@ class DiscordBot:
         
         Args:
             base_message: 基础消息对象（第一条消息）
-            combined_content: 合并后的消息内容
+            combined_raw: 落库用原始内容（不含引用前缀）
+            combined_content: LLM 用内容（可能含引用前缀）
             session_id: 会话ID
             buffer_messages: 本缓冲批次原始条目（用于 from_voice 等标记）
             images: 当前轮图片 payload
@@ -432,13 +436,13 @@ class DiscordBot:
             )
             reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
             
-            # 保存用户消息到数据库（合并后的消息）
+            # 保存用户消息到数据库（使用原始内容，不含引用前缀）
             has_img = bool(images)
             media_t = ordered_media_type_from_buffer(buffer_messages)
             user_row_id = await save_message(
                 session_id=session_id,
                 role="user",
-                content=combined_content,
+                content=combined_raw,
                 user_id=str(base_message.author.id),
                 channel_id=str(base_message.channel.id),
                 message_id=str(base_message.id),
