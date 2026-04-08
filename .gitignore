@@ -208,3 +208,5 @@ miniapp/.env.production
 ngrok.exe
 README.md
 memes.txt
+# import_memes.py 失败记录（与清单同目录 *.import_failed.txt）
+*.import_failed.txt
