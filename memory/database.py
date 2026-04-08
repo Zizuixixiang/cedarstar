@@ -2507,6 +2507,7 @@ async def save_message(
     image_caption: Optional[str] = None,
     vision_processed: Optional[int] = None,
     is_summarized: int = 0,
+    thinking: Optional[str] = None,
 ) -> int:
     # 与 MessageDatabase.save_message 一致：asyncpg TEXT 绑定必须为 str
     uid = None if user_id is None else str(user_id)
@@ -2516,9 +2517,19 @@ async def save_message(
     plat = None if platform is None else str(platform)
     mt = None if media_type is None else str(media_type)
     return await get_database().save_message(
-        role, content, session_id, uid, cid, mid,
-        chrid, plat, mt, image_caption, vision_processed,
+        role,
+        content,
+        session_id,
+        uid,
+        cid,
+        mid,
+        chrid,
+        plat,
+        mt,
+        image_caption,
+        vision_processed,
         is_summarized,
+        thinking,
     )
 
 

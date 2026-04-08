@@ -1620,19 +1620,22 @@ class TelegramBot:
             base_message=base_message,
             bot=base_context.bot,
         )
-        if gen.assistant_message_id and gen.persist_assistant and gen.reply.strip():
+        # 须与 _generate_reply 非缓冲路径一致：无 Telegram 首条正文 message_id 时仍落库（用合成 id），
+        # 否则 HTML 净化后为空导致未走 reply_text(HTML)、first_mid 为空，仅下方纯文本兜底发出时不会入库。
+        if gen.persist_assistant and gen.reply.strip():
+            assistant_mid = gen.assistant_message_id or f"ai_{base_message_id}"
             await save_message(
                 session_id=session_id,
                 role="assistant",
                 content=gen.reply,
                 user_id=base_user_id,
                 channel_id=str(base_message.chat.id),
-                message_id=gen.assistant_message_id,
+                message_id=assistant_mid,
                 character_id=gen.character_id,
                 platform=Platform.TELEGRAM,
                 thinking=gen.thinking,
             )
-        elif gen.reply and not gen.assistant_message_id:
+        if gen.reply and not gen.assistant_message_id:
             try:
                 await base_message.reply_text(gen.reply, parse_mode=None)
             except TelegramNetworkError as e:
