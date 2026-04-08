@@ -1,5 +1,5 @@
 """
-将 SQLite meme_pack 全表按当前 name 重新嵌入并 upsert 到 Chroma meme_pack。
+将 PostgreSQL ``meme_pack`` 全表按 ``description``（非空优先）否则 ``name`` 重新嵌入并 upsert 到 Chroma ``meme_pack``。
 
 用法：在 DB 工具里改完描述后，在项目根目录执行：
   python scripts/resync_meme_chroma.py
@@ -42,13 +42,17 @@ async def main() -> int:
     for r in rows:
         rid = r["id"]
         name = (r.get("name") or "").strip()
+        desc = (r.get("description") or "").strip()
         url = (r.get("url") or "").strip()
         isa = int(r.get("is_animated") or 0)
         if not name:
             logger.warning("跳过 id=%s：name 为空", rid)
             continue
+        embed_text = desc if desc else name
         try:
-            store.upsert_meme(str(rid), name, url, isa, document_text=name)
+            await store.upsert_meme_async(
+                str(rid), name, url, isa, document_text=embed_text
+            )
             ok += 1
             logger.info("OK id=%s %s", rid, name[:50])
         except Exception as e:

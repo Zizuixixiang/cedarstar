@@ -207,3 +207,4 @@ miniapp/.env.production
 *.gz
 ngrok.exe
 README.md
+memes.txt

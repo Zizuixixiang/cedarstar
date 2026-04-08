@@ -1,6 +1,6 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合）
+> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量））
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -422,9 +422,10 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **边界：**
 - `get_meme_store()` 单例；持久化目录同 `CHROMADB_PERSIST_DIR`（集合名不同，数据文件与主记忆分集合存放）
-- `add_meme(id, name, url, is_animated, document_text=...)`：对文档文本调用 `siliconflow_embed_text` 后写入；metadata 含 `sqlite_id`（历史兼容字段名，实际存储数据库 `meme_pack.id`）等与 `meme_pack` 表对齐
+- `add_meme` / `upsert_meme`：对 **`document_text`（未传则用 `name`）** 调用 **同步** `siliconflow_embed_text`（仅 .env `SILICONFLOW_API_KEY`）后写入 Chroma。**`add_meme_async` / `upsert_meme_async`**：在已有 asyncio 循环中调用，嵌入走 **`siliconflow_embed_text_async`**（读库内激活 `embedding` 配置，与 `search_meme_async` 一致）。metadata 均含 `name`、`description`（与用于嵌入的 strip 后文本一致）、`url`、`is_animated`、`sqlite_id`（实际为 `meme_pack.id`）
+- **`has_meme_id(meme_id)`**：`collection.get(ids=[...])` 判断 Chroma 是否已有以 PG **`meme_pack.id`** 为 id 的文档（供 `import_memes` 判断「仅补向量」）
 - `search_by_vector(vector, top_k)`：返回 metadata 列表（含解析后的 `id`）
-- 批量导入脚本（如大规模视觉描述）可另建脚本调用 `add_meme`；仓库内 `scripts/import_memes.py` 等为独立流程，不属核心启动路径
+- 批量导入可走 **`scripts/import_memes.py`**（`await initialize_database()`、库内激活 **vision** 与 **embedding**、`add_meme_async` / `upsert_meme_async`）；亦可单独调用 `add_meme` / `upsert_meme`；均不属核心 Bot 启动路径
 
 ---
 
@@ -960,11 +961,14 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `id` | SERIAL PRIMARY KEY | 自增主键；Chroma metadata 中以 `sqlite_id` 字段引用（历史兼容名） |
-| `name` | TEXT NOT NULL | 展示名 / 检索用文本来源之一 |
-| `url` | TEXT NOT NULL | 图片或动图 URL |
+| `name` | TEXT NOT NULL | 短名称（导入清单中的展示名）；**允许重复**（不同 URL 可同名） |
+| `description` | TEXT | 可选；视觉模型等生成的长描述，用于向量嵌入与 Chroma `metadata.description`；空则重同步时回退仅用 `name` 嵌入 |
+| `url` | TEXT NOT NULL | 图片或动图 URL；**业务上唯一**（唯一索引见下） |
 | `is_animated` | INTEGER NOT NULL DEFAULT 0 | `1` 表示动图（发送侧用 `send_animation`），`0` 为静图（`send_photo`） |
 
-**建表：** 与多张核心表一同在 `migrate_database_schema` 初始化阶段 `CREATE TABLE IF NOT EXISTS`。插入辅助：`MessageDatabase.insert_meme_pack`。
+**建表与迁移：** 与多张核心表一同在 `create_tables` 中 `CREATE TABLE IF NOT EXISTS`；已有库由 `migrate_database_schema` 幂等执行：`ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT`；**`DROP INDEX IF EXISTS idx_meme_pack_name_unique`**（若曾存在）；**按 `url` 去重**（`DELETE ... USING`，同一 url 仅保留 **最小 `id`**）；**`CREATE UNIQUE INDEX IF NOT EXISTS idx_meme_pack_url_unique ON meme_pack (url)`**。
+
+**访问：** **`fetch_meme_pack_by_url(url)`** → 单行 `id/name/description/url/is_animated` 或 `None`。**`insert_meme_pack(name, url, is_animated, description=...)`**：**`INSERT ... ON CONFLICT (url) DO UPDATE`**（更新 `name`、`description`、`is_animated`），返回该行 **`id`**（新建或已存在）。
 
 ---
 

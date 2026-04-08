@@ -217,6 +217,26 @@ async def migrate_database_schema(conn) -> None:
     await _messages_ensure_vision_columns(conn)
 
     await conn.execute(
+        "ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT"
+    )
+    # 清单里短 name 可重复；按 url 幂等，避免重复跑同一链接叠行
+    await conn.execute("DROP INDEX IF EXISTS idx_meme_pack_name_unique")
+    # 历史多次导入可能叠了相同 url；建唯一索引前保留 id 最小的一条
+    dedupe_tag = await conn.execute(
+        """
+        DELETE FROM meme_pack AS mp1
+        USING meme_pack AS mp2
+        WHERE mp1.url = mp2.url AND mp1.id > mp2.id
+        """
+    )
+    if dedupe_tag and not str(dedupe_tag).endswith("DELETE 0"):
+        logger.info("meme_pack 迁移：按 url 去重 %s", dedupe_tag)
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_meme_pack_url_unique "
+        "ON meme_pack (url)"
+    )
+
+    await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS user_work TEXT DEFAULT ''"
     )
     await conn.execute(
@@ -424,6 +444,7 @@ class MessageDatabase:
                     CREATE TABLE IF NOT EXISTS meme_pack (
                         id SERIAL PRIMARY KEY,
                         name TEXT NOT NULL,
+                        description TEXT,
                         url TEXT NOT NULL,
                         is_animated INTEGER NOT NULL DEFAULT 0
                     )
@@ -2340,16 +2361,42 @@ class MessageDatabase:
     # meme_pack
     # ------------------------------------------------------------------
 
-    async def insert_meme_pack(self, name: str, url: str, is_animated: int) -> int:
-        """插入 meme_pack 行，返回新自增 id；失败返回 -1。"""
+    async def fetch_meme_pack_by_url(self, url: str) -> Optional[Dict[str, Any]]:
+        """若 ``meme_pack.url`` 已存在则返回该行 ``id/name/description/url/is_animated``，否则 ``None``。"""
+        u = (url or "").strip()
+        if not u:
+            return None
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT id, name, description, url, is_animated "
+                "FROM meme_pack WHERE url = $1",
+                u,
+            )
+        return dict(row) if row else None
+
+    async def insert_meme_pack(
+        self,
+        name: str,
+        url: str,
+        is_animated: int,
+        description: str = "",
+    ) -> int:
+        """按 url 幂等写入：同 url 已存在则更新 name/description/is_animated，返回该行 id；失败返回 -1。"""
+        desc_stripped = (description or "").strip()
+        desc_val = desc_stripped if desc_stripped else None
         async with self.pool.acquire() as conn:
             row_id = await conn.fetchval(
                 """
-                INSERT INTO meme_pack (name, url, is_animated)
-                VALUES ($1, $2, $3)
+                INSERT INTO meme_pack (name, description, url, is_animated)
+                VALUES ($1, $2, $3, $4)
+                ON CONFLICT (url) DO UPDATE SET
+                    name = EXCLUDED.name,
+                    description = EXCLUDED.description,
+                    is_animated = EXCLUDED.is_animated
                 RETURNING id
                 """,
                 (name or "").strip(),
+                desc_val,
                 (url or "").strip(),
                 int(is_animated),
             )
@@ -2359,7 +2406,7 @@ class MessageDatabase:
         """返回 meme_pack 全表行，用于批量重同步 Chroma。"""
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT id, name, url, is_animated FROM meme_pack ORDER BY id"
+                "SELECT id, name, description, url, is_animated FROM meme_pack ORDER BY id"
             )
         return [dict(r) for r in rows]
 

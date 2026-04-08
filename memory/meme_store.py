@@ -6,7 +6,7 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import chromadb
 import requests
@@ -96,10 +96,23 @@ async def siliconflow_embed_text_async(text: str) -> List[float]:
     """异步路径：读取库内 Embedding 配置后调用 /v1/embeddings。"""
     key, base, model = await _resolve_embedding_api_async()
     if not key:
-        raise ValueError(
-            "未配置表情包向量：请在核心设置 → API 配置 → Embedding 填写 API Key 并激活，"
-            "或在 .env 设置 SILICONFLOW_API_KEY 作为兜底"
-        )
+        row = await get_database().get_active_api_config("embedding")
+        if row is None:
+            hint = (
+                "当前 PostgreSQL（.env 的 DATABASE_URL）中，没有 "
+                "config_type='embedding' 且 is_active=1 的 API 配置。"
+                "Embedding 与 Chat/Vision 分开激活：请到 Mini App「设置 → Embedding」"
+                "为该类型新增一条配置并点「激活」。"
+                "若脚本与线上后端连的不是同一数据库，也会出现此提示。"
+            )
+        else:
+            nm = (row.get("name") or "").strip() or "(未命名)"
+            hint = (
+                f"已有激活的 Embedding 配置「{nm}」，但 api_key 在库中为空。"
+                "请在该条配置上重新填写 API Key 并保存，或在 .env 设置 SILICONFLOW_API_KEY 兜底。"
+            )
+        logger.warning("表情包向量无法调用 /embeddings：%s", hint)
+        raise ValueError("未配置表情包向量：" + hint)
     t = (text or "").strip()
     if not t:
         raise ValueError("向量化文本不能为空")
@@ -140,6 +153,36 @@ class MemeStore:
             metadata={"description": "CedarStar 表情包检索"},
         )
 
+    def has_meme_id(self, meme_id: str) -> bool:
+        """Chroma 集合中是否已有以 ``meme_id`` 为 id 的文档（与 PG ``meme_pack.id`` 对应）。"""
+        mid = str(meme_id).strip()
+        if not mid:
+            return False
+        r = self.collection.get(ids=[mid])
+        ids = r.get("ids") if isinstance(r, dict) else None
+        return bool(ids)
+
+    @staticmethod
+    def _meme_doc_and_metadata(
+        meme_id: str,
+        name: str,
+        url: str,
+        is_animated: int,
+        document_text: Optional[str],
+    ) -> Tuple[str, Dict[str, Any]]:
+        doc = (document_text if document_text is not None else name) or ""
+        doc = doc.strip()
+        if not doc:
+            raise ValueError("document_text / name 不能为空")
+        meta: Dict[str, Any] = {
+            "name": name,
+            "description": doc,
+            "url": url,
+            "is_animated": int(is_animated),
+            "sqlite_id": str(meme_id),
+        }
+        return doc, meta
+
     def upsert_meme(
         self,
         meme_id: str,
@@ -150,18 +193,36 @@ class MemeStore:
     ) -> None:
         """
         用当前描述重新算 embedding 并写入 Chroma（同 id 则覆盖）。
-        若在 SQLite 里改过 meme_pack.name，须调用本方法（或跑 scripts/resync_meme_chroma.py）才会与向量检索一致。
+        嵌入请求走 **同步** ``siliconflow_embed_text``（仅 .env ``SILICONFLOW_API_KEY``，无事件循环场景）。
+        若在 PostgreSQL 里改过 ``meme_pack.name`` / ``description``，须调用本方法（或跑 ``scripts/resync_meme_chroma.py``）才会与向量检索一致。
         """
-        doc = (document_text if document_text is not None else name) or ""
-        if not doc.strip():
-            raise ValueError("document_text / name 不能为空")
+        doc, meta = self._meme_doc_and_metadata(
+            meme_id, name, url, is_animated, document_text
+        )
         emb = siliconflow_embed_text(doc)
-        meta: Dict[str, Any] = {
-            "name": name,
-            "url": url,
-            "is_animated": int(is_animated),
-            "sqlite_id": str(meme_id),
-        }
+        self.collection.upsert(
+            ids=[str(meme_id)],
+            embeddings=[emb],
+            documents=[doc],
+            metadatas=[meta],
+        )
+
+    async def upsert_meme_async(
+        self,
+        meme_id: str,
+        name: str,
+        url: str,
+        is_animated: int,
+        document_text: Optional[str] = None,
+    ) -> None:
+        """
+        与 ``upsert_meme`` 相同，但嵌入走 ``siliconflow_embed_text_async``：
+        使用 ``api_configs`` 中激活的 ``embedding`` 行，key 为空时回退 ``SILICONFLOW_API_KEY``。
+        """
+        doc, meta = self._meme_doc_and_metadata(
+            meme_id, name, url, is_animated, document_text
+        )
+        emb = await siliconflow_embed_text_async(doc)
         self.collection.upsert(
             ids=[str(meme_id)],
             embeddings=[emb],
@@ -178,6 +239,18 @@ class MemeStore:
         document_text: Optional[str] = None,
     ) -> None:
         self.upsert_meme(
+            meme_id, name, url, is_animated, document_text=document_text
+        )
+
+    async def add_meme_async(
+        self,
+        meme_id: str,
+        name: str,
+        url: str,
+        is_animated: int,
+        document_text: Optional[str] = None,
+    ) -> None:
+        await self.upsert_meme_async(
             meme_id, name, url, is_animated, document_text=document_text
         )
 
