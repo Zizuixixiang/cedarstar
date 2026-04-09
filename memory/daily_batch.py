@@ -27,7 +27,12 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 from config import config, Platform
-from llm.llm_interface import LLMInterface
+from llm.llm_interface import (
+    LLMInterface,
+    CedarClioOutputGuardExhausted,
+    batch_one_shot_with_async_output_guard,
+    coerce_score_and_arousal_defaults,
+)
 from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display_names
 
 # 导入向量存储函数
@@ -197,6 +202,8 @@ class DailyBatchProcessor:
                 raw_resp = generate_func()
                 parsed = parse_func(raw_resp)
                 return parsed
+            except CedarClioOutputGuardExhausted:
+                raise
             except Exception as e:
                 last_err = e
                 logger.warning(f"[{task_name}] 第 {attempt}/{max_retries} 次失败: {e}")
@@ -367,6 +374,9 @@ class DailyBatchProcessor:
 
             try:
                 self._settled_temporal_snippets = await self._retry_call_and_parse("时效状态改写", _gen, _parse)
+            except CedarClioOutputGuardExhausted:
+                logger.warning("时效状态改写 Guard 用尽，使用原文兜底")
+                self._settled_temporal_snippets = list(contents)
             except Exception as e:
                 logger.warning(f"时效状态改写 JSON 解析最终失败，使用原文兜底: {e}")
                 self._settled_temporal_snippets = list(contents)
@@ -431,9 +441,12 @@ class DailyBatchProcessor:
                 
             try:
                 daily_summary = await self._retry_call_and_parse("生成今日小传", _gen, _parse)
+            except CedarClioOutputGuardExhausted as e:
+                logger.error(f"生成今日小传 Guard 用尽，跳过写入: {e}")
+                return False, str(e)
             except Exception as e:
                 logger.error(f"生成今日小传最终失败: {e}")
-                daily_summary = f"今日总结：包含 {len(chunk_summaries)} 个对话片段。"
+                return False, str(e)
             
             await save_summary(
                 session_id="daily_batch",
@@ -452,20 +465,19 @@ class DailyBatchProcessor:
 
     def _call_summary_llm_custom(self, prompt: str) -> str:
         """使用摘要模型配置执行自定义 prompt（不经 micro_batch 的对话摘要模板包装）。"""
-        from llm.llm_interface import LLMInterface
-
         sl = self.summary_llm
-        llm = LLMInterface(model_name=sl.model_name)
-        llm.api_key = sl.api_key
-        llm.api_base = sl.api_base
-        llm.timeout = sl.timeout
         base = int(getattr(sl, "max_tokens", 500) or 500)
-        llm.max_tokens = min(2048, max(base, 900))
-        llm_resp = llm.generate_with_context_and_tracking(
-            [{"role": "user", "content": prompt}],
+        mt = min(2048, max(base, 900))
+        return batch_one_shot_with_async_output_guard(
+            messages=[{"role": "user", "content": prompt}],
+            model_name=sl.model_name,
+            api_key=sl.api_key or "",
+            api_base=sl.api_base or "",
+            timeout=sl.timeout,
+            max_tokens=mt,
             platform=Platform.BATCH,
+            max_retries=5,
         )
-        return (llm_resp.content or "").strip()
 
     @staticmethod
     def _parse_merged_content_json(raw: str) -> Optional[str]:
@@ -598,6 +610,9 @@ class DailyBatchProcessor:
 
         try:
             return await self._retry_call_and_parse("合并记忆卡片", _gen, _parse)
+        except CedarClioOutputGuardExhausted as e:
+            logger.warning(f"合并记忆卡片 Guard 用尽，使用拼接回退: {e}")
+            return fallback
         except Exception as e:
             logger.warning(f"使用拼接回退: {e}")
             return fallback
@@ -704,6 +719,9 @@ class DailyBatchProcessor:
 
             try:
                 dimension_data = await self._retry_call_and_parse("提取今日小传维度", _gen_dim, _parse_dim)
+            except CedarClioOutputGuardExhausted as e:
+                logger.error(f"提取今日小传维度 Guard 用尽，Step 3 中止: {e}")
+                return False, f"LLM Guard 失败: {e}"
             except Exception as e:
                 logger.error(f"提取今日小传维度失败，Step 3 中止: {e}")
                 return False, f"LLM 调用或解析失败: {e}"
@@ -807,6 +825,9 @@ content 要求：
 
             try:
                 tl_data = await self._retry_call_and_parse("提取关系时间轴", _gen_tl, _parse_tl)
+            except CedarClioOutputGuardExhausted as e:
+                logger.warning(f"关系时间轴 Guard 用尽，跳过写入: {e}")
+                tl_data = {"events": []}
             except Exception as e:
                 logger.warning(f"关系时间轴 LLM 解析最终失败，跳过写入: {e}")
                 tl_data = {"events": []}
@@ -870,31 +891,15 @@ content 要求：
             
             score = 5
             arousal = 0.1
-            def _gen_score():
+            try:
                 llm_resp = self.llm.generate_with_context_and_tracking(
                     [{"role": "user", "content": prompt}],
                     platform=Platform.BATCH,
                 )
-                return (llm_resp.content or "").strip()
-
-            def _parse_score(raw):
-                try:
-                    sd = json.loads(raw)
-                    if isinstance(sd, dict) and "score" in sd and "arousal" in sd:
-                        return sd
-                except: pass
-                s_match = re.search(r'\b([1-9]|10)\b', raw)
-                a_match = re.search(r'"arousal"\s*:\s*([0-9]*\.?[0-9]+)', raw)
-                if not s_match or not a_match:
-                    raise ValueError(f"无法提取 score 和 arousal: {raw[:200]}")
-                return {"score": int(s_match.group(1)), "arousal": float(a_match.group(1))}
-
-            try:
-                score_data = await self._retry_call_and_parse("今日小传打分", _gen_score, _parse_score)
-                score = max(1, min(10, int(score_data.get("score", 5))))
-                arousal = max(0.0, min(1.0, float(score_data.get("arousal", 0.1))))
+                raw_score = (llm_resp.content or "").strip()
+                score, arousal = coerce_score_and_arousal_defaults(raw_score)
             except Exception as e:
-                logger.warning(f"LLM 价值打分最终失败: {e}")
+                logger.warning(f"LLM 价值打分调用失败，使用默认 score/arousal: {e}")
                 score = 5
                 arousal = 0.1
             logger.info(f"今日小传价值分: {score}/10, arousal: {arousal:.2f}")

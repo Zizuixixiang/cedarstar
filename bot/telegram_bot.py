@@ -57,7 +57,14 @@ from bot.reply_citations import (
 from bot.stt_client import TRANSCRIBE_FAIL_USER_CONTENT, transcribe_voice
 from bot.vision_caption import schedule_generate_image_caption
 from config import config, validate_config, Platform
-from llm.llm_interface import LLMInterface, build_user_multimodal_content
+from llm.llm_interface import (
+    LLMInterface,
+    TELEGRAM_GUARD_PROMPT_APPEND,
+    append_guard_hint_to_last_user_message,
+    build_user_multimodal_content,
+    output_guard_blocks_model_text,
+    truncate_accumulator_at_first_refusal,
+)
 from memory.database import (
     VISION_FAIL_CAPTION_SHORT,
     VISION_FAIL_CAPTION_TIMEOUT,
@@ -80,6 +87,8 @@ logger = logging.getLogger(__name__)
 
 _TELEGRAM_THINK_PLACEHOLDER = "…"
 _TELEGRAM_STREAM_GENERIC_ERROR = "抱歉，生成回复时出错了，请稍后再试。"
+# Guard 用尽或仍拒答时的情境兜底（避免向用户展示模型安全拒答原文）
+_TELEGRAM_GUARD_ROLEPLAY_FALLBACK = "……刚才有点走神，我们继续吧。"
 
 
 def _normalize_telegram_reply_segment_markers(text: str) -> str:
@@ -988,6 +997,9 @@ class TelegramBot:
                                         "thinking": t_norm,
                                         "usage": fin.get("usage"),
                                         "tool_calls": fin.get("tool_calls"),
+                                        "guard_refusal_abort": bool(
+                                            fin.get("guard_refusal_abort")
+                                        ),
                                     },
                                 )
                             ),
@@ -1184,6 +1196,11 @@ class TelegramBot:
         err_pack = sse.err_pack
         think_plain = sse.think_plain
         raw_content = sse.raw_content
+        if done_payload is not None:
+            if done_payload.get("guard_refusal_abort") and not (raw_content or "").strip():
+                raw_content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
+            elif output_guard_blocks_model_text(raw_content or ""):
+                raw_content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
         interrupted = sse.interrupted
 
         if err_pack is not None:
@@ -1281,9 +1298,23 @@ class TelegramBot:
         base_message,
         bot,
     ) -> _TelegramStreamOutcome:
-        sse = await self._telegram_stream_llm_one_sse_round(
-            llm, messages, base_message, bot
-        )
+        cur_messages: List[Dict[str, Any]] = messages
+        sse: Optional[_TelegramSseRound] = None
+        for attempt in range(2):
+            sse = await self._telegram_stream_llm_one_sse_round(
+                llm, cur_messages, base_message, bot
+            )
+            fin = sse.done_payload or {}
+            if fin.get("guard_refusal_abort") and attempt == 0:
+                cur_messages = append_guard_hint_to_last_user_message(
+                    messages, TELEGRAM_GUARD_PROMPT_APPEND
+                )
+                logger.warning(
+                    "CedarClio Guard：同步链路流式掐断或拒答，正在静默重试一次"
+                )
+                continue
+            break
+        assert sse is not None
         return await self._telegram_finalize_sse_round_outcome(
             sse, base_message, bot
         )
@@ -1402,15 +1433,34 @@ class TelegramBot:
                 )
 
             if llm._use_anthropic_messages_api():
-
-                def _call_sync() -> Any:
-                    return llm.generate_with_context_and_tracking(
-                        messages, platform=Platform.TELEGRAM
+                cur_m: List[Dict[str, Any]] = messages
+                llm_resp: Any = None
+                last_hit = False
+                for attempt in range(2):
+                    snap = cur_m
+                    llm_resp = await asyncio.to_thread(
+                        lambda m=snap: llm.generate_with_context_and_tracking(
+                            m, platform=Platform.TELEGRAM
+                        )
                     )
-
-                llm_resp = await asyncio.to_thread(_call_sync)
-                if hasattr(llm_resp, 'usage') and llm_resp.usage:
-                    llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
+                    if hasattr(llm_resp, "usage") and llm_resp.usage:
+                        llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
+                    raw_txt = llm_resp.content or ""
+                    safe, hit = truncate_accumulator_at_first_refusal(raw_txt)
+                    last_hit = hit
+                    llm_resp.content = safe
+                    if hit and attempt == 0:
+                        cur_m = append_guard_hint_to_last_user_message(
+                            messages, TELEGRAM_GUARD_PROMPT_APPEND
+                        )
+                        logger.warning(
+                            "CedarClio Guard（Anthropic）：拒答片段，正在静默重试一次"
+                        )
+                        continue
+                    break
+                assert llm_resp is not None
+                if last_hit and not (llm_resp.content or "").strip():
+                    llm_resp.content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
 
                 outcome = await self._telegram_deliver_prefetched_llm_response(
                     llm_resp, base_message, bot

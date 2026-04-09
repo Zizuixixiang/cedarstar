@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-03-22（与 CedarStar 实现对齐：可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1）
+> 文档版本：2026-04-09（与 CedarStar 实现对齐：可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准）
 
 ---
 
@@ -337,6 +337,32 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 
 ---
 
+## 三（补丁）、CedarClio 输出 Guard（v2，以代码为准）
+
+> 实现位置：`llm/llm_interface.py`；Telegram 接入：`bot/telegram_bot.py`；异步摘要/跑批：`memory/micro_batch.py`、`memory/daily_batch.py`。与「读逻辑」并列，描述**模型输出侧**在入库/展示前的安检与重试策略。
+
+### 通用规则
+
+1. **正文相对思维链：** `body_for_output_guard(accumulated)` 自左向右剥离**完整**的思维链块；支持多种开闭标签（`COT_TAG_PAIRS`，含 `<redacted_thinking>`、`<thinking>`、`<reasoning>`、反引号 `think` 块等，按标签 open 长度优先匹配）。  
+2. **未闭合保底：** 若仅有开标签、在**开标签之后内层累计超过** `_GUARD_COT_UNCLOSED_INNER_MAX`（默认 **12000** 字符）仍无对应闭标签，则从该偏移起**强制视为正文**并启用拒答检测（避免截断或漏写 `</...>` 导致永远不检测）。  
+3. **流式：** `generate_stream` 对正文 delta 前置掐断；SSE 返回字典含 `guard_refusal_abort`。
+
+### 同步链路（实时对话，Telegram）
+
+- 首轮若流式/Anthropic 路径判定需拦截，**最多静默重试 1 次**（在最后一条 user 文本末附加 `TELEGRAM_GUARD_PROMPT_APPEND`）。  
+- 仍失败或正文为空时，使用**情境兜底文案**（`_TELEGRAM_GUARD_ROLEPLAY_FALLBACK`），不向用户展示模型安全拒答原文。
+
+### 异步链路（chunk 摘要、daily Step2/3、合并卡片等）
+
+- `batch_one_shot_with_async_output_guard`：**最多 5 次**、温度递减，第 2 次起附加 `ASYNC_BATCH_GUARD_PROMPT_APPEND`。  
+- 仍失败则抛 `CedarClioOutputGuardExhausted`：**chunk 摘要不写入、不标记已摘要**；日终各步按代码**跳过写入或降级**（如 Step1 用原文兜底、Step2 失败则中止等）。
+
+### Step 4 结构化数值（score / arousal）
+
+- **不走** Guard 文本重试；`coerce_score_and_arousal_defaults` 尽力解析 JSON/正则，失败则 **score=5、arousal=0.1**，继续向量归档。
+
+---
+
 ## 四、写逻辑：回复返回后的网关拦截
 
 LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
@@ -515,4 +541,4 @@ doc_id: daily_{batch_date}
 
 ---
 
-*文档版本：v2 · 2026-03-21 · 已合并 GPT System Design Review 补丁*
+*文档版本：v2 · 2026-04-09 · 已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）；实现以仓库代码为准*

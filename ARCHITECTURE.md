@@ -1,6 +1,6 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量））
+> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -71,7 +71,7 @@ cedarstar/                          # 项目根目录
 │
 ├── llm/                            # LLM 接口层
 │   ├── __init__.py                 # 包初始化文件
-│   └── llm_interface.py            # 统一 LLM 接口（支持 OpenAI 兼容 API 和 Anthropic Claude）
+│   └── llm_interface.py            # 统一 LLM 接口 + CedarClio 输出 Guard（流式掐断、多标签思维链剥离、异步 batch 重试）
 │
 ├── memory/                         # 记忆系统层（核心模块）
 │   ├── __init__.py                 # 包初始化文件
@@ -269,6 +269,13 @@ cedarstar/                          # 项目根目录
 
 **`LLMResponse`：** 除 `content` / `model` / `usage` / `finish_reason` / `raw_response` / `thinking` 外，可选 **`tool_calls`**（OpenAI 风格列表，元素含 `id`、`name`、`arguments`（JSON 字符串））。
 
+**CedarClio 输出 Guard（以 `llm/llm_interface.py` 为准）：** 拦截模型「出戏」道歉/安全拒答等，避免污染对话与记忆库。
+- **正文判定 `body_for_output_guard`：** 自左向右剥离完整思维链块；支持多种开闭标签对（`COT_TAG_PAIRS`，含 `<redacted_thinking>`、`<thinking>`、反引号 `think` 块等，按 open 长度优先匹配）。若仅有开标签且长时间无闭标签：**开标签内累计超过 `_GUARD_COT_UNCLOSED_INNER_MAX`（默认 12000）字符**仍无闭合，则从该偏移起**强制视为正文**并启用检测（防截断/漏写闭合导致永远不检测）。
+- **流式：** `StreamContentGuard` + `generate_stream` 对正文 delta 前置掐断；返回字典含 **`guard_refusal_abort`**。
+- **Telegram（同步）：** `telegram_bot` 对 OpenAI 流式与 Anthropic 非流式均在首轮命中后**最多静默重试 1 次**（`append_guard_hint_to_last_user_message` + `TELEGRAM_GUARD_PROMPT_APPEND`）；仍空或拒答则用 **`_TELEGRAM_GUARD_ROLEPLAY_FALLBACK`**，不向用户展示拒答原文。
+- **摘要/跑批（异步）：** `batch_one_shot_with_async_output_guard` 最多 **5** 次、温度递减，第 2 次起 user 附加 `ASYNC_BATCH_GUARD_PROMPT_APPEND`；仍失败抛 **`CedarClioOutputGuardExhausted`**（`micro_batch` 跳过 chunk 写入；`daily_batch` 按步骤跳过或降级，以代码为准）。
+- **Step4 打分：** `coerce_score_and_arousal_defaults` 仅做数值兜底（**不走** Guard 文本重试）。
+
 ---
 
 ### 3.4 `memory/` — 记忆系统层（核心）
@@ -345,6 +352,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 ```
 
 **✅ 已改动（2026-04）：** `process_micro_batch` 开头 **`await fetch_active_persona_display_names()`**（`get_active_api_config('chat')` → `persona_id` → **`persona_configs`** 取 **`char_name` / `user_name`**，失败或空则 **`AI` / `用户`**），经 **`generate_summary_for_messages(..., char_name=..., user_name=...)`** 传入 **`SummaryLLMInterface.generate_summary`**。`generate_summary` 在 prompt 首行注入 **`这是 {char_name} 与 {user_name} 的对话记录。`**，拼装对话正文时用 **`{user_name}:`** / **`{char_name}:`** 替代原先的「用户:」「助手:」；chunk 摘要指令为 **约 150–200 字**，强调主要话题、**双方情绪起伏**、关键信息并弱化无意义语气词，结尾 **`摘要（中文）:`**。模块导出 **`fetch_active_persona_display_names`** 供日终跑批复用。
+
+**✅ CedarClio Guard（2026-04-09）：** `SummaryLLMInterface.generate_summary` 经 **`batch_one_shot_with_async_output_guard`** 生成 chunk 摘要；若 Guard 用尽则**不落库、不标记已摘要**（与 §3.3 一致）。
 
 #### 3.4.4 `daily_batch.py` — 日终跑批
 
@@ -1011,6 +1020,8 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 **问题（历史）：** 小传归档前价值打分路径曾把 `self.llm.generate(prompt)` 的返回值（`LLMResponse`）误当作字符串做正则，应先取 `.content`。
 
 **修复与后续：** 已改为先使用 `score_text = score_response.content` 再匹配；当前实现为 **`_step4_archive_daily_and_events`** 中 `score_text, _thinking = self.llm.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（返回 `(str, Optional[str])`，打分仅用正文），并异步写入 `token_usage`。**演进（2026-04）：** 打分用 **user `prompt`** 在任务正文前加 **`_persona_dialogue_prefix()`**（激活人设 `char_name`/`user_name`，见 §3.4.4）。
+
+**演进（2026-04-09）：** 打分 JSON 解析改为 **`coerce_score_and_arousal_defaults`**（单次 LLM 调用，解析失败则 **score=5、arousal=0.1**，不走 Guard 文本重试链）。
 
 ---
 

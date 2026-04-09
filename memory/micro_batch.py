@@ -26,7 +26,11 @@ if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
 from config import config, Platform
-from llm.llm_interface import LLMInterface
+from llm.llm_interface import (
+    LLMInterface,
+    CedarClioOutputGuardExhausted,
+    batch_one_shot_with_async_output_guard,
+)
 
 # 导入数据库函数
 try:
@@ -167,21 +171,22 @@ class SummaryLLMInterface:
 {conversation_text}
 摘要（中文）:"""
         
-        # 使用 LLMInterface 生成摘要
-        llm = LLMInterface(model_name=self.model_name)
-        llm.api_key = self.api_key
-        llm.api_base = self.api_base
-        llm.timeout = self.timeout
-        llm.max_tokens = self.max_tokens
-        
         try:
-            llm_resp = llm.generate_with_context_and_tracking(
-                [{"role": "user", "content": prompt}],
+            text = batch_one_shot_with_async_output_guard(
+                messages=[{"role": "user", "content": prompt}],
+                model_name=self.model_name,
+                api_key=self.api_key or "",
+                api_base=self.api_base or "",
+                timeout=self.timeout,
+                max_tokens=self.max_tokens,
                 platform=Platform.BATCH,
+                max_retries=5,
             )
-            text = (llm_resp.content or "").strip()
             logger.debug(f"摘要生成成功，长度: {len(text)} 字符")
             return text
+        except CedarClioOutputGuardExhausted as e:
+            logger.error(f"摘要 CedarClio Guard 用尽，跳过写入: {e}")
+            raise
         except Exception as e:
             logger.error(f"摘要生成失败: {e}")
             raise
@@ -259,6 +264,12 @@ async def process_micro_batch(session_id: str) -> None:
         summary_text = await generate_summary_for_messages(
             messages, char_name=char_name, user_name=user_name
         )
+        if not summary_text:
+            logger.error(
+                "会话 %s 摘要未生成（Guard 或异常），跳过落库与标记",
+                session_id,
+            )
+            return
         
         # 3. 保存摘要到数据库
         summary_id = await save_summary(
@@ -310,21 +321,19 @@ async def generate_summary_for_messages(
                 "content": msg['content']
             })
         
-        # 生成摘要
+        # 生成摘要（Guard 用尽时不写入占位摘要，由上层跳过落库）
         summary = summary_llm.generate_summary(
             formatted_messages, char_name=char_name, user_name=user_name
         )
         
         return summary
         
+    except CedarClioOutputGuardExhausted:
+        logger.error("chunk 摘要 Guard 用尽，跳过本次写入")
+        return None
     except Exception as e:
         logger.error(f"生成摘要失败: {e}")
-        # 如果摘要生成失败，返回一个默认摘要
-        message_count = len(messages)
-        first_message = messages[0]['content'][:50] if messages else ""
-        last_message = messages[-1]['content'][:50] if messages else ""
-        
-        return f"自动摘要生成失败。包含 {message_count} 条消息，从 '{first_message}...' 到 '{last_message}...'"
+        return None
 
 
 async def trigger_micro_batch_check(session_id: str) -> None:
