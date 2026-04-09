@@ -689,3 +689,135 @@
     font-size: 13px; /* 稍微缩小字体以适应同一行 */
   }
 }
+
+/* 消息行内：编辑 / 删除 */
+.message-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(0, 0, 0, 0.06);
+}
+
+.message-toolbar.align-end {
+  justify-content: flex-end;
+}
+
+.message-toolbar.align-start {
+  justify-content: flex-start;
+}
+
+.message-toolbar-btn {
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: var(--radius-btn, 8px);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: var(--surface, #fff);
+  color: var(--text-sub);
+  cursor: pointer;
+}
+
+.message-toolbar-btn:hover:not(:disabled) {
+  border-color: var(--accent, #6b5fd6);
+  color: var(--accent);
+}
+
+.message-toolbar-btn.danger:hover:not(:disabled) {
+  border-color: #c0392b;
+  color: #c0392b;
+}
+
+.message-toolbar-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* 编辑弹窗 */
+.history-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(0, 0, 0, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.history-modal {
+  width: 100%;
+  max-width: 520px;
+  max-height: min(90vh, 640px);
+  overflow: auto;
+  background: var(--surface, #fff);
+  border-radius: var(--radius-card, 12px);
+  padding: 20px;
+  box-shadow: var(--shadow-raised, 0 8px 32px rgba(0, 0, 0, 0.15));
+  box-sizing: border-box;
+}
+
+.history-modal-title {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-main);
+}
+
+.history-modal-label {
+  display: block;
+  font-size: 13px;
+  color: var(--text-sub);
+  margin-bottom: 6px;
+}
+
+.history-modal-textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 10px 12px;
+  margin-bottom: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: inherit;
+  line-height: 1.4;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.history-modal-textarea:focus {
+  outline: none;
+  border-color: var(--accent, #6b5fd6);
+}
+
+.history-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.history-modal-btn {
+  padding: 8px 18px;
+  border-radius: var(--radius-btn, 8px);
+  border: 1px solid rgba(0, 0, 0, 0.12);
+  background: var(--surface);
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.history-modal-btn.primary {
+  background: var(--accent, #6b5fd6);
+  color: #fff;
+  border-color: transparent;
+}
+
+.history-modal-btn.primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+}
+
+.history-modal-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}

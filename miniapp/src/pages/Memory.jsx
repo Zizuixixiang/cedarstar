@@ -657,15 +657,25 @@ function Memory() {
           };
         });
         
-        // 填充已有卡片
+        // 填充已有卡片（同一 dimension 可能有多条：不同 user；保留 updated_at 最新的一条，避免后遍历覆盖成旧数据）
         if (data.data && Array.isArray(data.data)) {
+          const cardTime = (c) => {
+            const raw = c.updated_at || c.created_at;
+            if (!raw) return 0;
+            const n = new Date(raw).getTime();
+            return Number.isNaN(n) ? 0 : n;
+          };
           data.data.forEach(card => {
-            if (card.dimension && DIMENSION_MAP[card.dimension]) {
-              cardsByDimension[card.dimension] = {
-                id: card.id || null,
-                content: card.content || '',
-                updated_at: card.updated_at || card.created_at
-              };
+            if (!card.dimension || !DIMENSION_MAP[card.dimension]) return;
+            const next = {
+              id: card.id || null,
+              content: card.content || '',
+              updated_at: card.updated_at || card.created_at
+            };
+            const slot = cardsByDimension[card.dimension];
+            const slotT = cardTime(slot);
+            if (cardTime(card) >= slotT) {
+              cardsByDimension[card.dimension] = next;
             }
           });
         }

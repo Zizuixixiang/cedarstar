@@ -1,6 +1,6 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）
+> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）；**2026-04-09（History / Mini App）**：`GET /api/history` 关键词对 **`COALESCE(content,'')` / `COALESCE(thinking,'')` 子串 `ILIKE`**（`api/history` 与 DB 层均 `strip`）；**`PATCH` / `DELETE /api/history/{message_id}`** 单条编辑删除（`MessageDatabase.update_message_by_id` / `delete_message_by_id`）；前端 History 关键词高亮用 **`split` 捕获组奇数位**（避免 `RegExp.test` + `g` 错乱）、**请求序号**丢弃过期响应；Memory 页加载卡片按 **dimension 保留 `updated_at` 最新一条**（多 `user_id` 时避免旧行覆盖）
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -51,7 +51,7 @@ cedarstar/                          # 项目根目录
 │   ├── dashboard.py                # 控制台概览接口（Bot 状态、记忆概览、批处理日志）
 │   ├── persona.py                  # 人设配置 CRUD 接口
 │   ├── memory.py                   # 记忆管理接口（记忆卡片 + 长期记忆：先 Chroma 后数据库写入，列表含 is_orphan）
-│   ├── history.py                  # 对话历史查询接口（支持平台/关键词/日期过滤+分页）
+│   ├── history.py                  # 对话历史：列表查询（平台/关键词/日期+分页）+ 单条 PATCH/DELETE
 │   ├── logs.py                     # 系统日志查询接口（支持平台/级别/关键词过滤+分页）
 │   ├── config.py                   # 助手运行参数配置接口；GET/PUT 成功时 data 含 _meta.updated_at（见 §5.7）
 │   ├── settings.py                 # API 配置管理接口（api_configs CRUD + Token 消耗统计）
@@ -296,6 +296,8 @@ cedarstar/                          # 项目根目录
 
 **✅ 已修复（2026-04-05）：** `get_messages_filtered` 的 **`date_from` / `date_to`** 若以字符串传入（如查询参数），在 SQL 绑定 `created_at::date` 条件前用 **`date.fromisoformat`** 转为 **`datetime.date`**，避免 asyncpg 类型不匹配导致 **`GET /api/history` 500**（History 页日期筛选）。
 
+**✅ 已演进（2026-04-09）：** 关键词条件为 **`(COALESCE(content, '') ILIKE $pattern OR COALESCE(thinking, '') ILIKE $pattern)`**（同一绑定参数重复用于两列），`pattern` 为 `%keyword%`；`keyword` 在 **`get_messages_filtered`** 内对入参 **`(keyword or "").strip()`** 后再判断是否拼接 WHERE，避免仅空白仍过滤。单条维护：**`update_message_by_id(message_id, content=..., thinking=...)`** 仅更新非 `None` 的字段；**`delete_message_by_id(message_id)`** 按主键删除一行。
+
 **✅ 已修复（2026-04-07）：** asyncpg 不接受字符串形式的日期/时间参数。以下方法在绑定 SQL 前统一将字符串转为对应 Python 类型：`update_daily_batch_step_status`（`batch_date` → `datetime.date`）、`list_incomplete_daily_batch_dates_in_range`（`start_date`/`end_date` → `datetime.date`）、`mark_expired_skipped_daily_batch_logs_before`（`before_date` → `datetime.date`）、`list_expired_active_temporal_states`（`as_of_iso` → `datetime.datetime`）；`get_token_usage_stats` 的 `start_date` 也改为传 `datetime.datetime` 对象，避免 `DataError`。
 
 #### 3.4.2 `context_builder.py` — Context 组装
@@ -456,7 +458,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | `/api/dashboard` | `dashboard.py` | Bot 在线状态、记忆概览、批处理日志 |
 | `/api/persona` | `persona.py` | 人设配置 CRUD + system prompt 预览 |
 | `/api/memory` | `memory.py` | 记忆卡片 CRUD + 长期记忆 + `temporal-states` / `relationship-timeline`（长期记忆列表合并 Chroma 元数据，见下） |
-| `/api/history` | `history.py` | 对话历史查询（过滤+分页） |
+| `/api/history` | `history.py` | **`GET ""`** 列表（平台/关键词/日期 + 分页）；**`PATCH /{message_id}`** 更新正文/思维链；**`DELETE /{message_id}`** 删除单条（均 `{success,data,message}`） |
 | `/api/logs` | `logs.py` | 系统日志查询（过滤+分页） |
 | `/api/config` | `config.py` | 运行参数读写（含 `buffer_delay`、`chunk_threshold`、`telegram_max_chars`、`telegram_max_msg` 等，见 §5.7） |
 | `/api/settings` | `settings.py` | API 配置 CRUD + 激活切换 + Token 统计 |
@@ -494,7 +496,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | Dashboard（控制台概览） | `/` | `/api/dashboard/status` `/api/dashboard/memory-overview` `/api/dashboard/batch-log` |
 | Persona（人设配置） | `/persona` | `/api/persona` |
 | Memory（记忆管理） | `/memory` | `/api/memory/cards` `/api/memory/longterm` `/api/memory/temporal-states` `/api/memory/relationship-timeline` |
-| History（对话历史） | `/history` | `/api/history` |
+| History（对话历史） | `/history` | `GET/PATCH/DELETE /api/history`（见 §3.6 History 页） |
 | Logs（系统日志） | `/logs` | `/api/logs` |
 | Config（助手配置） | `/config` | `/api/config/config` |
 | Settings（核心设置） | `/settings` | `/api/settings/api-configs` `/api/settings/token-usage` |
@@ -509,9 +511,11 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **✅ 已改动（2026-04-05）：** 表单与预览增加 **用户工作**（`user_work`），与 **`persona_configs.user_work`**、后端预览及 **`context_builder._build_system_prompt`** 对齐。
 
-**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。
+**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**记忆卡片加载（以代码为准）：** API 可能返回同一 `dimension` 多条（不同 `user_id`）；前端 `loadMemoryCards` 合并为每维度**一条展示**，保留 **`updated_at`（无则 `created_at`）最新**的记录，避免遍历时后读到的旧行覆盖新行。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。
 
-**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**不改变** `/api/history` 参数与响应消费方式。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。
+**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**列表接口：** `GET /api/history?...` 与 §3.5；**单条编辑：** `PATCH /api/history/{id}`，body 至少含 `content` 或 `thinking` 之一（助手可改思维链）；**删除：** `DELETE /api/history/{id}`。前端每条气泡下有编辑/删除；编辑用弹窗 textarea；**关键词高亮**用正则 `split` 后按捕获组**奇数位**包裹 `<mark>`（勿对带 `/g` 的 `RegExp` 反复 `test`）。**并发：** `fetchHistory` 使用递增序号，仅最新一次请求的响应会更新列表，避免关键词筛选与无关键词响应互相覆盖。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。
+
+**说明：** 在 Mini App 中直接改库 **`messages`** 不会同步修正 Chroma / 摘要等派生数据；若需与向量记忆完全一致，需另行产品或批处理策略。
 
 **API 根地址与请求封装：** 各页通过 `src/apiBase.js` 的 **`apiFetch(path, options)`** 调用后端（内部用 **`apiUrl()`** 拼 URL）。**`apiFetch`** 会为每次请求自动设置 **`Content-Type: application/json`** 与 **`X-Cedarstar-Token`**，令牌来自构建时环境变量 **`VITE_MINIAPP_TOKEN`**（未设置则为空字符串），须与服务器 `.env` 中的 **`MINIAPP_TOKEN`** 一致，否则 `/api/*` 返回 401。环境变量 **`VITE_API_BASE_URL`** 未设置或为空时 **`API_BASE_URL`** 为空字符串，URL 为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。
 
@@ -672,7 +676,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
         ├──► api/persona.py   ──► memory/database.py（persona_configs CRUD）
         ├──► api/memory.py    ──► memory/database.py（memory_cards CRUD）
         │                    ──► memory/vector_store.py（长期记忆：先向量库后镜像表创建；删除先镜像表后向量库）
-        ├──► api/history.py   ──► memory/database.py（messages 表查询）
+        ├──► api/history.py   ──► memory/database.py（`messages` 列表查询 + 单条 UPDATE/DELETE）
         ├──► api/logs.py      ──► memory/database.py（logs 表查询）
         ├──► api/config.py    ──► memory/database.py（config 表读写）
         └──► api/settings.py  ──► memory/database.py（api_configs CRUD + token_usage 统计）
@@ -1031,7 +1035,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 **修复（2026-03-21）：** 在 `memory/database.py` 中新增两个方法，将过滤与分页逻辑完全下推到 SQL 层：
 
-- `get_messages_filtered(platform, keyword, date_from, date_to, page, page_size)`：对 `messages` 表使用 `WHERE` 条件过滤（platform 精确匹配、keyword 对 content/thinking 做 `ILIKE`、date_from/date_to 用 `created_at::date` 比较），`COUNT(*)` 获取总条数，`LIMIT/OFFSET` 分页，同时返回 `{total, messages}`。
+- `get_messages_filtered(platform, keyword, date_from, date_to, page, page_size)`：对 `messages` 表使用 `WHERE` 条件过滤（platform 精确匹配；keyword 非空时对 **`COALESCE(content,'')` 与 `COALESCE(thinking,'')`** 以同一 `%keyword%` 模式做 **`ILIKE`**；date_from/date_to 用 `created_at::date` 比较），`COUNT(*)` 获取总条数，`LIMIT/OFFSET` 分页，同时返回 `{total, messages}`。
 - `get_logs_filtered(platform, level, keyword, page, page_size)`：对 `logs` 表同理，level 自动转大写后精确匹配，keyword 对 message/stack_trace 做 `LIKE`。
 
 `api/history.py` 和 `api/logs.py` 改为直接调用上述新方法，删除了原有的全量加载、Python 内存过滤、手动排序和切片逻辑。过滤条件为空时不拼接对应 `WHERE` 子句。前端接口格式（`total / page / page_size / messages|logs`）保持不变。
@@ -1218,7 +1222,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 | 页面 | 调用的 API 接口 |
 |------|---------------|
 | **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{id}`、`GET/POST /api/memory/temporal-states`、`DELETE /api/memory/temporal-states/{id}`、`GET /api/memory/relationship-timeline` |
-| **History.jsx** | `GET /api/history`（支持 platform / keyword / date_from / date_to / page / page_size 参数） |
+| **History.jsx** | `GET /api/history`（platform / keyword / date_from / date_to / page / page_size）；`PATCH /api/history/{id}`（`content` / `thinking` 可选但至少其一）；`DELETE /api/history/{id}` |
 | **Logs.jsx** | `GET /api/logs`（支持 platform / level / keyword / page / page_size 参数） |
 | **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |
 | **Settings.jsx** | `GET /api/settings/api-configs?config_type=chat|summary|vision|stt|embedding`（按 Tab 过滤）、`POST` / `PUT` / `DELETE` / `PUT .../activate`、`POST .../fetch-models`、`GET /api/settings/token-usage`、`GET /api/persona`；保存配置后按返回表单中的 `config_type` 切换 Tab 或刷新当前列表（见 §3.6 Settings 页说明） |

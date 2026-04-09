@@ -71,22 +71,26 @@ function highlightText(text, keyword) {
   const escaped = keyword.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const regex = new RegExp(`(${escaped})`, 'gi');
   const parts = text.split(regex);
+  // 不能用 regex.test(part)：带 g 标志时 lastIndex 会错乱，导致高亮/片段错误甚至“空白”
   return parts.map((part, i) =>
-    regex.test(part)
-      ? <mark key={i} className="highlight-keyword">{part}</mark>
-      : part
+    i % 2 === 1 ? (
+      <mark key={i} className="highlight-keyword">{part}</mark>
+    ) : (
+      part
+    )
   );
 }
 
 /**
  * 消息气泡组件
  */
-function MessageBubble({ message, keyword }) {
+function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
   const [expanded, setExpanded] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
 
   const isUser = message.role === 'user';
   const isAssistant = message.role === 'assistant';
+  const busy = actionBusyId === message.id;
 
   // 判断内容是否需要折叠（超过5行）
   const contentLines = message.content.split('\n').filter(line => line.trim());
@@ -146,6 +150,27 @@ function MessageBubble({ message, keyword }) {
           )}
         </>
       )}
+
+      <div className={`message-toolbar ${isUser ? 'align-end' : 'align-start'}`}>
+        <button
+          type="button"
+          className="message-toolbar-btn"
+          disabled={busy}
+          onClick={() => {
+            onEdit(message);
+          }}
+        >
+          编辑
+        </button>
+        <button
+          type="button"
+          className="message-toolbar-btn danger"
+          disabled={busy}
+          onClick={() => onDelete(message)}
+        >
+          删除
+        </button>
+      </div>
     </div>
   );
 }
@@ -235,10 +260,17 @@ function History() {
   const [pageSize] = useState(30);
   const [totalItems, setTotalItems] = useState(0);
 
+  const [editingMessage, setEditingMessage] = useState(null);
+  const [editContent, setEditContent] = useState('');
+  const [editThinking, setEditThinking] = useState('');
+  const [actionBusyId, setActionBusyId] = useState(null);
+
   // 防抖引用
   const searchTimeoutRef = useRef(null);
   // 标记是否已完成初始化（防止搜索防抖 effect 在挂载时多触发一次请求）
   const mountedRef = useRef(false);
+  // 递增序号：丢弃过期的 fetch 响应，避免关键词与列表不一致（例如先返回无关键词的旧请求）
+  const historyFetchSeqRef = useRef(0);
 
   // 添加 Toast
   const addToast = useCallback((message, type = 'info') => {
@@ -263,6 +295,7 @@ function History() {
     pageSz,
     isInit = false
   }) => {
+    const reqSeq = ++historyFetchSeqRef.current;
     try {
       if (isInit) {
         setLoading(true);
@@ -301,6 +334,10 @@ function History() {
 
       const data = await response.json();
 
+      if (reqSeq !== historyFetchSeqRef.current) {
+        return;
+      }
+
       if (data.success) {
         console.log('API响应数据:', data.data?.messages?.length || 0, '条消息');
         setMessages(data.data?.messages || []);
@@ -313,13 +350,18 @@ function History() {
         throw new Error(data.message || '获取数据失败');
       }
     } catch (error) {
+      if (reqSeq !== historyFetchSeqRef.current) {
+        return;
+      }
       console.error('加载对话历史失败:', error);
       addToast('加载失败，请稍后重试', 'error');
       setMessages([]);
       setTotalItems(0);
     } finally {
-      setLoading(false);
-      setFetching(false);
+      if (reqSeq === historyFetchSeqRef.current) {
+        setLoading(false);
+        setFetching(false);
+      }
     }
   }, [addToast]);
 
@@ -478,6 +520,109 @@ function History() {
   // 计算总页数
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
 
+  const handleOpenEdit = useCallback((msg) => {
+    setEditContent(msg.content || '');
+    setEditThinking(msg.thinking || '');
+    setEditingMessage(msg);
+  }, []);
+
+  const handleSaveEdit = useCallback(async () => {
+    if (!editingMessage) {
+      return;
+    }
+    setActionBusyId(editingMessage.id);
+    try {
+      const payload = { content: editContent };
+      if (editingMessage.role === 'assistant') {
+        payload.thinking = editThinking;
+      }
+      const res = await apiFetch(`/api/history/${editingMessage.id}`, {
+        method: 'PATCH',
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!data.success) {
+        throw new Error(data.message || '保存失败');
+      }
+      addToast('已保存', 'success');
+      setEditingMessage(null);
+      await fetchHistory({
+        platform: selectedPlatform,
+        keyword: searchKeyword,
+        dateOption: dateRangeOption,
+        dateFrom: customDateFrom,
+        dateTo: customDateTo,
+        page: currentPage,
+        pageSz: pageSize
+      });
+    } catch (error) {
+      console.error(error);
+      addToast(error.message || '保存失败', 'error');
+    } finally {
+      setActionBusyId(null);
+    }
+  }, [
+    editingMessage,
+    editContent,
+    editThinking,
+    addToast,
+    fetchHistory,
+    selectedPlatform,
+    searchKeyword,
+    dateRangeOption,
+    customDateFrom,
+    customDateTo,
+    currentPage,
+    pageSize
+  ]);
+
+  const handleDeleteMessage = useCallback(
+    async (msg) => {
+      if (!window.confirm('确定删除这条消息？此操作不可恢复。')) {
+        return;
+      }
+      setActionBusyId(msg.id);
+      try {
+        const res = await apiFetch(`/api/history/${msg.id}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (!data.success) {
+          throw new Error(data.message || '删除失败');
+        }
+        addToast('已删除', 'success');
+        const newTotal = Math.max(0, totalItems - 1);
+        const maxPage = Math.ceil(newTotal / pageSize) || 1;
+        const nextPage = Math.min(currentPage, maxPage);
+        setCurrentPage(nextPage);
+        await fetchHistory({
+          platform: selectedPlatform,
+          keyword: searchKeyword,
+          dateOption: dateRangeOption,
+          dateFrom: customDateFrom,
+          dateTo: customDateTo,
+          page: nextPage,
+          pageSz: pageSize
+        });
+      } catch (error) {
+        console.error(error);
+        addToast(error.message || '删除失败', 'error');
+      } finally {
+        setActionBusyId(null);
+      }
+    },
+    [
+      addToast,
+      totalItems,
+      pageSize,
+      currentPage,
+      selectedPlatform,
+      searchKeyword,
+      dateRangeOption,
+      customDateFrom,
+      customDateTo,
+      fetchHistory
+    ]
+  );
+
   if (loading) {
     return <SkeletonLoader />;
   }
@@ -495,6 +640,70 @@ function History() {
           />
         ))}
       </div>
+
+      {editingMessage && (
+        <div
+          className="history-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-edit-title"
+          onClick={() => {
+            if (!actionBusyId) {
+              setEditingMessage(null);
+            }
+          }}
+        >
+          <div className="history-modal" onClick={e => e.stopPropagation()}>
+            <div id="history-edit-title" className="history-modal-title">
+              编辑消息
+            </div>
+            <label className="history-modal-label" htmlFor="history-edit-content">
+              正文
+            </label>
+            <textarea
+              id="history-edit-content"
+              className="history-modal-textarea"
+              rows={8}
+              value={editContent}
+              onChange={e => setEditContent(e.target.value)}
+              disabled={!!actionBusyId}
+            />
+            {editingMessage.role === 'assistant' && (
+              <>
+                <label className="history-modal-label" htmlFor="history-edit-thinking">
+                  思维链
+                </label>
+                <textarea
+                  id="history-edit-thinking"
+                  className="history-modal-textarea"
+                  rows={4}
+                  value={editThinking}
+                  onChange={e => setEditThinking(e.target.value)}
+                  disabled={!!actionBusyId}
+                />
+              </>
+            )}
+            <div className="history-modal-actions">
+              <button
+                type="button"
+                className="history-modal-btn"
+                disabled={!!actionBusyId}
+                onClick={() => setEditingMessage(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="history-modal-btn primary"
+                disabled={!!actionBusyId}
+                onClick={handleSaveEdit}
+              >
+                保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 筛选栏 */}
       <div className="filter-bar">
@@ -584,7 +793,13 @@ function History() {
             ) : (
               messages.map(message => (
                 <div key={message.id} className={`message-row ${message.role === 'user' ? 'user-row' : 'assistant-row'}`}>
-                  <MessageBubble message={message} keyword={searchKeyword} />
+                  <MessageBubble
+                    message={message}
+                    keyword={searchKeyword}
+                    onEdit={handleOpenEdit}
+                    onDelete={handleDeleteMessage}
+                    actionBusyId={actionBusyId}
+                  />
                 </div>
               ))
             )}

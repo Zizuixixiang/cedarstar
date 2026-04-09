@@ -724,9 +724,13 @@ class MessageDatabase:
             params.append(platform)
             idx += 1
 
-        if keyword:
-            conditions.append(f"(content LIKE ${idx} OR thinking LIKE ${idx})")
-            params.append(f"%{keyword}%")
+        kw = (keyword or "").strip()
+        if kw:
+            # ILIKE：不区分大小写；COALESCE 避免 NULL 导致整行无法匹配（用户侧 thinking 常为 NULL）
+            conditions.append(
+                f"(COALESCE(content, '') ILIKE ${idx} OR COALESCE(thinking, '') ILIKE ${idx})"
+            )
+            params.append(f"%{kw}%")
             idx += 1
 
         if date_from:
@@ -777,6 +781,42 @@ class MessageDatabase:
             total, page, page_size, platform, keyword,
         )
         return {"total": total, "messages": messages}
+
+    async def update_message_by_id(
+        self,
+        message_id: int,
+        *,
+        content: Optional[str] = None,
+        thinking: Optional[str] = None,
+    ) -> bool:
+        """按主键更新消息正文和/或思维链；仅更新非 None 的字段。"""
+        parts: List[str] = []
+        params: List[Any] = []
+        idx = 1
+        if content is not None:
+            parts.append(f"content = ${idx}")
+            params.append(content)
+            idx += 1
+        if thinking is not None:
+            parts.append(f"thinking = ${idx}")
+            params.append(thinking)
+            idx += 1
+        if not parts:
+            return False
+        params.append(message_id)
+        sql = f"UPDATE messages SET {', '.join(parts)} WHERE id = ${idx}"
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(sql, *params)
+        return _rowcount(status) > 0
+
+    async def delete_message_by_id(self, message_id: int) -> bool:
+        """按主键删除一条消息。"""
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM messages WHERE id = $1",
+                message_id,
+            )
+        return _rowcount(status) > 0
 
     async def get_logs_filtered(
         self,
