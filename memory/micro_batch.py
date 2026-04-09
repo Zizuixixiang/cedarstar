@@ -185,7 +185,7 @@ class SummaryLLMInterface:
             logger.debug(f"摘要生成成功，长度: {len(text)} 字符")
             return text
         except CedarClioOutputGuardExhausted as e:
-            logger.error(f"摘要 CedarClio Guard 用尽，跳过写入: {e}")
+            logger.warning(f"摘要 CedarClio Guard 用尽，跳过写入: {e}")  # 可恢复/已兜底，降为 warning
             raise
         except Exception as e:
             logger.error(f"摘要生成失败: {e}")
@@ -225,7 +225,7 @@ async def check_and_process_micro_batch(session_id: str) -> bool:
         return True
         
     except Exception as e:
-        logger.error(f"检查微批处理失败: {e}")
+        logger.warning(f"检查微批处理失败: {e}")  # 可恢复/已兜底，降为 warning
         return False
 
 
@@ -265,10 +265,10 @@ async def process_micro_batch(session_id: str) -> None:
             messages, char_name=char_name, user_name=user_name
         )
         if not summary_text:
-            logger.error(
+            logger.warning(
                 "会话 %s 摘要未生成（Guard 或异常），跳过落库与标记",
                 session_id,
-            )
+            )  # 可恢复/已兜底，降为 warning
             return
         
         # 3. 保存摘要到数据库
@@ -288,7 +288,7 @@ async def process_micro_batch(session_id: str) -> None:
         logger.info(f"微批处理完成，会话: {session_id}, 摘要ID: {summary_id}, 标记消息: {updated_count} 条")
         
     except Exception as e:
-        logger.error(f"微批处理失败，会话: {session_id}, 错误: {e}")
+        logger.warning(f"微批处理失败，会话: {session_id}, 错误: {e}")  # 可恢复/已兜底，降为 warning
         # 注意：这里不重新抛出异常，避免影响主流程
 
 
@@ -329,10 +329,10 @@ async def generate_summary_for_messages(
         return summary
         
     except CedarClioOutputGuardExhausted:
-        logger.error("chunk 摘要 Guard 用尽，跳过本次写入")
+        logger.warning("chunk 摘要 Guard 用尽，跳过本次写入")  # 可恢复/已兜底，降为 warning
         return None
     except Exception as e:
-        logger.error(f"生成摘要失败: {e}")
+        logger.warning(f"生成摘要失败: {e}")  # 可恢复/已兜底，降为 warning
         return None
 
 
@@ -355,7 +355,7 @@ async def trigger_micro_batch_check(session_id: str) -> None:
             logger.debug(f"会话 {session_id} 未达到微批处理阈值")
             
     except Exception as e:
-        logger.error(f"触发微批处理检查失败: {e}")
+        logger.warning(f"触发微批处理检查失败: {e}")  # 可恢复/已兜底，降为 warning
 
 
 def test_micro_batch() -> None:

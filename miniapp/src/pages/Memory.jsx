@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { apiFetch } from '../apiBase';
 import './../styles/memory.css';
 
@@ -77,6 +78,69 @@ function Toast({ message, type = 'info', onClose }) {
       {type === 'info' && 'ℹ️'}
       <span>{message}</span>
     </div>
+  );
+}
+
+/**
+ * 判断记忆卡片正文在列表中是否会被 CSS 截断（与 .card-content 的 5 行 clamp 大致对齐）
+ */
+function memoryCardListWouldClamp(text) {
+  if (!text || !text.trim()) {
+    return false;
+  }
+  const lineCount = text.split(/\r?\n/).length;
+  return lineCount > 5 || text.length > 220;
+}
+
+/**
+ * 只读查看全文弹窗（无需进入编辑）
+ */
+function ViewMemoryCardModal({ dimension, content, onClose }) {
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const title = DIMENSION_MAP[dimension];
+
+  return createPortal(
+    <div className="memory-view-overlay" onClick={onClose} role="presentation">
+      <div
+        className="memory-view-sheet"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="memory-view-title"
+      >
+        <header className="memory-view-sheet-header">
+          <div className="memory-view-sheet-headings">
+            <h2 id="memory-view-title" className="memory-view-sheet-title">
+              {title}
+            </h2>
+            <p className="memory-view-sheet-sub">只读预览</p>
+          </div>
+          <button type="button" className="memory-view-close" onClick={onClose} aria-label="关闭">
+            完成
+          </button>
+        </header>
+        <div className="memory-view-sheet-body">{content}</div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -412,12 +476,23 @@ function TemporalStateItem({ row, addToast, onRefresh }) {
  * 记忆卡片组件
  */
 function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
+  const [viewOpen, setViewOpen] = useState(false);
   const isEmpty = !content || content.trim() === '';
   const displayContent = isEmpty ? '暂无内容，点击编辑添加' : content;
   const displayTime = updatedAt ? new Date(updatedAt).toLocaleDateString('zh-CN') : '未记录';
-  
+  const showViewFull = !isEmpty && memoryCardListWouldClamp(content);
+
   return (
-    <div className={`memory-card ${isEmpty ? 'empty' : ''}`}>
+    <div
+      className={`memory-card ${isEmpty ? 'empty' : ''} ${showViewFull ? 'memory-card--has-view-link' : ''}`}
+    >
+      {viewOpen && (
+        <ViewMemoryCardModal
+          dimension={dimension}
+          content={content}
+          onClose={() => setViewOpen(false)}
+        />
+      )}
       <div className="memory-card-header">
         <div className="card-title">{DIMENSION_MAP[dimension]}</div>
         <div className="card-actions">
@@ -434,6 +509,15 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
       <div className={`card-content ${isEmpty ? 'empty' : ''}`}>
         {displayContent}
       </div>
+      {showViewFull && (
+        <button
+          type="button"
+          className="card-view-full-link"
+          onClick={() => setViewOpen(true)}
+        >
+          查看全文
+        </button>
+      )}
       <div className="card-footer">
         <div className="card-timestamp">更新: {displayTime}</div>
       </div>

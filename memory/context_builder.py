@@ -261,6 +261,14 @@ async def _retrieval_top_k() -> int:
 MEMORY_CITATION_DIRECTIVE = (
     "如果你在生成回复时参考了上述历史记忆，必须在回复文本末尾标注引用，格式为 [[used:uid]]（半角方括号、双括号），可以有多个。"
     "禁止使用单括号 [used:…]、中文书名号【used:…】，否则无法被系统正确识别。"
+    "\n注意：注入的历史记忆块格式为 [uid:xxx]，其中 xxx 即为你引用时填入 [[used:xxx]] 的标识，两者一一对应。"
+)
+
+# 主对话 system 末尾：引用指令之前的优先级说明（与 MEMORY_CITATION_DIRECTIVE / THINKING_LANGUAGE_DIRECTIVE 用 \\n\\n 分隔）
+MEMORY_BLOCK_PRIORITY_DIRECTIVE = (
+    "当不同区块的记忆信息发生冲突时，请遵循以下优先级（从高到低）：\n"
+    "【时效状态】>【近期消息】>【记忆卡片】>【每日摘要】>【长期记忆】\n"
+    "以较新、较具体的信息为准。"
 )
 
 THINKING_LANGUAGE_DIRECTIVE = (
@@ -307,9 +315,9 @@ async def format_telegram_reply_segment_hint() -> str:
         "优先压缩表达 → 只说重点 → 不突破段数上限。\n\n"
         "(5) 禁止\n"
         "超长整段 / 机械平均切分 / 每段结构完全一致。\n\n"
-        "不要用 Markdown 引用语法「行首 >」或整段 <blockquote> 包大块内容——"
-        "在 Telegram 里会显示成一条条带竖线的引用样式，像公告一样难看；\n"
-        "普通聊天用正常段落即可，需要强调用 <b> 等标签。\n\n"
+        "在回复正文时，请使用正常的段落排版。除非必须，避免用 <blockquote> 包裹大段聊天内容，"
+        "以免在 Telegram 中形成难看的竖线公告样式。注意：思维链的 <blockquote> 是系统底层自动处理的，与正文排版无关。"
+        "行首 > 的 Markdown 引用语法同样禁止使用。\n\n"
         "(6) 表情包\n"
         "把表情包当作真人聊天里随手甩图，自然融入对话。\n"
         "想发时写 [meme:描述]，描述用中文写情绪或内容，例如：[meme:开心大笑]、[meme:无语翻白眼]。\n"
@@ -595,7 +603,7 @@ class ContextBuilder:
             }
             
         except Exception as e:
-            logger.error(f"构建 context 失败: {e}")
+            logger.warning(f"构建 context 失败: {e}")  # 可恢复/已兜底，降为 warning
             # 返回最小化的 context
             return {
                 "system_prompt": config.SYSTEM_PROMPT,
@@ -697,7 +705,7 @@ class ContextBuilder:
             }
             
         except Exception as e:
-            logger.error(f"构建 context 失败（异步）: {e}")
+            logger.warning(f"构建 context 失败（异步）: {e}")  # 可恢复/已兜底，降为 warning
             # 返回最小化的 context
             return {
                 "system_prompt": config.SYSTEM_PROMPT,
@@ -805,7 +813,7 @@ class ContextBuilder:
                 lines.append(chunk)
             return "\n".join(lines)
         except Exception as e:
-            logger.error(f"构建 temporal_states 部分失败: {e}")
+            logger.warning(f"构建 temporal_states 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
 
     async def _build_relationship_timeline_section(self) -> str:
@@ -843,7 +851,7 @@ class ContextBuilder:
                 lines.append(f"- **{label}**（{created_fmt}）\n  {content}")
             return "\n".join(lines)
         except Exception as e:
-            logger.error(f"构建 relationship_timeline 部分失败: {e}")
+            logger.warning(f"构建 relationship_timeline 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
     
     async def _build_memory_cards_section(self) -> str:
@@ -909,7 +917,7 @@ class ContextBuilder:
                 return ""
                 
         except Exception as e:
-            logger.error(f"构建 memory cards 部分失败: {e}")
+            logger.warning(f"构建 memory cards 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
     
     async def _build_daily_summaries_section(self) -> str:
@@ -955,7 +963,7 @@ class ContextBuilder:
                 return ""
                 
         except Exception as e:
-            logger.error(f"构建 daily summary 部分失败: {e}")
+            logger.warning(f"构建 daily summary 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
     
     async def _build_chunk_summaries_section(self) -> str:
@@ -1007,7 +1015,7 @@ class ContextBuilder:
                 return ""
                 
         except Exception as e:
-            logger.error(f"构建 chunk summary 部分失败: {e}")
+            logger.warning(f"构建 chunk summary 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
     
     async def _build_vector_search_section(self, user_message: str) -> str:
@@ -1065,7 +1073,7 @@ class ContextBuilder:
             return f"# 相关长期记忆（双路检索结果）\n\n{vector_section}"
 
         except Exception as e:
-            logger.error(f"构建向量检索部分失败: {e}")
+            logger.warning(f"构建向量检索部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
     
     async def _build_vector_search_section_async(self, user_message: str) -> str:
@@ -1153,7 +1161,7 @@ class ContextBuilder:
             return f"# 相关长期记忆（精排结果）\n\n{vector_section}"
 
         except Exception as e:
-            logger.error(f"构建向量检索部分失败（异步）: {e}")
+            logger.warning(f"构建向量检索部分失败（异步）: {e}")  # 可恢复/已兜底，降为 warning
             logger.warning("异步检索失败，回退到同步检索")
             return await self._build_vector_search_section(user_message)
     
@@ -1200,7 +1208,7 @@ class ContextBuilder:
             return messages
             
         except Exception as e:
-            logger.error(f"构建最近消息部分失败: {e}")
+            logger.warning(f"构建最近消息部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return []
     
     def _build_current_user_message(
@@ -1276,6 +1284,7 @@ class ContextBuilder:
             sections.append("---")
             sections.append("以上是历史信息和用户记忆，请基于这些信息进行对话。")
 
+        sections.append(MEMORY_BLOCK_PRIORITY_DIRECTIVE)
         sections.append(MEMORY_CITATION_DIRECTIVE)
         sections.append(THINKING_LANGUAGE_DIRECTIVE)
 

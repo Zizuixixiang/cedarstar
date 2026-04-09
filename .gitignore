@@ -186,6 +186,8 @@ logs/
 *.tmp
 *.temp
 temp/
+# backup.sh pg_dump 临时文件名（通常位于 /tmp；若误拷入仓库根目录则忽略）
+cedarstar_db.dump
 
 # OS generated files
 .DS_Store

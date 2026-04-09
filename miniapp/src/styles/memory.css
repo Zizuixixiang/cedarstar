@@ -169,6 +169,7 @@ h2.memory-tab-header__title,
 @media (max-width: 600px) {
   .memory-cards-grid {
     grid-template-columns: 1fr;
+    gap: 24px;
   }
 }
 
@@ -192,6 +193,11 @@ h2.memory-tab-header__title,
   border: none;
   box-shadow: var(--shadow-inset);
   background: var(--surface);
+}
+
+/* 带「查看全文」时多留底部空间，避免与绝对定位的页脚重叠 */
+.memory-card--has-view-link {
+  padding-bottom: 40px;
 }
 
 /* 卡片头部 */
@@ -234,6 +240,136 @@ h2.memory-tab-header__title,
   font-style: italic;
   text-align: center;
   padding: 24px 0;
+}
+
+.card-view-full-link {
+  display: block;
+  margin: -8px 0 12px;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font-size: 0.9rem;
+  cursor: pointer;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.card-view-full-link:hover {
+  filter: brightness(1.08);
+}
+
+/* 只读全文：挂到 body，纯色遮罩 + 单层阅读面板，避免与背后卡片叠成「框套框」 */
+.memory-view-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: rgba(32, 36, 44, 0.58);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.memory-view-sheet {
+  width: 100%;
+  max-width: 560px;
+  max-height: min(92dvh, 820px);
+  background: var(--surface);
+  border-radius: var(--radius-card);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.memory-view-sheet-header {
+  flex-shrink: 0;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 18px 14px;
+  border-bottom: 1px solid rgba(74, 85, 104, 0.12);
+}
+
+.memory-view-sheet-headings {
+  min-width: 0;
+}
+
+.memory-view-sheet-title {
+  margin: 0;
+  font-family: 'Lora', serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--text-main);
+  line-height: 1.3;
+}
+
+.memory-view-sheet-sub {
+  margin: 6px 0 0;
+  font-size: 0.8rem;
+  color: var(--text-sub);
+}
+
+.memory-view-close {
+  flex-shrink: 0;
+  margin-top: 2px;
+  padding: 8px 14px;
+  border: none;
+  border-radius: var(--radius-btn);
+  background: var(--accent);
+  color: #fff;
+  font-size: 0.9rem;
+  font-weight: 500;
+  cursor: pointer;
+  box-shadow: var(--shadow-raised);
+}
+
+.memory-view-close:active {
+  box-shadow: var(--shadow-inset);
+}
+
+.memory-view-sheet-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  padding: 18px 20px 24px;
+  color: var(--text-main);
+  font-size: 1.02rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  word-break: break-word;
+  text-align: left;
+}
+
+@media (max-width: 600px) {
+  .memory-view-overlay {
+    padding: 0;
+    align-items: stretch;
+  }
+
+  .memory-view-sheet {
+    max-width: none;
+    max-height: none;
+    min-height: 100dvh;
+    border-radius: 0;
+    box-shadow: none;
+  }
+
+  .memory-view-sheet-header {
+    padding-top: max(16px, env(safe-area-inset-top));
+    padding-left: max(18px, env(safe-area-inset-left));
+    padding-right: max(18px, env(safe-area-inset-right));
+  }
+
+  .memory-view-sheet-body {
+    padding-bottom: max(24px, env(safe-area-inset-bottom));
+  }
 }
 
 /* 卡片底部 */

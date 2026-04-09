@@ -1,6 +1,8 @@
 # CedarStar 项目架构文档
 
-> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）；**2026-04-09（History / Mini App）**：`GET /api/history` 关键词对 **`COALESCE(content,'')` / `COALESCE(thinking,'')` 子串 `ILIKE`**（`api/history` 与 DB 层均 `strip`）；**`PATCH` / `DELETE /api/history/{message_id}`** 单条编辑删除（`MessageDatabase.update_message_by_id` / `delete_message_by_id`）；前端 History 关键词高亮用 **`split` 捕获组奇数位**（避免 `RegExp.test` + `g` 错乱）、**请求序号**丢弃过期响应；Memory 页加载卡片按 **dimension 保留 `updated_at` 最新一条**（多 `user_id` 时避免旧行覆盖）
+> 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）；**2026-04-09（History / Mini App）**：`GET /api/history` 关键词对 **`COALESCE(content,'')` / `COALESCE(thinking,'')` 子串 `ILIKE`**（`api/history` 与 DB 层均 `strip`）；**`PATCH` / `DELETE /api/history/{message_id}`** 单条编辑删除（`MessageDatabase.update_message_by_id` / `delete_message_by_id`）；前端 History 关键词高亮用 **`split` 捕获组奇数位**（避免 `RegExp.test` + `g` 错乱）、**请求序号**丢弃过期响应；Memory 页加载卡片按 **dimension 保留 `updated_at` 最新一条**（多 `user_id` 时避免旧行覆盖）；**2026-04-10：`context_builder`** 在 `MEMORY_CITATION_DIRECTIVE` / `THINKING_LANGUAGE_DIRECTIVE` 之前注入 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**（多区块冲突时的优先级链），并在引用指令中说明 **`[uid:xxx]` 与 `[[used:xxx]]` 一一对应**；**`format_telegram_reply_segment_hint`** 区分正文 `<blockquote>` / 行首 `>` 与思维链系统占位；**`daily_batch` Step 3**：`_merge_memory_card_contents` 按维度三分支（`interaction_patterns` / `current_status`+`preferences` 覆写 / 其余），`current_status`·`preferences` 合并前将旧卡正文 **`add_memory`** 归档为 **`summary_type=state_archive`**（`doc_id` 形如 `state_{user_id}_{character_id}_{dimension}_{batch_date}`，metadata 含 `source`、`dimension`、`date`）；**关系时间轴**提取 prompt 改为**第三人称**与真实姓名、禁相对日期词
+>
+> **2026-04-11：** **`llm_interface._post_with_retry`**：上游 HTTP **429/503** 最多 **5** 次**立即**重试（共 **6** 次请求，无 sleep）；**Settings** 首次 Token 统计请求 **`period=latest`**；**Memory** 记忆卡片 **查看全文**（`createPortal` 全屏只读层）；**`context_builder` / `micro_batch`** 可恢复路径降为 **WARNING**。详见 §3.3、§3.6、§3.4.2–§3.4.3。
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -71,7 +73,7 @@ cedarstar/                          # 项目根目录
 │
 ├── llm/                            # LLM 接口层
 │   ├── __init__.py                 # 包初始化文件
-│   └── llm_interface.py            # 统一 LLM 接口 + CedarClio 输出 Guard（流式掐断、多标签思维链剥离、异步 batch 重试）
+│   └── llm_interface.py            # 统一 LLM 接口 + CedarClio 输出 Guard；`_post_with_retry` 对 HTTP 429/503 最多 5 次立即重试（共 6 次请求）
 │
 ├── memory/                         # 记忆系统层（核心模块）
 │   ├── __init__.py                 # 包初始化文件
@@ -133,6 +135,7 @@ cedarstar/                          # 项目根目录
 │   └── cedarstar.db.backup_dimension # 维度字段变更前的备份
 │
 ├── run_daily_batch.py              # 日终跑批独立入口：`await initialize_database()` 后 `DailyBatchProcessor().run_daily_batch()`；供 cron 调用，用法见 §4.2
+├── backup.sh                       # 全量备份（Bash）：读 `.env` 的 `DATABASE_URL` → `pg_dump -F c` → 与 `chroma_db/`、`.env` 打 tar.gz → `rclone copy`；详见 §4.2.1
 ├── migrate_to_postgres.py          # SQLite → PostgreSQL：仅迁移 persona_configs / api_configs / config 三表
 ├── supervisord.conf                # Supervisor 示例：运行 `python main.py`（部署路径按需修改）
 │
@@ -243,6 +246,7 @@ cedarstar/                          # 项目根目录
 - 优先从数据库 `api_configs` 表读取激活配置，回退到 `.env` 环境变量；激活行中的 `persona_id` 在构造时解析为实例属性 `character_id`（字符串，与 Bot 存消息共用，无则 `"sirius"`）
 - 支持 `config_type` 为 `chat` / `summary` / `vision`（**语音转录 `stt` 不走本类**，由 **`bot/stt_client.py`** 单独读库调用 `/audio/transcriptions`）；**对话 API 路径**根据 `api_base` 是否含 `anthropic`（或模型名含 `claude`）选择 Anthropic Messages API 与 OpenAI 兼容 `chat/completions`；用户多模态 content 按提供商组装（Claude：`image`+base64 source；OpenAI 兼容：`image_url`+data URL）
 - **读超时：** `generate_with_context` / `generate_with_context_and_tracking` 使用 `_request_timeout_seconds(messages)`：`messages_contain_multimodal_images(messages)` 为真时取 `max(LLM_TIMEOUT, LLM_VISION_TIMEOUT)`，否则为 `LLM_TIMEOUT`。**`config_type=vision`** 构造时已将 `self.timeout` 设为 `max(LLM_TIMEOUT, LLM_VISION_TIMEOUT)`，与贴纸识图等路径一致。`requests.post(..., timeout=…)` 触发超时时，ERROR 日志附带「请求中含多模态图片」或「无多模态图片，多为上下文过大或上游慢」，便于与 Bot 侧「本轮是否带图」对照。**`generate_stream`（Telegram 缓冲等）** 使用 `timeout=(min(30, LLM_STREAM_READ_TIMEOUT), LLM_STREAM_READ_TIMEOUT)`，与单次非流式请求的单一 `LLM_TIMEOUT` 语义不同（流式读超时约束「两次 SSE 数据之间」）
+- **HTTP 429 / 503（以代码为准）：** **`LLMInterface._post_with_retry`** 统一封装上述入口的 `requests.post`（含 **`generate` / `generate_with_context` / `generate_with_context_and_tracking` / `generate_with_thinking` / `generate_stream`** 的流式整段请求）。仅当响应状态码为 **429** 或 **503** 时**立即**重试（**无**间隔 sleep、**不**解析 `Retry-After`），最多 **5** 次重试（共 **6** 次 HTTP 请求）；每次重试前 **WARNING**。其它非 2xx **不**重试，记 ERROR 后 **`raise_for_status()`**
 - 不维护对话历史状态（无状态）
 - 支持思维链内容提取（DeepSeek R1 的 `reasoning_content`、Gemini 的 `thinking`），由 `generate_with_context_and_tracking` / `generate_with_thinking` 等在完整响应中解析；**流式**由 `generate_stream` 在 SSE `delta` 中读取 **`reasoning_content` / `reasoning` / `thinking`** 逐段 yield `("thinking", chunk)`，正文 yield `("content", chunk)`；若此前 delta 无推理片段，则在 **`choices[0].message`** 中同名字段补一次整段（适配仅末包给推理的网关）。生成器返回 `{"content","thinking","usage"}`
 - **Tool calling（OpenAI 兼容）：** `generate` / `generate_with_token_tracking` / `generate_with_context_and_tracking` / `generate_with_thinking` / `generate_stream` 可选传入 `tools`；`_prepare_openai_payload` 在有 `tools` 时附带 `tool_choice: "auto"`；`_parse_openai_response` 将 `choices[0].message.tool_calls` 规范为 `LLMResponse.tool_calls`（每项 `id` / `name` / `arguments` 字符串）。Anthropic Messages API 路径暂不注入 tools，解析侧 `tool_calls` 恒为 `None`
@@ -328,10 +332,12 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **边界：**
 - 同步版 `build_context()`：双路检索 + 父子折叠，无 Cohere；长期记忆块标题为「双路检索结果」
 - 异步版 `build_context_async()`：并行检索 + 折叠 + Cohere 全候选打分 + 上述融合公式取 top2；`COHERE_API_KEY` 不可用时回退为同步双路逻辑
-- System 块末尾固定追加引用死命令：若参考了上述历史记忆，须在回复文末标注 `[[used:uid]]`（可多个）；**勿**用单括号 `[used:…]` 或 `【used:…】`（`MEMORY_CITATION_DIRECTIVE`）；并追加思维链须中文（`THINKING_LANGUAGE_DIRECTIVE`：thinking / reasoning 使用中文）
-- 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 Telegram **HTML 白名单、`|||` 分段、勿滥用 Markdown `>` / `<blockquote>`、`[meme:描述]` 与 `|||` 同级顺序分隔、表情包自然融入对话的指引**（见 `context_builder.format_telegram_reply_segment_hint()`，其中 MAX_CHARS / MAX_MSG 读自 `config` 表的 `telegram_max_chars` / `telegram_max_msg`；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
+- System 块在「历史桥接」之后、固定指令之前：先追加 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**（多区块信息冲突时：**时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆**，以较新、较具体为准；与上文「组装顺序」为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）；再追加 **`MEMORY_CITATION_DIRECTIVE`**（须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应）；最后 **`THINKING_LANGUAGE_DIRECTIVE`**（思维链须中文）
+- 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 Telegram **HTML 白名单、`|||` 分段、`[meme:描述]` 与 `|||` 顺序、表情包指引**；第 (5) 条区分**正文**勿滥用 `<blockquote>` / 行首 `>` 与**思维链**由系统底层处理的 `<blockquote>`（见 `context_builder.format_telegram_reply_segment_hint()`；MAX_CHARS / MAX_MSG 读自 `config` 表；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 
 **✅ 已改动（2026-04-05）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`** 组装 system 正文（【Char 人设】/【User 的人设】/【系统规则】等，与 Mini App `Persona.jsx` 预览格式一致）；无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**（`.env` 的 `SYSTEM_PROMPT`）。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
+
+**日志（以代码为准）：** 顶层 `build_context` / `build_context_async` 捕获异常后回退最小 context，以及各 `_build_*_section` 失败返回空串/空列表等**可恢复**路径，使用 **WARNING**（与硬故障区分）。
 
 #### 3.4.3 `micro_batch.py` — 微批处理
 
@@ -357,6 +363,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **✅ CedarClio Guard（2026-04-09）：** `SummaryLLMInterface.generate_summary` 经 **`batch_one_shot_with_async_output_guard`** 生成 chunk 摘要；若 Guard 用尽则**不落库、不标记已摘要**（与 §3.3 一致）。
 
+**日志（以代码为准）：** Guard 用尽跳过写入、摘要未生成即返回、检查/处理/触发路径吞异常不阻断主流程等，对应 **WARNING**（非 ERROR）。
+
 #### 3.4.4 `daily_batch.py` — 日终跑批
 
 **职责：** 在东八区某业务日执行五步流水线（支持断点续跑）。**标准部署**下由 **cron（或同类）按 `config.daily_batch_hour` 所设整点**（默认 23:00）调用项目根目录 **`run_daily_batch.py`** 触发；`daily_batch_hour` 为业务约定，**cron 表达式须与之一致**（代码不会替运维「自动对齐」系统时钟）。
@@ -369,20 +377,20 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 |------|------|
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | 将 Step 1 输出附在 prompt 开头，合并今日 chunk 摘要，调用 SUMMARY LLM 生成今日小传（`summary_type='daily'`） |
-| Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则调用模型合并去重后 `UPDATE`，合并失败时 fallback 为追加写入**；结束时再调 SUMMARY LLM 判断是否写入 `relationship_timeline`（含 Step 1 结算的时效事件），有则 `INSERT` |
+| Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则**对 `current_status` / `preferences` 先将旧正文 **`vector_store.add_memory`** 归档（`summary_type=state_archive`，`doc_id` 含 `user_id`/`character_id`/`dimension`/`batch_date`，失败仅 warning）；再 **`_merge_memory_card_contents`** 合并后 `UPDATE`（**失败时 fallback** 追加写入）。**关系时间轴** JSON：第三人称、真实姓名、禁「今天/昨天」等相对日期词。结束时写入 `relationship_timeline` |
 | Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
 **Step 3 实现要点（与代码一致）：**
 - **维度 JSON 提取与重试策略：** 对所有 SUMMARY LLM 相关 JSON 结构和主 LLM 的 `score` / `arousal` 分数结果提取，均已统一采用基于 `_retry_call_and_parse` 的重试机制，出错时最多重试 5 次，并在内部对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则；如果仍失败且未达上限将触发 asyncio 等待并重新生成。
 - **Upsert 行定位：** `get_latest_memory_card_for_dimension()`（不过滤 `is_active`），保证「全表 `is_active=0` 后重跑」仍更新同一逻辑行，而非误当作无记录而堆叠 `INSERT`。
-- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom` 使用摘要模型配置的 `LLMInterface.generate_with_context_and_tracking([{"role":"user","content":prompt}], platform=Platform.BATCH)`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 多轮摘要外壳）；prompt 含 **`_persona_dialogue_prefix()`**、新版「逻辑合并」说明（去重、无缝整合段落、勿 Markdown 列表、勿遗漏旧设定等）、**维度补充**（`interaction_patterns` 与其它维度不同细则）、**输出要求**为严格 JSON `{"content":"…"}`（**不再**在 prompt 中写死 400 字上限）。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」式追加。`update_memory_card(..., dimension=None, reactivate=True)` 写库并**重新激活**该卡。
+- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 外壳）。**维度三分支：** `interaction_patterns` 单独细则；**`current_status` / `preferences`** 为覆写型（旧状态已归档向量侧，合并 prompt 不含「矛盾则双保留并标日期」句）；**其余维度**保留「矛盾则 `[YYYY-MM-DD]` 标注」句。输出严格 JSON `{"content":"…"}`。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」。`update_memory_card(..., reactivate=True)` 写库并**重新激活**。
 
 **跑批 Prompt 与人物称呼（2026-04，与代码一致）：**
 - **`run_daily_batch`** 在 **`await LLMInterface.create()`** 之后 **`await fetch_active_persona_display_names()`**（同 §3.4.3，来自 `memory.micro_batch`），写入 **`_batch_char_name` / `_batch_user_name`**；**`_persona_dialogue_prefix()`** 返回 `这是 {char} 与 {user} 的对话记录。\n`。
 - **Step 1**（时效状态 JSON 数组改写）：**前缀 + 原任务正文**，仅 **`_call_summary_llm_custom`**，避免套 chunk「为对话生成摘要」模板。
 - **Step 2**（今日小传）：**前缀 +** 按时间顺序、话题/事件/情感、保留互动细节与羁绊、勿分点列举等指令 + **`today_content`** + **`今日小传（中文）:`**，**`_call_summary_llm_custom`**。
-- **Step 3**（七维 JSON、**关系时间轴** JSON）：仍 **`summary_llm.generate_summary([{"role":"user","content":prompt}], char_name=..., user_name=...)`**（内部带对话记录前缀，单条 user 承载完整任务文）。
+- **Step 3**（七维 JSON、**关系时间轴** JSON）：仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
 - **Step 4**（小传 **score/arousal**）：主 LLM 的 user **prompt 前加 `_persona_dialogue_prefix()`**；**事件拆分**仍 **`generate_summary`** 并传 `char_name` / `user_name`。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
@@ -394,7 +402,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **职责：** 封装 ChromaDB 操作，使用智谱 AI `embedding-3` 模型生成向量；**工程约定为 1024 维**（与占位零向量、检索逻辑一致）。
 
 **边界：**
-- 日终由 `daily_batch` 全量写入当日小传（及可选事件片段）；手工长期记忆仍通过 Mini App 写入
+- 日终由 `daily_batch` 全量写入当日小传（及可选事件片段）；Step 3 可对 `state_archive` 类型写入归档片段（与 `daily` / `daily_event` / 手工长期记忆并列存在于同一 Chroma 集合）；手工长期记忆仍通过 Mini App 写入
 - 提供 `add_memory()` / `search_memory()` / `delete_memory()` / `update_memory_hits()` 便捷函数
 - 集合名称固定为 `cedarstar_memories`
 - **智谱 API 与维度：** `embedding-3` 在 HTTP 请求体中**若不传 `dimensions`，默认返回 2048 维**。`vector_store.ZhipuEmbedding` **必须**在调用 `/embeddings` 时显式传入 **`dimensions: 1024`**，否则首次 `collection.add` 会把 Chroma 集合固定为 2048，而查询与其它路径仍按 1024 维构造向量，会出现 `Collection expecting embedding with dimension of 2048, got 1024`（或同类维度不匹配），`get_all_memories`、BM25 `refresh_index` 也会异常。
@@ -503,7 +511,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Dashboard 页（`Dashboard.jsx` / `dashboard.css`）：** 挂载时并发请求 §3.5 三个控制台接口。顶栏为 Discord/Telegram 在线、**对话**侧激活配置名与模型（`/status`，与 `get_active_api_config('chat')` 一致）、批处理结论（由同页已拉取的 `/batch-log` 最近一条的 `step1_status`～`step5_status` 推导）。下方为跑批日历与记忆库概览；概览数据来自 `/memory-overview`，含 `chromadb_count`、`short_term_limit`、`chunk_summary_count`（今日微批摘要条数）、`dimension_status`（七维度圆点）、`latest_daily_summary_time` 等，具体字段以 `api/dashboard.py` 为准。样式层含核心 KPI 大字、今日日历高亮、维度 Tooltip 等（纯前端，不改变接口）。
 
-**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」「摘要 API」「视觉 API」「语音转录 API」「**Embedding**」五个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=…`（`chat` / `summary` / `vision` / `stt` / `embedding`），切换 Tab 时重新拉取。首次迁移会在 `api_configs` 插入默认 **`config_type=embedding`** 行（名称「硅基流动 bge-m3」、`base_url`/`model` 预填、`api_key` 空、**已激活**），用户在 Mini App 中补 Key 即可。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表。`POST`/`PUT` 允许的 `config_type` 含 `embedding`（表情包向量用，与 `stt` 同理独立激活）。Tab 样式见 `settings.css` 中 `.config-tabs` / `.config-tab` / `.embedding-type`。移动端（<768px）为竖向堆叠布局与 2x2 Token 网格。**Token 平台进度条（2026-04-07 更新）：** 不再硬编码 Telegram / Discord 两条；改为动态遍历 `tokenStats.by_platform` 所有键，过滤值为 0 的条目后按用量降序展示，颜色通过 `PLATFORM_COLOR` 字典映射（`telegram`→`#5ba4cf`，`discord`→`#7289da`，`batch`→`#a0aec0`，其余→紫色兜底），新增平台无需改代码。**Period Tabs 布局（2026-04-07 更新）：** 桌面端 `.period-tabs` 加 `margin-left: auto` 对齐卡片右侧；移动端改为宽度 100%、左对齐展示。
+**Settings 页（`Settings.jsx` / `settings.css`）：** 「对话 API」「摘要 API」「视觉 API」「语音转录 API」「**Embedding**」五个 Tab，列表分别请求 `GET /api/settings/api-configs?config_type=…`（`chat` / `summary` / `vision` / `stt` / `embedding`），切换 Tab 时重新拉取。首次迁移会在 `api_configs` 插入默认 **`config_type=embedding`** 行（名称「硅基流动 bge-m3」、`base_url`/`model` 预填、`api_key` 空、**已激活**），用户在 Mini App 中补 Key 即可。新增/编辑弹窗内可改 `config_type`；**保存成功后以表单中的类型为准**——若与当前 Tab 不一致则自动切换到对应 Tab 并加载列表。`POST`/`PUT` 允许的 `config_type` 含 `embedding`（表情包向量用，与 `stt` 同理独立激活）。Tab 样式见 `settings.css` 中 `.config-tabs` / `.config-tab` / `.embedding-type`。移动端（<768px）为竖向堆叠布局与 2x2 Token 网格。**Token 平台进度条（2026-04-07 更新）：** 不再硬编码 Telegram / Discord 两条；改为动态遍历 `tokenStats.by_platform` 所有键，过滤值为 0 的条目后按用量降序展示，颜色通过 `PLATFORM_COLOR` 字典映射（`telegram`→`#5ba4cf`，`discord`→`#7289da`，`batch`→`#a0aec0`，其余→紫色兜底），新增平台无需改代码。**Token 统计首次加载（以代码为准）：** 与默认 Period Tab「**本次**」一致，挂载时请求 **`GET /api/settings/token-usage?period=latest`**（非 `today`）。**Period Tabs 布局（2026-04-07 更新）：** 桌面端 `.period-tabs` 加 `margin-left: auto` 对齐卡片右侧；移动端改为宽度 100%、左对齐展示。
 
 **Config 页（`Config.jsx` / `config.css`）：** 与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐：上方为通用运行参数（**滑块 + 数字步进**），底部 **「保存并立即生效」** 一次 `PUT /api/config/config` 写回当前页全部键。其下 **「Telegram 参数」** 包含流式思维链发送开关 `send_cot_to_telegram`（默认选 1），以及 `telegram_max_chars`（10–1000、步长 10）与 `telegram_max_msg`（1–20），控件布局与同页其它行一致；每项可点 **「保存此项」** 单独 `PUT`，请求体仅含该键（仍走同一接口）。**线下极速模式（2026-04-07 新增）：** 顶部提供一键开关（`POST /api/config/offline-mode/toggle`），后端通过 `MessageDatabase.toggle_offline_mode` 利用 `config` 表进行**影子备份**（将 `buffer_delay`、`telegram_max_chars` 等写入 `backup_*`，并覆写为极速预设，同时写 `offline_mode_active=1`），关闭时从备用键还原，前端状态直接通过加载配置项的 `offline_mode_active` 推断。`memory/database.py` 的 `migrate_database_schema` 通过 `_config_insert_defaults_if_missing` 为缺失行插入默认值（`INSERT OR IGNORE`，不覆盖已有值）。
 
@@ -511,7 +519,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **✅ 已改动（2026-04-05）：** 表单与预览增加 **用户工作**（`user_work`），与 **`persona_configs.user_work`**、后端预览及 **`context_builder._build_system_prompt`** 对齐。
 
-**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**记忆卡片加载（以代码为准）：** API 可能返回同一 `dimension` 多条（不同 `user_id`）；前端 `loadMemoryCards` 合并为每维度**一条展示**，保留 **`updated_at`（无则 `created_at`）最新**的记录，避免遍历时后读到的旧行覆盖新行。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。
+**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**记忆卡片加载（以代码为准）：** API 可能返回同一 `dimension` 多条（不同 `user_id`）；前端 `loadMemoryCards` 合并为每维度**一条展示**，保留 **`updated_at`（无则 `created_at`）最新**的记录，避免遍历时后读到的旧行覆盖新行。**记忆卡片正文：** 列表区 `.card-content` 多行截断；过长时显示 **「查看全文」**，以 **`createPortal(..., document.body)`** 打开只读全屏层（**`.memory-view-overlay` / `.memory-view-sheet`**），避免与背后卡片叠层。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。
 
 **History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**列表接口：** `GET /api/history?...` 与 §3.5；**单条编辑：** `PATCH /api/history/{id}`，body 至少含 `content` 或 `thinking` 之一（助手可改思维链）；**删除：** `DELETE /api/history/{id}`。前端每条气泡下有编辑/删除；编辑用弹窗 textarea；**关键词高亮**用正则 `split` 后按捕获组**奇数位**包裹 `<mark>`（勿对带 `/g` 的 `RegExp` 反复 `test`）。**并发：** `fetchHistory` 使用递增序号，仅最新一次请求的响应会更新列表，避免关键词筛选与无关键词响应互相覆盖。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。
 
@@ -648,6 +656,23 @@ asyncio.run(main())
 # 抽样向量库 metadata（预期含 hits、halflife_days、last_access_ts 等，见 §3.4.5）
 python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import get_vector_store; vs=get_vector_store(); r=vs.collection.get(limit=5, include=['metadatas']); [print(r['ids'][i], r['metadatas'][i]) for i in range(len(r['ids']))]"
 ```
+
+#### 4.2.1 全量备份 `backup.sh`（可选，与日终跑批独立）
+
+**职责（以项目根 `backup.sh` 为准）：** 将 **PostgreSQL**（`pg_dump -F c`）、**Chroma 数据目录** `chroma_db/`、**环境文件** `.env` 打成单份归档，上传对象存储，并清理临时文件与过期本地归档。
+
+**流程概要：**
+
+1. 从项目根 `.env` 解析 **`DATABASE_URL`**（失败则退出）。
+2. **`pg_dump -F c`** 导出到 **`/tmp/cedarstar_db.dump`**。
+3. **`tar -czf`** 生成 **`/home/backups/cedarstar/cedarstar_backup_YYYYMMDD.tar.gz`**（目录不存在则创建），内含上一步 dump、`chroma_db/`、`.env`。
+4. **`rclone copy`** 将该 `.tar.gz` 推送到远程 **`cloudflare_r2:cedarstar-backup`**（远程名与 bucket 以脚本内常量为准；须本机已配置 `rclone` 且 R2 侧 bucket/权限就绪）。
+5. 删除 **`/tmp/cedarstar_db.dump`**。
+6. **`find`** 删除 **`/home/backups/cedarstar/`** 下超过 **7** 天的 **`cedarstar_backup_*.tar.gz`**。
+
+任一步失败 **`exit 1`**，不继续后续步骤；各步 **`echo`** 带时间戳日志。**cron** 示例（东八区凌晨 5:00、日志追加）见脚本末尾注释；典型写法：`0 5 * * * TZ=Asia/Shanghai /opt/cedarstar/backup.sh >> /var/log/cedarstar_backup.log 2>&1`（项目路径按部署机调整）。
+
+**说明：** 仓库内 **`backups/`** 目录为历史 SQLite 等文件用途（见 §2 目录树）；**生产全量 tarball** 默认落在 **`/home/backups/cedarstar/`**，与前者路径不同。
 
 ### 4.3 Mini App 数据流
 
@@ -1013,9 +1038,9 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 2. 从 `messages` 表查询当批日期的 `(user_id, character_id)` 列表（无记录时兜底 `default_user/sirius`）
 3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）
 4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
-5. **Upsert：** `get_latest_memory_card_for_dimension` 取该用户/角色/维度最近一条（**含 `is_active=0`**）；有则 `_merge_memory_card_contents`（`_call_summary_llm_custom` → `generate_with_context_and_tracking`，`platform=BATCH`）合并去重，`update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
+5. **Upsert：** `get_latest_memory_card_for_dimension`（**含 `is_active=0`**）；有旧卡时：若维度为 **`current_status` / `preferences`** 且旧正文非空，先 **`add_memory`** 归档至 Chroma（`summary_type=state_archive`，失败仅 warning），再 **`_merge_memory_card_contents`**（维度三分支合并规则，见 §3.4.4）→ `update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
 6. 单维度 `try/except + continue`，互不拖累
-7. 维度分析仍走 `summary_llm.generate_summary`（内部为 `generate_with_context_and_tracking`，`platform=BATCH`，经 **chunk 式**前缀 + 任务正文包装，并传入 `char_name`/`user_name`）；**合并**走 `_call_summary_llm_custom`（**不经** chunk 外壳；含人物前缀与逻辑合并文案，**无** prompt 内 400 字上限，见 §3.4.4）
+7. 维度分析仍走 `summary_llm.generate_summary`（chunk 式前缀 + 任务正文，并传入 `char_name`/`user_name`）；**合并**走 **`_call_summary_llm_custom`**（**不经** chunk 外壳；含人物前缀与维度三分支合并规则，见 §3.4.4）
 
 ---
 

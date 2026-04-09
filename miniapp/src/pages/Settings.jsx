@@ -325,7 +325,7 @@ function Settings() {
       try {
         await Promise.all([
           fetchConfigs(activeTab),
-          fetchTokenStats('today'),
+          fetchTokenStats('latest'),
           apiFetch('/api/persona').then(r => r.json()).then(d => {
             if (d.success) setPersonas(d.data || []);
           }),

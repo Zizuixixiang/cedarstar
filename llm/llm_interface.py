@@ -665,6 +665,47 @@ class LLMInterface:
             return max(self.timeout, config.LLM_VISION_TIMEOUT)
         return self.timeout
 
+    def _post_with_retry(
+        self,
+        url: str,
+        payload: Optional[Dict[str, Any]],
+        timeout: Any,
+        *,
+        stream: bool = False,
+    ) -> requests.Response:
+        """
+        POST JSON；对 HTTP 429 / 503 最多重试 5 次（首次 + 5 次重试共 6 次请求），立即重试不等待。
+        其他状态码立即 raise_for_status（不重试）。
+        """
+        headers = self._prepare_headers()
+        max_attempts = 6  # 首次 1 次 + 重试 5 次
+        for attempt in range(max_attempts):
+            resp = requests.post(
+                url,
+                headers=headers,
+                json=payload,
+                timeout=timeout,
+                stream=stream,
+            )
+            if resp.status_code in (429, 503) and attempt < max_attempts - 1:
+                logger.warning(
+                    "LLM API HTTP %s，立即重试（第 %s/5 次重试）",
+                    resp.status_code,
+                    attempt + 1,
+                )
+                resp.close()
+                continue
+            if resp.status_code >= 400:
+                body_prev = (resp.text or "")[:1200]
+                logger.error(
+                    "上游 API 非 2xx: status=%s endpoint=%s body_prefix=%r",
+                    resp.status_code,
+                    url,
+                    body_prev,
+                )
+            resp.raise_for_status()
+            return resp
+
     def _prepare_headers(self) -> Dict[str, str]:
         """
         准备请求头。
@@ -869,9 +910,6 @@ class LLMInterface:
         # 添加当前提示
         messages.append({"role": "user", "content": prompt})
         
-        # 准备请求
-        headers = self._prepare_headers()
-        
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
@@ -886,14 +924,7 @@ class LLMInterface:
         logger.debug(f"调用 LLM API: {endpoint}, 模型: {self.model_name}")
         
         try:
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            
+            response = self._post_with_retry(endpoint, payload, self.timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -984,9 +1015,6 @@ class LLMInterface:
         if not self.api_key:
             raise ValueError("LLM_API_KEY 未设置，无法调用 LLM API")
         
-        # 准备请求
-        headers = self._prepare_headers()
-        
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
@@ -1005,14 +1033,7 @@ class LLMInterface:
         logger.debug(f"消息数量: {len(messages)}")
         
         try:
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=req_timeout
-            )
-            response.raise_for_status()
-            
+            response = self._post_with_retry(endpoint, payload, req_timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -1195,9 +1216,6 @@ class LLMInterface:
         if not self.api_key:
             raise ValueError("LLM_API_KEY 未设置，无法调用 LLM API")
         
-        # 准备请求
-        headers = self._prepare_headers()
-        
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
@@ -1219,14 +1237,7 @@ class LLMInterface:
         logger.debug(f"消息数量: {len(messages)}")
         
         try:
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=req_timeout
-            )
-            response.raise_for_status()
-            
+            response = self._post_with_retry(endpoint, payload, req_timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -1301,7 +1312,6 @@ class LLMInterface:
                 "guard_refusal_abort": guard_abort,
             }
 
-        headers = self._prepare_headers()
         endpoint = f"{self.api_base}/chat/completions"
         payload = self._prepare_openai_payload(messages, tools)
         payload["stream"] = True
@@ -1356,22 +1366,13 @@ class LLMInterface:
             return None
 
         try:
-            with requests.post(
+            resp = self._post_with_retry(
                 endpoint,
-                headers=headers,
-                json=payload,
+                payload,
+                (stream_connect, stream_read),
                 stream=True,
-                timeout=(stream_connect, stream_read),
-            ) as resp:
-                if resp.status_code >= 400:
-                    body_prev = (resp.text or "")[:1200]
-                    logger.error(
-                        "上游 chat/completions 非 2xx: status=%s endpoint=%s body_prefix=%r",
-                        resp.status_code,
-                        endpoint,
-                        body_prev,
-                    )
-                    resp.raise_for_status()
+            )
+            with resp:
                 for raw_line in resp.iter_lines(decode_unicode=False):
                     if raw_line is None:
                         continue
@@ -1515,9 +1516,6 @@ class LLMInterface:
         # 添加当前提示
         messages.append({"role": "user", "content": prompt})
         
-        # 准备请求
-        headers = self._prepare_headers()
-        
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
@@ -1532,14 +1530,7 @@ class LLMInterface:
         logger.debug(f"调用 LLM API (with thinking): {endpoint}, 模型: {self.model_name}")
         
         try:
-            response = requests.post(
-                endpoint,
-                headers=headers,
-                json=payload,
-                timeout=self.timeout
-            )
-            response.raise_for_status()
-            
+            response = self._post_with_retry(endpoint, payload, self.timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             

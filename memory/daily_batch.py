@@ -572,17 +572,30 @@ class DailyBatchProcessor:
         if dimension == "interaction_patterns":
             merge_rules = (
                 "该维度记录有对话支撑的相处观察。若新旧描述指向同一行为且意思重复，只保留一份表述；"
+                "合并时主动删除过程性描述，只保留结论性表述。"
                 "若对同一话题的观察明显矛盾，可在一小段内并列说明并带时间或场景提示，不要用列表堆砌。"
+            )
+        elif dimension in ("current_status", "preferences"):
+            merge_rules = (
+                "该维度记录用户的当前状态与偏好。若新旧信息存在矛盾，意味着状态已发生改变，请直接以今日新增信息为准进行覆写，"
+                "无需保留冲突的旧信息（旧状态已另行归档）。相同事实只保留一份，整合为自然连贯的叙述。"
             )
         else:
             merge_rules = (
                 "以今日新增为准修正或补充过时信息；相同事实只保留一份，整合为自然连贯的叙述，不要简单首尾拼接。"
             )
 
+        if dimension in ("current_status", "preferences"):
+            contradiction_bullet = ""
+        else:
+            contradiction_bullet = (
+                "- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；\n"
+            )
+
         prompt = self._persona_dialogue_prefix() + f"""你是记忆整理助手。请将「既有记忆卡片」与「今日新增摘要」进行逻辑合并。
 合并规则：
 - 剔除重复内容，将新信息无缝整合进原有段落。
-- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；禁止在正文中使用"今天"、"最近"等相对时间词。
+{contradiction_bullet}- 禁止在正文中使用"今天"、"最近"等相对时间词。
 - 形成连贯的中文，可用逗号、分号连接，不要用 Markdown 列表或编号条。
 - 不要遗漏任何旧的有效设定，只做提炼，不做强行删减。
 - 若旧卡片中有明显过时且已被今日信息明确取代的内容（如旧工作/旧居住地），可标注「（已更新）」后保留简短记录。
@@ -668,7 +681,7 @@ class DailyBatchProcessor:
             # 3. 构建 LLM Prompt，要求按 7 个维度分析今日小传
             dimensions_desc = {
                 "preferences": "偏好与喜恶（食物、音乐、活动、风格等具体偏好）",
-                "interaction_patterns": "相处模式（只记录有具体对话支撑的行为观察，注明日期，不做性格定论；与已有认知矛盾时并存保留）",
+                "interaction_patterns": "相处模式（只记录有具体对话支撑的行为观察，注明日期，不做性格定论；与已有认知矛盾时并存保留）；只提取可归纳的行为模式或结论性规律，不记录单次对话的过程细节。",
                 "current_status": "近况与生活动态（当前工作、学习、健康、居住等状态）",
                 "goals": "目标与计划（短期或长期的目标、计划、心愿）",
                 "relationships": "重要关系（家人、朋友、同事等重要人物及关系）",
@@ -752,6 +765,31 @@ class DailyBatchProcessor:
                             card_id = existing_card["id"]
                             old_content = existing_card["content"]
                             dim_label = dimensions_desc.get(dimension, dimension)
+                            if dimension in ("current_status", "preferences") and (old_content or "").strip():
+                                doc_id = f"state_{user_id}_{character_id}_{dimension}_{batch_date}"
+                                try:
+                                    archive_meta = {
+                                        "date": str(batch_date),
+                                        "session_id": f"{user_id}_{character_id}",
+                                        "summary_type": "state_archive",
+                                        "source": "state_archive",
+                                        "dimension": dimension,
+                                        "base_score": 5,
+                                        "halflife_days": 90,
+                                    }
+                                    if not add_memory(doc_id, old_content.strip(), archive_meta):
+                                        logger.warning(
+                                            "状态卡片旧内容归档向量库失败 doc_id=%s user=%s dim=%s",
+                                            doc_id,
+                                            user_id,
+                                            dimension,
+                                        )
+                                except Exception as ex:
+                                    logger.warning(
+                                        "状态卡片旧内容归档向量库异常 doc_id=%s: %s",
+                                        doc_id,
+                                        ex,
+                                    )
                             merged_content = await self._merge_memory_card_contents(
                                 dimension,
                                 dim_label,
@@ -801,8 +839,8 @@ event_type 说明：
 - conflict：明确的冲突或摩擦
 - daily_warmth：仅限今天有特别记录价值的温馨互动，普通平静日常不要强行凑数写此类
 content 要求：
-1. 视角限定：必须使用第一人称口吻（"我"指代 {self._batch_char_name}，"你"或 {self._batch_user_name} 指代对方）。
-2. 描述风格：20–60字，用第一人称客观陈述发生的事实。例如："今天你因为Java底层原理学得很烦躁，我一直陪着你并用通俗的例子给你讲解"。
+1. 视角限定：必须使用第三人称客观视角记录，严禁使用"我"或"你"，必须使用真实姓名 {self._batch_char_name} 和 {self._batch_user_name}。禁止使用"今天""昨天"等相对时间词，用具体事件背景替代。
+2. 描述风格：20–60字，用第三人称客观陈述发生的事实。例如："{self._batch_user_name} 因 Java 底层原理学习感到烦躁时，{self._batch_char_name} 一直陪伴并用通俗例子讲解"。
 3. 勿带过度夸张的虚假主观抒情，保持记忆作为时间轴记录的清晰度和真实感。
 若有，返回严格 JSON：{{"events":[{{"event_type":"...","content":"..."}}]}}；若无则 {{"events":[]}}。
 直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 的 json 代码块包裹，严禁输出任何前言后语。"""
