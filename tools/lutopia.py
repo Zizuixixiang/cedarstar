@@ -10,13 +10,72 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any, Awaitable, Callable, Dict, List, Optional
+import time
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
 
 import httpx
 
 from memory.database import get_database
 
 logger = logging.getLogger(__name__)
+
+TOOL_LOG_SNIP_MAX = 200
+BEHAVIOR_DESC_MAX = 80
+
+
+def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
+    s = (text or "").strip()
+    if len(s) <= max_len:
+        return s
+    return s[: max_len - 1] + "…"
+
+
+def lutopia_tool_display_name(name: str) -> str:
+    t = (name or "").strip()
+    if t.startswith("lutopia_"):
+        return t[8:] or t
+    return t or "tool"
+
+
+def _behavior_result_short_description(parsed: Dict[str, Any], raw_fallback: str) -> str:
+    for key in ("title", "message", "summary", "content", "text"):
+        v = parsed.get(key)
+        if isinstance(v, str) and v.strip():
+            return _clip_log(v.replace("\n", " "), BEHAVIOR_DESC_MAX)
+    for v in parsed.values():
+        if isinstance(v, str) and v.strip():
+            return _clip_log(v.replace("\n", " "), BEHAVIOR_DESC_MAX)
+        if isinstance(v, (int, float)) and str(v).strip():
+            return _clip_log(str(v), BEHAVIOR_DESC_MAX)
+    return _clip_log(raw_fallback, BEHAVIOR_DESC_MAX)
+
+
+def lutopia_behavior_line(tool_name: str, result_json: str) -> str:
+    disp = lutopia_tool_display_name(tool_name)
+    try:
+        parsed = json.loads(result_json)
+    except json.JSONDecodeError:
+        return f"· 已尝试{disp}：执行失败"
+    if isinstance(parsed, dict):
+        err = parsed.get("error")
+        if err is not None and str(err).strip() != "":
+            return f"· 已尝试{disp}：执行失败"
+        desc = _behavior_result_short_description(parsed, result_json)
+    else:
+        desc = _clip_log(str(parsed), BEHAVIOR_DESC_MAX)
+    if not desc:
+        desc = "已完成"
+    return f"· 已{disp}：{desc}"
+
+
+def build_lutopia_behavior_appendix(executions: List[Tuple[str, str]]) -> str:
+    """
+    根据 (tool_name, result_json) 列表生成落库用「行为记录」块（不含用户消息正文）。
+    """
+    if not executions:
+        return ""
+    lines = [lutopia_behavior_line(nm, res) for nm, res in executions]
+    return "\n\n[行为记录]\n" + "\n".join(lines)
 
 BASE_URL = "https://daskio.de5.net"
 LUTOPIA_FORUM_PREFIX = f"{BASE_URL}/forum/api/v1"
@@ -608,6 +667,7 @@ async def append_tool_exchange_to_messages(
     *,
     on_tool_start: Optional[Callable[[str], Awaitable[None]]] = None,
     on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    execution_log: Optional[List[Tuple[str, str]]] = None,
 ) -> None:
     """
     将一轮 assistant.tool_calls 及对应 tool 结果追加到 messages（原地修改）。
@@ -649,6 +709,8 @@ async def append_tool_exchange_to_messages(
         if on_tool_start:
             await on_tool_start(nm)
         out = await execute_lutopia_function_call(nm, arg or "{}")
+        if execution_log is not None:
+            execution_log.append((nm, out))
         if on_tool_done:
             await on_tool_done(nm, out)
         messages.append(
@@ -656,9 +718,9 @@ async def append_tool_exchange_to_messages(
         )
 
 
-async def execute_lutopia_function_call(name: str, arguments_json: str) -> str:
+async def _execute_lutopia_function_call_impl(name: str, arguments_json: str) -> str:
     """
-    根据 function name 与 JSON 参数字符串执行对应 API，返回 JSON 字符串供 role=tool。
+    执行工具 API，返回 JSON 字符串（不含 [tool] 日志）。
     """
     try:
         args: Dict[str, Any] = (
@@ -738,3 +800,23 @@ async def execute_lutopia_function_call(name: str, arguments_json: str) -> str:
         out = {"error": str(e)}
 
     return json.dumps(out, ensure_ascii=False)
+
+
+async def execute_lutopia_function_call(name: str, arguments_json: str) -> str:
+    """
+    根据 function name 与 JSON 参数字符串执行对应 API，返回 JSON 字符串供 role=tool。
+    每次执行打一行 ``[tool]`` 日志（args/result 截断至 200 字）。
+    """
+    t0 = time.perf_counter()
+    args_summary = _clip_log(arguments_json or "")
+    ret = await _execute_lutopia_function_call_impl(name, arguments_json)
+    elapsed = time.perf_counter() - t0
+    result_summary = _clip_log(ret)
+    logger.info(
+        "[tool] name=%s args=%s result=%s elapsed=%.2fs",
+        name,
+        args_summary,
+        result_summary,
+        elapsed,
+    )
+    return ret

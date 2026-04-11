@@ -17,6 +17,7 @@ from typing import (
     Dict,
     Generator,
     List,
+    NamedTuple,
     Optional,
     Tuple,
     Union,
@@ -1650,6 +1651,14 @@ class LLMInterface:
             raise
 
 
+class LutopiaToolLoopOutcome(NamedTuple):
+    """``complete_with_lutopia_tool_loop`` 的返回值。"""
+
+    response: LLMResponse
+    aggregated_assistant_text: str
+    behavior_appendix: str
+
+
 async def complete_with_lutopia_tool_loop(
     llm: LLMInterface,
     messages: List[Dict[str, Any]],
@@ -1658,14 +1667,21 @@ async def complete_with_lutopia_tool_loop(
     max_tool_rounds: int = 8,
     on_tool_start: Optional[Callable[[str], Awaitable[None]]] = None,
     on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
-) -> LLMResponse:
+    on_assistant_partial_text: Optional[Callable[[str], Awaitable[None]]] = None,
+) -> LutopiaToolLoopOutcome:
     """
     OpenAI 兼容路径：附带 Lutopia Forum tools，循环执行 function call 直至模型不再请求工具。
     Anthropic 路径不应调用本函数（其 ``generate_with_context_and_tracking`` 未传 tools）。
 
-    ``on_tool_start`` / ``on_tool_done``：可选，单次工具执行前后回调（如 Telegram 状态行）。
+    ``on_tool_start`` / ``on_tool_done``：可选，单次工具执行前后回调（如 Telegram typing）。
+    ``on_assistant_partial_text``：仅在有 ``tool_calls`` 的轮次、且该轮 assistant 正文非空时调用，
+    用于向用户先发「口播」；**最后一轮**无工具时的正文由调用方照常发送，此处不再回调。
     """
-    from tools.lutopia import OPENAI_LUTOPIA_TOOLS, execute_lutopia_function_call
+    from tools.lutopia import (
+        OPENAI_LUTOPIA_TOOLS,
+        build_lutopia_behavior_appendix,
+        execute_lutopia_function_call,
+    )
     from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
 
     work = copy.deepcopy(messages)
@@ -1673,6 +1689,8 @@ async def complete_with_lutopia_tool_loop(
         work, build_tool_system_suffix(["lutopia"])
     )
     last: Optional[LLMResponse] = None
+    round_texts: List[str] = []
+    tool_pairs: List[Tuple[str, str]] = []
     for _ in range(max_tool_rounds):
         last = await asyncio.to_thread(
             llm.generate_with_context_and_tracking,
@@ -1683,10 +1701,23 @@ async def complete_with_lutopia_tool_loop(
         if last is None:
             break
         if not last.tool_calls:
-            return last
+            piece = (last.content or "").strip()
+            if piece:
+                round_texts.append(piece)
+            appendix = build_lutopia_behavior_appendix(tool_pairs)
+            return LutopiaToolLoopOutcome(
+                last,
+                "\n".join(round_texts),
+                appendix,
+            )
+        piece = (last.content or "").strip()
+        if piece:
+            round_texts.append(piece)
+            if on_assistant_partial_text:
+                await on_assistant_partial_text(piece)
         assistant_message: Dict[str, Any] = {
             "role": "assistant",
-            "content": (last.content or "").strip() or None,
+            "content": piece or None,
             "tool_calls": [
                 {
                     "id": tc.get("id") or "",
@@ -1713,6 +1744,7 @@ async def complete_with_lutopia_tool_loop(
             if on_tool_start:
                 await on_tool_start(nm)
             result_str = await execute_lutopia_function_call(nm, raw_args or "{}")
+            tool_pairs.append((nm, result_str))
             if on_tool_done:
                 await on_tool_done(nm, result_str)
             work.append(
@@ -1722,7 +1754,13 @@ async def complete_with_lutopia_tool_loop(
                     "content": result_str,
                 }
             )
-    return last or LLMResponse(content="", model=llm.model_name)
+    fin = last or LLMResponse(content="", model=llm.model_name)
+    appendix = build_lutopia_behavior_appendix(tool_pairs)
+    return LutopiaToolLoopOutcome(
+        fin,
+        "\n".join(round_texts),
+        appendix,
+    )
 
 
 # 创建全局 LLM 接口实例
