@@ -54,6 +54,14 @@ except ImportError:
 # 设置日志
 logger = logging.getLogger(__name__)
 
+# OpenAI 兼容路径下启用 Lutopia tools 时注入 system 末尾（与 tools 是否传入由调用方 flag 对齐）
+TOOL_ORAL_COACHING_BLOCK = (
+    "调用工具前，用一句简短口语告诉用户你要去做什么，"
+    "语气自然随意，比如「我去看看～」「稍等帮你查一下」。"
+    "工具结果回来后，接着用正常语气继续说。"
+    "不要罗列工具名称，不要说技术性的话。"
+)
+
 _USER_IMAGE_CONTENT_RE = re.compile(
     r"^\[发送了(\d+)张图片\]\s*(.*)$", re.DOTALL
 )
@@ -520,6 +528,7 @@ class ContextBuilder:
         images: Optional[List[Dict[str, Any]]] = None,
         llm_user_text: Optional[str] = None,
         telegram_segment_hint: bool = False,
+        tool_oral_coaching: bool = False,
     ) -> Dict[str, Any]:
         """
         构建完整的对话上下文。
@@ -540,6 +549,7 @@ class ContextBuilder:
             images: 当前轮次多模态图片（可选）
             llm_user_text: 对话模型用纯文本（有图片时建议传入）
             telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径）
+            tool_oral_coaching: 为 True 时在 system 末尾追加 Lutopia 工具「口播」引导（与启用 tools 的请求对齐）
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -583,7 +593,8 @@ class ContextBuilder:
                 relationship_timeline_section,
                 daily_summaries_section,
                 chunk_summaries_section,
-                vector_search_section
+                vector_search_section,
+                tool_oral_coaching=tool_oral_coaching,
             )
             if telegram_segment_hint:
                 full_system_prompt = full_system_prompt + await format_telegram_reply_segment_hint()
@@ -619,6 +630,7 @@ class ContextBuilder:
         images: Optional[List[Dict[str, Any]]] = None,
         llm_user_text: Optional[str] = None,
         telegram_segment_hint: bool = False,
+        tool_oral_coaching: bool = False,
     ) -> Dict[str, Any]:
         """
         异步构建完整的对话上下文（支持 Reranker）。
@@ -642,6 +654,7 @@ class ContextBuilder:
             images: 当前轮次图片 payload（可选）
             llm_user_text: 对话模型用纯文本（可选）
             telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令
+            tool_oral_coaching: 为 True 时在 system 末尾追加 Lutopia 工具「口播」引导
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -685,7 +698,8 @@ class ContextBuilder:
                 relationship_timeline_section,
                 daily_summaries_section,
                 chunk_summaries_section,
-                vector_search_section
+                vector_search_section,
+                tool_oral_coaching=tool_oral_coaching,
             )
             if telegram_segment_hint:
                 full_system_prompt = full_system_prompt + await format_telegram_reply_segment_hint()
@@ -1248,6 +1262,8 @@ class ContextBuilder:
         daily_summaries_section: str,
         chunk_summaries_section: str,
         vector_search_section: str,
+        *,
+        tool_oral_coaching: bool = False,
     ) -> str:
         """
         组装完整的 system prompt。
@@ -1287,6 +1303,9 @@ class ContextBuilder:
         sections.append(MEMORY_BLOCK_PRIORITY_DIRECTIVE)
         sections.append(MEMORY_CITATION_DIRECTIVE)
         sections.append(THINKING_LANGUAGE_DIRECTIVE)
+
+        if tool_oral_coaching:
+            sections.append(TOOL_ORAL_COACHING_BLOCK)
 
         return "\n\n".join(sections)
     
@@ -1329,6 +1348,7 @@ async def build_context(
     images: Optional[List[Dict[str, Any]]] = None,
     llm_user_text: Optional[str] = None,
     telegram_segment_hint: bool = False,
+    tool_oral_coaching: bool = False,
 ) -> Dict[str, Any]:
     """
     构建对话上下文的便捷函数。
@@ -1339,6 +1359,7 @@ async def build_context(
         images: 当前轮图片 payload（可选）
         llm_user_text: 对话模型用纯文本（可选，有图片时建议传入）
         telegram_segment_hint: 为 True 时追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径建议开启）
+        tool_oral_coaching: 为 True 时追加 Lutopia 工具口播引导（与启用 tools 的请求对齐）
         
     Returns:
         Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -1350,6 +1371,7 @@ async def build_context(
         images=images,
         llm_user_text=llm_user_text,
         telegram_segment_hint=telegram_segment_hint,
+        tool_oral_coaching=tool_oral_coaching,
     )
 
 
