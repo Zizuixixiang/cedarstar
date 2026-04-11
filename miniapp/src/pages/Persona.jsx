@@ -26,6 +26,7 @@ const EMPTY_FORM = {
   user_nsfw: '',
   user_other: '',
   system_rules: '',
+  enable_lutopia: 0,
 };
 
 // 本地拼接 System Prompt 预览
@@ -153,6 +154,8 @@ function Persona() {
         user_nsfw: d.user_nsfw || '',
         user_other: d.user_other || '',
         system_rules: d.system_rules || '',
+        enable_lutopia:
+          d.enable_lutopia != null && Number(d.enable_lutopia) !== 0 ? 1 : 0,
       };
       setForm(f);
       setSavedForm(f);
@@ -512,6 +515,23 @@ function Persona() {
                 placeholder="其他需要注意的事项"
               />
             </div>
+          </div>
+
+          <div className="field-section">
+            <h2 className="section-title">🔧 工具</h2>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_lutopia === 1}
+                onChange={e =>
+                  handleChange('enable_lutopia', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用 Lutopia 论坛工具</span>
+            </label>
+            <p className="persona-system-rules-hint" style={{ marginTop: 8 }}>
+              开启后对话可调用论坛接口；关闭则不注册。每套人设单独保存。
+            </p>
           </div>
 
           {/* 系统规则 */}

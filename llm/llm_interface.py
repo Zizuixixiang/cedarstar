@@ -10,7 +10,17 @@ import logging
 import asyncio
 import copy
 import re
-from typing import Any, Dict, Generator, List, Optional, Tuple, Union
+from typing import (
+    Any,
+    Awaitable,
+    Callable,
+    Dict,
+    Generator,
+    List,
+    Optional,
+    Tuple,
+    Union,
+)
 from dataclasses import dataclass
 
 import requests
@@ -538,6 +548,21 @@ class LLMResponse:
         }
 
 
+def _persona_row_enable_lutopia(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用 Lutopia 工具（enable_lutopia 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_lutopia")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -547,10 +572,17 @@ class LLMInterface:
     Attributes:
         character_id: 与当前激活 api_configs 行中 persona_id 对应的字符串，
             供 Bot 写入 messages.character_id；无有效 persona_id 时为 "sirius"。
+        enable_lutopia: 当前激活人设（persona_configs）是否开启 Lutopia Forum 工具；
+            由 ``create()`` 从库内 persona 行读取；无库内人设或未设置时为 False。
     """
     
-    def __init__(self, model_name: Optional[str] = None, config_type: str = 'chat',
-                 _db_cfg: Optional[Dict[str, Any]] = None):
+    def __init__(
+        self,
+        model_name: Optional[str] = None,
+        config_type: str = "chat",
+        _db_cfg: Optional[Dict[str, Any]] = None,
+        _enable_lutopia: Optional[bool] = None,
+    ):
         """
         初始化 LLM 接口。
         
@@ -587,7 +619,12 @@ class LLMInterface:
         
         # 与当前激活 api_configs 关联的人设 ID，写入消息表时作为 character_id（无则兜底 sirius）
         self.character_id = self._resolve_character_id_from_config(db_cfg)
-        
+
+        # Lutopia 等工具开关：仅 ``await create()`` 从 persona_configs 注入；同步构造默认为 False
+        self.enable_lutopia = (
+            bool(_enable_lutopia) if _enable_lutopia is not None else False
+        )
+
         self.timeout = config.LLM_TIMEOUT
         # vision 专用配置：读超时至少与 LLM_VISION_TIMEOUT 对齐（贴纸识图等为同步阻塞）
         if config_type == "vision":
@@ -627,7 +664,33 @@ class LLMInterface:
             db_cfg = await get_database().get_active_api_config(config_type)
         except Exception as e:
             logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
-        return cls(model_name=model_name, config_type=config_type, _db_cfg=db_cfg)
+            db_cfg = None
+
+        enable_lutopia_flag = False
+        if db_cfg and config_type == "chat":
+            pid = db_cfg.get("persona_id")
+            if pid is not None:
+                try:
+                    pi = int(pid)
+                except (TypeError, ValueError):
+                    pi = None
+                if pi is not None:
+                    try:
+                        prow = await get_database().get_persona_config(pi)
+                    except Exception as e:
+                        logger.warning(
+                            "读取 persona_configs 以解析 enable_lutopia 失败: %s", e
+                        )
+                        prow = None
+                    if prow:
+                        enable_lutopia_flag = _persona_row_enable_lutopia(prow)
+
+        return cls(
+            model_name=model_name,
+            config_type=config_type,
+            _db_cfg=db_cfg,
+            _enable_lutopia=enable_lutopia_flag,
+        )
 
     @staticmethod
     def _load_active_config(config_type: str = 'chat') -> Optional[Dict[str, Any]]:
@@ -756,6 +819,29 @@ class LLMInterface:
             # OpenAI Chat Completions：与 tools 同发，值为字面量 "auto"（由模型决定是否调用工具）
             # 未传 tools 时不应带 tool_choice，故放在本分支内
             payload["tool_choice"] = "auto"
+            fn_names: List[str] = []
+            for t in tools:
+                if not isinstance(t, dict):
+                    continue
+                fn = t.get("function") if isinstance(t.get("function"), dict) else {}
+                nm = (fn.get("name") or "").strip()
+                if nm:
+                    fn_names.append(nm)
+            try:
+                tools_json = json.dumps(tools, ensure_ascii=False)
+            except (TypeError, ValueError):
+                tools_json = repr(tools)
+            max_dump = 20000
+            if len(tools_json) > max_dump:
+                tools_json = tools_json[:max_dump] + "…(已截断)"
+            logger.info(
+                "OpenAI 兼容请求将发往 %s/chat/completions；payload.tools 共 %s 条，"
+                "function.name 列表: %s；tools JSON=%s",
+                (self.api_base or "").rstrip("/"),
+                len(tools),
+                ", ".join(fn_names) if fn_names else "(无)",
+                tools_json,
+            )
         return payload
     
     def _prepare_anthropic_payload(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
@@ -1562,6 +1648,81 @@ class LLMInterface:
                     (e.response.text or "")[:1200],
                 )
             raise
+
+
+async def complete_with_lutopia_tool_loop(
+    llm: LLMInterface,
+    messages: List[Dict[str, Any]],
+    platform: Optional[str] = None,
+    *,
+    max_tool_rounds: int = 8,
+    on_tool_start: Optional[Callable[[str], Awaitable[None]]] = None,
+    on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
+) -> LLMResponse:
+    """
+    OpenAI 兼容路径：附带 Lutopia Forum tools，循环执行 function call 直至模型不再请求工具。
+    Anthropic 路径不应调用本函数（其 ``generate_with_context_and_tracking`` 未传 tools）。
+
+    ``on_tool_start`` / ``on_tool_done``：可选，单次工具执行前后回调（如 Telegram 状态行）。
+    """
+    from tools.lutopia import OPENAI_LUTOPIA_TOOLS, execute_lutopia_function_call
+    from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
+
+    work = copy.deepcopy(messages)
+    inject_tool_suffix_into_messages(
+        work, build_tool_system_suffix(["lutopia"])
+    )
+    last: Optional[LLMResponse] = None
+    for _ in range(max_tool_rounds):
+        last = await asyncio.to_thread(
+            llm.generate_with_context_and_tracking,
+            work,
+            platform,
+            OPENAI_LUTOPIA_TOOLS,
+        )
+        if last is None:
+            break
+        if not last.tool_calls:
+            return last
+        assistant_message: Dict[str, Any] = {
+            "role": "assistant",
+            "content": (last.content or "").strip() or None,
+            "tool_calls": [
+                {
+                    "id": tc.get("id") or "",
+                    "type": "function",
+                    "function": {
+                        "name": tc.get("name") or "",
+                        "arguments": tc.get("arguments")
+                        if isinstance(tc.get("arguments"), str)
+                        else json.dumps(tc.get("arguments") or {}, ensure_ascii=False),
+                    },
+                }
+                for tc in last.tool_calls
+                if isinstance(tc, dict)
+            ],
+        }
+        work.append(assistant_message)
+        for tc in last.tool_calls or []:
+            if not isinstance(tc, dict):
+                continue
+            nm = tc.get("name") or ""
+            raw_args = tc.get("arguments")
+            if not isinstance(raw_args, str):
+                raw_args = json.dumps(raw_args if raw_args is not None else {}, ensure_ascii=False)
+            if on_tool_start:
+                await on_tool_start(nm)
+            result_str = await execute_lutopia_function_call(nm, raw_args or "{}")
+            if on_tool_done:
+                await on_tool_done(nm, result_str)
+            work.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": tc.get("id") or "",
+                    "content": result_str,
+                }
+            )
+    return last or LLMResponse(content="", model=llm.model_name)
 
 
 # 创建全局 LLM 接口实例

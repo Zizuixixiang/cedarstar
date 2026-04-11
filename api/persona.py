@@ -35,6 +35,7 @@ class PersonaCreate(BaseModel):
     user_nsfw: Optional[str] = ""
     user_other: Optional[str] = ""
     system_rules: Optional[str] = ""
+    enable_lutopia: Optional[int] = 0
 
 
 class PersonaUpdate(BaseModel):
@@ -56,6 +57,7 @@ class PersonaUpdate(BaseModel):
     user_nsfw: Optional[str] = None
     user_other: Optional[str] = None
     system_rules: Optional[str] = None
+    enable_lutopia: Optional[int] = None
 
 
 @router.get("")

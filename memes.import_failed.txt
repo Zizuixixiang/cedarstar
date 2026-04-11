@@ -1,4 +1,0 @@
-# import_memes 失败记录
-# 源清单: D:\Workspace\PythonProject\cedarstar\memes.txt
-# 可直接复制 source_line 回清单重试
-

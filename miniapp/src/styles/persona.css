@@ -19,6 +19,21 @@
   border-radius: 4px;
 }
 
+.persona-tool-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--text-main);
+  user-select: none;
+}
+
+.persona-tool-toggle input {
+  margin-top: 3px;
+  flex-shrink: 0;
+}
+
 .persona-page {
   width: 100%;
   max-width: 1200px;

@@ -216,6 +216,10 @@ async def main_async():
         from memory.database import initialize_database
         await initialize_database()
 
+        from tools.lutopia import ensure_lutopia_dm_send_enabled_on_startup
+
+        await ensure_lutopia_dm_send_enabled_on_startup()
+
         # 挂载异步系统日志以供 MiniApp 面板查询
         from memory.async_log_handler import setup_async_logging, log_flusher_task
         setup_async_logging("SYSTEM")

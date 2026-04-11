@@ -22,7 +22,7 @@ import discord
 from discord.ext import commands
 
 from config import config, validate_config, Platform
-from llm.llm_interface import LLMInterface
+from llm.llm_interface import LLMInterface, complete_with_lutopia_tool_loop
 from bot.message_buffer import MessageBuffer, ordered_media_type_from_buffer
 from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
 from bot.stt_client import transcribe_voice
@@ -431,9 +431,14 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = await LLMInterface.create()
-            llm_resp = llm.generate_with_context_and_tracking(
-                messages, platform=Platform.DISCORD
-            )
+            if getattr(llm, "enable_lutopia", False) and not llm._use_anthropic_messages_api():
+                llm_resp = await complete_with_lutopia_tool_loop(
+                    llm, messages, platform=Platform.DISCORD
+                )
+            else:
+                llm_resp = llm.generate_with_context_and_tracking(
+                    messages, platform=Platform.DISCORD
+                )
             reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
             
             # 保存用户消息到数据库（使用原始内容，不含引用前缀）
@@ -536,9 +541,14 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = await LLMInterface.create()
-            llm_resp = llm.generate_with_context_and_tracking(
-                messages, platform=Platform.DISCORD
-            )
+            if getattr(llm, "enable_lutopia", False) and not llm._use_anthropic_messages_api():
+                llm_resp = await complete_with_lutopia_tool_loop(
+                    llm, messages, platform=Platform.DISCORD
+                )
+            else:
+                llm_resp = llm.generate_with_context_and_tracking(
+                    messages, platform=Platform.DISCORD
+                )
             reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
             
             # 保存用户消息到数据库

@@ -245,6 +245,9 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_relationships TEXT DEFAULT ''"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_lutopia INTEGER NOT NULL DEFAULT 0"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -2121,11 +2124,20 @@ class MessageDatabase:
             "char_appearance", "char_relationships",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
-            "user_nsfw", "user_other", "system_rules",
+            "user_nsfw", "user_other", "system_rules", "enable_lutopia",
         ]
         cols = ", ".join(fields)
         placeholders = ", ".join([f"${i + 1}" for i in range(len(fields))])
-        values = [data.get(f, "") for f in fields]
+        values: List[Any] = []
+        for f in fields:
+            if f == "enable_lutopia":
+                raw = data.get("enable_lutopia", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
+            else:
+                values.append(data.get(f, ""))
         async with self.pool.acquire() as conn:
             row_id = await conn.fetchval(
                 f"INSERT INTO persona_configs ({cols}) VALUES ({placeholders}) RETURNING id",
@@ -2140,9 +2152,16 @@ class MessageDatabase:
             "char_appearance", "char_relationships",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
-            "user_nsfw", "user_other", "system_rules",
+            "user_nsfw", "user_other", "system_rules", "enable_lutopia",
         }
         update_data = {k: v for k, v in data.items() if k in allowed}
+        if "enable_lutopia" in update_data:
+            try:
+                update_data["enable_lutopia"] = (
+                    1 if int(update_data["enable_lutopia"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_lutopia"] = 0
         if not update_data:
             return False
         set_parts = [f"{k} = ${i + 1}" for i, k in enumerate(update_data.keys())]
