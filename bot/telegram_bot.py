@@ -1379,7 +1379,6 @@ class TelegramBot:
             cur_messages, build_tool_system_suffix(["lutopia"])
         )
         chat_id = base_message.chat.id
-        reply_mid = getattr(base_message, "message_id", None)
         sse: Optional[_TelegramSseRound] = None
         pre_tool_segments: List[str] = []
         tool_execution_log: List[Tuple[str, str]] = []
@@ -1429,7 +1428,6 @@ class TelegramBot:
                         bot,
                         chat_id,
                         rc,
-                        reply_to_message_id=reply_mid,
                     )
 
                 async def _lutopia_on_start(tool_name: str) -> None:
@@ -1479,11 +1477,32 @@ class TelegramBot:
     async def _telegram_lutopia_notify_tool_after(
         self, bot: Any, chat_id: int, tool_name: str, result_json: str
     ) -> None:
-        """保留签名供 append_tool_exchange 回调；不向频道发送。"""
-        del bot, chat_id, tool_name, result_json
+        """工具结束后发一行纯文本状态（无 HTML / blockquote）。"""
+        disp = self._telegram_lutopia_tool_display_name(tool_name)
+        ok = True
+        try:
+            parsed = json.loads(result_json)
+            if isinstance(parsed, dict):
+                err = parsed.get("error")
+                ok = err is None or str(err).strip() == ""
+        except json.JSONDecodeError:
+            ok = False
+        text = f"✅ 已调用{disp}" if ok else f"❌ {disp}调用失败"
+        if len(text) > 4096:
+            text = text[:4093] + "…"
+        try:
+            await bot.send_message(
+                chat_id=chat_id, text=text, parse_mode=None
+            )
+        except Exception as e:
+            logger.warning(
+                "Lutopia 工具结束提示发送失败 chat_id=%s: %s",
+                chat_id,
+                exc_detail(e),
+            )
 
     async def _telegram_lutopia_send_partial_user_text(
-        self, bot: Any, chat_id: int, text: str, *, reply_to_message_id: Optional[int] = None
+        self, bot: Any, chat_id: int, text: str
     ) -> None:
         """工具轮次之间的口播：纯文本，避免 HTML 注入。"""
         t = (text or "").strip()
@@ -1496,7 +1515,6 @@ class TelegramBot:
                 chat_id=chat_id,
                 text=t,
                 parse_mode=None,
-                reply_to_message_id=reply_to_message_id,
             )
         except Exception as e:
             logger.warning(
@@ -1957,7 +1975,7 @@ class TelegramBot:
 
                     async def _partial(txt: str) -> None:
                         await self._telegram_lutopia_send_partial_user_text(
-                            telegram_bot, cid, txt, reply_to_message_id=None
+                            telegram_bot, cid, txt
                         )
 
                     outcome = await complete_with_lutopia_tool_loop(
