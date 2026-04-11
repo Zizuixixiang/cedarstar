@@ -76,6 +76,7 @@ try:
         insert_relationship_timeline_event,
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
+        purge_logs_older_than_days,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
@@ -100,6 +101,7 @@ except ImportError:
         insert_relationship_timeline_event,
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
+        purge_logs_older_than_days,
     )
 
 # 设置日志
@@ -234,7 +236,14 @@ class DailyBatchProcessor:
                 batch_date = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
             
             logger.info(f"开始日终跑批处理，日期: {batch_date}")
-            
+
+            try:
+                n_del = await purge_logs_older_than_days(7)
+                if n_del > 0:
+                    logger.info("已清理早于 7 天的系统日志（logs）%s 条", n_del)
+            except Exception as e:
+                logger.warning("清理过期系统日志失败（不影响跑批）: %s", e)
+
             batch_log = await get_daily_batch_log(batch_date)
             
             if batch_log is None:

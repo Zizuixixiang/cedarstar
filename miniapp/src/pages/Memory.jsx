@@ -3,7 +3,7 @@
  * 管理 AI 助手的记忆卡片和长期记忆库
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { apiFetch } from '../apiBase';
 import './../styles/memory.css';
@@ -79,17 +79,6 @@ function Toast({ message, type = 'info', onClose }) {
       <span>{message}</span>
     </div>
   );
-}
-
-/**
- * 判断记忆卡片正文在列表中是否会被 CSS 截断（与 .card-content 的 5 行 clamp 大致对齐）
- */
-function memoryCardListWouldClamp(text) {
-  if (!text || !text.trim()) {
-    return false;
-  }
-  const lineCount = text.split(/\r?\n/).length;
-  return lineCount > 5 || text.length > 220;
 }
 
 /**
@@ -477,10 +466,36 @@ function TemporalStateItem({ row, addToast, onRefresh }) {
  */
 function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
   const [viewOpen, setViewOpen] = useState(false);
+  const [showViewFull, setShowViewFull] = useState(false);
+  const cardContentRef = useRef(null);
   const isEmpty = !content || content.trim() === '';
   const displayContent = isEmpty ? '暂无内容，点击编辑添加' : content;
   const displayTime = updatedAt ? new Date(updatedAt).toLocaleDateString('zh-CN') : '未记录';
-  const showViewFull = !isEmpty && memoryCardListWouldClamp(content);
+
+  useLayoutEffect(() => {
+    if (isEmpty) {
+      setShowViewFull(false);
+      return;
+    }
+    const el = cardContentRef.current;
+    if (!el) {
+      setShowViewFull(false);
+      return;
+    }
+    const checkOverflow = () => {
+      const node = cardContentRef.current;
+      if (!node) return;
+      setShowViewFull(node.scrollHeight > node.clientHeight + 1);
+    };
+    checkOverflow();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(checkOverflow) : null;
+    if (ro) ro.observe(el);
+    window.addEventListener('resize', checkOverflow);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', checkOverflow);
+    };
+  }, [content, isEmpty]);
 
   return (
     <div
@@ -506,7 +521,10 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
           )}
         </div>
       </div>
-      <div className={`card-content ${isEmpty ? 'empty' : ''}`}>
+      <div
+        ref={cardContentRef}
+        className={`card-content ${isEmpty ? 'empty' : ''}`}
+      >
         {displayContent}
       </div>
       {showViewFull && (

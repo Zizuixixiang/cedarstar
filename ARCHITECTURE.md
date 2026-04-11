@@ -397,6 +397,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
 
+**系统日志保留（Mini App「系统日志」）：** 每次 **`run_daily_batch`** 在五步流水线**开始前**调用 **`purge_logs_older_than_days(7)`**（`MessageDatabase` / `memory.database` 模块便捷函数），删除 **`logs`** 表中 **`created_at` 早于当前时刻 7 天** 的行；删除数大于 0 时 INFO。清理失败仅 **WARNING**，不中断跑批（见 §5.10）。
+
 **库内自建调度（`schedule_daily_batch`，可选）：** 每次到点先将 `batch_date` 早于「含今日共 7 天」窗口且仍有未完成步骤的行标记为 `error_message='expired, skipped'`、五步均置 1；再对窗口内未完成日期按 `batch_date` 升序串行调用 `run_daily_batch(该日)`；若当日未出现在补跑列表中，最后再 `run_daily_batch()` 执行今天。**当前 `main.py` 主进程不启动此循环**；若需进程内定时器，须自行在独立进程或脚本中调用，生产推荐 **cron + `run_daily_batch.py`**。
 
 #### 3.4.5 `vector_store.py` — 向量存储
@@ -939,6 +941,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `stack_trace` | TEXT | 堆栈跟踪（可为空） |
 
 **索引：** `(created_at)`
+
+**保留策略（以代码为准）：** 日终 **`run_daily_batch`** 每次执行时在五步前调用 **`purge_logs_older_than_days(7)`**，物理删除早于 **7 天** 的行，避免表无限增长；与 `async_log_handler` 写入并存。
 
 ---
 

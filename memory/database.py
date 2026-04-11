@@ -1838,6 +1838,30 @@ class MessageDatabase:
         logger.debug("获取所有日志，数量: %s", len(logs))
         return logs
 
+    async def purge_logs_older_than_days(self, days: int = 7) -> int:
+        """
+        删除 ``logs`` 表中 ``created_at`` 早于 ``NOW() - days`` 的记录。
+        供日终跑批等定时任务控制 Mini App「系统日志」体量。
+        """
+        if days < 1:
+            return 0
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                """
+                DELETE FROM logs
+                WHERE created_at < (NOW() - ($1::integer * INTERVAL '1 day'))
+                """,
+                int(days),
+            )
+        # asyncpg: "DELETE 42"
+        parts = (status or "").split()
+        if len(parts) >= 2 and parts[0] == "DELETE":
+            try:
+                return int(parts[1])
+            except ValueError:
+                return 0
+        return 0
+
     # ------------------------------------------------------------------
     # token_usage
     # ------------------------------------------------------------------
@@ -2842,6 +2866,10 @@ async def list_incomplete_daily_batch_dates_in_range(
 
 async def mark_expired_skipped_daily_batch_logs_before(before_date: str) -> int:
     return await get_database().mark_expired_skipped_daily_batch_logs_before(before_date)
+
+
+async def purge_logs_older_than_days(days: int = 7) -> int:
+    return await get_database().purge_logs_older_than_days(days)
 
 
 async def update_daily_batch_step_status(
