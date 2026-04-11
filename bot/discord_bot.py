@@ -22,7 +22,10 @@ import discord
 from discord.ext import commands
 
 from config import config, validate_config, Platform
-from llm.llm_interface import LLMInterface, complete_with_lutopia_tool_loop
+from llm.llm_interface import (
+    LLMInterface,
+    complete_with_lutopia_tool_loop,
+)
 from bot.message_buffer import MessageBuffer, ordered_media_type_from_buffer
 from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
 from bot.stt_client import transcribe_voice
@@ -413,12 +416,16 @@ class DiscordBot:
             Optional[str]: 生成的回复，如果生成失败则返回 None
         """
         try:
+            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
+            llm = await LLMInterface.create()
+            oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(
                 session_id,
                 combined_content,
                 images=images or None,
                 llm_user_text=text_for_llm or None,
+                tool_oral_coaching=oral,
             )
             
             # 提取 system prompt 和 messages
@@ -429,17 +436,21 @@ class DiscordBot:
             if not messages:
                 messages = [{"role": "user", "content": combined_content}]
             
-            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
-            llm = await LLMInterface.create()
-            if getattr(llm, "enable_lutopia", False) and not llm._use_anthropic_messages_api():
-                llm_resp = await complete_with_lutopia_tool_loop(
+            if oral:
+                outcome = await complete_with_lutopia_tool_loop(
                     llm, messages, platform=Platform.DISCORD
                 )
+                llm_resp = outcome.response
+                reply_display = schedule_update_memory_hits_and_clean_reply(
+                    outcome.aggregated_assistant_text
+                )
+                reply = reply_display + outcome.behavior_appendix
             else:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
                 )
-            reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
+                reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
+                reply_display = reply
             
             # 保存用户消息到数据库（使用原始内容，不含引用前缀）
             has_img = bool(images)
@@ -465,7 +476,7 @@ class DiscordBot:
                     platform=Platform.DISCORD,
                 )
             
-            # 保存AI回复到数据库
+            # 保存AI回复到数据库（含 [行为记录]；频道展示仍用无附录的 reply_display）
             await save_message(
                 session_id=session_id,
                 role="assistant",
@@ -484,7 +495,7 @@ class DiscordBot:
             # 异步触发微批处理检查
             asyncio.create_task(trigger_micro_batch_check(session_id))
             
-            return reply
+            return reply_display
             
         except ValueError as e:
             logger.error(f"LLM 配置错误: {e}")
@@ -528,8 +539,11 @@ class DiscordBot:
             # 清理消息内容（移除提及）
             content = message.clean_content
             
+            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
+            llm = await LLMInterface.create()
+            oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
-            context = await build_context(session_id, content)
+            context = await build_context(session_id, content, tool_oral_coaching=oral)
             
             # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")
@@ -539,17 +553,21 @@ class DiscordBot:
             if not messages:
                 messages = [{"role": "user", "content": content}]
             
-            # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
-            llm = await LLMInterface.create()
-            if getattr(llm, "enable_lutopia", False) and not llm._use_anthropic_messages_api():
-                llm_resp = await complete_with_lutopia_tool_loop(
+            if oral:
+                outcome = await complete_with_lutopia_tool_loop(
                     llm, messages, platform=Platform.DISCORD
                 )
+                llm_resp = outcome.response
+                reply_display = schedule_update_memory_hits_and_clean_reply(
+                    outcome.aggregated_assistant_text
+                )
+                reply = reply_display + outcome.behavior_appendix
             else:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
                 )
-            reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
+                reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
+                reply_display = reply
             
             # 保存用户消息到数据库
             await save_message(
@@ -563,7 +581,7 @@ class DiscordBot:
                 platform=Platform.DISCORD
             )
             
-            # 保存AI回复到数据库
+            # 保存AI回复到数据库（含行为记录附录）
             await save_message(
                 session_id=session_id,
                 role="assistant",
@@ -582,7 +600,7 @@ class DiscordBot:
             # 异步触发微批处理检查
             asyncio.create_task(trigger_micro_batch_check(session_id))
             
-            return reply
+            return reply_display
             
         except ValueError as e:
             logger.error(f"LLM 配置错误: {e}")

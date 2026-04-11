@@ -77,7 +77,11 @@ from memory.database import (
 )
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
-from tools.lutopia import OPENAI_LUTOPIA_TOOLS, append_tool_exchange_to_messages
+from tools.lutopia import (
+    OPENAI_LUTOPIA_TOOLS,
+    append_tool_exchange_to_messages,
+    build_lutopia_behavior_appendix,
+)
 from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
 from tools.meme import search_meme_async, send_meme
 
@@ -1375,7 +1379,26 @@ class TelegramBot:
             cur_messages, build_tool_system_suffix(["lutopia"])
         )
         chat_id = base_message.chat.id
+        reply_mid = getattr(base_message, "message_id", None)
         sse: Optional[_TelegramSseRound] = None
+        pre_tool_segments: List[str] = []
+        tool_execution_log: List[Tuple[str, str]] = []
+
+        def _merge_stream_outcome(outcome: _TelegramStreamOutcome) -> _TelegramStreamOutcome:
+            merged_parts = [p for p in pre_tool_segments if p.strip()]
+            if outcome.body_for_db.strip():
+                merged_parts.append(outcome.body_for_db)
+            merged_speech = "\n".join(merged_parts)
+            cleaned_merged = schedule_update_memory_hits_and_clean_reply(merged_speech)
+            appendix = build_lutopia_behavior_appendix(tool_execution_log)
+            full_db = cleaned_merged + appendix if appendix else cleaned_merged
+            return _TelegramStreamOutcome(
+                body_for_db=full_db,
+                assistant_message_id=outcome.assistant_message_id,
+                thinking=outcome.thinking,
+                save_user=outcome.save_user,
+            )
+
         for _ in range(8):
             for attempt in range(2):
                 sse = await self._telegram_stream_llm_one_sse_round(
@@ -1399,6 +1422,15 @@ class TelegramBot:
             fin = sse.done_payload or {}
             tc = fin.get("tool_calls")
             if isinstance(tc, list) and len(tc) > 0:
+                rc = (sse.raw_content or "").strip()
+                if rc:
+                    pre_tool_segments.append(rc)
+                    await self._telegram_lutopia_send_partial_user_text(
+                        bot,
+                        chat_id,
+                        rc,
+                        reply_to_message_id=reply_mid,
+                    )
 
                 async def _lutopia_on_start(tool_name: str) -> None:
                     await self._telegram_lutopia_notify_tool_before(
@@ -1416,30 +1448,30 @@ class TelegramBot:
                     tc,
                     on_tool_start=_lutopia_on_start,
                     on_tool_done=_lutopia_on_done,
+                    execution_log=tool_execution_log,
                 )
                 continue
-            return await self._telegram_finalize_sse_round_outcome(
+            outcome = await self._telegram_finalize_sse_round_outcome(
                 sse, base_message, bot
             )
+            return _merge_stream_outcome(outcome)
         assert sse is not None
         logger.warning("Lutopia 工具轮次已达上限（8），按末轮 SSE 结果收尾")
-        return await self._telegram_finalize_sse_round_outcome(
+        outcome = await self._telegram_finalize_sse_round_outcome(
             sse, base_message, bot
         )
+        return _merge_stream_outcome(outcome)
 
     async def _telegram_lutopia_notify_tool_before(
         self, bot: Any, chat_id: int, tool_name: str
     ) -> None:
-        disp = self._telegram_lutopia_tool_display_name(tool_name)
-        # ⚙️ +「工具调用」为普通一行（非可折叠 blockquote）
-        html_out = self._escape_telegram_html(f"⚙️ 工具调用：{disp}")
+        """工具执行前仅发送 typing，不向用户推送工具状态行。"""
+        del tool_name
         try:
-            await bot.send_message(
-                chat_id=chat_id, text=html_out, parse_mode="HTML"
-            )
+            await bot.send_chat_action(chat_id=chat_id, action="typing")
         except Exception as e:
             logger.warning(
-                "Lutopia 工具开始前状态消息发送失败 chat_id=%s: %s",
+                "Lutopia send_chat_action(typing) 失败 chat_id=%s: %s",
                 chat_id,
                 exc_detail(e),
             )
@@ -1447,56 +1479,31 @@ class TelegramBot:
     async def _telegram_lutopia_notify_tool_after(
         self, bot: Any, chat_id: int, tool_name: str, result_json: str
     ) -> None:
-        parsed: Any = None
+        """保留签名供 append_tool_exchange 回调；不向频道发送。"""
+        del bot, chat_id, tool_name, result_json
+
+    async def _telegram_lutopia_send_partial_user_text(
+        self, bot: Any, chat_id: int, text: str, *, reply_to_message_id: Optional[int] = None
+    ) -> None:
+        """工具轮次之间的口播：纯文本，避免 HTML 注入。"""
+        t = (text or "").strip()
+        if not t:
+            return
+        if len(t) > 4096:
+            t = t[:4093] + "…"
         try:
-            parsed = json.loads(result_json)
-        except json.JSONDecodeError:
-            parsed = None
-
-        err_msg: Optional[str] = None
-        if isinstance(parsed, dict) and parsed.get("error") is not None:
-            ev = parsed.get("error")
-            if str(ev).strip() != "":
-                err_msg = str(ev)
-
-        try:
-            disp = self._telegram_lutopia_tool_display_name(tool_name)
-            if err_msg is not None:
-                inner = f"{tool_name}\n{err_msg}"
-                html_out = self._telegram_foldable_blockquote_html(
-                    "❌ 工具失败", inner
-                )
-                await bot.send_message(
-                    chat_id=chat_id, text=html_out, parse_mode="HTML"
-                )
-                return
-
-            summary = self._telegram_lutopia_result_summary_text(parsed, result_json)
-            if len(summary) > 800:
-                summary = summary[:800] + "…"
-            html_out = self._telegram_foldable_blockquote_html(
-                f"✅ 完成 · {disp}", summary
-            )
             await bot.send_message(
-                chat_id=chat_id, text=html_out, parse_mode="HTML"
+                chat_id=chat_id,
+                text=t,
+                parse_mode=None,
+                reply_to_message_id=reply_to_message_id,
             )
         except Exception as e:
             logger.warning(
-                "Lutopia 工具结束后状态消息发送失败 chat_id=%s: %s",
+                "Lutopia 口播消息发送失败 chat_id=%s: %s",
                 chat_id,
                 exc_detail(e),
             )
-
-    def _telegram_lutopia_result_summary_text(
-        self, parsed: Any, raw_json: str
-    ) -> str:
-        if parsed is not None:
-            try:
-                return json.dumps(parsed, ensure_ascii=False)
-            except (TypeError, ValueError):
-                return str(parsed)[:100]
-        t = raw_json or ""
-        return t if len(t) <= 100 else t[:100]
 
     def _assistant_outgoing_chunks(
         self, reply: str, thinking: Optional[str]
@@ -1585,22 +1592,23 @@ class TelegramBot:
     ) -> _BufferGenResult:
         """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条），并视结果落库用户消息。"""
         try:
+            llm = await LLMInterface.create()
+            is_anthropic = llm._use_anthropic_messages_api()
+            lutopia_on = bool(getattr(llm, "enable_lutopia", False))
+            oral = lutopia_on and not is_anthropic
             context = await build_context(
                 session_id,
                 combined_content,
                 images=images or None,
                 llm_user_text=text_for_llm or None,
                 telegram_segment_hint=True,
+                tool_oral_coaching=oral,
             )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
             if not messages:
                 messages = [{"role": "user", "content": combined_content}]
 
-            llm = await LLMInterface.create()
-
-            is_anthropic = llm._use_anthropic_messages_api()
-            lutopia_on = bool(getattr(llm, "enable_lutopia", False))
             if is_anthropic:
                 llm_path = "anthropic_prefetch → generate_with_context_and_tracking（无 tools）"
             elif lutopia_on:
@@ -1924,16 +1932,17 @@ class TelegramBot:
         传入 telegram_bot 时：发送思维链、去掉 [meme:…] 后的正文与检索到的表情包。
         """
         try:
-            context = await build_context(session_id, content)
+            llm = await LLMInterface.create()
+            cid = int(chat_id)
+            oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
+            context = await build_context(session_id, content, tool_oral_coaching=oral)
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
             if not messages:
                 messages = [{"role": "user", "content": content}]
 
-            llm = await LLMInterface.create()
-            cid = int(chat_id)
-
-            if getattr(llm, "enable_lutopia", False) and not llm._use_anthropic_messages_api():
+            behavior_appendix = ""
+            if oral:
                 if telegram_bot is not None:
 
                     async def _lutopia_on_start(n: str) -> None:
@@ -1946,17 +1955,28 @@ class TelegramBot:
                             telegram_bot, cid, n, out
                         )
 
-                    llm_resp = await complete_with_lutopia_tool_loop(
+                    async def _partial(txt: str) -> None:
+                        await self._telegram_lutopia_send_partial_user_text(
+                            telegram_bot, cid, txt, reply_to_message_id=None
+                        )
+
+                    outcome = await complete_with_lutopia_tool_loop(
                         llm,
                         messages,
                         platform=Platform.TELEGRAM,
                         on_tool_start=_lutopia_on_start,
                         on_tool_done=_lutopia_on_done,
+                        on_assistant_partial_text=_partial,
                     )
                 else:
-                    llm_resp = await complete_with_lutopia_tool_loop(
+                    outcome = await complete_with_lutopia_tool_loop(
                         llm, messages, platform=Platform.TELEGRAM
                     )
+                llm_resp = outcome.response
+                behavior_appendix = outcome.behavior_appendix
+                cleaned = schedule_update_memory_hits_and_clean_reply(
+                    outcome.aggregated_assistant_text
+                )
             else:
 
                 def _call() -> Any:
@@ -1965,6 +1985,7 @@ class TelegramBot:
                     )
 
                 llm_resp = await asyncio.to_thread(_call)
+                cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
             if hasattr(llm_resp, 'usage') and llm_resp.usage:
                 llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
             think_plain = (llm_resp.thinking or "").strip()
@@ -1981,7 +2002,6 @@ class TelegramBot:
                         exc_detail(e),
                     )
 
-            cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
             segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
             meme_sent = False
             if telegram_bot and segments:
@@ -1994,6 +2014,7 @@ class TelegramBot:
                 reply = "[表情包]"
             else:
                 reply = ""
+            save_assistant_content = reply + behavior_appendix if behavior_appendix else reply
 
             await save_message(
                 session_id=session_id,
@@ -2011,7 +2032,7 @@ class TelegramBot:
             await save_message(
                 session_id=session_id,
                 role="assistant",
-                content=reply,
+                content=save_assistant_content,
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=f"ai_{message_id}",
