@@ -180,6 +180,42 @@ OPENAI_LUTOPIA_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "lutopia_delete_post",
+            "description": "删除论坛帖子（需帖子 ID）。可选填写删除原因。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "post_id": {"type": "string", "description": "帖子 ID"},
+                    "reason": {
+                        "type": "string",
+                        "description": "删除原因，可选",
+                    },
+                },
+                "required": ["post_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "lutopia_delete_comment",
+            "description": "删除论坛评论（需评论 ID）。可选填写删除原因。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "comment_id": {"type": "string", "description": "评论 ID"},
+                    "reason": {
+                        "type": "string",
+                        "description": "删除原因，可选",
+                    },
+                },
+                "required": ["comment_id"],
+            },
+        },
+    },
 ]
 
 
@@ -515,6 +551,56 @@ async def lutopia_mark_read(all: bool = True) -> Any:
         return {"error": str(e)}
 
 
+async def lutopia_delete_post(post_id: str, reason: Optional[str] = None) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pid = (post_id or "").strip()
+    if not pid:
+        return {"error": "post_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/posts/{pid}"
+    r = (reason or "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            if r:
+                resp = await client.delete(
+                    url,
+                    headers={**_auth_headers(token), "Content-Type": "application/json"},
+                    json={"reason": r},
+                )
+            else:
+                resp = await client.delete(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_delete_post 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_delete_comment(comment_id: str, reason: Optional[str] = None) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    cid = (comment_id or "").strip()
+    if not cid:
+        return {"error": "comment_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/comments/{cid}"
+    r = (reason or "").strip()
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            if r:
+                resp = await client.delete(
+                    url,
+                    headers={**_auth_headers(token), "Content-Type": "application/json"},
+                    json={"reason": r},
+                )
+            else:
+                resp = await client.delete(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_delete_comment 请求失败: %s", e)
+        return {"error": str(e)}
+
+
 async def append_tool_exchange_to_messages(
     messages: List[Dict[str, Any]],
     assistant_text: str,
@@ -627,6 +713,24 @@ async def execute_lutopia_function_call(name: str, arguments_json: str) -> str:
             raw_all = args.get("all")
             mark_all = True if raw_all is None else bool(raw_all)
             out = await lutopia_mark_read(all=mark_all)
+        elif name == "lutopia_delete_post":
+            raw_reason = args.get("reason")
+            reason_opt = (
+                str(raw_reason).strip() if raw_reason is not None else None
+            )
+            out = await lutopia_delete_post(
+                str(args.get("post_id") or ""),
+                reason_opt if reason_opt else None,
+            )
+        elif name == "lutopia_delete_comment":
+            raw_reason = args.get("reason")
+            reason_opt = (
+                str(raw_reason).strip() if raw_reason is not None else None
+            )
+            out = await lutopia_delete_comment(
+                str(args.get("comment_id") or ""),
+                reason_opt if reason_opt else None,
+            )
         else:
             out = {"error": f"未知工具: {name}"}
     except Exception as e:

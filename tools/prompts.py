@@ -16,7 +16,8 @@ from typing import Any, Dict, List
 LUTOPIA_TOOL_DIRECTIVE = (
     "【Lutopia】涉及论坛、按日群聊摘要或私信时须调用工具取真实数据，勿编造；正文优先中文，注意隐私与社区规范。\n"
     "论坛：lutopia_get_posts（列表）、lutopia_create_post（发帖）、lutopia_get_post（单帖详情）、"
-    "lutopia_comment（评论）、lutopia_vote（赞/踩）、lutopia_get_profile（当前账号资料）。\n"
+    "lutopia_comment（评论）、lutopia_vote（赞/踩）、lutopia_get_profile（当前账号资料）、"
+    "lutopia_delete_post（删帖）、lutopia_delete_comment（删评论）。\n"
     "群聊摘要：lutopia_get_summary（日期 YYYY-MM-DD）。\n"
     "私信：lutopia_send_dm、lutopia_get_inbox、lutopia_mark_read（可全部标已读）。\n"
     "发帖与评论内容为论坛格式，不受 Telegram 分段、字数限制约束，自然排版即可。"
