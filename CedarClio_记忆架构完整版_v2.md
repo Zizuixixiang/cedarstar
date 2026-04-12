@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-09（与 CedarStar 实现对齐：可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准）
+> 文档版本：2026-04-12（与 CedarStar 实现对齐：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准）
 
 ---
 
@@ -18,14 +18,16 @@
 | 组件 | 职责 |
 |---|---|
 | Gateway（网关） | 组装上下文、拦截回复、触发后台任务、服务启动时初始化 BM25 |
-| SQLite（cedarstar.db） | 聊天原文、摘要、记忆卡片、关系时间线、时效状态、跑批日志 |
+| PostgreSQL（asyncpg，`DATABASE_URL`） | 聊天原文、摘要、记忆卡片、关系时间线、时效状态、跑批日志、`config` 键值等 |
 | ChromaDB | 长期记忆向量存储（双轨：daily 小传 + event 事件片段） |
 | BM25 内存索引 | 关键词双路召回，服务启动时强制预热 |
-| daily_batch.py | 东八区整点定时跑批（`Asia/Shanghai`）；触发小时由 SQLite `config.daily_batch_hour` 配置，**默认 23**，热更新 |
+| daily_batch.py | 东八区整点定时跑批（`Asia/Shanghai`）；触发小时由 PostgreSQL `config.daily_batch_hour` 配置，**默认 23**，热更新 |
 
 ---
 
-## 一、数据库表结构（SQLite）
+## 一、数据库表结构（PostgreSQL，asyncpg）
+
+实现以 `memory/database.py` 的 `create_tables` / `migrate_database_schema` 为准。以下为与 CedarClio 记忆管线相关的核心字段说明（类型以 PostgreSQL 为参照）。
 
 > **索引建设原则（必须遵守）：**
 > 所有高频用于 `WHERE` 过滤和 `ORDER BY` 排序的字段必须建立索引。
@@ -35,65 +37,61 @@
 
 ### 1. messages（聊天原文）
 
-```sql
-CREATE TABLE messages (
-    id              VARCHAR   PRIMARY KEY,
-    session_id      VARCHAR   NOT NULL,
-    role            VARCHAR   NOT NULL,   -- user / assistant
-    content         TEXT      NOT NULL,
-    created_at      DATETIME  NOT NULL,
-    is_summarized   INTEGER   NOT NULL DEFAULT 0   -- 0=未总结，1=已总结
-);
+除对话正文外，实现侧包含平台、多模态与缓冲落库等字段，例如：
 
--- 必须建立的索引
-CREATE INDEX idx_messages_session_created   ON messages (session_id, created_at);
-CREATE INDEX idx_messages_is_summarized     ON messages (is_summarized);
-CREATE INDEX idx_messages_session_summarized ON messages (session_id, is_summarized);
-```
+| 字段 | 说明 |
+|------|------|
+| `id` | `SERIAL` 主键 |
+| `session_id` | 会话标识（Discord / Telegram 格式见仓库约定） |
+| `role` | `user` / `assistant` |
+| `content` | 正文 |
+| `created_at` | 时间戳 |
+| `is_summarized` | 微批摘要标记 |
+| `user_id` / `channel_id` / `message_id` | 平台消息关联 |
+| `character_id` | 人设 / 角色 |
+| `platform` | 来源平台（写入时使用 `config.Platform` 常量） |
+| `thinking` | 助手思维链落库（若上游传入） |
+| `media_type` / `image_caption` / `vision_processed` | 图片等多模态与视觉批处理 |
 
-> `(session_id, is_summarized)` 复合索引是微批处理查询"未总结消息数量"时的核心性能保障。
+必须建立的索引包括 `(session_id, created_at)`、`is_summarized`、`(session_id, is_summarized)` 等（见迁移脚本）。
 
 ---
 
 ### 2. summaries（摘要表）
 
-```sql
-CREATE TABLE summaries (
-    id              VARCHAR   PRIMARY KEY,
-    session_id      VARCHAR   NOT NULL,
-    summary_type    VARCHAR   NOT NULL,   -- chunk / daily
-    content         TEXT      NOT NULL,
-    source_date     DATE      NOT NULL,
-    created_at      DATETIME  NOT NULL
-);
+| 字段 | 说明 |
+|------|------|
+| `id` | `SERIAL` 主键 |
+| `session_id` | 来源会话或 `daily_batch` 等 |
+| `summary_text` | 摘要正文 |
+| `start_message_id` / `end_message_id` | chunk 对应消息范围（日终 daily 可为占位） |
+| `summary_type` | `chunk` / `daily`（枚举约束以代码为准） |
+| `source_date` | 业务日期（迁移补齐） |
+| `created_at` | 创建时间 |
 
--- 必须建立的索引
-CREATE INDEX idx_summaries_session_type_date ON summaries (session_id, summary_type, source_date);
-CREATE INDEX idx_summaries_source_date        ON summaries (source_date);
-```
+索引包括 `(session_id, created_at)`、`(session_id, summary_type, source_date)`、`(source_date)` 等。
 
 ---
 
 ### 3. memory_cards（7维度核心记忆卡片）
 
-每个 `(user_id, dimension)` 严格只保留 1 张 `is_active=1` 的卡片，数据库层面加唯一约束。
+每个 **`(user_id, character_id, dimension)`** 在业务上只保留 1 张有效卡片：**无数据库级 `UNIQUE` 约束**，由日终 Step 3 等路径 **应用层 Upsert（查后 INSERT / UPDATE）** 保证不膨胀。
 
 ```sql
+-- 示意（完整列与默认值以 migrate 为准）
 CREATE TABLE memory_cards (
-    id          VARCHAR   PRIMARY KEY,
-    user_id     VARCHAR   NOT NULL,
-    dimension   VARCHAR   NOT NULL,   -- 枚举，见下方
-    content     TEXT      NOT NULL,
-    is_active   INTEGER   NOT NULL DEFAULT 1,   -- 1=激活，0=归档
-    created_at  DATETIME  NOT NULL,
-    updated_at  DATETIME  NOT NULL,
-    UNIQUE (user_id, dimension)   -- 强制每维度唯一激活
+    id                SERIAL PRIMARY KEY,
+    user_id           TEXT NOT NULL,
+    character_id      TEXT NOT NULL,
+    dimension         TEXT NOT NULL,
+    content           TEXT NOT NULL,
+    updated_at        TIMESTAMP DEFAULT NOW(),
+    source_message_id TEXT,
+    is_active         INTEGER DEFAULT 1
 );
-
--- 必须建立的索引
-CREATE INDEX idx_memory_cards_user_active     ON memory_cards (user_id, is_active);
-CREATE INDEX idx_memory_cards_is_active       ON memory_cards (is_active);
 ```
+
+索引包括 `(user_id, character_id, dimension, updated_at)`、`(user_id, is_active)`、`(is_active)` 等。
 
 **7个固定维度（枚举，代码层面写死，不可新增，不设"其他"兜底项）：**
 
@@ -223,7 +221,7 @@ metadata:
 
 ---
 
-### 2.1 运行参数表 `config`（SQLite，Mini App「助手配置」可改）
+### 2.1 运行参数表 `config`（PostgreSQL，Mini App「助手配置」可改）
 
 以下键优先读库，缺失或非法时回退默认值；**不必改 `.env`** 即可热更新（与 `api/config.py`、`memory/context_builder.py` 等一致）。
 
@@ -292,6 +290,8 @@ def init_bm25_index():
 6. 引用指令注入（Prompt 末尾死命令，见 Citation 机制）
 ```
 
+**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system 内各区块的拼接顺序**（越靠后的块在字面上离「当前轮」越远、越像背景）。另有一套并列规则：在 **`memory/context_builder.py`** 末尾注入的 **冲突消解优先级**（例如时效状态高于近期消息、每日摘要与记忆卡片、长期记忆的取舍），与拼接顺序 **独立存在**——模型在信息冲突时按该优先级消解，**不因**拼接顺序而自动覆盖。
+
 ### 两阶段长期记忆召回
 
 **阶段一：粗排（向量层 + BM25 双路并行）**
@@ -312,7 +312,7 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 最终得分 = (语义相似度归一化 × 0.8) + (时间衰减复活得分 × 0.2)
 
 衰减复活得分计算：
-  age_days        = (当前时间 - last_access_ts) / 86400
+  age_days        = (当前时间 - last_access_ts) / 86400   # 优先 last_access_ts；缺失时兜底 created_at（见 `fuse_rerank_with_time_decay` / `_memory_age_days`）
   base            = clamp(base_score, 0, 10)
   boost           = 1 + 0.35 × ln(1 + hits)
   arousal         = metadata.arousal ?? 0.1          # 历史数据无此字段时兜底 0.1
@@ -321,7 +321,7 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
   → 归一化后参与融合
 ```
 
-**截断输出：** 取重排后前 Top N 条（N=`context_max_longterm`，默认 3，Mini App「助手配置」+ SQLite `config`）；**同步路径**（无 Cohere）在折叠后直接截断为 N 条。注入 Prompt 时每条必须带 uid 前缀：
+**截断输出：** 取重排后前 Top N 条（N=`context_max_longterm`，默认 3，Mini App「助手配置」+ PostgreSQL `config`）；**同步路径**（无 Cohere）在折叠后直接截断为 N 条。注入 Prompt 时每条必须带 uid 前缀：
 
 ```
 [uid:daily_2026-03-16] 今天下班后去看了电影……
@@ -370,6 +370,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 ```
 1. 正则提取与去重
    用 \[\[used:(.*?)\]\] 提取所有 UID，放入 Set 去重
+   （实现侧可兼容模型误写的单括号 [used:…]、全角【used:…】，均参与 hits 更新与剥离，见 bot/reply_citations.py）
 
 2. 静默加分（复活机制，后台异步，不阻塞主线程）
    collection.update(
@@ -379,7 +380,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
    直接用 doc_id 作为主键更新，O(1)，禁止 metadata 过滤查询
 
 3. 文本清洗（阅后即焚）
-   re.sub(r'\[\[used:.*?\]\]', '', reply_text)
+   移除规范格式 [[used:…]]，并兼容剥离 [used:…]、【used:…】等误写后再下发
 
 4. 落库与下发
    将清洗后的纯净文本推送 Telegram/Discord
@@ -541,4 +542,4 @@ doc_id: daily_{batch_date}
 
 ---
 
-*文档版本：v2 · 2026-04-09 · 已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）；实现以仓库代码为准*
+*文档版本：v2 · 2026-04-12 · 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）；实现以仓库代码为准*

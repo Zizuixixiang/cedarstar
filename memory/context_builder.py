@@ -6,9 +6,9 @@ Context 构建模块。
 2. temporal_states：is_active=1 的全部记录（在记忆卡片之前）
 3. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
 4. relationship_timeline：条数见 `relationship_timeline_limit`（库内选取），注入 Context 时按 created_at 正序排列
-5. daily summary：`context_max_daily_summaries`（优先）或环境变量决定条数，倒序取后翻为正序拼入
-6. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
-7. 向量检索：各路 `retrieval_top_k` 条，去重合并，父子折叠后注入 `context_max_longterm` 条（异步路径经精排后再截断）
+5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，父子折叠后注入 `context_max_longterm` 条（异步路径经精排后再截断）
+6. daily summary：`context_max_daily_summaries`（优先）或环境变量决定条数，倒序取后翻为正序拼入
+7. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
 8. 最近消息：`short_term_limit`（优先）或环境变量决定条数，再正序排列后拼入
 
 组装完成后返回一个结构，包含 system prompt 和 messages 数组，直接可以传给 LLM API。
@@ -408,7 +408,15 @@ def _merge_vector_bm25_dedupe(
 
 
 def _memory_age_days(metadata: Dict[str, Any], now_ts: float) -> float:
+    """用于衰减复活分：优先以 last_access_ts 计龄；仅当缺失或无法解析时用 created_at 兜底。"""
     md = metadata or {}
+    last_raw = md.get("last_access_ts")
+    if last_raw is not None and str(last_raw).strip() != "":
+        try:
+            lt = float(last_raw)
+            return max(0.0, (now_ts - lt) / 86400.0)
+        except (TypeError, ValueError):
+            pass
     created = md.get("created_at")
     if created:
         try:
@@ -416,11 +424,7 @@ def _memory_age_days(metadata: Dict[str, Any], now_ts: float) -> float:
             return max(0.0, (now_ts - dt.timestamp()) / 86400.0)
         except (TypeError, ValueError):
             pass
-    try:
-        lt = float(md.get("last_access_ts", now_ts))
-    except (TypeError, ValueError):
-        lt = now_ts
-    return max(0.0, (now_ts - lt) / 86400.0)
+    return 0.0
 
 
 def _decay_resurrection_raw(metadata: Dict[str, Any], age_days: float) -> float:
@@ -521,9 +525,9 @@ class ContextBuilder:
         2. temporal_states（is_active=1）
         3. memory_cards
         4. relationship_timeline（条数见库内配置，created_at 正序注入）
-        5. daily summary
-        6. chunk summary
-        7. 向量检索（折叠 + [uid:doc_id]）
+        5. 向量检索（折叠 + [uid:doc_id]）
+        6. daily summary
+        7. chunk summary
         8. 最近消息
         
         Args:
@@ -548,14 +552,10 @@ class ContextBuilder:
 
             relationship_timeline_section = await self._build_relationship_timeline_section()
             
-            # 3. 获取 daily summaries
-            daily_summaries_section = await self._build_daily_summaries_section()
-            
-            # 4. 获取 today's chunk summaries
-            chunk_summaries_section = await self._build_chunk_summaries_section()
-            
-            # 5. 获取向量检索结果
+            # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
             vector_search_section = await self._build_vector_search_section(user_message)
+            daily_summaries_section = await self._build_daily_summaries_section()
+            chunk_summaries_section = await self._build_chunk_summaries_section()
             
             # 6. 获取最近消息
             recent_messages_section = await self._build_recent_messages_section(session_id)
@@ -574,9 +574,9 @@ class ContextBuilder:
                 temporal_section,
                 memory_cards_section,
                 relationship_timeline_section,
+                vector_search_section,
                 daily_summaries_section,
                 chunk_summaries_section,
-                vector_search_section,
                 tool_oral_coaching=tool_oral_coaching,
             )
             if telegram_segment_hint:
@@ -623,9 +623,9 @@ class ContextBuilder:
         2. temporal_states（is_active=1）
         3. memory_cards
         4. relationship_timeline（条数见库内配置，created_at 正序注入）
-        5. daily summary
-        6. chunk summary
-        7. 向量检索（折叠 → Cohere 全候选打分 → 语义×0.8+衰减×0.2 → top N，[uid:doc_id]）
+        5. 向量检索（折叠 → Cohere 全候选打分 → 语义×0.8+衰减×0.2 → top N，[uid:doc_id]）
+        6. daily summary
+        7. chunk summary
         8. 最近消息
         
         使用 asyncio.gather 并行执行向量检索和 BM25 检索，
@@ -653,14 +653,10 @@ class ContextBuilder:
 
             relationship_timeline_section = await self._build_relationship_timeline_section()
             
-            # 3. 获取 daily summaries
-            daily_summaries_section = await self._build_daily_summaries_section()
-            
-            # 4. 获取 today's chunk summaries
-            chunk_summaries_section = await self._build_chunk_summaries_section()
-            
-            # 5. 获取向量检索结果（带 Reranker）
+            # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
             vector_search_section = await self._build_vector_search_section_async(user_message)
+            daily_summaries_section = await self._build_daily_summaries_section()
+            chunk_summaries_section = await self._build_chunk_summaries_section()
             
             # 6. 获取最近消息
             recent_messages_section = await self._build_recent_messages_section(session_id)
@@ -679,9 +675,9 @@ class ContextBuilder:
                 temporal_section,
                 memory_cards_section,
                 relationship_timeline_section,
+                vector_search_section,
                 daily_summaries_section,
                 chunk_summaries_section,
-                vector_search_section,
                 tool_oral_coaching=tool_oral_coaching,
             )
             if telegram_segment_hint:
@@ -1242,9 +1238,9 @@ class ContextBuilder:
         temporal_states_section: str,
         memory_cards_section: str,
         relationship_timeline_section: str,
+        vector_search_section: str,
         daily_summaries_section: str,
         chunk_summaries_section: str,
-        vector_search_section: str,
         *,
         tool_oral_coaching: bool = False,
     ) -> str:
@@ -1252,7 +1248,7 @@ class ContextBuilder:
         组装完整的 system prompt。
 
         顺序：系统时间 → system → temporal_states → memory_cards → relationship_timeline
-        → daily → chunk → 长期记忆检索；末尾注入引用死命令与思维链语言要求。
+        → 长期记忆检索 → daily → chunk；末尾注入引用死命令与思维链语言要求。
         """
         from datetime import datetime, timezone, timedelta
         tz_utc_8 = timezone(timedelta(hours=8))
@@ -1270,14 +1266,14 @@ class ContextBuilder:
         if relationship_timeline_section:
             sections.append(relationship_timeline_section)
 
+        if vector_search_section:
+            sections.append(vector_search_section)
+
         if daily_summaries_section:
             sections.append(daily_summaries_section)
 
         if chunk_summaries_section:
             sections.append(chunk_summaries_section)
-
-        if vector_search_section:
-            sections.append(vector_search_section)
 
         if len(sections) > 1:
             sections.append("---")

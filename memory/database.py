@@ -1350,6 +1350,30 @@ class MessageDatabase:
         logger.debug("获取今天的 chunk 摘要: count=%s", len(summaries))
         return summaries
 
+    async def delete_today_chunk_summaries(self) -> int:
+        """
+        删除当天 summary_type='chunk' 的记录（日期规则与 get_today_chunk_summaries 一致）。
+
+        Returns:
+            int: 删除的行数。
+        """
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                """
+                DELETE FROM summaries
+                WHERE summary_type = 'chunk'
+                  AND created_at::date = CURRENT_DATE
+                """
+            )
+        try:
+            parts = str(status).split()
+            n = int(parts[-1]) if parts else 0
+        except (ValueError, IndexError):
+            n = 0
+        if n:
+            logger.info("delete_today_chunk_summaries: 已删除 %s 条 chunk 摘要", n)
+        return n
+
     async def get_today_user_character_pairs(self, batch_date: str) -> List[Dict[str, Any]]:
         """
         查询指定日期有过对话的用户列表（按 created_at::date 过滤）。
@@ -2907,6 +2931,10 @@ async def get_recent_daily_summaries(limit: int = 5) -> List[Dict[str, Any]]:
 
 async def get_today_chunk_summaries() -> List[Dict[str, Any]]:
     return await get_database().get_today_chunk_summaries()
+
+
+async def delete_today_chunk_summaries() -> int:
+    return await get_database().delete_today_chunk_summaries()
 
 
 async def get_today_user_character_pairs(batch_date: str) -> List[Dict[str, Any]]:

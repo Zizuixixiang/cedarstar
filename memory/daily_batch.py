@@ -58,6 +58,7 @@ try:
     from .database import (
         get_database,
         get_today_chunk_summaries,
+        delete_today_chunk_summaries,
         get_unsummarized_messages_by_session,
         save_summary,
         mark_messages_as_summarized_by_ids,
@@ -83,6 +84,7 @@ except ImportError:
     from memory.database import (
         get_database,
         get_today_chunk_summaries,
+        delete_today_chunk_summaries,
         get_unsummarized_messages_by_session,
         save_summary,
         mark_messages_as_summarized_by_ids,
@@ -464,6 +466,14 @@ class DailyBatchProcessor:
                 end_message_id=0,
                 summary_type="daily"
             )
+
+            n_chunk_del = await delete_today_chunk_summaries()
+            if n_chunk_del:
+                logger.info(
+                    "已删除今日 chunk 摘要 %s 条（daily 写入成功后），日期: %s",
+                    n_chunk_del,
+                    batch_date,
+                )
             
             logger.info(f"今日小传保存成功，日期: {batch_date}")
             return True, None
