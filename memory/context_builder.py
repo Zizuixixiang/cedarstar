@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 # OpenAI 兼容路径下启用 Lutopia tools 时注入 system 末尾（与 tools 是否传入由调用方 flag 对齐）
 TOOL_ORAL_COACHING_BLOCK = (
     "调用工具前，用一句简短口语告诉用户你要去做什么，"
-    "语气自然随意，比如「我去看看～」「稍等帮你查一下」。"
+    "语气自然随意，比如「我去看看xxxx」。"
     "工具结果回来后，接着用正常语气继续说。"
     "不要罗列工具名称，不要说技术性的话。"
 )
@@ -310,7 +310,7 @@ async def format_telegram_reply_segment_hint() -> str:
         "\n\n"
         "【Telegram 排版】\n\n"
         "(1) 标签：仅用 <b> <i> <u> <s> <code> <pre> <blockquote> <a>，禁其他。\n\n"
-        "(2) 分段：像真人发消息，自然换行即可拆成多条气泡。\n"
+        "(2) 分段：像真人发消息，每条气泡之间用空行隔开（即两次换行）。\n"
         f"想强制分割时用 |||；总段数 ≤ {max_msg}，每段 ≤ {max_chars} 字。\n"
         "禁止超长整段 / 句子中间截断 / 机械平均切分。\n\n"
         "(3) 表情包：情绪浓度高时写 [meme:中文描述]，自然插入，不必每轮都发。\n"

@@ -5,6 +5,7 @@
 import asyncio
 import logging
 import re
+import unicodedata
 from typing import List, Literal, Optional, Set, Tuple
 
 TelegramOrderedSegment = Tuple[Literal["text", "meme"], str]
@@ -23,14 +24,14 @@ _USED_UID_SINGLE_RE = re.compile(r"(?<!\[)\[used:([^\]]+)\](?!\])")
 _MEME_MARKER_PATTERN = re.compile(r"\[meme:([^\]]*)\]")
 # 与 `|||` 一起作为顺序分隔：`re.split` 捕获组会保留分隔符
 _MEME_OR_TRIPLE_PIPE_SPLIT_RE = re.compile(r"(\[meme:[^\]]*\]|\|\|\|)")
-# Telegram 允许的块级标签：仅在闭合块外按 \n\n 拆段
+# Telegram 允许的块级标签：仅在闭合块外按换行拆段（单 \\n 与连续空行均切分）
 _HTML_BLOCK_TAG_RE = re.compile(
     r"<(/)?\s*(pre|code|blockquote)\b[^>]*>", re.IGNORECASE
 )
 
 
-def _split_by_double_newline_outside_html_blocks(text: str) -> List[str]:
-    """在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 ``\\n\\n`` 拆段；块内不切。"""
+def _split_by_newline_outside_html_blocks(text: str) -> List[str]:
+    """在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 ``\\n`` 拆行；块内不切。返回非空行（strip 后）。"""
     if not text:
         return []
     parts: List[str] = []
@@ -50,42 +51,146 @@ def _split_by_double_newline_outside_html_blocks(text: str) -> List[str]:
                 stack.append(tag)
             i = m.end()
             continue
-        if i + 1 < n and text[i] == "\n" and text[i + 1] == "\n" and not stack:
+        if text[i] == "\n" and not stack:
             parts.append(text[buf_start:i])
-            buf_start = i + 2
-            i += 2
+            buf_start = i + 1
+            i += 1
             continue
         i += 1
     parts.append(text[buf_start:])
-    return parts
+    return [p for p in parts if (p or "").strip()]
+
+
+_SENTENCE_END_CHARS = (
+    "。",
+    "！",
+    "？",
+    "…",
+    "～",
+    "~",
+    "!",
+    "?",
+    "♪",
+)
+
+
+def _is_complete_sentence(s: str) -> bool:
+    t = (s or "").strip()
+    return bool(t) and t.endswith(_SENTENCE_END_CHARS)
+
+
+# 超长段按句末切分（与 `_is_complete_sentence` 所用集合对齐需求：`。！？…～!?`）
+_OVERSIZED_SENTENCE_END_CHARS = frozenset("。！？…～!?")
+
+
+def _split_oversized_chunk(chunk: str, max_chars: int) -> List[str]:
+    """单段超过 ``max_chars`` 时按句末标点切分；标点留在前段末尾。
+    若无句末标点或某句仍超长，整段保留不切（宁可单条气泡偏长）。"""
+    if max_chars < 1:
+        max_chars = 1
+    t = (chunk or "").strip()
+    if not t:
+        return []
+    if len(t) <= max_chars:
+        return [t]
+    parts: List[str] = []
+    buf: List[str] = []
+    for c in t:
+        buf.append(c)
+        if c in _OVERSIZED_SENTENCE_END_CHARS:
+            piece = "".join(buf).strip()
+            if piece:
+                parts.append(piece)
+            buf = []
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    if not parts:
+        return [t]
+    return [x for x in parts if (x or "").strip()]
+
+
+def _is_punctuation_or_symbol_only_fragment(s: str) -> bool:
+    """strip 后除空白外仅含 Unicode 标点/符号（如引号、括号），无字母数字等正文时视为应并入前一片。"""
+    t = (s or "").strip()
+    if not t:
+        return True
+    for ch in t:
+        if ch.isspace():
+            continue
+        cat = unicodedata.category(ch)
+        if cat[0] not in ("P", "S"):
+            return False
+    return True
+
+
+def _collapse_punctuation_only_into_previous(merged: List[str]) -> List[str]:
+    """将仅标点/符号的切片用换行并入前一片（首片无法并入则保留）。"""
+    out: List[str] = []
+    for cur in merged:
+        if _is_punctuation_or_symbol_only_fragment(cur) and out:
+            out[-1] = out[-1] + "\n" + cur
+        else:
+            out.append(cur)
+    return out
 
 
 def _merge_short_text_chunks(chunks: List[str], min_chars: int = 15) -> List[str]:
-    """strip 后过短的切片与相邻片用 ``\\n\\n`` 合并（先与后一片合并，末片过短再并回前一片）。"""
+    """strip 后过短的切片与相邻片用换行合并（先与后一片合并，末片过短再并回前一片）。
+    以句末标点结尾的短句视为完整句，不合并。
+    仅标点/符号的切片先并入前一片（首片无法并入则保留），且不与下一段正文做「过短合并」。"""
     if not chunks:
         return []
+    chunks = _collapse_punctuation_only_into_previous(list(chunks))
     i = 0
     merged: List[str] = []
     while i < len(chunks):
         cur = chunks[i]
-        if len(cur.strip()) < min_chars and i + 1 < len(chunks):
-            merged.append(cur + "\n\n" + chunks[i + 1])
+        if (
+            len(cur.strip()) < min_chars
+            and i + 1 < len(chunks)
+            and not _is_complete_sentence(cur)
+            and not _is_punctuation_or_symbol_only_fragment(cur)
+            and cur.count("\n") < 2
+        ):
+            merged.append(cur + "\n" + chunks[i + 1])
             i += 2
         else:
             merged.append(cur)
             i += 1
-    if len(merged) >= 2 and len(merged[-1].strip()) < min_chars:
-        merged[-2] = merged[-2] + "\n\n" + merged[-1]
+    if (
+        len(merged) >= 2
+        and len(merged[-1].strip()) < min_chars
+        and not _is_complete_sentence(merged[-1])
+        and not _is_punctuation_or_symbol_only_fragment(merged[-1])
+    ):
+        merged[-2] = merged[-2] + "\n" + merged[-1]
         merged.pop()
-    return merged
+    return _collapse_punctuation_only_into_previous(merged)
 
 
 def _enforce_max_msg_segments(
     segments: List[TelegramOrderedSegment], max_msg: int
 ) -> List[TelegramOrderedSegment]:
-    """总气泡数（含 meme）超过 max_msg 时，从后往前将相邻 text 合并，直至 ≤ max_msg。"""
+    """总气泡数（含 meme）超过 max_msg 时，优先合并「合并后总长最短」的相邻 text 对；若无相邻 text 对则回退为从后往前合并 text（meme 不删）。"""
     out: List[TelegramOrderedSegment] = list(segments)
     while len(out) > max_msg:
+        best_i: Optional[int] = None
+        best_len: Optional[int] = None
+        for i in range(len(out) - 1):
+            if out[i][0] == "text" and out[i + 1][0] == "text":
+                a = out[i][1]
+                b = out[i + 1][1]
+                merged_len = len(a) + len(b) + 1
+                if best_len is None or merged_len < best_len:
+                    best_len = merged_len
+                    best_i = i
+        if best_i is not None:
+            a = out[best_i][1]
+            b = out[best_i + 1][1]
+            out[best_i] = ("text", a + "\n" + b)
+            del out[best_i + 1]
+            continue
         last_text_idx: Optional[int] = None
         for idx in range(len(out) - 1, -1, -1):
             if out[idx][0] == "text":
@@ -102,7 +207,7 @@ def _enforce_max_msg_segments(
             break
         a = out[prev_text_idx][1]
         b = out[last_text_idx][1]
-        out[prev_text_idx] = ("text", a + "\n\n" + b)
+        out[prev_text_idx] = ("text", a + "\n" + b)
         del out[last_text_idx]
     return out
 
@@ -120,12 +225,36 @@ async def telegram_max_msg_from_config() -> int:
     return max(1, min(20, v))
 
 
+async def telegram_max_chars_from_config() -> int:
+    """与 ``context_builder._telegram_segment_limits_from_db`` 中 MAX_CHARS 范围一致（10–1000，步长 10）。"""
+    db = get_database()
+    raw = await db.get_config("telegram_max_chars")
+    if raw is None or not str(raw).strip():
+        return 50
+    try:
+        v = int(str(raw).strip())
+    except ValueError:
+        return 50
+    v = max(10, min(1000, round(v / 10) * 10))
+    return v
+
+
 async def parse_telegram_segments_with_memes_async(
     reply_text: str,
 ) -> Tuple[List[TelegramOrderedSegment], str]:
-    """读取 config 表 ``telegram_max_msg`` 后调用 `parse_telegram_segments_with_memes`。"""
+    """读取 config 表 ``telegram_max_chars`` / ``telegram_max_msg`` 后调用 `parse_telegram_segments_with_memes`。"""
+    cleaned = reply_text or ""
+    logger.info(f"[segment_debug] cleaned前200: {repr(cleaned[:200])}")
+    max_chars = await telegram_max_chars_from_config()
     max_msg = await telegram_max_msg_from_config()
-    return parse_telegram_segments_with_memes(reply_text, max_msg=max_msg)
+    segments, body_for_db = parse_telegram_segments_with_memes(
+        reply_text, max_msg=max_msg, max_chars=max_chars
+    )
+    logger.info(
+        f"[segment_debug] 分段结果 共{len(segments)}段: "
+        f"{[(k, repr((c or '')[:50])) for k, c in segments]}"
+    )
+    return segments, body_for_db
 
 
 def collect_used_memory_uids(reply_text: str) -> Set[str]:
@@ -159,12 +288,13 @@ def strip_used_memory_tags(reply_text: str) -> str:
 
 
 def parse_telegram_segments_with_memes(
-    reply_text: str, *, max_msg: int = 8
+    reply_text: str, *, max_msg: int = 8, max_chars: int = 50
 ) -> Tuple[List[TelegramOrderedSegment], str]:
     """
     一级：将 `|||` 与 `[meme:描述]` 视为同级顺序分隔符，拆成 (text|meme)* 序列。
-    二级：对每个 text 段在 `<pre>` / `<code>` / `<blockquote>` 块外按 ``\\n\\n`` 拆段，
-    再合并过短段（strip 后 < 15 字），最后若总段数超过 ``max_msg`` 则从后往前合并 text 段。
+    二级：对每个 text 段在 `<pre>` / `<code>` / `<blockquote>` 块外按换行（``\\n``）拆行，
+    再对超长切片按句末标点切分，再合并过短段（strip 后 < 15 字），
+    最后若总段数超过 ``max_msg`` 则优先均匀合并相邻 text 段。
     须在 schedule_update_memory_hits_and_clean_reply 之后调用。
 
     Returns:
@@ -196,8 +326,11 @@ def parse_telegram_segments_with_memes(
         if kind == "meme":
             segments.append(("meme", piece))
             continue
-        sub = _split_by_double_newline_outside_html_blocks(piece)
-        sub = _merge_short_text_chunks(sub, 15)
+        sub = _split_by_newline_outside_html_blocks(piece)
+        expanded: List[str] = []
+        for line in sub:
+            expanded.extend(_split_oversized_chunk(line, max_chars))
+        sub = _merge_short_text_chunks(expanded, 15)
         for s in sub:
             if (s or "").strip():
                 segments.append(("text", s))

@@ -77,6 +77,18 @@ def build_lutopia_behavior_appendix(executions: List[Tuple[str, str]]) -> str:
     lines = [lutopia_behavior_line(nm, res) for nm, res in executions]
     return "\n\n[行为记录]\n" + "\n".join(lines)
 
+
+def strip_lutopia_behavior_appendix(text: str) -> str:
+    """
+    去掉 ``build_lutopia_behavior_appendix`` 追加的 ``\\n\\n[行为记录]…`` 后缀。
+    用于 Telegram 等不向用户展示附录、仅数据库保留完整正文的场景。
+    """
+    s = text or ""
+    sep = "\n\n[行为记录]"
+    if sep not in s:
+        return s
+    return s.split(sep, 1)[0].rstrip()
+
 BASE_URL = "https://daskio.de5.net"
 LUTOPIA_FORUM_PREFIX = f"{BASE_URL}/forum/api/v1"
 

@@ -81,6 +81,7 @@ from tools.lutopia import (
     OPENAI_LUTOPIA_TOOLS,
     append_tool_exchange_to_messages,
     build_lutopia_behavior_appendix,
+    strip_lutopia_behavior_appendix,
 )
 from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
 from tools.meme import search_meme_async, send_meme
@@ -919,7 +920,11 @@ class TelegramBot:
         """
         first_mid: Optional[str] = None
         meme_any = False
-        for kind, payload in segments:
+        for i, (kind, payload) in enumerate(segments):
+            logger.info(
+                f"[segment_debug] 发送第{i + 1}段 type={kind} "
+                f"len={len(payload or '')} preview={repr((payload or '')[:50])}"
+            )
             if kind == "text":
                 t = (payload or "").strip()
                 if not t:
@@ -1288,7 +1293,7 @@ class TelegramBot:
             k == "text" and (s or "").strip() for k, s in segments
         )
         logger.debug(
-            "Telegram 流式结束: 有序段数=%s (||| / [meme:…] / 正文 \\n\\n 二级分段)",
+            "Telegram 流式结束: 有序段数=%s (||| / [meme:…] / 正文换行二级分段)",
             len(segments),
         )
         assistant_message_id: Optional[str] = None
@@ -1929,7 +1934,10 @@ class TelegramBot:
             )
         if gen.reply and not gen.assistant_message_id:
             try:
-                await base_message.reply_text(gen.reply, parse_mode=None)
+                await base_message.reply_text(
+                    strip_lutopia_behavior_appendix(gen.reply),
+                    parse_mode=None,
+                )
             except TelegramNetworkError as e:
                 logger.warning(
                     "缓冲收尾：向用户发送说明失败（Telegram 仍不可达）: %s",
@@ -1953,7 +1961,12 @@ class TelegramBot:
             llm = await LLMInterface.create()
             cid = int(chat_id)
             oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
-            context = await build_context(session_id, content, tool_oral_coaching=oral)
+            context = await build_context(
+                session_id,
+                content,
+                telegram_segment_hint=telegram_bot is not None,
+                tool_oral_coaching=oral,
+            )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
             if not messages:

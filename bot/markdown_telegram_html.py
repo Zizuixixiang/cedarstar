@@ -19,6 +19,8 @@ _TELEGRAM_HTML_TAGS = frozenset(
     {"b", "i", "u", "s", "code", "pre", "blockquote", "a"}
 )
 _BR_TAG_RE = re.compile(r"<\s*br\s*/?\s*>", re.I)
+# 连续换行在 Markdown 中会变成多段 <p>，TG 单条气泡内会显得「空一行」过宽；压成单次换行更紧凑
+_NEWLINE_RUN_RE = re.compile(r"\n{2,}")
 _TELEGRAM_HTML_ATTRS = {
     "a": ["href"],
     "blockquote": ["expandable"],
@@ -80,6 +82,14 @@ def _html_br_to_newlines(html: str) -> str:
     return _BR_TAG_RE.sub("\n", html)
 
 
+def _compact_vertical_whitespace(s: str) -> str:
+    """将连续换行压成单次换行，避免单条消息内出现空行级别的过大间距。"""
+    if not s:
+        return ""
+    t = s.replace("\r\n", "\n").replace("\r", "\n")
+    return _NEWLINE_RUN_RE.sub("\n", t)
+
+
 def markdown_to_telegram_safe_html(text: str) -> str:
     """
     Markdown / 混排文本 → Telegram 安全 HTML。
@@ -87,7 +97,7 @@ def markdown_to_telegram_safe_html(text: str) -> str:
     """
     if text is None:
         return ""
-    src = str(text)
+    src = _compact_vertical_whitespace(str(text))
     if not src.strip():
         return ""
 
@@ -99,7 +109,7 @@ def markdown_to_telegram_safe_html(text: str) -> str:
         )
     except Exception as e:
         logger.warning("markdown 解析失败，回退为纯文本转义: %s", e)
-        return _plain_text_fallback_html(src)
+        return _compact_vertical_whitespace(_plain_text_fallback_html(src))
 
     normalized = _markdown_emphasis_tags_to_telegram(raw_html)
     normalized = _html_br_to_newlines(normalized)
@@ -114,9 +124,10 @@ def markdown_to_telegram_safe_html(text: str) -> str:
         )
     except Exception as e:
         logger.warning("bleach 清洗失败，回退为纯文本转义: %s", e)
-        return _plain_text_fallback_html(src)
+        return _compact_vertical_whitespace(_plain_text_fallback_html(src))
 
-    return _unwrap_body_blockquotes(cleaned).strip()
+    out = _unwrap_body_blockquotes(cleaned).strip()
+    return _compact_vertical_whitespace(out)
 
 
 def prefix_safe_html_by_max_len(html: str, max_len: int) -> Tuple[str, str]:

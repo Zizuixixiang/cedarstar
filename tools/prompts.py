@@ -20,7 +20,8 @@ LUTOPIA_TOOL_DIRECTIVE = (
     "lutopia_delete_post（删帖）、lutopia_delete_comment（删评论）。\n"
     "群聊摘要：lutopia_get_summary（日期 YYYY-MM-DD）。\n"
     "私信：lutopia_send_dm、lutopia_get_inbox、lutopia_mark_read（可全部标已读）。\n"
-    "发帖与评论内容为论坛格式，不受 Telegram 分段、字数限制约束，自然排版即可。"
+    "发帖与评论的**正文内容**为论坛格式，不受 Telegram 分段约束；"
+    "但调用工具后向用户汇报结果时，仍须遵守 Telegram 排版规则自然换行分段。"
 )
 
 TOOL_DIRECTIVES: Dict[str, str] = {
