@@ -369,7 +369,7 @@ class DailyBatchProcessor:
             contents = [str(r.get("state_content") or "").strip() or "（空）" for r in rows]
             prompt = f"""以下为已到期的进行中状态，到期日期：{batch_date}
 将每条改写为简洁客观的过去时事实陈述，不新增信息，不编造内容。
-严格输出JSON数组，长度、顺序与输入完全一致，元素为纯字符串，无额外文本。
+严格输出一个JSON数组，长度、顺序与输入完全一致，元素为纯字符串，无额外文本。
 
 输入 JSON 数组：
 {json.dumps(contents, ensure_ascii=False)}
@@ -613,7 +613,7 @@ class DailyBatchProcessor:
                 "- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；\n"
             )
 
-        prompt = self._persona_dialogue_prefix() + f"""你是专业的记忆整理助手，负责将已有记忆与今日新信息进行高质量合并，输出稳定、精炼、可长期存储的记忆内容。
+        prompt = self._persona_dialogue_prefix() + f"""你是专业的记忆整理助手，负责将「既有记忆卡片」与「今日新增摘要」进行高质量合并，输出稳定、精炼、可长期存储的记忆内容。
 合并规则：
 - 去除重复信息，将新内容自然整合到原有记忆中，保持语义连贯。
 - 单张记忆卡片总字数**严格不超过 1000 字**，内容过长时自动提炼核心、精简合并，不得超字数。

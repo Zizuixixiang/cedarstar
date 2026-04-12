@@ -26,6 +26,46 @@ const EVENT_TYPE_MAP = {
   daily_warmth: '日常温情'
 };
 
+/**
+ * 判断记忆卡片正文是否被 -webkit-line-clamp 截断。
+ * 部分环境下截断后 scrollHeight === clientHeight，仅用 scrollHeight 会漏掉「查看全文」。
+ */
+function isMemoryCardContentTruncated(el, text) {
+  if (!el || !text || !String(text).trim()) return false;
+  const w = el.clientWidth;
+  const visibleH = el.clientHeight;
+  if (w <= 0 || visibleH <= 0) return false;
+
+  const cs = window.getComputedStyle(el);
+  const probe = document.createElement('div');
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText = [
+    'position:fixed',
+    'left:0',
+    'top:0',
+    'visibility:hidden',
+    'pointer-events:none',
+    'z-index:-1',
+    'width:' + w + 'px',
+    'box-sizing:border-box',
+    'max-height:none',
+    'overflow:visible',
+    'display:block',
+    'white-space:' + cs.whiteSpace,
+    'word-break:' + cs.wordBreak,
+    'overflow-wrap:' + cs.overflowWrap,
+    'font:' + cs.font,
+    'letter-spacing:' + cs.letterSpacing,
+    'padding:' + cs.padding,
+  ].join(';');
+  probe.textContent = text;
+  document.body.appendChild(probe);
+  const fullH = probe.scrollHeight;
+  document.body.removeChild(probe);
+
+  return fullH > visibleH + 2;
+}
+
 const MEMORY_TABS = [
   { id: 'cards', label: '记忆卡片' },
   { id: 'longterm', label: '长期记忆' },
@@ -485,7 +525,7 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
     const checkOverflow = () => {
       const node = cardContentRef.current;
       if (!node) return;
-      setShowViewFull(node.scrollHeight > node.clientHeight + 1);
+      setShowViewFull(isMemoryCardContentTruncated(node, displayContent));
     };
     checkOverflow();
     const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(checkOverflow) : null;
