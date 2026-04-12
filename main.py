@@ -15,11 +15,12 @@ import logging
 import sys
 import os
 from datetime import datetime
+from pathlib import Path
 import pytz
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 # 添加当前目录到 Python 路径
@@ -81,10 +82,18 @@ async def health_check():
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 
-# 挂载 Mini App 静态文件
-miniapp_dist = os.path.join(os.path.dirname(os.path.abspath(__file__)), "miniapp", "dist")
-if os.path.exists(miniapp_dist):
-    app.mount("/app", StaticFiles(directory=miniapp_dist, html=True), name="miniapp")
+MINIAPP_DIST = Path("miniapp/dist")
+
+
+@app.get("/app/{full_path:path}")
+async def serve_miniapp(full_path: str):
+    candidate = MINIAPP_DIST / full_path
+    if candidate.is_file():
+        return FileResponse(str(candidate))
+    index = MINIAPP_DIST / "index.html"
+    if index.is_file():
+        return FileResponse(str(index))
+    return Response(status_code=404)
 
 
 class _SuppressTelegramBotApiUrlInfoFilter(logging.Filter):
