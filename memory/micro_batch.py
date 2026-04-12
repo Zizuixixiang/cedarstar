@@ -165,8 +165,8 @@ class SummaryLLMInterface:
             role_label = user_name if msg["role"] == "user" else char_name
             conversation_text += f"{role_label}: {msg['content']}\n\n"
         
-        prompt = f"""{prefix}请为以下对话生成一段简洁摘要（约150-200字），重点提取主要话题、双方的情绪起伏和关键信息（包括具体数字、决定、名称等细节），去除无意义的语气词和重复内容。
-若是技术讨论或代码问题，必须保留核心的名词或报错关键语。
+        prompt = f"""{prefix}请为以下对话生成150-200字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。
+输出客观凝练，无主观修饰，严格符合字数要求。
 【对话记录】
 {conversation_text}
 摘要（中文）:"""
