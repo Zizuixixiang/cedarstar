@@ -53,7 +53,7 @@ from bot.markdown_telegram_html import (
 from bot.telegram_html_sanitize import split_body_into_html_chunks
 from bot.logutil import exc_detail
 from bot.reply_citations import (
-    parse_telegram_segments_with_memes,
+    parse_telegram_segments_with_memes_async,
     schedule_update_memory_hits_and_clean_reply,
 )
 from bot.stt_client import TRANSCRIBE_FAIL_USER_CONTENT, transcribe_voice
@@ -962,7 +962,7 @@ class TelegramBot:
             html_th = self._telegram_thinking_blockquote_html(think_plain)
             await base_message.reply_text(html_th, parse_mode="HTML")
         cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
-        segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
+        segments, body_for_db = await parse_telegram_segments_with_memes_async(cleaned)
         has_text_seg = any(
             k == "text" and (s or "").strip() for k, s in segments
         )
@@ -1283,12 +1283,12 @@ class TelegramBot:
         )
 
         cleaned = schedule_update_memory_hits_and_clean_reply(raw_content)
-        segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
+        segments, body_for_db = await parse_telegram_segments_with_memes_async(cleaned)
         has_text_seg = any(
             k == "text" and (s or "").strip() for k, s in segments
         )
         logger.debug(
-            "Telegram 流式结束: 有序段数=%s (||| 与 [meme:…] 为分隔)",
+            "Telegram 流式结束: 有序段数=%s (||| / [meme:…] / 正文 \\n\\n 二级分段)",
             len(segments),
         )
         assistant_message_id: Optional[str] = None
@@ -2020,7 +2020,9 @@ class TelegramBot:
                         exc_detail(e),
                     )
 
-            segments, body_for_db = parse_telegram_segments_with_memes(cleaned)
+            segments, body_for_db = await parse_telegram_segments_with_memes_async(
+                cleaned
+            )
             meme_sent = False
             if telegram_bot and segments:
                 _, meme_sent = await self._telegram_deliver_ordered_segments(
