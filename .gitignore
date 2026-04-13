@@ -206,6 +206,7 @@ miniapp/node_modules/
 backups/
 test/
 miniapp/.env.production
+miniapp/.env.development
 *.gz
 ngrok.exe
 README.md
