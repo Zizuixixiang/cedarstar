@@ -9,6 +9,17 @@ from typing import Optional, Dict, Any, List, FrozenSet
 
 router = APIRouter()
 
+
+def _east8_month_start_utc_naive():
+    """东八区自然月：当月 1 日 00:00:00 起；转为 UTC naive datetime，与 PG `token_usage.created_at`（NOW()）对齐比较。"""
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+
+    now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
+    start_cn = now_cn.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
     {"chat", "summary", "vision", "stt", "embedding"}
 )
@@ -171,8 +182,11 @@ async def fetch_models(req: FetchModelsRequest):
 
 @router.get("/token-usage")
 async def get_token_usage(
-    period: str = Query("today", description="统计周期：today, week, month"),
-    platform: Optional[str] = Query(None, description="平台")
+    period: str = Query(
+        "today",
+        description="统计周期：today（本日0点起，服务器本地）/ week（近7日）/ month（东八区自然月月初至今）",
+    ),
+    platform: Optional[str] = Query(None, description="平台"),
 ):
     """返回 token 消耗统计。"""
     from memory.database import get_database
@@ -190,7 +204,7 @@ async def get_token_usage(
     elif period == "week":
         start_date = now - timedelta(days=7)
     elif period == "month":
-        start_date = now - timedelta(days=30)
+        start_date = _east8_month_start_utc_naive()
     else:
         raise HTTPException(status_code=400, detail="无效的统计周期")
     

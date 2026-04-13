@@ -6,6 +6,7 @@ import { useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import { Menu, Sparkles } from 'lucide-react'
 import { navItems, routes } from './router.jsx'
+import { APP_DISPLAY_NAME } from './appName.js'
 import './styles/sidebar.css'
 
 /**
@@ -29,7 +30,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
         <div className="sidebar-header">
           <span className="sidebar-logo">
             <Sparkles className="sidebar-logo-icon" size={18} strokeWidth={2} aria-hidden />
-            <span className="sidebar-logo-text">CedarStar</span>
+            <span className="sidebar-logo-text">{APP_DISPLAY_NAME}</span>
           </span>
           <button type="button" className="sidebar-toggle desktop-only" onClick={onToggle} aria-label="切换侧边栏">
             <Menu size={22} strokeWidth={1.75} aria-hidden />
@@ -72,7 +73,7 @@ function MainContent({ sidebarCollapsed, onOpenMobileSidebar }) {
         </button>
         <span className="mobile-logo">
           <Sparkles className="mobile-logo-icon" size={18} strokeWidth={2} aria-hidden />
-          <span className="mobile-logo-text">CedarStar</span>
+          <span className="mobile-logo-text">{APP_DISPLAY_NAME}</span>
         </span>
       </div>
       

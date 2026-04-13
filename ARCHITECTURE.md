@@ -9,6 +9,8 @@
 > **2026-04-12（记忆管线）：** `context_builder` 的 `_assemble_full_system_prompt` 拼接顺序为 **长期记忆（向量块）→ daily → chunk**（与 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 冲突消解规则并列）；精排 **`_memory_age_days`** 以 **`last_access_ts`** 为主，**`created_at`** 仅兜底；日终 Step 2 在 **`save_summary` 写入 daily 成功后** 调用 **`delete_today_chunk_summaries()`**；仓库内 **`CedarClio_记忆架构完整版_v2.md`** 已对齐。详见 §3.4.2、§3.4.4。
 >
 > **2026-04-12（Mini App）：** Dashboard「记忆库概览」内 **`.memory-section`** 在 **`var(--shadow-raised)`** 外再叠 **1px** 淡色闭合描边，与同底父卡区分；**`.memory-overview-grid`** **`overflow: visible`**。Memory 记忆卡片是否显示 **「查看全文」** 由 **`isMemoryCardContentTruncated`**（离屏同宽测高）判定，避免 **`-webkit-line-clamp`** 下 **`scrollHeight` 与 `clientHeight` 误判**漏出按钮。详见 §3.6。
+>
+> **2026-04-13：** **`GET /api/settings/token-usage`**：`period=month` 时以 **`Asia/Shanghai` 自然月**（当月 1 日 00:00 起至今）为区间起点，换算为 **UTC naive `datetime`** 与 `token_usage.created_at` 比较（`period=week` 仍为 rolling 7 日，`today` 仍为服务器本地日切）。**Telegram 出站**：`markdown_telegram_html` 的 **`_compact_vertical_whitespace`** 将换行与连续水平空白压为单空格，并合并 **`…` + 空白 + `…`** 为 **`……`**；**`telegram_send_text_collapse`** 供思维链封装前、Lutopia 口播、缓冲纯文本兜底等与 Markdown 入口一致；超长截断后缀 **`（已截断）`**，流式中断缀 **`（已中断）`**（不再使用 `…（已截断）` / `…（已中断）` 前缀省略号）。**多实例**：`config.APP_NAME`（默认 `cedarstar`）→ `main.py` 日志 **`{APP_NAME}.log`**、`memory/vector_store.py` 集合 **`CHROMA_COLLECTION_NAME`**（默认 **`{APP_NAME}_memories`**）；Mini App **`VITE_APP_NAME`**、`miniapp/src/appName.js` 的 **`APP_DISPLAY_NAME`** 与 `index.html` 占位 **`%VITE_APP_NAME%`**。详见 `api/settings.py`、`bot/markdown_telegram_html.py`、`bot/telegram_bot.py`、`config.py`。
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -84,7 +86,7 @@ cedarstar/                          # 项目根目录
 │   ├── reply_citations.py          # 解析 [[used:uid]] / 误写 [used:…]、【used:…】；异步 update_memory_hits；`parse_telegram_segments_with_memes` / `parse_telegram_segments_with_memes_async`（一级 `|||` + `[meme:…]`；二级在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 `\n` 拆行，超长按句末标点拆分（无硬切）、仅标点片段并入前片、过短段合并，总段数受 `telegram_max_chars` / `telegram_max_msg` 约束）；清洗后再存库/发送
 │   ├── vision_caption.py           # 异步视觉描述任务（vision API 写回 image_caption / vision_processed）
 │   ├── stt_client.py               # 语音转录（httpx 异步调用 OpenAI 兼容 /audio/transcriptions，读 stt 配置或 OPENAI_* 回退）
-│   ├── markdown_telegram_html.py   # Markdown→HTML（markdown）+ bleach 白名单；`_compact_vertical_whitespace` 压连续换行；bleach 后展开正文 `<blockquote>`，避免模型滥用 `>` 导致 TG 满屏引用竖线
+│   ├── markdown_telegram_html.py   # Markdown→HTML（markdown）+ bleach；`_compact_vertical_whitespace` 换行压空格/合并 spaced ellipsis、`telegram_send_text_collapse`；bleach 后展开正文 `<blockquote>`
 │   ├── telegram_html_sanitize.py   # 封装整段净化与 split_safe_html_telegram_chunks 切 4096
 │   ├── discord_bot.py              # Discord 机器人（组合 MessageBuffer、LLM、消息存储）
 │   └── telegram_bot.py            # Telegram 机器人（组合 MessageBuffer、LLM、消息存储）
@@ -202,6 +204,8 @@ cedarstar/                          # 项目根目录
 | `DATABASE_URL` | PostgreSQL 连接 DSN（asyncpg 格式，如 `postgresql://user:pass@host/db`）；未设置时返回空字符串 |
 | `MINIAPP_TOKEN` | Mini App 访问 **`/api/*`** 时，请求头 **`X-Cedarstar-Token`** 须与本值**完全一致**，否则 `main.py` 返回 401；**不影响** **`POST /webhook/telegram`**（见 §3.5、§4.3）。前端构建环境变量 **`VITE_MINIAPP_TOKEN`** 须与之对齐（见 §3.6 `apiFetch`） |
 | `CHROMADB_PERSIST_DIR` | ChromaDB 本地存储目录 |
+| `APP_NAME` | 应用实例标识（默认 `cedarstar`）；`main.py` 日志文件名为 **`{APP_NAME}.log`** |
+| `CHROMA_COLLECTION_NAME` | 可选；Chroma 长期记忆集合名，未设置时为 **`{APP_NAME}_memories`** |
 | `MICRO_BATCH_THRESHOLD` | 微批触发阈值**兜底**：当数据库 `config.chunk_threshold` 未配置或无效时使用（默认 50 条） |
 | `MESSAGE_BUFFER_DELAY` | 消息缓冲等待时间（默认 5 秒）；**主路径**为数据库 `config.buffer_delay`（见 `bot/message_buffer.py`） |
 | `CONTEXT_MAX_RECENT_MESSAGES` | Context 最近原文条数**兜底**：当数据库 `config.short_term_limit` 未配置或无效时使用（默认 40 条） |
@@ -548,7 +552,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **说明：** 在 Mini App 中直接改库 **`messages`** 不会同步修正 Chroma / 摘要等派生数据；若需与向量记忆完全一致，需另行产品或批处理策略。
 
-**API 根地址与请求封装：** 各页通过 `src/apiBase.js` 的 **`apiFetch(path, options)`** 调用后端（内部用 **`apiUrl()`** 拼 URL）。**`apiFetch`** 会为每次请求自动设置 **`Content-Type: application/json`** 与 **`X-Cedarstar-Token`**，令牌来自构建时环境变量 **`VITE_MINIAPP_TOKEN`**（未设置则为空字符串），须与服务器 `.env` 中的 **`MINIAPP_TOKEN`** 一致，否则 `/api/*` 返回 401。环境变量 **`VITE_API_BASE_URL`** 未设置或为空时 **`API_BASE_URL`** 为空字符串，URL 为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。
+**API 根地址与请求封装：** 各页通过 `src/apiBase.js` 的 **`apiFetch(path, options)`** 调用后端（内部用 **`apiUrl()`** 拼 URL）。**`apiFetch`** 会为每次请求自动设置 **`Content-Type: application/json`** 与 **`X-Cedarstar-Token`**，令牌来自构建时环境变量 **`VITE_MINIAPP_TOKEN`**（未设置则为空字符串），须与服务器 `.env` 中的 **`MINIAPP_TOKEN`** 一致，否则 `/api/*` 返回 401。环境变量 **`VITE_API_BASE_URL`** 未设置或为空时 **`API_BASE_URL`** 为空字符串，URL 为相对路径 `/api/...`；**开发环境**下由 Vite 将 `/api` 代理到 `http://localhost:8000`。**生产构建**（`vite build`）会读取 `miniapp/.env.production` 等文件中的 `VITE_API_BASE_URL`，用于指向实际后端（公网域名或隧道 URL）；隧道域名变更时只需改环境变量并重新构建，勿在页面中硬编码 `localhost:8000`。**展示名：** **`VITE_APP_NAME`**（可选）→ `src/appName.js` 的 **`APP_DISPLAY_NAME`**（默认 `CedarStar`），用于侧栏 Logo 与 `main.jsx` 设置 `document.title`；`index.html` 中 **`%VITE_APP_NAME%`** 由 Vite 在构建时注入。
 
 **路由入口：** `src/router.jsx` 导出 `navItems` 与 `routes`，文件顶部 `import React from 'react'`（见 §6.11）。
 

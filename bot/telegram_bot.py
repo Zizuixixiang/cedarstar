@@ -49,6 +49,7 @@ from bot.markdown_telegram_html import (
     markdown_to_telegram_safe_html,
     prefix_safe_html_by_max_len,
     split_safe_html_telegram_chunks,
+    telegram_send_text_collapse,
 )
 from bot.telegram_html_sanitize import split_body_into_html_chunks
 from bot.logutil import exc_detail
@@ -96,6 +97,8 @@ logger = logging.getLogger(__name__)
 
 
 _TELEGRAM_THINK_PLACEHOLDER = "…"
+# 超长截断后缀（不用前导「…」，避免与正文省略号叠成「……」难看）
+_TELEGRAM_PLAIN_TRUNC_SUFFIX = "（已截断）"
 _TELEGRAM_STREAM_GENERIC_ERROR = "抱歉，生成回复时出错了，请稍后再试。"
 # Guard 用尽或仍拒答时的情境兜底（避免向用户展示模型安全拒答原文）
 _TELEGRAM_GUARD_ROLEPLAY_FALLBACK = "……刚才有点走神，我们继续吧。"
@@ -778,7 +781,7 @@ class TelegramBot:
 
     def _telegram_thinking_blockquote_html(self, think_plain: str) -> str:
         """思维链定稿：可折叠 blockquote（仅流式结束后的最后一次编辑使用）。"""
-        think_plain = (think_plain or "").replace("\x00", "")
+        think_plain = telegram_send_text_collapse((think_plain or "").replace("\x00", ""))
         esc = self._escape_telegram_html(think_plain)
         head = "<blockquote expandable>🧠 思维链\n"
         tail = "</blockquote>"
@@ -788,7 +791,7 @@ class TelegramBot:
             return head + self._escape_telegram_html("…") + tail
         if len(esc) <= inner_max:
             return head + esc + tail
-        trunc_m = "…（已截断）"
+        trunc_m = _TELEGRAM_PLAIN_TRUNC_SUFFIX
         esc_t = self._think_display_trunc(esc, inner_max, trunc_m)
         return head + esc_t + tail
 
@@ -798,8 +801,10 @@ class TelegramBot:
         """
         `<blockquote expandable>`，首行为标题，其余为正文（Lutopia 工具失败/完成等长内容）。
         """
-        title_plain = (title_plain or "📎").replace("\x00", "")
-        body_plain = (body_plain or "").replace("\x00", "")
+        title_plain = telegram_send_text_collapse(
+            (title_plain or "📎").replace("\x00", "")
+        )
+        body_plain = telegram_send_text_collapse((body_plain or "").replace("\x00", ""))
         e_title = self._escape_telegram_html(title_plain)
         e_body = self._escape_telegram_html(body_plain)
         head = f"<blockquote expandable>{e_title}\n"
@@ -810,7 +815,7 @@ class TelegramBot:
             return head + self._escape_telegram_html("…") + tail
         if len(e_body) <= inner_max:
             return head + e_body + tail
-        trunc_m = "…（已截断）"
+        trunc_m = _TELEGRAM_PLAIN_TRUNC_SUFFIX
         e_b = self._think_display_trunc(e_body, inner_max, trunc_m)
         return head + e_b + tail
 
@@ -1094,6 +1099,7 @@ class TelegramBot:
                 now = time.monotonic()
                 if now - last_think_edit >= config.TELEGRAM_THINK_STREAM_EDIT_INTERVAL_SEC:
                     plain = cur or _TELEGRAM_THINK_PLACEHOLDER
+                    plain = telegram_send_text_collapse(plain)
                     if len(plain) > 4096:
                         plain = plain[:4096]
                     await self._telegram_safe_edit_text(
@@ -1170,8 +1176,8 @@ class TelegramBot:
         interrupted: bool,
     ) -> Optional[int]:
         """将占位思维链消息定稿为 blockquote，或删除空占位。返回最终 message_id（若新建）。"""
-        if interrupted and think_plain and "…（已中断）" not in think_plain:
-            think_plain_show = think_plain + "\n…（已中断）"
+        if interrupted and think_plain and "（已中断）" not in think_plain:
+            think_plain_show = think_plain + "（已中断）"
         else:
             think_plain_show = think_plain
 
@@ -1494,7 +1500,8 @@ class TelegramBot:
             ok = False
         text = f"✅ 已调用{disp}" if ok else f"❌ {disp}调用失败"
         if len(text) > 4096:
-            text = text[:4093] + "…"
+            suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
+            text = text[: 4096 - len(suf)] + suf
         try:
             await bot.send_message(
                 chat_id=chat_id, text=text, parse_mode=None
@@ -1510,11 +1517,12 @@ class TelegramBot:
         self, bot: Any, chat_id: int, text: str
     ) -> None:
         """工具轮次之间的口播：纯文本，避免 HTML 注入。"""
-        t = (text or "").strip()
+        t = telegram_send_text_collapse((text or "").strip())
         if not t:
             return
         if len(t) > 4096:
-            t = t[:4093] + "…"
+            suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
+            t = t[: 4096 - len(suf)] + suf
         try:
             await bot.send_message(
                 chat_id=chat_id,
@@ -1539,7 +1547,7 @@ class TelegramBot:
         max_len = 4096
         head = "<blockquote expandable>🧠 思维链\n"
         tail = "</blockquote>\n"
-        trunc_m = "…（已截断）"
+        trunc_m = _TELEGRAM_PLAIN_TRUNC_SUFFIX
         reply = reply or ""
         th_raw = (thinking or "").strip()
 
@@ -1935,7 +1943,9 @@ class TelegramBot:
         if gen.reply and not gen.assistant_message_id:
             try:
                 await base_message.reply_text(
-                    strip_lutopia_behavior_appendix(gen.reply),
+                    telegram_send_text_collapse(
+                        strip_lutopia_behavior_appendix(gen.reply)
+                    ),
                     parse_mode=None,
                 )
             except TelegramNetworkError as e:

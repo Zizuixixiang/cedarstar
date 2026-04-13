@@ -236,8 +236,8 @@ class VectorStore:
         
         # 获取或创建集合
         self.collection = self.client.get_or_create_collection(
-            name="cedarstar_memories",
-            metadata={"description": "CedarStar 长期记忆存储"}
+            name=config.CHROMA_COLLECTION_NAME,
+            metadata={"description": f"{config.APP_NAME} 长期记忆存储"},
         )
         
         logger.info(f"向量存储管理器初始化完成，目录: {persist_directory}")

@@ -199,6 +199,19 @@ class Config:
         return os.getenv("LOG_LEVEL", "INFO").upper()
 
     @property
+    def APP_NAME(self) -> str:
+        """应用实例标识（小写 slug），用于日志文件名、Chroma 集合名默认后缀等。多实例部署时各 .env 设置不同值。"""
+        return os.getenv("APP_NAME", "cedarstar")
+
+    @property
+    def CHROMA_COLLECTION_NAME(self) -> str:
+        """ChromaDB 长期记忆集合名；未设置时默认为 ``{APP_NAME}_memories``。"""
+        v = (os.getenv("CHROMA_COLLECTION_NAME") or "").strip()
+        if v:
+            return v
+        return f"{self.APP_NAME}_memories"
+
+    @property
     def MINIAPP_TOKEN(self) -> str:
         """Mini App /api 鉴权：请求头 X-Cedarstar-Token 须与本值一致；在 .env 中设置 MINIAPP_TOKEN。"""
         return os.getenv("MINIAPP_TOKEN", "")

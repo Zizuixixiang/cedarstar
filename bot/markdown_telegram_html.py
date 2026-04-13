@@ -19,8 +19,11 @@ _TELEGRAM_HTML_TAGS = frozenset(
     {"b", "i", "u", "s", "code", "pre", "blockquote", "a"}
 )
 _BR_TAG_RE = re.compile(r"<\s*br\s*/?\s*>", re.I)
-# 连续换行在 Markdown 中会变成多段 <p>，TG 单条气泡内会显得「空一行」过宽；压成单次换行更紧凑
-_NEWLINE_RUN_RE = re.compile(r"\n{2,}")
+# 出站前将换行压成空格，避免气泡内硬断行、空行显得难看（与 Telegram HTML 纯文本策略一致）
+_NEWLINE_RUN_RE = re.compile(r"\n+")
+_SPACE_RUN_RE = re.compile(r"[ \t]+")
+# 换行压成空格后，两行单独的「…」会变成「… …」；合并为中文习惯「……」
+_SPACED_ELLIPSIS_PAIR = re.compile(r"…\s+…")
 _TELEGRAM_HTML_ATTRS = {
     "a": ["href"],
     "blockquote": ["expandable"],
@@ -83,11 +86,24 @@ def _html_br_to_newlines(html: str) -> str:
 
 
 def _compact_vertical_whitespace(s: str) -> str:
-    """将连续换行压成单次换行，避免单条消息内出现空行级别的过大间距。"""
+    """换行与连续水平空白压成单空格，减轻单条气泡内版式松散。"""
     if not s:
         return ""
     t = s.replace("\r\n", "\n").replace("\r", "\n")
-    return _NEWLINE_RUN_RE.sub("\n", t)
+    t = _NEWLINE_RUN_RE.sub(" ", t)
+    t = _SPACE_RUN_RE.sub(" ", t)
+    t = t.strip()
+    for _ in range(32):
+        merged = _SPACED_ELLIPSIS_PAIR.sub("……", t)
+        if merged == t:
+            break
+        t = merged
+    return t
+
+
+def telegram_send_text_collapse(text: str) -> str:
+    """与 Markdown 入口相同的空白折叠，供 Telegram 纯文本/思维链 HTML 封装前使用。"""
+    return _compact_vertical_whitespace(text or "")
 
 
 def markdown_to_telegram_safe_html(text: str) -> str:
