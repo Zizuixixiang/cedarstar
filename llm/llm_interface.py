@@ -1397,6 +1397,7 @@ class LLMInterface:
 
         yield ``("thinking", chunk)``（delta 中 `reasoning_content` / `reasoning` / `thinking`，
         或仅在末包 ``choices[0].message`` 中给出整段推理时补一次）或 ``("content", chunk)``。
+        工具调用：优先拼接 ``delta.tool_calls``；若为空则使用末包 ``choices[0].message.tool_calls``。
 
         生成器返回值为
         ``{"content": str, "thinking": Optional[str], "usage": Optional[dict]}``。
@@ -1444,6 +1445,8 @@ class LLMInterface:
         usage_out: Optional[Dict[str, int]] = None
         tc_by_index: Dict[int, Dict[str, str]] = {}
         content_guard = StreamContentGuard()
+        # 部分网关（尤其非思维链模型）仅在末包 choices[0].message.tool_calls 给出工具调用，delta 无 tool_calls
+        last_msg_tool_calls: Optional[List[Dict[str, Any]]] = None
 
         def _merge_tool_call_delta(tc: Dict[str, Any]) -> None:
             if not isinstance(tc, dict):
@@ -1550,11 +1553,15 @@ class LLMInterface:
 
                     # 部分网关只在最后一个 chunk 的 choices[0].message 里给整段推理，delta 无流式片段
                     msg = choice0.get("message")
-                    if isinstance(msg, dict) and not full_thinking:
-                        th_msg = _delta_thinking_piece(msg)
-                        if th_msg:
-                            full_thinking.append(th_msg)
-                            yield ("thinking", th_msg)
+                    if isinstance(msg, dict):
+                        tcalls = msg.get("tool_calls")
+                        if isinstance(tcalls, list) and len(tcalls) > 0:
+                            last_msg_tool_calls = tcalls
+                        if not full_thinking:
+                            th_msg = _delta_thinking_piece(msg)
+                            if th_msg:
+                                full_thinking.append(th_msg)
+                                yield ("thinking", th_msg)
 
         except requests.exceptions.RequestException as e:
             logger.error(
@@ -1567,6 +1574,14 @@ class LLMInterface:
                 exc_detail(e),
             )
             raise
+
+        # delta 未流式拼接出 tool_calls 时，用末次出现的 message.tool_calls（与 OpenAI 末包语义一致）
+        if not tc_by_index and last_msg_tool_calls:
+            for i, tc_item in enumerate(last_msg_tool_calls):
+                if isinstance(tc_item, dict):
+                    merged_tc = dict(tc_item)
+                    merged_tc["index"] = merged_tc.get("index", i)
+                    _merge_tool_call_delta(merged_tc)
 
         content_str = "".join(full_content)
         thinking_str = "".join(full_thinking).strip() or None
