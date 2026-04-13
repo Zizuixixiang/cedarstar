@@ -792,6 +792,30 @@ class LLMInterface:
             headers["Authorization"] = f"Bearer {self.api_key}"
         
         return headers
+
+    def _openai_max_tokens(self) -> int:
+        """
+        chat/completions 使用的 max_tokens。
+
+        DeepSeek 官方 API 要求 max_tokens ∈ [1, 8192]；若 .env / 配置为推理模型预留了更大值，
+        换用 deepseek-chat 等非思维链模型时会 400，此处按上游上限钳制。
+        """
+        try:
+            mt = int(self.max_tokens)
+        except (TypeError, ValueError):
+            mt = 1000
+        mt = max(1, mt)
+        base = (self.api_base or "").lower()
+        if "deepseek.com" in base:
+            cap = 8192
+            if mt > cap:
+                logger.debug(
+                    "max_tokens=%s 超过 DeepSeek 允许上限 %s，已钳制",
+                    mt,
+                    cap,
+                )
+            return min(mt, cap)
+        return mt
     
     def _prepare_openai_payload(
         self,
@@ -811,7 +835,7 @@ class LLMInterface:
         payload: Dict[str, Any] = {
             "model": self.model_name,
             "messages": messages,
-            "max_tokens": self.max_tokens,
+            "max_tokens": self._openai_max_tokens(),
             "temperature": self.temperature,
             "stream": False,
         }
@@ -1506,6 +1530,20 @@ class LLMInterface:
                             yield ("content", emit)
                         if stop_body:
                             break
+                    elif not full_content:
+                        # 部分网关仅把助手全文放在 choices[0].message.content，delta.content 始终为空
+                        msg_fb = choice0.get("message")
+                        if isinstance(msg_fb, dict):
+                            mc = msg_fb.get("content")
+                            if mc is not None:
+                                ms = mc if isinstance(mc, str) else str(mc)
+                                if (ms or "").strip():
+                                    emit, stop_body = content_guard.feed_content_delta(ms)
+                                    if emit:
+                                        full_content.append(emit)
+                                        yield ("content", emit)
+                                    if stop_body:
+                                        break
 
                     for tc in delta.get("tool_calls") or []:
                         _merge_tool_call_delta(tc)
