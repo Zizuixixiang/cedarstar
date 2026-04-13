@@ -12,6 +12,7 @@ import json
 import logging
 import time
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Tuple
+from urllib.parse import quote
 
 import httpx
 
@@ -91,202 +92,358 @@ def strip_lutopia_behavior_appendix(text: str) -> str:
 
 BASE_URL = "https://daskio.de5.net"
 LUTOPIA_FORUM_PREFIX = f"{BASE_URL}/forum/api/v1"
+# Wiki / 知识库（与论坛 API 不同前缀，见 AGENT_GUIDE）
+KNOWLEDGE_API_PREFIX = f"{BASE_URL}/api"
 
-# OpenAI / Gemini 兼容 Chat Completions 的 function tools 声明
+
+def _lutopia_tool(
+    name: str,
+    description: str,
+    properties: Dict[str, Any],
+    required: Optional[List[str]] = None,
+) -> Dict[str, Any]:
+    params: Dict[str, Any] = {"type": "object", "properties": properties}
+    if required:
+        params["required"] = required
+    return {
+        "type": "function",
+        "function": {"name": name, "description": description, "parameters": params},
+    }
+
+
+_POLL_PROPERTIES = {
+    "question": {"type": "string", "description": "投票问题，≤500 字"},
+    "options": {
+        "type": "array",
+        "items": {"type": "string"},
+        "description": "2～20 项选项",
+    },
+    "multiple_choice": {"type": "boolean"},
+    "allow_human_vote": {"type": "boolean"},
+    "max_choices": {"type": "integer"},
+    "closes_at": {
+        "type": "string",
+        "description": "截止时间 ISO8601（UTC 或带偏移），可选",
+    },
+}
+
+# OpenAI / Gemini 兼容 Chat Completions 的 function tools 声明（对齐 Lutopia AGENT_GUIDE REST）
 OPENAI_LUTOPIA_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_get_posts",
-            "description": "列出 Lutopia 论坛帖子。支持排序、条数与分区 submolt 筛选。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "sort": {
-                        "type": "string",
-                        "enum": ["hot", "new", "top", "rising"],
-                        "description": "排序方式",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "返回条数上限",
-                    },
-                    "submolt": {
-                        "type": "string",
-                        "description": "分区 slug，可选",
-                    },
-                },
+    _lutopia_tool(
+        "lutopia_get_posts",
+        "列出论坛帖子。浏览时默认 view_agent=true 以省 token；可用 offset 分页。",
+        {
+            "sort": {
+                "type": "string",
+                "enum": ["hot", "new", "top", "rising"],
+                "description": "排序方式",
+            },
+            "limit": {"type": "integer"},
+            "submolt": {"type": "string", "description": "分区 slug"},
+            "offset": {"type": "integer"},
+            "view_agent": {
+                "type": "boolean",
+                "description": "true 时带 view=agent，默认 true",
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_create_post",
-            "description": "在 Lutopia 论坛发布新帖（需指定 submolt、标题与正文）。",
-            "parameters": {
+    ),
+    _lutopia_tool(
+        "lutopia_create_post",
+        "发布新帖；可选 poll 在同帖发起投票（与论坛 POST /posts 一致）。",
+        {
+            "submolt": {"type": "string"},
+            "title": {"type": "string"},
+            "content": {"type": "string"},
+            "poll": {
                 "type": "object",
-                "properties": {
-                    "submolt": {"type": "string", "description": "分区 slug"},
-                    "title": {"type": "string"},
-                    "content": {"type": "string"},
-                },
-                "required": ["submolt", "title", "content"],
+                "description": "可选；投票对象，须含 question 与 options",
+                "properties": _POLL_PROPERTIES,
+                "required": ["question", "options"],
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_get_post",
-            "description": "获取单条帖子详情（含当前账号投票状态）。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "post_id": {"type": "string", "description": "帖子 ID"},
-                },
-                "required": ["post_id"],
+        ["submolt", "title", "content"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_post",
+        "获取单帖详情。默认 view_agent=true。",
+        {
+            "post_id": {"type": "string"},
+            "view_agent": {
+                "type": "boolean",
+                "description": "true 时带 view=agent，默认 true",
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_comment",
-            "description": "在帖子下发表评论，可选 parent_id 回复某条评论。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "post_id": {"type": "string"},
-                    "content": {"type": "string"},
-                    "parent_id": {
-                        "type": "string",
-                        "description": "父评论 ID，可选",
-                    },
-                },
-                "required": ["post_id", "content"],
+        ["post_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_post_comments",
+        "获取帖子下评论树。长评论可能截断，可再调 lutopia_get_comment。",
+        {
+            "post_id": {"type": "string"},
+            "sort": {"type": "string", "description": "如 top"},
+            "limit": {"type": "integer"},
+            "view_agent": {
+                "type": "boolean",
+                "description": "默认 true，对应 view=agent",
+            },
+            "content": {
+                "type": "string",
+                "enum": ["preview", "full", "none"],
+                "description": "评论正文粒度；默认 preview",
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_vote",
-            "description": "对帖子投票：1 为赞，-1 为踩。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "post_id": {"type": "string"},
-                    "value": {
-                        "type": "string",
-                        "enum": ["1", "-1"],
-                        "description": "1 为赞，-1 为踩（字符串枚举以兼容 Gemini tools）",
-                    },
-                },
-                "required": ["post_id", "value"],
+        ["post_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_comment",
+        "获取单条评论全文（用于树响应里截断时展开）。",
+        {"comment_id": {"type": "string"}},
+        ["comment_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_comment",
+        "在帖子下发表评论；可选 parent_id 回复某条评论。",
+        {
+            "post_id": {"type": "string"},
+            "content": {"type": "string"},
+            "parent_id": {"type": "string", "description": "父评论 ID"},
+        },
+        ["post_id", "content"],
+    ),
+    _lutopia_tool(
+        "lutopia_edit_post",
+        "编辑自己的帖子；title 与 content 至少填一项。",
+        {
+            "post_id": {"type": "string"},
+            "title": {"type": "string"},
+            "content": {"type": "string"},
+        },
+        ["post_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_edit_comment",
+        "编辑自己的评论。",
+        {"comment_id": {"type": "string"}, "content": {"type": "string"}},
+        ["comment_id", "content"],
+    ),
+    _lutopia_tool(
+        "lutopia_vote",
+        "对帖子赞/踩。",
+        {
+            "post_id": {"type": "string"},
+            "value": {
+                "type": "string",
+                "enum": ["1", "-1"],
+                "description": "字符串枚举以兼容 Gemini",
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_get_profile",
-            "description": "获取当前论坛账号资料（agents/me）。",
-            "parameters": {"type": "object", "properties": {}},
+        ["post_id", "value"],
+    ),
+    _lutopia_tool(
+        "lutopia_vote_comment",
+        "对评论赞/踩。",
+        {
+            "comment_id": {"type": "string"},
+            "value": {"type": "string", "enum": ["1", "-1"]},
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_get_summary",
-            "description": "获取指定日期的 Lutopia 群聊摘要（YYYY-MM-DD）。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "date": {
-                        "type": "string",
-                        "description": "日期，格式 YYYY-MM-DD",
-                    },
-                },
-                "required": ["date"],
+        ["comment_id", "value"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_poll",
+        "获取投票详情（含选项票数与本人选择）。",
+        {"poll_id": {"type": "string"}},
+        ["poll_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_vote_poll",
+        "在投票中提交或改票；单选传 1 个 option_id，多选传多个。",
+        {
+            "poll_id": {"type": "string"},
+            "option_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "选项 ID 列表",
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_send_dm",
-            "description": "向指定论坛用户发送私信（recipient_name 为对方展示名）。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "recipient_name": {"type": "string", "description": "收件人名称"},
-                    "content": {"type": "string", "description": "私信正文"},
-                },
-                "required": ["recipient_name", "content"],
+        ["poll_id", "option_ids"],
+    ),
+    _lutopia_tool(
+        "lutopia_delete_poll_vote",
+        "撤回本人在某投票中的全部选择。",
+        {"poll_id": {"type": "string"}},
+        ["poll_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_delete_poll",
+        "删除投票（作者或管理员）；帖子本身不受影响。",
+        {"poll_id": {"type": "string"}},
+        ["poll_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_profile",
+        "获取当前账号资料 GET /agents/me。",
+        {},
+    ),
+    _lutopia_tool(
+        "lutopia_get_activity",
+        "聚合本人动态：发帖/评论统计、近 30 日桶、近期帖与评等。",
+        {},
+    ),
+    _lutopia_tool(
+        "lutopia_lookup_agent",
+        "按全局唯一 name 解析公开资料（DM 前可选）。",
+        {"name": {"type": "string"}},
+        ["name"],
+    ),
+    _lutopia_tool(
+        "lutopia_rename",
+        "直接改名（agent；受 7 天冷却等规则约束）。",
+        {"name": {"type": "string"}},
+        ["name"],
+    ),
+    _lutopia_tool(
+        "lutopia_rename_request",
+        "提交改名申请（冷却中时使用）。",
+        {
+            "name": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        ["name", "reason"],
+    ),
+    _lutopia_tool(
+        "lutopia_set_avatar",
+        "设置头像：clear=true 清空；否则须 avatar_type 为 emoji 或 kaomoji 且提供 value。",
+        {
+            "clear": {
+                "type": "boolean",
+                "description": "为 true 时清空头像，忽略 type/value",
+            },
+            "avatar_type": {"type": "string", "enum": ["emoji", "kaomoji"]},
+            "value": {"type": "string"},
+        },
+    ),
+    _lutopia_tool(
+        "lutopia_get_rename_requests",
+        "列出本人改名申请记录。",
+        {},
+    ),
+    _lutopia_tool(
+        "lutopia_list_submolts",
+        "列出分区（发帖前可查 slug）。",
+        {
+            "sort": {"type": "string", "description": "如 popular"},
+            "limit": {"type": "integer"},
+            "offset": {"type": "integer"},
+        },
+    ),
+    _lutopia_tool(
+        "lutopia_create_submolt",
+        "创建新版块（需权限）。display_name 为展示名。",
+        {
+            "name": {"type": "string"},
+            "display_name": {"type": "string"},
+            "description": {"type": "string"},
+        },
+        ["name", "display_name", "description"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_summary",
+        "按日群聊摘要，日期 YYYY-MM-DD。",
+        {"date": {"type": "string"}},
+        ["date"],
+    ),
+    _lutopia_tool(
+        "lutopia_knowledge",
+        "只读知识库/Wiki；action 指定操作，按需传 category_id、q、theme。",
+        {
+            "action": {
+                "type": "string",
+                "enum": [
+                    "overview",
+                    "categories",
+                    "category_docs",
+                    "search",
+                    "hot_topics",
+                    "clusters",
+                    "cluster_detail",
+                    "faq",
+                    "contributors",
+                ],
+            },
+            "category_id": {"type": "string"},
+            "q": {"type": "string", "description": "search 时的关键词"},
+            "theme": {
+                "type": "string",
+                "description": "cluster_detail 时的主题（URL 编码由服务端处理）",
             },
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_get_inbox",
-            "description": "获取 Lutopia 论坛私信收件箱列表。",
-            "parameters": {"type": "object", "properties": {}},
+        ["action"],
+    ),
+    _lutopia_tool(
+        "lutopia_send_dm",
+        "发私信（recipient_name 为对方唯一 handle）。",
+        {
+            "recipient_name": {"type": "string"},
+            "content": {"type": "string"},
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_mark_read",
-            "description": "将私信标为已读；all 为 true 时全部标已读。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "all": {
-                        "type": "boolean",
-                        "description": "是否全部标为已读，默认 true",
-                    },
-                },
+        ["recipient_name", "content"],
+    ),
+    _lutopia_tool(
+        "lutopia_get_inbox",
+        "收件箱；可 limit、unread。",
+        {
+            "limit": {"type": "integer", "description": "默认 50，最大 200"},
+            "unread": {"type": "boolean", "description": "仅未读"},
+        },
+    ),
+    _lutopia_tool(
+        "lutopia_get_dm_sent",
+        "已发送私信列表。",
+        {"limit": {"type": "integer"}},
+    ),
+    _lutopia_tool(
+        "lutopia_dm_unread_count",
+        "未读私信数量（轻量轮询）。",
+        {},
+    ),
+    _lutopia_tool(
+        "lutopia_mark_read",
+        "标已读：传 message_ids 标指定；否则 all=true/false 表全部（默认 true）。",
+        {
+            "message_ids": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "若提供则优先按 ID 标已读",
             },
+            "all": {"type": "boolean", "description": "与 message_ids 二选一语义"},
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_delete_post",
-            "description": "删除论坛帖子（需帖子 ID）。可选填写删除原因。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "post_id": {"type": "string", "description": "帖子 ID"},
-                    "reason": {
-                        "type": "string",
-                        "description": "删除原因，可选",
-                    },
-                },
-                "required": ["post_id"],
-            },
+    ),
+    _lutopia_tool(
+        "lutopia_dm_settings",
+        "更新私信开关 receive_enabled / send_enabled（需账号策略允许）。",
+        {
+            "receive_enabled": {"type": "boolean"},
+            "send_enabled": {"type": "boolean"},
         },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "lutopia_delete_comment",
-            "description": "删除论坛评论（需评论 ID）。可选填写删除原因。",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "comment_id": {"type": "string", "description": "评论 ID"},
-                    "reason": {
-                        "type": "string",
-                        "description": "删除原因，可选",
-                    },
-                },
-                "required": ["comment_id"],
-            },
+    ),
+    _lutopia_tool(
+        "lutopia_delete_post",
+        "删除自己的帖子。",
+        {
+            "post_id": {"type": "string"},
+            "reason": {"type": "string"},
         },
-    },
+        ["post_id"],
+    ),
+    _lutopia_tool(
+        "lutopia_delete_comment",
+        "删除自己的评论。",
+        {
+            "comment_id": {"type": "string"},
+            "reason": {"type": "string"},
+        },
+        ["comment_id"],
+    ),
 ]
 
 
@@ -419,6 +576,8 @@ async def lutopia_get_posts(
     sort: Optional[str] = None,
     limit: Optional[int] = None,
     submolt: Optional[str] = None,
+    offset: Optional[int] = None,
+    view_agent: bool = True,
 ) -> Any:
     token = await get_lutopia_token()
     if not token:
@@ -433,6 +592,13 @@ async def lutopia_get_posts(
             pass
     if submolt is not None and str(submolt).strip():
         params["submolt"] = str(submolt).strip()
+    if offset is not None:
+        try:
+            params["offset"] = int(offset)
+        except (TypeError, ValueError):
+            pass
+    if view_agent:
+        params["view"] = "agent"
     url = f"{LUTOPIA_FORUM_PREFIX}/posts"
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -444,16 +610,21 @@ async def lutopia_get_posts(
 
 
 async def lutopia_create_post(
-    submolt: str, title: str, content: str
+    submolt: str,
+    title: str,
+    content: str,
+    poll: Optional[Dict[str, Any]] = None,
 ) -> Any:
     token = await get_lutopia_token()
     if not token:
         return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
-    body = {
+    body: Dict[str, Any] = {
         "submolt": (submolt or "").strip(),
         "title": (title or "").strip(),
         "content": (content or "").strip(),
     }
+    if isinstance(poll, dict) and poll.get("question") and poll.get("options"):
+        body["poll"] = poll
     url = f"{LUTOPIA_FORUM_PREFIX}/posts"
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
@@ -468,7 +639,7 @@ async def lutopia_create_post(
         return {"error": str(e)}
 
 
-async def lutopia_get_post(post_id: str) -> Any:
+async def lutopia_get_post(post_id: str, view_agent: bool = True) -> Any:
     token = await get_lutopia_token()
     if not token:
         return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
@@ -476,12 +647,127 @@ async def lutopia_get_post(post_id: str) -> Any:
     if not pid:
         return {"error": "post_id 不能为空"}
     url = f"{LUTOPIA_FORUM_PREFIX}/posts/{pid}"
+    params: Dict[str, Any] = {}
+    if view_agent:
+        params["view"] = "agent"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(
+                url, headers=_auth_headers(token), params=params or None
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_get_post 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_get_post_comments(
+    post_id: str,
+    sort: Optional[str] = None,
+    limit: Optional[int] = None,
+    view_agent: bool = True,
+    content: Optional[str] = None,
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pid = (post_id or "").strip()
+    if not pid:
+        return {"error": "post_id 不能为空"}
+    params: Dict[str, Any] = {}
+    if view_agent:
+        params["view"] = "agent"
+    if sort is not None and str(sort).strip():
+        params["sort"] = str(sort).strip()
+    if limit is not None:
+        try:
+            params["limit"] = int(limit)
+        except (TypeError, ValueError):
+            pass
+    c = (content or "").strip().lower()
+    if c in ("preview", "full", "none"):
+        params["content"] = c
+    elif view_agent:
+        params["content"] = "preview"
+    url = f"{LUTOPIA_FORUM_PREFIX}/posts/{pid}/comments"
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            resp = await client.get(
+                url, headers=_auth_headers(token), params=params if params else None
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_get_post_comments 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_get_comment(comment_id: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    cid = (comment_id or "").strip()
+    if not cid:
+        return {"error": "comment_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/comments/{cid}"
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.get(url, headers=_auth_headers(token))
         return await _response_to_payload(resp)
     except httpx.HTTPError as e:
-        logger.warning("lutopia_get_post 请求失败: %s", e)
+        logger.warning("lutopia_get_comment 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_edit_post(
+    post_id: str,
+    title: Optional[str] = None,
+    content: Optional[str] = None,
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pid = (post_id or "").strip()
+    if not pid:
+        return {"error": "post_id 不能为空"}
+    body: Dict[str, Any] = {}
+    if title is not None:
+        body["title"] = str(title).strip()
+    if content is not None:
+        body["content"] = str(content).strip()
+    if not body:
+        return {"error": "至少需要提供 title 或 content"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/posts/{pid}"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.put(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json=body,
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_edit_post 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_edit_comment(comment_id: str, content: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    cid = (comment_id or "").strip()
+    if not cid:
+        return {"error": "comment_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/comments/{cid}"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.put(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json={"content": (content or "").strip()},
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_edit_comment 请求失败: %s", e)
         return {"error": str(e)}
 
 
@@ -534,6 +820,104 @@ async def lutopia_vote(post_id: str, value: int) -> Any:
         return {"error": str(e)}
 
 
+async def lutopia_vote_comment(comment_id: str, value: int) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    if value not in (1, -1):
+        return {"error": "value 只能是 1 或 -1"}
+    cid = (comment_id or "").strip()
+    if not cid:
+        return {"error": "comment_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/comments/{cid}/vote"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json={"value": value},
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_vote_comment 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_get_poll(poll_id: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pl = (poll_id or "").strip()
+    if not pl:
+        return {"error": "poll_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/polls/{pl}"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_get_poll 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_vote_poll(poll_id: str, option_ids: List[str]) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pl = (poll_id or "").strip()
+    if not pl:
+        return {"error": "poll_id 不能为空"}
+    oids = [str(x).strip() for x in (option_ids or []) if str(x).strip()]
+    if not oids:
+        return {"error": "option_ids 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/polls/{pl}/vote"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json={"option_ids": oids},
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_vote_poll 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_delete_poll_vote(poll_id: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pl = (poll_id or "").strip()
+    if not pl:
+        return {"error": "poll_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/polls/{pl}/vote"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.delete(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_delete_poll_vote 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_delete_poll(poll_id: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    pl = (poll_id or "").strip()
+    if not pl:
+        return {"error": "poll_id 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/polls/{pl}"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.delete(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_delete_poll 请求失败: %s", e)
+        return {"error": str(e)}
+
+
 async def lutopia_get_profile() -> Any:
     token = await get_lutopia_token()
     if not token:
@@ -545,6 +929,240 @@ async def lutopia_get_profile() -> Any:
         return await _response_to_payload(resp)
     except httpx.HTTPError as e:
         logger.warning("lutopia_get_profile 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_get_activity() -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/me/activity"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_get_activity 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_lookup_agent(name: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    n = (name or "").strip()
+    if not n:
+        return {"error": "name 不能为空"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/lookup"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(
+                url, headers=_auth_headers(token), params={"name": n}
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_lookup_agent 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_rename(name: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/me/rename"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json={"name": (name or "").strip()},
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_rename 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_rename_request(name: str, reason: str) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/me/rename-request"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json={
+                    "name": (name or "").strip(),
+                    "reason": (reason or "").strip(),
+                },
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_rename_request 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_set_avatar(
+    clear: bool = False,
+    avatar_type: Optional[str] = None,
+    value: Optional[str] = None,
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/me/avatar"
+    if clear:
+        body: Any = {}
+    else:
+        t = (avatar_type or "").strip().lower()
+        if t not in ("emoji", "kaomoji"):
+            return {"error": "avatar_type 须为 emoji 或 kaomoji，或设 clear=true"}
+        v = (value or "").strip()
+        if not v:
+            return {"error": "非清空时须提供 value"}
+        body = {"type": t, "value": v}
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.put(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json=body,
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_set_avatar 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_get_rename_requests() -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/me/rename-requests"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_get_rename_requests 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_list_submolts(
+    sort: Optional[str] = None,
+    limit: Optional[int] = None,
+    offset: Optional[int] = None,
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    params: Dict[str, Any] = {}
+    if sort is not None and str(sort).strip():
+        params["sort"] = str(sort).strip()
+    if limit is not None:
+        try:
+            params["limit"] = int(limit)
+        except (TypeError, ValueError):
+            pass
+    if offset is not None:
+        try:
+            params["offset"] = int(offset)
+        except (TypeError, ValueError):
+            pass
+    url = f"{LUTOPIA_FORUM_PREFIX}/submolts"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(
+                url, headers=_auth_headers(token), params=params if params else None
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_list_submolts 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_create_submolt(
+    name: str, display_name: str, description: str
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    body = {
+        "name": (name or "").strip(),
+        "displayName": (display_name or "").strip(),
+        "description": (description or "").strip(),
+    }
+    url = f"{LUTOPIA_FORUM_PREFIX}/submolts"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json=body,
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_create_submolt 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_knowledge(
+    action: str,
+    category_id: Optional[str] = None,
+    q: Optional[str] = None,
+    theme: Optional[str] = None,
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    act = (action or "").strip().lower()
+    try:
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            if act == "overview":
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "categories":
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/categories"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "category_docs":
+                cid = (category_id or "").strip()
+                if not cid:
+                    return {"error": "category_docs 需要 category_id"}
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/category/{cid}"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "search":
+                qq = (q or "").strip()
+                if not qq:
+                    return {"error": "search 需要 q"}
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/search"
+                resp = await client.get(
+                    url, headers=_auth_headers(token), params={"q": qq}
+                )
+            elif act == "hot_topics":
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/hot-topics"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "clusters":
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/clusters"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "cluster_detail":
+                th = (theme or "").strip()
+                if not th:
+                    return {"error": "cluster_detail 需要 theme"}
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/cluster/{quote(th, safe='')}"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "faq":
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/faq"
+                resp = await client.get(url, headers=_auth_headers(token))
+            elif act == "contributors":
+                url = f"{KNOWLEDGE_API_PREFIX}/knowledge/contributors"
+                resp = await client.get(url, headers=_auth_headers(token))
+            else:
+                return {"error": f"未知 knowledge action: {action}"}
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_knowledge 请求失败: %s", e)
         return {"error": str(e)}
 
 
@@ -590,35 +1208,123 @@ async def lutopia_send_dm(recipient_name: str, content: str) -> Any:
         return {"error": str(e)}
 
 
-async def lutopia_get_inbox() -> Any:
+async def lutopia_get_inbox(
+    limit: Optional[int] = None,
+    unread: Optional[bool] = None,
+) -> Any:
     token = await get_lutopia_token()
     if not token:
         return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    params: Dict[str, Any] = {}
+    if limit is not None:
+        try:
+            params["limit"] = min(200, max(1, int(limit)))
+        except (TypeError, ValueError):
+            pass
+    if unread is not None:
+        params["unread"] = "true" if unread else "false"
     url = f"{LUTOPIA_FORUM_PREFIX}/messages/inbox"
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
-            resp = await client.get(url, headers=_auth_headers(token))
+            resp = await client.get(
+                url, headers=_auth_headers(token), params=params if params else None
+            )
         return await _response_to_payload(resp)
     except httpx.HTTPError as e:
         logger.warning("lutopia_get_inbox 请求失败: %s", e)
         return {"error": str(e)}
 
 
-async def lutopia_mark_read(all: bool = True) -> Any:
+async def lutopia_get_dm_sent(limit: Optional[int] = None) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    params: Dict[str, Any] = {}
+    if limit is not None:
+        try:
+            params["limit"] = int(limit)
+        except (TypeError, ValueError):
+            pass
+    url = f"{LUTOPIA_FORUM_PREFIX}/messages/sent"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(
+                url, headers=_auth_headers(token), params=params if params else None
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_get_dm_sent 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_dm_unread_count() -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/messages/unread-count"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.get(url, headers=_auth_headers(token))
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_dm_unread_count 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_mark_read(
+    all: Optional[bool] = None,
+    message_ids: Optional[List[str]] = None,
+) -> Any:
     token = await get_lutopia_token()
     if not token:
         return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
     url = f"{LUTOPIA_FORUM_PREFIX}/messages/read"
+    body: Dict[str, Any]
+    ids = [str(x).strip() for x in (message_ids or []) if str(x).strip()]
+    if ids:
+        body = {"ids": ids}
+    elif all is not None:
+        body = {"all": bool(all)}
+    else:
+        body = {"all": True}
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             resp = await client.post(
                 url,
                 headers={**_auth_headers(token), "Content-Type": "application/json"},
-                json={"all": bool(all)},
+                json=body,
             )
         return await _response_to_payload(resp)
     except httpx.HTTPError as e:
         logger.warning("lutopia_mark_read 请求失败: %s", e)
+        return {"error": str(e)}
+
+
+async def lutopia_dm_settings(
+    receive_enabled: Optional[bool] = None,
+    send_enabled: Optional[bool] = None,
+) -> Any:
+    token = await get_lutopia_token()
+    if not token:
+        return {"error": "未配置 Lutopia UID（config.key=lutopia_uid）"}
+    body: Dict[str, Any] = {}
+    if receive_enabled is not None:
+        body["receive_enabled"] = bool(receive_enabled)
+    if send_enabled is not None:
+        body["send_enabled"] = bool(send_enabled)
+    if not body:
+        return {"error": "至少需要 receive_enabled 或 send_enabled 之一"}
+    url = f"{LUTOPIA_FORUM_PREFIX}/agents/me/dm-settings"
+    try:
+        async with httpx.AsyncClient(timeout=45.0) as client:
+            resp = await client.post(
+                url,
+                headers={**_auth_headers(token), "Content-Type": "application/json"},
+                json=body,
+            )
+        return await _response_to_payload(resp)
+    except httpx.HTTPError as e:
+        logger.warning("lutopia_dm_settings 请求失败: %s", e)
         return {"error": str(e)}
 
 
@@ -744,49 +1450,164 @@ async def _execute_lutopia_function_call_impl(name: str, arguments_json: str) ->
     if not isinstance(args, dict):
         args = {}
 
+    def _parse_vote_1_or_neg1(raw: Any) -> int:
+        try:
+            iv = int(raw) if raw is not None else 0
+        except (TypeError, ValueError):
+            return 0
+        return iv if iv in (1, -1) else 0
+
     try:
         if name == "lutopia_get_posts":
+            va = args.get("view_agent")
             out = await lutopia_get_posts(
                 sort=args.get("sort"),
                 limit=args.get("limit"),
                 submolt=args.get("submolt"),
+                offset=args.get("offset"),
+                view_agent=True if va is None else bool(va),
             )
         elif name == "lutopia_create_post":
+            poll_raw = args.get("poll")
+            poll_obj = poll_raw if isinstance(poll_raw, dict) else None
             out = await lutopia_create_post(
                 str(args.get("submolt") or ""),
                 str(args.get("title") or ""),
                 str(args.get("content") or ""),
+                poll=poll_obj,
             )
         elif name == "lutopia_get_post":
-            out = await lutopia_get_post(str(args.get("post_id") or ""))
+            va = args.get("view_agent")
+            out = await lutopia_get_post(
+                str(args.get("post_id") or ""),
+                view_agent=True if va is None else bool(va),
+            )
+        elif name == "lutopia_get_post_comments":
+            va = args.get("view_agent")
+            cr = args.get("content")
+            cstr = str(cr).strip().lower() if cr is not None else None
+            cfin = cstr if cstr in ("preview", "full", "none") else None
+            out = await lutopia_get_post_comments(
+                str(args.get("post_id") or ""),
+                sort=args.get("sort"),
+                limit=args.get("limit"),
+                view_agent=True if va is None else bool(va),
+                content=cfin,
+            )
+        elif name == "lutopia_get_comment":
+            out = await lutopia_get_comment(str(args.get("comment_id") or ""))
         elif name == "lutopia_comment":
             out = await lutopia_comment(
                 str(args.get("post_id") or ""),
                 str(args.get("content") or ""),
                 args.get("parent_id"),
             )
+        elif name == "lutopia_edit_post":
+            out = await lutopia_edit_post(
+                str(args.get("post_id") or ""),
+                title=args.get("title"),
+                content=args.get("content"),
+            )
+        elif name == "lutopia_edit_comment":
+            out = await lutopia_edit_comment(
+                str(args.get("comment_id") or ""),
+                str(args.get("content") or ""),
+            )
         elif name == "lutopia_vote":
-            raw_v = args.get("value")
-            try:
-                iv = int(raw_v) if raw_v is not None else 0
-            except (TypeError, ValueError):
-                iv = 0
+            iv = _parse_vote_1_or_neg1(args.get("value"))
             out = await lutopia_vote(str(args.get("post_id") or ""), iv)
+        elif name == "lutopia_vote_comment":
+            iv = _parse_vote_1_or_neg1(args.get("value"))
+            out = await lutopia_vote_comment(
+                str(args.get("comment_id") or ""), iv
+            )
+        elif name == "lutopia_get_poll":
+            out = await lutopia_get_poll(str(args.get("poll_id") or ""))
+        elif name == "lutopia_vote_poll":
+            oids = args.get("option_ids")
+            oid_list: List[str] = []
+            if isinstance(oids, list):
+                oid_list = [str(x).strip() for x in oids if str(x).strip()]
+            out = await lutopia_vote_poll(
+                str(args.get("poll_id") or ""), oid_list
+            )
+        elif name == "lutopia_delete_poll_vote":
+            out = await lutopia_delete_poll_vote(str(args.get("poll_id") or ""))
+        elif name == "lutopia_delete_poll":
+            out = await lutopia_delete_poll(str(args.get("poll_id") or ""))
         elif name == "lutopia_get_profile":
             out = await lutopia_get_profile()
+        elif name == "lutopia_get_activity":
+            out = await lutopia_get_activity()
+        elif name == "lutopia_lookup_agent":
+            out = await lutopia_lookup_agent(str(args.get("name") or ""))
+        elif name == "lutopia_rename":
+            out = await lutopia_rename(str(args.get("name") or ""))
+        elif name == "lutopia_rename_request":
+            out = await lutopia_rename_request(
+                str(args.get("name") or ""),
+                str(args.get("reason") or ""),
+            )
+        elif name == "lutopia_set_avatar":
+            clr = args.get("clear")
+            out = await lutopia_set_avatar(
+                clear=bool(clr) if clr is not None else False,
+                avatar_type=args.get("avatar_type"),
+                value=args.get("value"),
+            )
+        elif name == "lutopia_get_rename_requests":
+            out = await lutopia_get_rename_requests()
+        elif name == "lutopia_list_submolts":
+            out = await lutopia_list_submolts(
+                sort=args.get("sort"),
+                limit=args.get("limit"),
+                offset=args.get("offset"),
+            )
+        elif name == "lutopia_create_submolt":
+            out = await lutopia_create_submolt(
+                str(args.get("name") or ""),
+                str(args.get("display_name") or ""),
+                str(args.get("description") or ""),
+            )
         elif name == "lutopia_get_summary":
             out = await lutopia_get_summary(str(args.get("date") or ""))
+        elif name == "lutopia_knowledge":
+            out = await lutopia_knowledge(
+                str(args.get("action") or ""),
+                category_id=args.get("category_id"),
+                q=args.get("q"),
+                theme=args.get("theme"),
+            )
         elif name == "lutopia_send_dm":
             out = await lutopia_send_dm(
                 str(args.get("recipient_name") or ""),
                 str(args.get("content") or ""),
             )
         elif name == "lutopia_get_inbox":
-            out = await lutopia_get_inbox()
+            out = await lutopia_get_inbox(
+                limit=args.get("limit"),
+                unread=args.get("unread"),
+            )
+        elif name == "lutopia_get_dm_sent":
+            out = await lutopia_get_dm_sent(limit=args.get("limit"))
+        elif name == "lutopia_dm_unread_count":
+            out = await lutopia_dm_unread_count()
         elif name == "lutopia_mark_read":
-            raw_all = args.get("all")
-            mark_all = True if raw_all is None else bool(raw_all)
-            out = await lutopia_mark_read(all=mark_all)
+            mids_raw = args.get("message_ids")
+            if isinstance(mids_raw, list) and len(mids_raw) > 0:
+                out = await lutopia_mark_read(
+                    message_ids=[str(x) for x in mids_raw],
+                )
+            else:
+                raw_all = args.get("all")
+                out = await lutopia_mark_read(
+                    all=(True if raw_all is None else bool(raw_all)),
+                )
+        elif name == "lutopia_dm_settings":
+            out = await lutopia_dm_settings(
+                receive_enabled=args.get("receive_enabled"),
+                send_enabled=args.get("send_enabled"),
+            )
         elif name == "lutopia_delete_post":
             raw_reason = args.get("reason")
             reason_opt = (

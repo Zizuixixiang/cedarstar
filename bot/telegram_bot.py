@@ -1516,18 +1516,27 @@ class TelegramBot:
     async def _telegram_lutopia_send_partial_user_text(
         self, bot: Any, chat_id: int, text: str
     ) -> None:
-        """工具轮次之间的口播：纯文本，避免 HTML 注入。"""
-        t = telegram_send_text_collapse((text or "").strip())
-        if not t:
+        """
+        工具轮次之间的口播：与最终正文一致——先按 ``|||`` / ``[meme:…]`` / 换行二级分段，
+        再对每段走 Markdown→HTML；不得在分段前对整段做空白折叠（否则会吃掉用于拆段的换行）。
+        """
+        raw = (text or "").strip()
+        if not raw:
             return
-        if len(t) > 4096:
-            suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
-            t = t[: 4096 - len(suf)] + suf
         try:
-            await bot.send_message(
-                chat_id=chat_id,
-                text=t,
-                parse_mode=None,
+            segments, _ = await parse_telegram_segments_with_memes_async(raw)
+        except Exception as e:
+            logger.warning(
+                "Lutopia 口播分段失败 chat_id=%s: %s",
+                chat_id,
+                exc_detail(e),
+            )
+            return
+        if not segments:
+            return
+        try:
+            await self._telegram_deliver_ordered_segments(
+                bot, chat_id, segments, base_message=None
             )
         except Exception as e:
             logger.warning(

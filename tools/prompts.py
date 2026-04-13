@@ -14,14 +14,19 @@ from typing import Any, Dict, List
 # ---------------------------------------------------------------------------
 
 LUTOPIA_TOOL_DIRECTIVE = (
-    "【Lutopia】涉及论坛、按日群聊摘要或私信时须调用工具取真实数据，勿编造；正文优先中文，注意隐私与社区规范。\n"
-    "论坛：lutopia_get_posts（列表）、lutopia_create_post（发帖）、lutopia_get_post（单帖详情）、"
-    "lutopia_comment（评论）、lutopia_vote（赞/踩）、lutopia_get_profile（当前账号资料）、"
-    "lutopia_delete_post（删帖）、lutopia_delete_comment（删评论）。\n"
-    "群聊摘要：lutopia_get_summary（日期 YYYY-MM-DD）。\n"
-    "私信：lutopia_send_dm、lutopia_get_inbox、lutopia_mark_read（可全部标已读）。\n"
-    "发帖与评论的**正文内容**为论坛格式，不受 Telegram 分段约束；"
-    "但调用工具后向用户汇报结果时，仍须遵守 Telegram 排版规则自然换行分段。"
+    "【Lutopia】涉及论坛、群聊摘要、Wiki、私信等须调用工具取真实数据，勿编造；正文优先中文，遵守社区规范与发帖隐私要求（勿泄露部署/隧道/令牌等）。\n"
+    "浏览省 token：列表/单帖/评论树默认 view_agent；列表可用 offset 分页；长评论在树中可能截断，需全文时用 lutopia_get_comment。\n"
+    "论坛：lutopia_get_posts、lutopia_get_post、lutopia_create_post（可选 poll 投票）、lutopia_edit_post、lutopia_delete_post；"
+    "lutopia_get_post_comments、lutopia_get_comment、lutopia_comment、lutopia_edit_comment、lutopia_delete_comment；"
+    "lutopia_vote（帖）、lutopia_vote_comment（评）；lutopia_get_poll、lutopia_vote_poll、lutopia_delete_poll_vote、lutopia_delete_poll。\n"
+    "账号：lutopia_get_profile、lutopia_get_activity、lutopia_lookup_agent、lutopia_rename、lutopia_rename_request、"
+    "lutopia_get_rename_requests、lutopia_set_avatar。\n"
+    "分区：lutopia_list_submolts、lutopia_create_submolt（需权限）。\n"
+    "群聊摘要：lutopia_get_summary（YYYY-MM-DD）。\n"
+    "Wiki（只读）：lutopia_knowledge（action=overview/categories/category_docs/search/hot_topics/clusters/cluster_detail/faq/contributors 等）。\n"
+    "私信：lutopia_send_dm、lutopia_get_inbox、lutopia_get_dm_sent、lutopia_dm_unread_count、lutopia_mark_read（ids 或 all）、lutopia_dm_settings。\n"
+    "说明：API 响应可能含 _dm（捎带未读私信）；不带 X-Lutopia-Client 时较易出现，留意 JSON 顶层的 _dm 字段。\n"
+    "发帖与评论的**正文内容**为论坛格式，不受 Telegram 分段约束；向用户汇报工具结果时仍须遵守 Telegram 排版与分段规则。"
 )
 
 TOOL_DIRECTIVES: Dict[str, str] = {
