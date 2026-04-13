@@ -1652,7 +1652,7 @@ class LLMInterface:
 
 
 class LutopiaToolLoopOutcome(NamedTuple):
-    """``complete_with_lutopia_tool_loop`` 的返回值。"""
+    """``complete_with_lutopia_tool_loop`` 的返回值。``behavior_appendix`` 恒为空（工具摘要仅写日志，不落库）。"""
 
     response: LLMResponse
     aggregated_assistant_text: str
@@ -1679,7 +1679,6 @@ async def complete_with_lutopia_tool_loop(
     """
     from tools.lutopia import (
         OPENAI_LUTOPIA_TOOLS,
-        build_lutopia_behavior_appendix,
         execute_lutopia_function_call,
     )
     from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
@@ -1704,11 +1703,10 @@ async def complete_with_lutopia_tool_loop(
             piece = (last.content or "").strip()
             if piece:
                 round_texts.append(piece)
-            appendix = build_lutopia_behavior_appendix(tool_pairs)
             return LutopiaToolLoopOutcome(
                 last,
                 "\n".join(round_texts),
-                appendix,
+                "",
             )
         piece = (last.content or "").strip()
         if piece:
@@ -1755,11 +1753,10 @@ async def complete_with_lutopia_tool_loop(
                 }
             )
     fin = last or LLMResponse(content="", model=llm.model_name)
-    appendix = build_lutopia_behavior_appendix(tool_pairs)
     return LutopiaToolLoopOutcome(
         fin,
         "\n".join(round_texts),
-        appendix,
+        "",
     )
 
 

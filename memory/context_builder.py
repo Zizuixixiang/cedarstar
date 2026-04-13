@@ -23,6 +23,7 @@ from typing import Dict, List, Any, Optional, Tuple
 from datetime import datetime
 
 from config import config
+from tools.lutopia import strip_lutopia_behavior_appendix
 from memory.database import (
     get_all_active_memory_cards,
     get_all_active_temporal_states,
@@ -1192,6 +1193,8 @@ class ContextBuilder:
                         "image_caption": msg.get("image_caption"),
                     }
                 )
+                if role == "assistant":
+                    text = strip_lutopia_behavior_appendix(text)
                 messages.append({
                     "role": role,
                     "content": text

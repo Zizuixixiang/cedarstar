@@ -81,7 +81,6 @@ from memory.context_builder import build_context
 from tools.lutopia import (
     OPENAI_LUTOPIA_TOOLS,
     append_tool_exchange_to_messages,
-    build_lutopia_behavior_appendix,
     strip_lutopia_behavior_appendix,
 )
 from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
@@ -1392,7 +1391,6 @@ class TelegramBot:
         chat_id = base_message.chat.id
         sse: Optional[_TelegramSseRound] = None
         pre_tool_segments: List[str] = []
-        tool_execution_log: List[Tuple[str, str]] = []
 
         def _merge_stream_outcome(outcome: _TelegramStreamOutcome) -> _TelegramStreamOutcome:
             merged_parts = [p for p in pre_tool_segments if p.strip()]
@@ -1400,10 +1398,8 @@ class TelegramBot:
                 merged_parts.append(outcome.body_for_db)
             merged_speech = "\n".join(merged_parts)
             cleaned_merged = schedule_update_memory_hits_and_clean_reply(merged_speech)
-            appendix = build_lutopia_behavior_appendix(tool_execution_log)
-            full_db = cleaned_merged + appendix if appendix else cleaned_merged
             return _TelegramStreamOutcome(
-                body_for_db=full_db,
+                body_for_db=cleaned_merged,
                 assistant_message_id=outcome.assistant_message_id,
                 thinking=outcome.thinking,
                 save_user=outcome.save_user,
@@ -1457,7 +1453,6 @@ class TelegramBot:
                     tc,
                     on_tool_start=_lutopia_on_start,
                     on_tool_done=_lutopia_on_done,
-                    execution_log=tool_execution_log,
                 )
                 continue
             outcome = await self._telegram_finalize_sse_round_outcome(
@@ -1991,7 +1986,6 @@ class TelegramBot:
             if not messages:
                 messages = [{"role": "user", "content": content}]
 
-            behavior_appendix = ""
             if oral:
                 if telegram_bot is not None:
 
@@ -2023,7 +2017,6 @@ class TelegramBot:
                         llm, messages, platform=Platform.TELEGRAM
                     )
                 llm_resp = outcome.response
-                behavior_appendix = outcome.behavior_appendix
                 cleaned = schedule_update_memory_hits_and_clean_reply(
                     outcome.aggregated_assistant_text
                 )
@@ -2066,8 +2059,6 @@ class TelegramBot:
                 reply = "[表情包]"
             else:
                 reply = ""
-            save_assistant_content = reply + behavior_appendix if behavior_appendix else reply
-
             await save_message(
                 session_id=session_id,
                 role="user",
@@ -2084,7 +2075,7 @@ class TelegramBot:
             await save_message(
                 session_id=session_id,
                 role="assistant",
-                content=save_assistant_content,
+                content=reply,
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=f"ai_{message_id}",

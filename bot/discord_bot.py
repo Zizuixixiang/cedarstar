@@ -444,7 +444,7 @@ class DiscordBot:
                 reply_display = schedule_update_memory_hits_and_clean_reply(
                     outcome.aggregated_assistant_text
                 )
-                reply = reply_display + outcome.behavior_appendix
+                reply = reply_display
             else:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
@@ -476,7 +476,7 @@ class DiscordBot:
                     platform=Platform.DISCORD,
                 )
             
-            # 保存AI回复到数据库（含 [行为记录]；频道展示仍用无附录的 reply_display）
+            # 保存AI回复到数据库（与频道展示一致，不含 Lutopia 工具摘要附录）
             await save_message(
                 session_id=session_id,
                 role="assistant",
@@ -561,7 +561,7 @@ class DiscordBot:
                 reply_display = schedule_update_memory_hits_and_clean_reply(
                     outcome.aggregated_assistant_text
                 )
-                reply = reply_display + outcome.behavior_appendix
+                reply = reply_display
             else:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
@@ -581,7 +581,7 @@ class DiscordBot:
                 platform=Platform.DISCORD
             )
             
-            # 保存AI回复到数据库（含行为记录附录）
+            # 保存AI回复到数据库（与频道展示一致）
             await save_message(
                 session_id=session_id,
                 role="assistant",
