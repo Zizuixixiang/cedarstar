@@ -15,6 +15,8 @@
 > **2026-04-14：** Lutopia **`[行为记录]`** 不再写入助手 **`messages.content`**（**`complete_with_lutopia_tool_loop.behavior_appendix`** 恒为 **`""`**；**Telegram** 流式 Lutopia 合并不再拼接附录；**Discord**/**Telegram** 非缓冲落库与展示一致）。**`context_builder._build_recent_messages_section`** 对 **`assistant`** 条 **`strip_lutopia_behavior_appendix`**，剥离库内旧数据中的 **`\\n\\n[行为记录]…`**，避免污染 LLM。**`tools/lutopia.build_lutopia_behavior_appendix`** 仍保留、主流程不再调用。
 >
 > **2026-04-13（LLM，以代码为准）：** **`LLMInterface._openai_max_tokens`**：当激活配置的 **`api_base`** 含 **`deepseek.com`** 时，OpenAI 兼容 **`chat/completions`** 请求体中的 **`max_tokens`** 钳在 **`[1, 8192]`**（与 DeepSeek 官方校验一致；环境变量 **`LLM_MAX_TOKENS`** 过大时换用 `deepseek-chat` 等非推理模型可避免首轮 **400**）。**`generate_stream`（SSE）**：若某段 **`delta.content`** 为空且此前尚未累计任何正文，则尝试从 **`choices[0].message.content`** 取整段正文；若 **`delta.tool_calls`** 为空则流结束后用 **`choices[0].message.tool_calls`** 补全（非思维链模型工具调用/Lutopia 状态行）。详见 §3.3。
+>
+> **2026-04-13（TG 分段）：** **`reply_citations._split_oversized_chunk`**：二级分段中超长按句末 **`。！？…～!?`** 切开时，仅在 **成对符号栈空**（`（）`「」“”《》【】`()` 与 Unicode 弯引号配对）且 **不在 ASCII `"` 成对内**时允许切段，避免把括号、引号从中间拆开。详见 `bot/reply_citations.py`。
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -87,7 +89,7 @@ cedarstar/                          # 项目根目录
 │   ├── __init__.py                 # 包初始化文件
 │   ├── message_buffer.py           # 消息缓冲公共实现（按 session 列表聚合条目；超时合并 texts/图片后回调）
 │   ├── logutil.py                  # `exc_detail(exc)`：异常类型 + 说明 + `__cause__` 链，供 WARNING/ERROR 日志易读
-│   ├── reply_citations.py          # 解析 [[used:uid]] / 误写 [used:…]、【used:…】；异步 update_memory_hits；`parse_telegram_segments_with_memes` / `parse_telegram_segments_with_memes_async`（一级 `|||` + `[meme:…]`；二级在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 `\n` 拆行，超长按句末标点拆分（无硬切）、仅标点片段并入前片、过短段合并，总段数受 `telegram_max_chars` / `telegram_max_msg` 约束）；清洗后再存库/发送
+│   ├── reply_citations.py          # 解析 [[used:uid]] / 误写 [used:…]、【used:…】；异步 update_memory_hits；`parse_telegram_segments_with_memes` / `parse_telegram_segments_with_memes_async`（一级 `|||` + `[meme:…]`；二级在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 `\n` 拆行，超长按句末标点拆分（**`_split_oversized_chunk`**：成对括号/引号栈空时才在句末切开）、仅标点片段并入前片、过短段合并，总段数受 `telegram_max_chars` / `telegram_max_msg` 约束）；清洗后再存库/发送
 │   ├── vision_caption.py           # 异步视觉描述任务（vision API 写回 image_caption / vision_processed）
 │   ├── stt_client.py               # 语音转录（httpx 异步调用 OpenAI 兼容 /audio/transcriptions，读 stt 配置或 OPENAI_* 回退）
 │   ├── markdown_telegram_html.py   # Markdown→HTML（markdown）+ bleach；`_compact_vertical_whitespace` 换行压空格/合并 spaced ellipsis、`telegram_send_text_collapse`；bleach 后展开正文 `<blockquote>`

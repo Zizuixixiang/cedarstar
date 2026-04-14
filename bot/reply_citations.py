@@ -82,9 +82,30 @@ def _is_complete_sentence(s: str) -> bool:
 # 超长段按句末切分（与 `_is_complete_sentence` 所用集合对齐需求：`。！？…～!?`）
 _OVERSIZED_SENTENCE_END_CHARS = frozenset("。！？…～!?")
 
+# 成对符号：仅在「栈空」时允许在句末标点切段，避免把（）、「」、“” 等从中间拆开
+_PAIR_OPEN_TO_CLOSE = {
+    "（": "）",
+    "「": "」",
+    "\u201c": "\u201d",  # “ ”
+    "\u2018": "\u2019",  # ‘ ’
+    "《": "》",
+    "【": "】",
+    "(": ")",
+}
+
+
+def _pair_stack_update(stack: List[str], c: str) -> None:
+    """根据当前字符更新成对符号栈（栈顶为期望出现的闭合符）。"""
+    if stack and c == stack[-1]:
+        stack.pop()
+        return
+    if c in _PAIR_OPEN_TO_CLOSE:
+        stack.append(_PAIR_OPEN_TO_CLOSE[c])
+
 
 def _split_oversized_chunk(chunk: str, max_chars: int) -> List[str]:
     """单段超过 ``max_chars`` 时按句末标点切分；标点留在前段末尾。
+    句末切分仅在**成对括号/引号已平衡**且**不在 ASCII 双引号成对内**时进行，避免把（）、「」、“” 等从中间拆开。
     若无句末标点或某句仍超长，整段保留不切（宁可单条气泡偏长）。"""
     if max_chars < 1:
         max_chars = 1
@@ -95,9 +116,21 @@ def _split_oversized_chunk(chunk: str, max_chars: int) -> List[str]:
         return [t]
     parts: List[str] = []
     buf: List[str] = []
+    stack: List[str] = []
+    ascii_dq = 0  # ASCII " 成对内为 1，避免 `他说"一句。话"` 在内部句号处误切
+
     for c in t:
         buf.append(c)
-        if c in _OVERSIZED_SENTENCE_END_CHARS:
+        if c == '"':
+            ascii_dq ^= 1
+        else:
+            _pair_stack_update(stack, c)
+
+        if (
+            c in _OVERSIZED_SENTENCE_END_CHARS
+            and not stack
+            and ascii_dq == 0
+        ):
             piece = "".join(buf).strip()
             if piece:
                 parts.append(piece)
@@ -293,7 +326,7 @@ def parse_telegram_segments_with_memes(
     """
     一级：将 `|||` 与 `[meme:描述]` 视为同级顺序分隔符，拆成 (text|meme)* 序列。
     二级：对每个 text 段在 `<pre>` / `<code>` / `<blockquote>` 块外按换行（``\\n``）拆行，
-    再对超长切片按句末标点切分，再合并过短段（strip 后 < 15 字），
+    再对超长切片按句末标点切分（`_split_oversized_chunk`：成对 ``（）``「」、“” 等未闭合时不在句末切开），再合并过短段（strip 后 < 15 字），
     最后若总段数超过 ``max_msg`` 则优先均匀合并相邻 text 段。
     须在 schedule_update_memory_hits_and_clean_reply 之后调用。
 
