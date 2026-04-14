@@ -83,6 +83,12 @@
   align-items: flex-end;
 }
 
+.filter-row--time {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(109, 89, 122, 0.08);
+}
+
 .filter-group {
   display: flex;
   flex-direction: column;
@@ -163,6 +169,19 @@
 
 .search-input::placeholder {
   color: var(--text-sub);
+}
+
+/* datetime-local 比纯文字略吃宽度，略小一号字 + 略减左右 padding，避免最后一位被裁切 */
+.search-input.datetime-input {
+  font-size: 13px;
+  padding-left: 10px;
+  padding-right: 10px;
+}
+
+.datetime-input {
+  width: 100%;
+  min-height: 44px;
+  box-sizing: border-box;
 }
 
 /* 日志列表可滚动区域 */
@@ -300,12 +319,25 @@
 
 
 
+/* 消息区：正文 + 查看全文 */
+.log-message-cell {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
 /* 消息内容 */
 .log-message {
   font-size: 14px;
   color: var(--text-main);
   line-height: 1.5;
   word-break: break-word;
+}
+
+.expand-button--message {
+  flex-shrink: 0;
 }
 
 /* 展开按钮 */
@@ -395,15 +427,17 @@
   }
 }
 
-/* 分页控件 */
+/* 分页控件（单行） */
 .pagination {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 8px;
   margin-top: 24px;
   padding-top: 24px;
   border-top: 1px solid rgba(109, 89, 122, 0.06);
+  box-sizing: border-box;
 }
 
 .pagination-button {
@@ -461,6 +495,32 @@
     gap: 16px;
     width: 100%;
     box-sizing: border-box;
+  }
+
+  /* 开始/结束时间：窄屏仍同一行并排，避免占两行 */
+  .filter-row.filter-row--time {
+    flex-direction: row;
+    flex-wrap: nowrap;
+    align-items: flex-end;
+    gap: 8px;
+  }
+
+  .filter-row.filter-row--time .filter-group {
+    flex: 1 1 0;
+    min-width: 0;
+    width: auto;
+  }
+
+  .filter-row.filter-row--time .filter-label {
+    font-size: 12px;
+    white-space: nowrap;
+  }
+
+  .filter-row.filter-row--time .search-input.datetime-input {
+    min-width: 0;
+    font-size: 11px;
+    padding-left: 6px;
+    padding-right: 6px;
   }
   
   .filter-group {
@@ -538,28 +598,4 @@
     margin-top: 8px;
   }
 
-  /* 修复分页按钮变形与换行坠落 */
-  .pagination {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap; /* 强制不换行 */
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    gap: 10px; /* 稍微减小间距以适应不换行 */
-    box-sizing: border-box;
-  }
-
-  .pagination-button {
-    height: auto;
-    padding: 6px 12px; /* 减小 padding 以节省空间 */
-    flex-shrink: 0; /* 防止被挤压变形 */
-    white-space: nowrap; /* 防止文字换行 */
-  }
-
-  .pagination-info {
-    flex-shrink: 0;
-    white-space: nowrap;
-    font-size: 13px; /* 稍微缩小字体以适应同一行 */
-  }
 }

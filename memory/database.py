@@ -38,6 +38,16 @@ def _norm(v: Any) -> Any:
     return v
 
 
+def _pg_timestamp_naive_utc(dt: _dt.datetime) -> _dt.datetime:
+    """
+    绑定到 PostgreSQL TIMESTAMP（无时区）列时使用 naive UTC。
+    若传入 offset-aware，asyncpg 编码时会触发 naive/aware 混用错误（DataError）。
+    """
+    if dt.tzinfo is None:
+        return dt
+    return dt.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+
+
 def _r(record) -> Dict[str, Any]:
     """asyncpg Record → dict（所有 datetime 值转为字符串）。"""
     return {k: _norm(v) for k, v in dict(record).items()}
@@ -826,6 +836,8 @@ class MessageDatabase:
         platform: Optional[str] = None,
         level: Optional[str] = None,
         keyword: Optional[str] = None,
+        time_from: Optional[_dt.datetime] = None,
+        time_to: Optional[_dt.datetime] = None,
         page: int = 1,
         page_size: int = 20,
     ) -> Dict[str, Any]:
@@ -852,6 +864,16 @@ class MessageDatabase:
         if keyword:
             conditions.append(f"(message LIKE ${idx} OR stack_trace LIKE ${idx})")
             params.append(f"%{keyword}%")
+            idx += 1
+
+        if time_from is not None:
+            conditions.append(f"created_at >= ${idx}")
+            params.append(_pg_timestamp_naive_utc(time_from))
+            idx += 1
+
+        if time_to is not None:
+            conditions.append(f"created_at <= ${idx}")
+            params.append(_pg_timestamp_naive_utc(time_to))
             idx += 1
 
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
@@ -887,8 +909,8 @@ class MessageDatabase:
         ]
         logger.debug(
             "get_logs_filtered: total=%s, page=%s, page_size=%s, "
-            "platform=%s, level=%s",
-            total, page, page_size, platform, level,
+            "platform=%s, level=%s, time_from=%s, time_to=%s",
+            total, page, page_size, platform, level, time_from, time_to,
         )
         return {"total": total, "logs": logs}
 

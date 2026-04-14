@@ -384,3 +384,57 @@ button {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-main);
 }
+
+/* -------------------------------------------------------------------------
+   分页条：放在列表/卡片容器外（.pagination--outside），与页面背景同宽；
+   四个按钮统一高度 */
+.pagination.pagination--outside {
+  flex-shrink: 0;
+  width: 100%;
+  max-width: 100%;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding: 10px 0 12px;
+  border-top: none;
+  box-sizing: border-box;
+}
+
+.pagination.pagination--outside .pagination-button {
+  min-height: 40px;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.2;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+}
+
+.pagination.pagination--outside .pagination-info.pagination-info--stacked {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  gap: 2px;
+  flex: 0 0 auto;
+  line-height: 1.25;
+}
+
+.pagination.pagination--outside .pagination-info-line {
+  display: block;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px) {
+  .pagination.pagination--outside .pagination-button {
+    min-height: 40px;
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+
+  .pagination.pagination--outside .pagination-info.pagination-info--stacked {
+    font-size: 12px;
+  }
+}

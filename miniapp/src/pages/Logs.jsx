@@ -67,11 +67,15 @@ function PlatformTag({ platform }) {
   }
 }
 
+/** 列表中消息预览最大字符数（按 Unicode 码点计，含中英文） */
+const LOG_MESSAGE_PREVIEW_LEN = 50;
+
 /**
  * 日志行组件
  */
 function LogRow({ log }) {
-  const [expanded, setExpanded] = useState(false);
+  const [stackExpanded, setStackExpanded] = useState(false);
+  const [messageExpanded, setMessageExpanded] = useState(false);
 
   const formatTimestamp = (timestamp) => {
     try {
@@ -91,6 +95,14 @@ function LogRow({ log }) {
   const hasStackTrace = log.stack_trace && log.stack_trace.trim();
   const isError = log.level === 'ERROR';
 
+  const fullMessage = log.message ?? '';
+  const messageChars = Array.from(fullMessage);
+  const needsMessageTruncate = messageChars.length > LOG_MESSAGE_PREVIEW_LEN;
+  const displayMessage =
+    !needsMessageTruncate || messageExpanded
+      ? fullMessage
+      : `${messageChars.slice(0, LOG_MESSAGE_PREVIEW_LEN).join('')}…`;
+
   return (
     <>
       <div className={`log-row ${isError ? 'error' : ''}`}>
@@ -99,17 +111,29 @@ function LogRow({ log }) {
           <LevelTag level={log.level} />
           <PlatformTag platform={log.platform} />
         </div>
-        <div className="log-message">{log.message}</div>
+        <div className="log-message-cell">
+          <div className="log-message">{displayMessage}</div>
+          {needsMessageTruncate && (
+            <button
+              type="button"
+              className="expand-button expand-button--message"
+              onClick={() => setMessageExpanded(!messageExpanded)}
+            >
+              {messageExpanded ? '收起' : '查看全文'}
+            </button>
+          )}
+        </div>
         {hasStackTrace && (
           <button
+            type="button"
             className="expand-button"
-            onClick={() => setExpanded(!expanded)}
+            onClick={() => setStackExpanded(!stackExpanded)}
           >
-            {expanded ? '收起' : '展开'}
+            {stackExpanded ? '收起' : '展开'}
           </button>
         )}
       </div>
-      {expanded && hasStackTrace && (
+      {stackExpanded && hasStackTrace && (
         <div className="stack-trace">
           {log.stack_trace}
         </div>
@@ -185,6 +209,9 @@ function Logs() {
   const [selectedPlatform, setSelectedPlatform] = useState('');
   const [selectedLevel, setSelectedLevel] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
+  /** datetime-local 值，空字符串表示不筛选 */
+  const [timeFrom, setTimeFrom] = useState('');
+  const [timeTo, setTimeTo] = useState('');
 
   // 分页状态
   const [currentPage, setCurrentPage] = useState(1);
@@ -212,6 +239,8 @@ function Logs() {
     platform,
     level,
     keyword,
+    timeFrom: tf,
+    timeTo: tt,
     page,
     pageSz,
     isInit = false
@@ -231,6 +260,18 @@ function Logs() {
       if (platform) params.append('platform', platform);
       if (level) params.append('level', level);
       if (keyword.trim()) params.append('keyword', keyword.trim());
+      if (tf && tf.trim()) {
+        const d = new Date(tf.trim());
+        if (!Number.isNaN(d.getTime())) {
+          params.append('time_from', d.toISOString());
+        }
+      }
+      if (tt && tt.trim()) {
+        const d = new Date(tt.trim());
+        if (!Number.isNaN(d.getTime())) {
+          params.append('time_to', d.toISOString());
+        }
+      }
 
       const response = await apiFetch(`/api/logs?${params}`);
       if (!response.ok) throw new Error('获取日志失败');
@@ -264,6 +305,8 @@ function Logs() {
       platform: selectedPlatform,
       level: selectedLevel,
       keyword: searchKeyword,
+      timeFrom,
+      timeTo,
       page: currentPage,
       pageSz: pageSize,
       isInit: true
@@ -284,6 +327,8 @@ function Logs() {
         platform: selectedPlatform,
         level: selectedLevel,
         keyword: searchKeyword,
+        timeFrom,
+        timeTo,
         page: 1,
         pageSz: pageSize
       });
@@ -302,6 +347,8 @@ function Logs() {
       platform,
       level: selectedLevel,
       keyword: searchKeyword,
+      timeFrom,
+      timeTo,
       page: 1,
       pageSz: pageSize
     });
@@ -315,12 +362,44 @@ function Logs() {
       platform: selectedPlatform,
       level,
       keyword: searchKeyword,
+      timeFrom,
+      timeTo,
       page: 1,
       pageSz: pageSize
     });
   };
 
-  // 上一页
+  const handleTimeFromChange = (e) => {
+    const v = e.target.value;
+    setTimeFrom(v);
+    setCurrentPage(1);
+    fetchLogs({
+      platform: selectedPlatform,
+      level: selectedLevel,
+      keyword: searchKeyword,
+      timeFrom: v,
+      timeTo,
+      page: 1,
+      pageSz: pageSize
+    });
+  };
+
+  const handleTimeToChange = (e) => {
+    const v = e.target.value;
+    setTimeTo(v);
+    setCurrentPage(1);
+    fetchLogs({
+      platform: selectedPlatform,
+      level: selectedLevel,
+      keyword: searchKeyword,
+      timeFrom,
+      timeTo: v,
+      page: 1,
+      pageSz: pageSize
+    });
+  };
+
+  // 上页
   const handlePrevPage = () => {
     if (currentPage > 1) {
       const newPage = currentPage - 1;
@@ -329,13 +408,15 @@ function Logs() {
         platform: selectedPlatform,
         level: selectedLevel,
         keyword: searchKeyword,
+        timeFrom,
+        timeTo,
         page: newPage,
         pageSz: pageSize
       });
     }
   };
 
-  // 下一页
+  // 下页
   const handleNextPage = () => {
     const totalPages = Math.ceil(totalItems / pageSize);
     if (currentPage < totalPages) {
@@ -345,10 +426,45 @@ function Logs() {
         platform: selectedPlatform,
         level: selectedLevel,
         keyword: searchKeyword,
+        timeFrom,
+        timeTo,
         page: newPage,
         pageSz: pageSize
       });
     }
+  };
+
+  const handleFirstPage = () => {
+    if (currentPage <= 1) {
+      return;
+    }
+    setCurrentPage(1);
+    fetchLogs({
+      platform: selectedPlatform,
+      level: selectedLevel,
+      keyword: searchKeyword,
+      timeFrom,
+      timeTo,
+      page: 1,
+      pageSz: pageSize
+    });
+  };
+
+  const handleLastPage = () => {
+    const tp = Math.ceil(totalItems / pageSize) || 1;
+    if (currentPage >= tp) {
+      return;
+    }
+    setCurrentPage(tp);
+    fetchLogs({
+      platform: selectedPlatform,
+      level: selectedLevel,
+      keyword: searchKeyword,
+      timeFrom,
+      timeTo,
+      page: tp,
+      pageSz: pageSize
+    });
   };
 
   const totalPages = Math.ceil(totalItems / pageSize) || 1;
@@ -406,6 +522,27 @@ function Logs() {
             />
           </div>
         </div>
+
+        <div className="filter-row filter-row--time">
+          <div className="filter-group">
+            <div className="filter-label">开始时间（可选）</div>
+            <input
+              type="datetime-local"
+              className="search-input datetime-input"
+              value={timeFrom}
+              onChange={handleTimeFromChange}
+            />
+          </div>
+          <div className="filter-group">
+            <div className="filter-label">结束时间（可选）</div>
+            <input
+              type="datetime-local"
+              className="search-input datetime-input"
+              value={timeTo}
+              onChange={handleTimeToChange}
+            />
+          </div>
+        </div>
       </div>
 
       {/* 日志列表可滚动区域 */}
@@ -435,31 +572,53 @@ function Logs() {
               ))
             )}
           </div>
-
-          {/* 分页控件 */}
-          {logs.length > 0 && totalPages > 1 && (
-            <div className="pagination">
-              <button
-                className="pagination-button"
-                onClick={handlePrevPage}
-                disabled={currentPage <= 1}
-              >
-                上一页
-              </button>
-              <span className="pagination-info">
-                第 {currentPage} 页 / 共 {totalPages} 页
-              </span>
-              <button
-                className="pagination-button"
-                onClick={handleNextPage}
-                disabled={currentPage >= totalPages}
-              >
-                下一页
-              </button>
-            </div>
-          )}
         </div>
       </div>
+
+      {logs.length > 0 && totalPages > 1 && (
+        <div className="pagination pagination--outside">
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handleFirstPage}
+            disabled={currentPage <= 1}
+          >
+            首页
+          </button>
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handlePrevPage}
+            disabled={currentPage <= 1}
+          >
+            上页
+          </button>
+          <div
+            className="pagination-info pagination-info--stacked"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="pagination-info-line">第 {currentPage} 页</span>
+            <span className="pagination-info-line">共 {totalPages} 页</span>
+          </div>
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages}
+          >
+            下页
+          </button>
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handleLastPage}
+            disabled={currentPage >= totalPages}
+          >
+            尾页
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -1162,6 +1162,22 @@ function Memory() {
       loadLongTermMemories(searchKeyword, newPage);
     }
   };
+
+  const handleFirstPage = () => {
+    if (currentPage <= 1) {
+      return;
+    }
+    setCurrentPage(1);
+    loadLongTermMemories(searchKeyword, 1);
+  };
+
+  const handleLastPage = () => {
+    if (currentPage >= totalPages) {
+      return;
+    }
+    setCurrentPage(totalPages);
+    loadLongTermMemories(searchKeyword, totalPages);
+  };
   
   const handleAddTemporalState = async (payload) => {
     try {
@@ -1319,30 +1335,6 @@ function Memory() {
               ))
             )}
           </div>
-          
-          {longTermMemories.length > 0 && (
-            <div className="pagination">
-              <button
-                className="pagination-button"
-                type="button"
-                onClick={handlePrevPage}
-                disabled={currentPage <= 1}
-              >
-                上一页
-              </button>
-              <span className="pagination-info">
-                第 {currentPage} 页 / 共 {totalPages} 页
-              </span>
-              <button
-                className="pagination-button"
-                type="button"
-                onClick={handleNextPage}
-                disabled={currentPage >= totalPages}
-              >
-                下一页
-              </button>
-            </div>
-          )}
         </>
       )}
 
@@ -1416,6 +1408,51 @@ function Memory() {
         </>
       )}
       </div>
+
+      {activeTab === 'longterm' && longTermMemories.length > 0 && (
+        <div className="pagination pagination--outside">
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleFirstPage}
+            disabled={currentPage <= 1}
+          >
+            首页
+          </button>
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handlePrevPage}
+            disabled={currentPage <= 1}
+          >
+            上页
+          </button>
+          <div
+            className="pagination-info pagination-info--stacked"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="pagination-info-line">第 {currentPage} 页</span>
+            <span className="pagination-info-line">共 {totalPages} 页</span>
+          </div>
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages}
+          >
+            下页
+          </button>
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleLastPage}
+            disabled={currentPage >= totalPages}
+          >
+            尾页
+          </button>
+        </div>
+      )}
     </div>
   );
 }

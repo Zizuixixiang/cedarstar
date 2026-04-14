@@ -443,15 +443,17 @@
   text-align: center;
 }
 
-/* 分页控件 */
+/* 分页控件（单行；避免 overflow 组合在旧版 WebView 上触发布局异常） */
 .pagination {
   display: flex;
+  flex-wrap: nowrap;
   justify-content: center;
   align-items: center;
-  gap: 16px;
+  gap: 8px;
   margin-top: 32px;
   padding-top: 24px;
   border-top: 1px solid rgba(109, 89, 122, 0.06);
+  box-sizing: border-box;
 }
 
 .pagination-button {
@@ -664,30 +666,6 @@
     justify-content: space-between;
   }
 
-  /* 修复分页按钮变形与换行坠落 */
-  .pagination {
-    display: flex;
-    flex-direction: row;
-    flex-wrap: nowrap; /* 强制不换行 */
-    justify-content: center;
-    align-items: center;
-    width: 100%;
-    gap: 10px; /* 稍微减小间距以适应不换行 */
-    box-sizing: border-box;
-  }
-
-  .pagination-button {
-    height: auto;
-    padding: 6px 12px; /* 减小 padding 以节省空间 */
-    flex-shrink: 0; /* 防止被挤压变形 */
-    white-space: nowrap; /* 防止文字换行 */
-  }
-
-  .pagination-info {
-    flex-shrink: 0;
-    white-space: nowrap;
-    font-size: 13px; /* 稍微缩小字体以适应同一行 */
-  }
 }
 
 /* 消息行内：编辑 / 删除 */

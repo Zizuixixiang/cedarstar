@@ -562,14 +562,16 @@ h2.memory-tab-header__title,
   box-shadow: var(--shadow-inset);
 }
 
-/* 分页控件 */
+/* 分页控件（单行） */
 .pagination {
   display: flex;
+  flex-wrap: nowrap;
   align-items: center;
   justify-content: center;
-  gap: 12px;
+  gap: 8px;
   margin-top: 32px;
   padding: 16px;
+  box-sizing: border-box;
 }
 
 .pagination-button {
@@ -1128,4 +1130,5 @@ h2.memory-tab-header__title,
   .longterm-header .search-input {
     min-width: 0;
   }
+
 }

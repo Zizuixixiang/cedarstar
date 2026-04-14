@@ -482,7 +482,7 @@ function History() {
     }
   };
 
-  // 上一页
+  // 上页
   const handlePrevPage = () => {
     if (currentPage > 1) {
       const newPage = currentPage - 1;
@@ -499,7 +499,7 @@ function History() {
     }
   };
 
-  // 下一页
+  // 下页
   const handleNextPage = () => {
     const totalPages = Math.ceil(totalItems / pageSize);
     if (currentPage < totalPages) {
@@ -515,6 +515,39 @@ function History() {
         pageSz: pageSize
       });
     }
+  };
+
+  const handleFirstPage = () => {
+    if (currentPage <= 1) {
+      return;
+    }
+    setCurrentPage(1);
+    fetchHistory({
+      platform: selectedPlatform,
+      keyword: searchKeyword,
+      dateOption: dateRangeOption,
+      dateFrom: customDateFrom,
+      dateTo: customDateTo,
+      page: 1,
+      pageSz: pageSize
+    });
+  };
+
+  const handleLastPage = () => {
+    const tp = Math.ceil(totalItems / pageSize) || 1;
+    if (currentPage >= tp) {
+      return;
+    }
+    setCurrentPage(tp);
+    fetchHistory({
+      platform: selectedPlatform,
+      keyword: searchKeyword,
+      dateOption: dateRangeOption,
+      dateFrom: customDateFrom,
+      dateTo: customDateTo,
+      page: tp,
+      pageSz: pageSize
+    });
   };
 
   // 计算总页数
@@ -804,30 +837,53 @@ function History() {
               ))
             )}
           </div>
-
-          {messages.length > 0 && totalPages > 1 && (
-            <div className="pagination">
-              <button
-                className="pagination-button"
-                onClick={handlePrevPage}
-                disabled={currentPage <= 1}
-              >
-                上一页
-              </button>
-              <span className="pagination-info">
-                第 {currentPage} 页 / 共 {totalPages} 页
-              </span>
-              <button
-                className="pagination-button"
-                onClick={handleNextPage}
-                disabled={currentPage >= totalPages}
-              >
-                下一页
-              </button>
-            </div>
-          )}
         </div>
       </div>
+
+      {messages.length > 0 && totalPages > 1 && (
+        <div className="pagination pagination--outside">
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handleFirstPage}
+            disabled={currentPage <= 1}
+          >
+            首页
+          </button>
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handlePrevPage}
+            disabled={currentPage <= 1}
+          >
+            上页
+          </button>
+          <div
+            className="pagination-info pagination-info--stacked"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="pagination-info-line">第 {currentPage} 页</span>
+            <span className="pagination-info-line">共 {totalPages} 页</span>
+          </div>
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handleNextPage}
+            disabled={currentPage >= totalPages}
+          >
+            下页
+          </button>
+          <button
+            type="button"
+            className="pagination-button"
+            onClick={handleLastPage}
+            disabled={currentPage >= totalPages}
+          >
+            尾页
+          </button>
+        </div>
+      )}
     </div>
   );
 }

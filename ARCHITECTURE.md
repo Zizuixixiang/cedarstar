@@ -16,6 +16,8 @@
 >
 > **2026-04-14（Context / 日终 / Lutopia，以代码为准）：** **`context_builder`** 对发往 LLM 的 **`role=user`** 在 **`inject_user_sent_at_into_llm_content`** 中于正文前加一行东八区 **`【当前时间：…】`**（**`format_user_context_sent_at_line`**）：**近期用户条**用库字段 **`created_at`**，**本轮用户输入**用当前时刻；**仅影响 LLM**，**`messages.content` 不落库**。多模态（**`build_user_multimodal_content`**）时写入**首个 `type: text` 段**。**`daily_batch` Step 4** 价值打分 prompt 为 f-string 时，文案里「字面花括号」须 **`{{}}`**，禁止单独 **`{}`**，否则 **`SyntaxError`** 导致 **`run_daily_batch.py`** 无法 import。**`tools/lutopia`**：**httpx 0.28+** 的 **`AsyncClient.delete()`** 无 **`json=`** 参数，删帖/删评带 **`reason`** 时用 **`AsyncClient.request("DELETE", url, headers=…, json={"reason": …})`**；模块注释含站方 **`AGENT_GUIDE.md`**（`https://daskio.de5.net/AGENT_GUIDE.md`）。详见 §3.4.2、§3.4.4、§3.7。
 >
+> **2026-04-14（Mini App / 系统日志，以代码为准）：** **`GET /api/logs`** 查询参数含 **`time_from` / `time_to`**（可选，ISO8601 **字符串**；**`api/logs.py`** **`_parse_log_time_param`** 解析为 **UTC naive `datetime`**）。**`memory.database.get_logs_filtered`** 在绑定 **`logs.created_at`**（**`TIMESTAMP`**）前对时间参数使用 **`_pg_timestamp_naive_utc`**，避免 asyncpg 将 **offset-aware** 与无时区列混编 **`DataError`**。前端 **Logs** 页：**datetime-local** 时间筛选；列表 **`message`** 超过 **50** 个 Unicode 码点仅预览，**「查看全文」** 展开；分页条类名 **`pagination pagination--outside`**，置于列表滚动区/白色卡片**外侧**；与 **History / Memory（长期记忆）** 分页均为 **首页 / 上页 / 下页 / 尾页**，页码文案两行居中（**`global.css`** **`.pagination-info--stacked`**）。窄屏下 Logs 时间筛选**同一行**两列；**`.search-input.datetime-input`** 略小字号以减轻 **`datetime-local`** 裁切。
+>
 > **2026-04-13（LLM，以代码为准）：** **`LLMInterface._openai_max_tokens`**：当激活配置的 **`api_base`** 含 **`deepseek.com`** 时，OpenAI 兼容 **`chat/completions`** 请求体中的 **`max_tokens`** 钳在 **`[1, 8192]`**（与 DeepSeek 官方校验一致；环境变量 **`LLM_MAX_TOKENS`** 过大时换用 `deepseek-chat` 等非推理模型可避免首轮 **400**）。**`generate_stream`（SSE）**：若某段 **`delta.content`** 为空且此前尚未累计任何正文，则尝试从 **`choices[0].message.content`** 取整段正文；若 **`delta.tool_calls`** 为空则流结束后用 **`choices[0].message.tool_calls`** 补全（非思维链模型工具调用/Lutopia 状态行）。详见 §3.3。
 >
 > **2026-04-13（TG 分段）：** **`reply_citations._split_oversized_chunk`**：二级分段中超长按句末 **`。！？…～!?`** 切开时，仅在 **成对符号栈空**（`（）`「」“”《》【】`()` 与 Unicode 弯引号配对）且 **不在 ASCII `"` 成对内**时允许切段，避免把括号、引号从中间拆开。详见 `bot/reply_citations.py`。
@@ -82,7 +84,7 @@ cedarstar/                          # 项目根目录
 │   ├── persona.py                  # 人设配置 CRUD 接口
 │   ├── memory.py                   # 记忆管理接口（记忆卡片 + 长期记忆：先 Chroma 后数据库写入，列表含 is_orphan）
 │   ├── history.py                  # 对话历史：列表查询（平台/关键词/日期+分页）+ 单条 PATCH/DELETE
-│   ├── logs.py                     # 系统日志查询接口（支持平台/级别/关键词过滤+分页）
+│   ├── logs.py                     # 系统日志查询接口（平台/级别/关键词/可选 time_from·time_to + 分页）
 │   ├── config.py                   # 助手运行参数配置接口；GET/PUT 成功时 data 含 _meta.updated_at（见 §5.7）
 │   ├── settings.py                 # API 配置管理接口（api_configs CRUD + Token 消耗统计）
 │   └── webhook.py                  # Telegram Bot API webhook：`POST /webhook/telegram`（由 main 直接挂到 app，无 /api 前缀；校验 Secret-Token 后后台 `process_update`）
@@ -142,7 +144,7 @@ cedarstar/                          # 项目根目录
 │       │   ├── Persona.jsx         # 人设配置页（角色/用户信息 CRUD）
 │       │   ├── Memory.jsx          # 记忆管理页（四 Tab；固定视口内高度 + 内容区独立滚动，见 §3.6）
 │       │   ├── History.jsx         # 对话历史页（聊天气泡布局 + 筛选，见 §3.6）
-│       │   ├── Logs.jsx            # 系统日志页（固定高度布局，支持过滤）
+│       │   ├── Logs.jsx            # 系统日志页（筛选含时间范围；消息预览+查看全文；分页在容器外）
 │       │   ├── Config.jsx          # 助手配置页（运行参数滑块 + Telegram 分段 telegram_max_chars / telegram_max_msg，见 §3.6）
 │       │   └── Settings.jsx        # 核心设置页（API 配置管理 + Token 统计）
 │       └── styles/                 # CSS 样式文件（每个页面对应一个 CSS 文件）
@@ -505,7 +507,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | `/api/persona` | `persona.py` | 人设配置 CRUD + system prompt 预览 |
 | `/api/memory` | `memory.py` | 记忆卡片 CRUD + 长期记忆 + `temporal-states` / `relationship-timeline`（长期记忆列表合并 Chroma 元数据，见下） |
 | `/api/history` | `history.py` | **`GET ""`** 列表（平台/关键词/日期 + 分页）；**`PATCH /{message_id}`** 更新正文/思维链；**`DELETE /{message_id}`** 删除单条（均 `{success,data,message}`） |
-| `/api/logs` | `logs.py` | 系统日志查询（过滤+分页） |
+| `/api/logs` | `logs.py` | 系统日志查询（`platform` / `level` / `keyword` / 可选 `time_from`·`time_to` + `page` / `page_size`） |
 | `/api/config` | `config.py` | 运行参数读写（含 `buffer_delay`、`chunk_threshold`、`telegram_max_chars`、`telegram_max_msg` 等，见 §5.7） |
 | `/api/settings` | `settings.py` | API 配置 CRUD + 激活切换 + Token 统计 |
 
@@ -557,9 +559,11 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **✅ 已改动（2026-04-05）：** 表单与预览增加 **用户工作**（`user_work`），与 **`persona_configs.user_work`**、后端预览及 **`context_builder._build_system_prompt`** 对齐。
 
-**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**记忆卡片加载（以代码为准）：** API 可能返回同一 `dimension` 多条（不同 `user_id`）；前端 `loadMemoryCards` 合并为每维度**一条展示**，保留 **`updated_at`（无则 `created_at`）最新**的记录，避免遍历时后读到的旧行覆盖新行。**记忆卡片正文：** 列表区 `.card-content` 多行截断（**`-webkit-line-clamp`**）；是否需 **「查看全文」** 由 **`isMemoryCardContentTruncated`**（离屏同宽节点测量全文高度与可见高度）判定——**勿**仅依赖 **`scrollHeight > clientHeight`**（截断后二者常相等导致漏显）。点击后以 **`createPortal(..., document.body)`** 打开只读全屏层（**`.memory-view-overlay` / `.memory-view-sheet`**），避免与背后卡片叠层。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。
+**Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**记忆卡片加载（以代码为准）：** API 可能返回同一 `dimension` 多条（不同 `user_id`）；前端 `loadMemoryCards` 合并为每维度**一条展示**，保留 **`updated_at`（无则 `created_at`）最新**的记录，避免遍历时后读到的旧行覆盖新行。**记忆卡片正文：** 列表区 `.card-content` 多行截断（**`-webkit-line-clamp`**）；是否需 **「查看全文」** 由 **`isMemoryCardContentTruncated`**（离屏同宽节点测量全文高度与可见高度）判定——**勿**仅依赖 **`scrollHeight > clientHeight`**（截断后二者常相等导致漏显）。点击后以 **`createPortal(..., document.body)`** 打开只读全屏层（**`.memory-view-overlay` / `.memory-view-sheet`**），避免与背后卡片叠层。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。**长期记忆 Tab 分页（2026-04-14）：** **`pagination.pagination--outside`** 置于 **`.memory-content-scroll-area`** 之外，与 History / Logs 同为 **首页 / 上页 / 下页 / 尾页** 与 **`pagination-info--stacked`** 两行页码。
 
-**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**列表接口：** `GET /api/history?...` 与 §3.5；**单条编辑：** `PATCH /api/history/{id}`，body 至少含 `content` 或 `thinking` 之一（助手可改思维链）；**删除：** `DELETE /api/history/{id}`。前端每条气泡下有编辑/删除；编辑用弹窗 textarea；**关键词高亮**用正则 `split` 后按捕获组**奇数位**包裹 `<mark>`（勿对带 `/g` 的 `RegExp` 反复 `test`）。**并发：** `fetchHistory` 使用递增序号，仅最新一次请求的响应会更新列表，避免关键词筛选与无关键词响应互相覆盖。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。
+**History 页（`History.jsx` / `history.css`）：** 筛选区 **`.filter-controls-row`** 全宽；平台 **`.platform-tabs`** 在移动端使用 2x2 网格布局以适应长文字，**`.tab-button`** 不换行。列表卡片 **`.message-list-container`** 水平 **`padding: 24px 10px`** 使对话区贴近卡片左右约 10px；内层 **`.history-chat-column`**（`max-width: 480px`，移动端 100%）**`padding-left/right: 0`**，**`.message-list`** 同样无额外左右 padding。消息气泡 **`width: fit-content`**、**`max-width: 70%`**（移动端 85%），随内容长短伸缩；**`.message-row.user-row`** **`justify-content: flex-end`** 用户气泡贴右，**`.message-row.assistant-row`** **`flex-start`** 助手贴左；内层避免 **`width: 100%`** 撑满行宽导致「中间一条」。气泡内正文统一左对齐，头部分角色对齐（移动端用户气泡头部为 row-reverse 对称）。**列表接口：** `GET /api/history?...` 与 §3.5；**单条编辑：** `PATCH /api/history/{id}`，body 至少含 `content` 或 `thinking` 之一（助手可改思维链）；**删除：** `DELETE /api/history/{id}`。前端每条气泡下有编辑/删除；编辑用弹窗 textarea；**关键词高亮**用正则 `split` 后按捕获组**奇数位**包裹 `<mark>`（勿对带 `/g` 的 `RegExp` 反复 `test`）。**并发：** `fetchHistory` 使用递增序号，仅最新一次请求的响应会更新列表，避免关键词筛选与无关键词响应互相覆盖。**气泡配色（2026-04-07 更新）：** 用户气泡背景改为淡青蓝 `#e4eef5` + 右侧绿色半透明边框 `rgba(72,199,142,0.50)` + 新拟态阴影；助手气泡改为淡紫灰 `#eaeaf1` + 左侧紫色半透明边框 `rgba(124,107,196,0.25)` + 对应方向新拟态阴影，整体与全站 Soft UI 风格对齐。**分页（2026-04-14）：** 列表与分页条分离，分页容器 **`pagination pagination--outside`** 在 **`.message-list-container`** 之外；按钮 **首页 / 上页 / 下页 / 尾页**，中间 **`pagination-info--stacked`** 两行（第 x 页 / 共 x 页）。
+
+**Logs 页（`Logs.jsx` / `logs.css`）：** **`GET /api/logs`** 与 §3.5；筛选含 **平台 / 级别 / 关键词 / 可选开始·结束时间**（**`datetime-local`**，请求时 **`time_from` / `time_to`** 为 ISO 字符串）。列表区固定视口内滚动（**`.logs-content-scroll-area`**）；**`.logs-list-container`** 内为标题与 **`LogRow`**；单条 **`message`** 超过 **50** 码点列表仅预览 + **「查看全文」**，堆栈区仍用 **「展开」/「收起」**。**分页**同 History：**`.pagination--outside`** 在滚动区外；样式补充见 **`global.css`**。**窄屏（≤768px）：** 时间筛选行 **`.filter-row--time`** 保持**一行两列**；时间输入 **`.search-input.datetime-input`** 略小字号。
 
 **说明：** 在 Mini App 中直接改库 **`messages`** 不会同步修正 Chroma / 摘要等派生数据；若需与向量记忆完全一致，需另行产品或批处理策略。
 
@@ -978,6 +982,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 **保留策略（以代码为准）：** 日终 **`run_daily_batch`** 每次执行时在五步前调用 **`purge_logs_older_than_days(7)`**，物理删除早于 **7 天** 的行，避免表无限增长；与 `async_log_handler` 写入并存。
 
+**Mini App 查询（以代码为准）：** **`GET /api/logs`** 可选 **`time_from` / `time_to`**（含边界），对应 SQL **`created_at >= $…`** / **`created_at <= $…`**；绑定值为 **naive UTC**（见 **`get_logs_filtered`** / **`_pg_timestamp_naive_utc`**），与列类型 **`TIMESTAMP`** 一致。
+
 ---
 
 ### 5.11 `token_usage` — Token 使用量表
@@ -1103,11 +1109,13 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 **修复（2026-03-21）：** 在 `memory/database.py` 中新增两个方法，将过滤与分页逻辑完全下推到 SQL 层：
 
 - `get_messages_filtered(platform, keyword, date_from, date_to, page, page_size)`：对 `messages` 表使用 `WHERE` 条件过滤（platform 精确匹配；keyword 非空时对 **`COALESCE(content,'')` 与 `COALESCE(thinking,'')`** 以同一 `%keyword%` 模式做 **`ILIKE`**；date_from/date_to 用 `created_at::date` 比较），`COUNT(*)` 获取总条数，`LIMIT/OFFSET` 分页，同时返回 `{total, messages}`。
-- `get_logs_filtered(platform, level, keyword, page, page_size)`：对 `logs` 表同理，level 自动转大写后精确匹配，keyword 对 message/stack_trace 做 `LIKE`。
+- `get_logs_filtered(platform, level, keyword, time_from, time_to, page, page_size)`：对 `logs` 表同理，level 自动转大写后精确匹配，keyword 对 message/stack_trace 做 `LIKE`；**`time_from` / `time_to`** 非空时对 **`created_at`** 做范围比较。时间参数在绑定前经 **`_pg_timestamp_naive_utc`**，保证传入 PostgreSQL **`TIMESTAMP`** 的值为 **naive UTC**（避免 asyncpg **aware/naive** 混编错误）。
 
 `api/history.py` 和 `api/logs.py` 改为直接调用上述新方法，删除了原有的全量加载、Python 内存过滤、手动排序和切片逻辑。过滤条件为空时不拼接对应 `WHERE` 子句。前端接口格式（`total / page / page_size / messages|logs`）保持不变。
 
 **✅ 已修复（2026-04-05）：** `get_messages_filtered` 内将 **`date_from` / `date_to`** 从字符串 **`date.fromisoformat`** 转为 **`datetime.date`** 再绑定 SQL（见 §3.4.1），修复带日期筛选时 History 接口 **500**。
+
+**✅ 已补充（2026-04-14）：** **`GET /api/logs`** 的 **`time_from` / `time_to`** 由 **`api/logs.py`** 以 **字符串** 接收并 **`_parse_log_time_param`** 解析，与 **`get_logs_filtered`** 上述 naive UTC 约定一致。
 
 ---
 
@@ -1290,7 +1298,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 |------|---------------|
 | **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{id}`、`GET/POST /api/memory/temporal-states`、`DELETE /api/memory/temporal-states/{id}`、`GET /api/memory/relationship-timeline` |
 | **History.jsx** | `GET /api/history`（platform / keyword / date_from / date_to / page / page_size）；`PATCH /api/history/{id}`（`content` / `thinking` 可选但至少其一）；`DELETE /api/history/{id}` |
-| **Logs.jsx** | `GET /api/logs`（支持 platform / level / keyword / page / page_size 参数） |
+| **Logs.jsx** | `GET /api/logs`（`platform` / `level` / `keyword` / 可选 `time_from`·`time_to` / `page` / `page_size`） |
 | **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |
 | **Settings.jsx** | `GET /api/settings/api-configs?config_type=chat|summary|vision|stt|embedding`（按 Tab 过滤）、`POST` / `PUT` / `DELETE` / `PUT .../activate`、`POST .../fetch-models`、`GET /api/settings/token-usage`、`GET /api/persona`；保存配置后按返回表单中的 `config_type` 切换 Tab 或刷新当前列表（见 §3.6 Settings 页说明） |
 | **Config.jsx** | `GET /api/config/config`、`PUT /api/config/config`（`data` 含 `_meta.updated_at`；失败时顶部错误提示 + 重试，见 §5.7、§7.2） |
