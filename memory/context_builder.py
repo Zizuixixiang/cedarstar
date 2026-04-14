@@ -19,7 +19,7 @@ import math
 import re
 import time
 from functools import partial
-from typing import Dict, List, Any, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple, Union
 from datetime import datetime
 
 from config import config
@@ -161,6 +161,72 @@ def _format_voice_part(msg: Dict[str, Any]) -> str:
         inner = text.strip()[len(prefix) :].lstrip()
         out.append(f"[用户发送了一条语音]：{inner}")
     return "\n".join(out)
+
+
+def format_user_context_sent_at_line(created_at: Optional[Any] = None) -> str:
+    """
+    用户消息发往 LLM 时附带的单行时间（东八区），仅写入上下文，不落库。
+    ``created_at`` 为 None 时表示「当前时刻」（用于本轮尚未入库的用户输入）。
+    """
+    from datetime import datetime, timezone, timedelta
+
+    tz_sh = timezone(timedelta(hours=8))
+    dt: Optional[datetime] = None
+    if created_at is not None:
+        try:
+            if isinstance(created_at, datetime):
+                d = created_at
+            else:
+                s = str(created_at).strip()
+                if not s:
+                    raise ValueError("empty created_at")
+                if s.endswith("Z"):
+                    s = s[:-1] + "+00:00"
+                d = datetime.fromisoformat(s)
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            dt = d.astimezone(tz_sh)
+        except Exception:
+            dt = None
+    if dt is None:
+        dt = datetime.now(tz_sh)
+    # 时、分之间用全角冒号，与「当前系统时间」块区分表述为「当前时间」
+    line = (
+        f"{dt.year}年{dt.month}月{dt.day}日 "
+        f"{dt.hour:02d}：{dt.minute:02d}"
+    )
+    return f"【当前时间：{line}】"
+
+
+def inject_user_sent_at_into_llm_content(
+    content: Union[str, List[Dict[str, Any]]],
+    created_at: Optional[Any] = None,
+) -> Union[str, List[Dict[str, Any]]]:
+    """在 user 消息的 content 首行注入 ``format_user_context_sent_at_line``（多模态则写入首个 text 段）。"""
+    label = format_user_context_sent_at_line(created_at)
+    prefix = label + "\n"
+    if isinstance(content, str):
+        return prefix + content if (content or "").strip() else label
+    if isinstance(content, list):
+        out: List[Dict[str, Any]] = []
+        injected = False
+        for part in content:
+            if (
+                not injected
+                and isinstance(part, dict)
+                and part.get("type") == "text"
+            ):
+                t = part.get("text") or ""
+                np = dict(part)
+                np["text"] = prefix + t if t.strip() else label
+                out.append(np)
+                injected = True
+            else:
+                out.append(part)
+        if not injected:
+            out.insert(0, {"type": "text", "text": label})
+        return out
+    return content
 
 
 def format_user_message_for_context(msg: Dict[str, Any]) -> str:
@@ -603,8 +669,13 @@ class ContextBuilder:
             return {
                 "system_prompt": config.SYSTEM_PROMPT,
                 "messages": [
-                    {"role": "user", "content": user_message}
-                ]
+                    {
+                        "role": "user",
+                        "content": inject_user_sent_at_into_llm_content(
+                            user_message, None
+                        ),
+                    }
+                ],
             }
     
     async def build_context_async(
@@ -704,8 +775,13 @@ class ContextBuilder:
             return {
                 "system_prompt": config.SYSTEM_PROMPT,
                 "messages": [
-                    {"role": "user", "content": user_message}
-                ]
+                    {
+                        "role": "user",
+                        "content": inject_user_sent_at_into_llm_content(
+                            user_message, None
+                        ),
+                    }
+                ],
             }
     
     async def _build_system_prompt(self) -> str:
@@ -1195,6 +1271,10 @@ class ContextBuilder:
                 )
                 if role == "assistant":
                     text = strip_lutopia_behavior_appendix(text)
+                else:
+                    text = inject_user_sent_at_into_llm_content(
+                        text, msg.get("created_at")
+                    )
                 messages.append({
                     "role": role,
                     "content": text
@@ -1229,10 +1309,11 @@ class ContextBuilder:
             content = build_user_multimodal_content(
                 llm.api_base, llm.model_name, user_message, images
             )
+            content = inject_user_sent_at_into_llm_content(content, None)
             return {"role": "user", "content": content}
         return {
             "role": "user",
-            "content": user_message
+            "content": inject_user_sent_at_into_llm_content(user_message, None),
         }
     
     def _assemble_full_system_prompt(

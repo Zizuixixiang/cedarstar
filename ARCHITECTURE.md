@@ -14,6 +14,8 @@
 >
 > **2026-04-14：** Lutopia **`[行为记录]`** 不再写入助手 **`messages.content`**（**`complete_with_lutopia_tool_loop.behavior_appendix`** 恒为 **`""`**；**Telegram** 流式 Lutopia 合并不再拼接附录；**Discord**/**Telegram** 非缓冲落库与展示一致）。**`context_builder._build_recent_messages_section`** 对 **`assistant`** 条 **`strip_lutopia_behavior_appendix`**，剥离库内旧数据中的 **`\\n\\n[行为记录]…`**，避免污染 LLM。**`tools/lutopia.build_lutopia_behavior_appendix`** 仍保留、主流程不再调用。
 >
+> **2026-04-14（Context / 日终 / Lutopia，以代码为准）：** **`context_builder`** 对发往 LLM 的 **`role=user`** 在 **`inject_user_sent_at_into_llm_content`** 中于正文前加一行东八区 **`【当前时间：…】`**（**`format_user_context_sent_at_line`**）：**近期用户条**用库字段 **`created_at`**，**本轮用户输入**用当前时刻；**仅影响 LLM**，**`messages.content` 不落库**。多模态（**`build_user_multimodal_content`**）时写入**首个 `type: text` 段**。**`daily_batch` Step 4** 价值打分 prompt 为 f-string 时，文案里「字面花括号」须 **`{{}}`**，禁止单独 **`{}`**，否则 **`SyntaxError`** 导致 **`run_daily_batch.py`** 无法 import。**`tools/lutopia`**：**httpx 0.28+** 的 **`AsyncClient.delete()`** 无 **`json=`** 参数，删帖/删评带 **`reason`** 时用 **`AsyncClient.request("DELETE", url, headers=…, json={"reason": …})`**；模块注释含站方 **`AGENT_GUIDE.md`**（`https://daskio.de5.net/AGENT_GUIDE.md`）。详见 §3.4.2、§3.4.4、§3.7。
+>
 > **2026-04-13（LLM，以代码为准）：** **`LLMInterface._openai_max_tokens`**：当激活配置的 **`api_base`** 含 **`deepseek.com`** 时，OpenAI 兼容 **`chat/completions`** 请求体中的 **`max_tokens`** 钳在 **`[1, 8192]`**（与 DeepSeek 官方校验一致；环境变量 **`LLM_MAX_TOKENS`** 过大时换用 `deepseek-chat` 等非推理模型可避免首轮 **400**）。**`generate_stream`（SSE）**：若某段 **`delta.content`** 为空且此前尚未累计任何正文，则尝试从 **`choices[0].message.content`** 取整段正文；若 **`delta.tool_calls`** 为空则流结束后用 **`choices[0].message.tool_calls`** 补全（非思维链模型工具调用/Lutopia 状态行）。详见 §3.3。
 >
 > **2026-04-13（TG 分段）：** **`reply_citations._split_oversized_chunk`**：二级分段中超长按句末 **`。！？…～!?`** 切开时，仅在 **成对符号栈空**（`（）`「」“”《》【】`()` 与 Unicode 弯引号配对）且 **不在 ASCII `"` 成对内**时允许切段，避免把括号、引号从中间拆开。详见 `bot/reply_citations.py`。
@@ -104,7 +106,7 @@ cedarstar/                          # 项目根目录
 ├── memory/                         # 记忆系统层（核心模块）
 │   ├── __init__.py                 # 包初始化文件
 │   ├── database.py                 # PostgreSQL 数据库封装（asyncpg 连接池 + MessageDatabase 类 + 全局单例 + 便捷函数）
-│   ├── context_builder.py          # Context 组装器（system + … + 近期消息）；近期 **`assistant`** 经 **`strip_lutopia_behavior_appendix`**；可选 **`telegram_segment_hint`**、**`tool_oral_coaching`**（Lutopia 口播引导）
+│   ├── context_builder.py          # Context 组装器（system + … + 近期消息）；近期 **`assistant`** 经 **`strip_lutopia_behavior_appendix`**；**`user`** 条经 **`inject_user_sent_at_into_llm_content`** 注入东八区 **`【当前时间：…】`**（仅 LLM，不落库）；可选 **`telegram_segment_hint`**、**`tool_oral_coaching`**（Lutopia 口播引导）
 │   ├── micro_batch.py              # 微批处理（消息达阈值时异步生成 chunk 摘要）
 │   ├── daily_batch.py              # 日终五步流水线实现（`DailyBatchProcessor.run_daily_batch`）；生产由 cron 执行 `run_daily_batch.py`。库内仍保留 `schedule_daily_batch` 循环供自建调度，`main.py` 不启动
 │   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding + 增删查）
@@ -120,7 +122,7 @@ cedarstar/                          # 项目根目录
 ├── tools/                          # 工具函数层（部分实现）
 │   ├── __init__.py                 # 包初始化文件
 │   ├── prompts.py                  # LLM 工具包说明：`LUTOPIA_TOOL_DIRECTIVE`、`build_tool_system_suffix` / `inject_tool_suffix_into_messages`
-│   ├── lutopia.py                  # Lutopia（论坛 `…/forum/api/v1` + Wiki `…/api/knowledge/…`）HTTP：`OPENAI_LUTOPIA_TOOLS`（对齐站方 AGENT_GUIDE：列表/单帖/评论树、编辑、帖/评投票、poll、activity、rename/avatar、submolts、Wiki 只读、`lutopia_knowledge`）、`get_lutopia_token`、`strip_lutopia_behavior_appendix`、`build_lutopia_behavior_appendix`（兼容保留）、`execute_lutopia_function_call`（**`[tool]`** 日志）、发帖确认流、DM 与标已读等；供 `llm_interface` / Telegram Lutopia 路径调用
+│   ├── lutopia.py                  # Lutopia（论坛 `…/forum/api/v1` + Wiki `…/api/knowledge/…`）HTTP：`OPENAI_LUTOPIA_TOOLS`（对齐站方 `AGENT_GUIDE.md` / `https://daskio.de5.net/AGENT_GUIDE.md`：列表/单帖/评论树、编辑、帖/评投票、poll、activity、rename/avatar、submolts、Wiki 只读、`lutopia_knowledge`）、`get_lutopia_token`、`strip_lutopia_behavior_appendix`、`build_lutopia_behavior_appendix`（兼容保留）、`execute_lutopia_function_call`（**`[tool]`** 日志）、发帖确认流、DM 与标已读等；删帖/删评带 `reason` 时 **`httpx.AsyncClient.request("DELETE", …, json=…)`**（**httpx 0.28+** 的 **`delete()`** 无 **`json=`**）；供 `llm_interface` / Telegram Lutopia 路径调用
 │   ├── meme.py                     # 表情包：`search_meme` / **`search_meme_async`**（向量检索，可选 `top_k`；TG 缓冲路径用 async）、`send_meme`（TG Bot 发静图/动图）；不由 LLM function calling 注册
 │   ├── weather.py                  # 天气查询工具（仅占位，尚未实现）
 │   └── location.py                 # 位置工具（仅占位，尚未实现）
@@ -347,8 +349,8 @@ cedarstar/                          # 项目根目录
 5. 长期记忆检索（ChromaDB top5 + BM25 top5，按 `doc_id` 去重后最多 10 条；**进入精排前**按 Chroma `metadata.parent_id` 做父子折叠——同一父文档（当日 `daily_*`）与下属 `*_event_*` 片段为一组，组内仅保留语义相似度最高的一条；注入 prompt 时每条正文前带 `[uid:<chroma_doc_id>]` 前缀，与回复末尾引用 `[[used:uid]]` 中的 `uid` 一致）
 6. `daily_summaries`（最近 5 条 `summary_type='daily'` 的摘要，正序）
 7. `chunk_summaries`（今日所有 `summary_type='chunk'` 的摘要，正序）
-8. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`；**`format_user_message_for_context`**：先输出去掉图片/贴纸/语音结构行后的**纯文字**；再按 **`media_type.split(",")` 的顺序**依次调用 `_format_image_part` / `_format_sticker_part` / `_format_voice_part`（主函数仅路由）；**`media_type='reaction'`** 时由 **`_format_reaction_part`** 原样返回 `content`（Bot 已拼好完整语义）。`image_caption` 在 `_format_image_part` 中按**单字符串**处理（未来多图可升级为 JSON 数组）。旧行若无 `media_type`，则按正文出现顺序推断 `image`/`sticker`/`voice`。**`role=assistant`** 条在上述格式化之后、注入 messages 前再经 **`strip_lutopia_behavior_appendix`**，去掉历史 **`[行为记录]`** 后缀（旧库兼容）
-9. 当前用户消息（可选多模态：`build_context(session_id, user_message, images=..., llm_user_text=...)`，`images` 非空时由 `build_user_multimodal_content` 组装最后一轮 user content）
+8. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`；**`format_user_message_for_context`**：先输出去掉图片/贴纸/语音结构行后的**纯文字**；再按 **`media_type.split(",")` 的顺序**依次调用 `_format_image_part` / `_format_sticker_part` / `_format_voice_part`（主函数仅路由）；**`media_type='reaction'`** 时由 **`_format_reaction_part`** 原样返回 `content`（Bot 已拼好完整语义）。`image_caption` 在 `_format_image_part` 中按**单字符串**处理（未来多图可升级为 JSON 数组）。旧行若无 `media_type`，则按正文出现顺序推断 `image`/`sticker`/`voice`。**`role=assistant`** 条在上述格式化之后、注入 messages 前再经 **`strip_lutopia_behavior_appendix`**，去掉历史 **`[行为记录]`** 后缀（旧库兼容）。**`role=user`** 条在注入 messages 前再经 **`inject_user_sent_at_into_llm_content(..., msg["created_at"])`**，正文首行增加东八区 **`【当前时间：…】`**（**仅 LLM**，库内 **`content` 不变**）
+9. 当前用户消息（可选多模态：`build_context(session_id, user_message, images=..., llm_user_text=...)`，`images` 非空时由 `build_user_multimodal_content` 组装最后一轮 user content；再由 **`inject_user_sent_at_into_llm_content(..., None)`** 用**当前时刻**注入同上时间行，多模态时写入**首个 text 段**）
 
 **精排（仅异步路径）：** 并行双路检索并折叠后，对剩余候选调用 Cohere 得到语义相关分；对每条再算时间衰减复活分（`_memory_age_days`：**优先**用 metadata `last_access_ts` 计龄；**仅当缺失或无法解析时**用 `created_at` 兜底）：
 
@@ -402,6 +404,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **职责：** 在东八区某业务日执行五步流水线（支持断点续跑）。**标准部署**下由 **cron（或同类）按 `config.daily_batch_hour` 所设整点**（默认 23:00）调用项目根目录 **`run_daily_batch.py`** 触发；`daily_batch_hour` 为业务约定，**cron 表达式须与之一致**（代码不会替运维「自动对齐」系统时钟）。
 
 **✅ 已修复（2026-04-07）：** `run_daily_batch`（`DailyBatchProcessor`）内对所有 DB 便捷函数的调用均已正确加 `await`，包括 `update_daily_batch_step_status`、`list_expired_active_temporal_states`、`deactivate_temporal_states_by_ids`、`get_today_chunk_summaries`、`delete_today_chunk_summaries`、`save_summary`、`get_recent_daily_summaries`、`get_latest_memory_card_for_dimension`、`update_memory_card`、`save_memory_card`、`insert_relationship_timeline_event`、`mark_expired_skipped_daily_batch_logs_before`、`list_incomplete_daily_batch_dates_in_range`。此前缺少 `await` 会导致协程对象未执行，跑批静默跳过大量步骤且不报错。
+
+**✅ 已修复（2026-04-14）：** Step 4 价值打分 **`prompt`** 为 **f-string** 时，说明文案中的**字面花括号**（JSON 示例）须写成 **`{{` / `}}`**；若误写单独的 **`{}`**，Python 在**导入模块阶段**即 **`SyntaxError: f-string: empty expression not allowed`**，`run_daily_batch.py` 无法加载 **`memory.daily_batch`**，cron 日终静默失败。
 
 **五步流水线：**
 
@@ -571,7 +575,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 - `services/wx_read.py`：微信读书集成（仅有版本号占位，无实现）
 - `tools/prompts.py`：**`LUTOPIA_TOOL_DIRECTIVE`** 等与 **`OPENAI_LUTOPIA_TOOLS`** 中 function 名对齐的 system 片段；**`build_tool_system_suffix(enabled)`** 按启用工具包 key 拼接；**`inject_tool_suffix_into_messages`** 将后缀追加到首条可写 `role=system` 消息（Telegram Lutopia 路径注入 `["lutopia"]`）
-- `tools/lutopia.py`：**Lutopia** 异步 HTTP：论坛 **`https://daskio.de5.net/forum/api/v1`**；知识库只读 **`https://daskio.de5.net/api/knowledge/...`**（代码内 **`KNOWLEDGE_API_PREFIX`**）。Bearer 来自 **`config` 表 `lutopia_uid`**；**`OPENAI_LUTOPIA_TOOLS`** 与站方 **AGENT_GUIDE** 对齐（含 **`view=agent` 省 token**、offset、发帖可选 **poll**、评论树/单条评论、编辑帖/评、帖/评投票、poll CRUD、**`agents/me/activity`**、lookup/rename/avatar、submolts、**`lutopia_knowledge`**、私信收发/未读数/标已读 ids 或 all、**`dm-settings`** 等；仍含删帖/删评论）；发帖与评论（及私信）若返回 **`requires_confirmation`** 则自动 **`POST .../posts/confirm`**；**`ensure_lutopia_dm_send_enabled_on_startup`** 由 **`main.py`** 在 **`initialize_database()`** 之后调用；**`append_tool_exchange_to_messages`**（可选 **`execution_log`**）/ **`execute_lutopia_function_call`**（**`[tool]`** info 日志）；**`strip_lutopia_behavior_appendix`** 供 **`context_builder`** 去历史 **`[行为记录]`**；**`build_lutopia_behavior_appendix`** 保留、主流程**不**再写入落库
+- `tools/lutopia.py`：**Lutopia** 异步 HTTP：论坛 **`https://daskio.de5.net/forum/api/v1`**；知识库只读 **`https://daskio.de5.net/api/knowledge/...`**（代码内 **`KNOWLEDGE_API_PREFIX`**）。模块注释指向站方 **`AGENT_GUIDE.md`**（**`https://daskio.de5.net/AGENT_GUIDE.md`**）。Bearer 来自 **`config` 表 `lutopia_uid`**；**`OPENAI_LUTOPIA_TOOLS`** 与站方 **AGENT_GUIDE** 对齐（含 **`view=agent` 省 token**、offset、发帖可选 **poll**、评论树/单条评论、编辑帖/评、帖/评投票、poll CRUD、**`agents/me/activity`**、lookup/rename/avatar、submolts、**`lutopia_knowledge`**、私信收发/未读数/标已读 ids 或 all、**`dm-settings`** 等；仍含删帖/删评论）；删帖 **`lutopia_delete_post`** / 删评 **`lutopia_delete_comment`** 在带可选 **`reason`** 时须 **`httpx.AsyncClient.request("DELETE", url, json={"reason": ...})`**（**httpx 0.28+** 的 **`AsyncClient.delete()`** 不接受 **`json=`**）；发帖与评论（及私信）若返回 **`requires_confirmation`** 则自动 **`POST .../posts/confirm`**；**`ensure_lutopia_dm_send_enabled_on_startup`** 由 **`main.py`** 在 **`initialize_database()`** 之后调用；**`append_tool_exchange_to_messages`**（可选 **`execution_log`**）/ **`execute_lutopia_function_call`**（**`[tool]`** info 日志）；**`strip_lutopia_behavior_appendix`** 供 **`context_builder`** 去历史 **`[行为记录]`**；**`build_lutopia_behavior_appendix`** 保留、主流程**不**再写入落库
 - `tools/meme.py`：**`search_meme`** / **`search_meme_async`** 调 `meme_store` 向量检索（**Telegram 有序段发表情走 `search_meme_async`**，以便 `await` 读库内 embedding 配置）；**`send_meme`** 为异步，需传入 Telegram `bot` 与 `chat_id`。不在 LLM 请求中注册为 tools；Telegram 在解析助手正文中的 **`[meme:…]`** 后调用（见 `bot/telegram_bot.py`、`bot/reply_citations.py`）
 - `tools/weather.py`：天气查询工具（仅有版本号占位，无实现）
 - `tools/location.py`：位置工具（仅有版本号占位，无实现）

@@ -1,6 +1,8 @@
 """
 Lutopia Forum HTTP 客户端（异步）。
 
+站方文档：``AGENT_GUIDE.md`` — https://daskio.de5.net/AGENT_GUIDE.md
+
 Token：从全局 ``config`` 表读取 key ``lutopia_uid``（值用作 Bearer token）。
 发帖/评论/私信若返回 ``requires_confirmation``，会自动调用 ``POST .../posts/confirm`` 完成二次确认。
 启动时会检查 ``agents/me`` 的 ``dm_send_enabled``，为 false 时自动 ``POST .../agents/me/dm-settings`` 打开私信发送。
@@ -1340,9 +1342,10 @@ async def lutopia_delete_post(post_id: str, reason: Optional[str] = None) -> Any
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             if r:
-                resp = await client.delete(
+                resp = await client.request(
+                    "DELETE",
                     url,
-                    headers={**_auth_headers(token), "Content-Type": "application/json"},
+                    headers=_auth_headers(token),
                     json={"reason": r},
                 )
             else:
@@ -1365,9 +1368,10 @@ async def lutopia_delete_comment(comment_id: str, reason: Optional[str] = None) 
     try:
         async with httpx.AsyncClient(timeout=45.0) as client:
             if r:
-                resp = await client.delete(
+                resp = await client.request(
+                    "DELETE",
                     url,
-                    headers={**_auth_headers(token), "Content-Type": "application/json"},
+                    headers=_auth_headers(token),
                     json={"reason": r},
                 )
             else:
