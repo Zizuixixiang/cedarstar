@@ -14,12 +14,27 @@
 
 /* 配置卡片 */
 .config-card {
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
   margin-bottom: var(--card-gap);
+  position: relative;
+}
+
+.config-card::before {
+  content: 'MOD_CFG';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .config-card:last-child {
@@ -28,10 +43,13 @@
 
 /* 卡片标题区 */
 .config-card-title {
-  font-family: 'Lora', serif;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 1.4rem;
+  font-weight: bold;
+  text-transform: uppercase;
   color: var(--text-main);
   margin-bottom: 6px;
+  margin-top: 8px;
 }
 
 .config-card-subtitle {
@@ -101,11 +119,12 @@
 }
 
 .config-inline-code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: monospace;
   font-size: 0.88em;
   padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--accent-muted);
+  border-radius: 0;
+  background: #eeeeee;
+  border: 1px solid var(--industrial-border-color);
 }
 
 /* 与 .config-slider 同宽占位，使数字框与上方行纵向对齐 */
@@ -127,9 +146,20 @@
   min-width: 96px;
   height: 36px;
   padding: 0 14px;
-  border-radius: var(--radius-btn);
+  border-radius: 0;
   font-size: 0.85rem;
   white-space: nowrap;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
+  background: #eeeeee;
+  border: var(--border-card);
+  color: var(--text-main);
+  box-shadow: none;
+}
+
+.config-btn-telegram-inline-save:hover {
+  background: #dddddd;
 }
 
 /* 右侧控件区 */
@@ -146,42 +176,44 @@
   height: 8px;
   -webkit-appearance: none;
   appearance: none;
-  background: var(--surface);
-  border-radius: 6px;
+  background: #eeeeee;
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
   outline: none;
   cursor: pointer;
-  box-shadow: var(--shadow-inset);
+  box-shadow: none;
   touch-action: pan-y;
 }
 
 .config-slider::-webkit-slider-thumb {
   -webkit-appearance: none;
   appearance: none;
-  width: 22px;
-  height: 22px;
-  border-radius: 50%;
+  width: 16px;
+  height: 24px;
+  border-radius: 0;
   background: var(--accent);
+  border: 1px solid var(--industrial-border-color);
   cursor: pointer;
-  box-shadow: var(--shadow-raised);
-  transition: transform var(--transition), box-shadow var(--transition);
+  box-shadow: none;
+  transition: none;
 }
 
 .config-slider::-webkit-slider-thumb:hover {
-  transform: scale(1.08);
+  background: #c9302c;
 }
 
 .config-slider::-webkit-slider-thumb:active {
-  box-shadow: var(--shadow-inset);
+  background: #ac2925;
 }
 
 .config-slider::-moz-range-thumb {
-  width: 22px;
-  height: 22px;
-  border: none;
-  border-radius: 50%;
+  width: 16px;
+  height: 24px;
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
   background: var(--accent);
   cursor: pointer;
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
 }
 
 /* 数字输入框与步进器容器 */
@@ -189,15 +221,15 @@
   display: flex;
   align-items: center;
   background: var(--surface);
-  border: none;
-  border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-inset);
-  transition: box-shadow 0.2s;
+  border: var(--border-card);
+  border-radius: 0;
+  box-shadow: none;
+  transition: none;
   overflow: hidden;
 }
 
 .config-number-wrapper:focus-within {
-  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
+  border-color: var(--accent);
 }
 
 /* 步进按钮 */
@@ -236,10 +268,13 @@
   width: 48px;
   padding: 8px 0;
   border: none;
+  border-left: 1px solid var(--industrial-border-color);
+  border-right: 1px solid var(--industrial-border-color);
   background: transparent;
   color: var(--text-main);
   font-size: 0.95rem;
-  font-weight: 500;
+  font-family: monospace;
+  font-weight: bold;
   text-align: center;
   -moz-appearance: textfield;
 }
@@ -273,10 +308,10 @@
   align-items: center;
   gap: 20px;
   padding: var(--card-padding);
-  border-radius: var(--radius-card);
+  border-radius: 0;
   background: var(--surface);
-  border: none;
-  box-shadow: var(--shadow-raised);
+  border: var(--border-card);
+  box-shadow: none;
 }
 
 .config-footer-bar--skeleton {
@@ -300,6 +335,7 @@
 }
 
 .config-footer-saved-time {
+  font-family: monospace;
   font-size: 1.15rem;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
@@ -365,25 +401,25 @@
 /* 弹窗内次要按钮（保持实体浅色，非幽灵） */
 .config-btn-secondary {
   padding: 10px 20px;
-  border: none;
-  border-radius: var(--radius-btn);
-  background: var(--surface);
+  border: var(--border-card);
+  border-radius: 0;
+  background: #eeeeee;
   color: var(--text-main);
   font-size: 0.9rem;
-  font-weight: 500;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   cursor: pointer;
-  font-family: inherit;
-  box-shadow: var(--shadow-raised);
-  transition: box-shadow 0.15s, transform 0.1s;
+  box-shadow: none;
+  transition: none;
 }
 
 .config-btn-secondary:hover:not(:disabled) {
-  filter: brightness(1.02);
+  background: #dddddd;
 }
 
 .config-btn-secondary:active:not(:disabled) {
-  box-shadow: var(--shadow-inset);
-  transform: translateY(1px);
+  background: #cccccc;
 }
 
 .config-btn-secondary:disabled {
@@ -394,45 +430,47 @@
 /* 底部栏：幽灵次要按钮 */
 .config-btn-footer-secondary {
   padding: 10px 18px;
-  background: var(--surface);
-  color: var(--text-sub);
-  font-weight: 600;
+  background: #eeeeee;
+  color: var(--text-main);
+  font-family: monospace;
+  text-transform: uppercase;
+  font-weight: bold;
   font-size: 0.86rem;
-  border: none;
-  border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-raised);
+  border: var(--border-card);
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .config-btn-footer-secondary:hover:not(:disabled) {
-  color: var(--text-main);
-  filter: brightness(1.02);
+  background: #dddddd;
 }
 
 .config-btn-footer-secondary:active:not(:disabled) {
-  box-shadow: var(--shadow-inset);
+  background: #cccccc;
 }
 
 /* 通用主按钮（确认框等） */
 .config-btn-primary {
   padding: 10px 24px;
-  border: none;
-  border-radius: var(--radius-btn);
-  background: var(--accent);
+  border: var(--border-card);
+  border-radius: 0;
+  background: var(--industrial-text);
   color: #fff;
   font-size: 0.9rem;
-  font-weight: 600;
+  font-family: monospace;
+  text-transform: uppercase;
+  font-weight: bold;
   cursor: pointer;
-  font-family: inherit;
-  box-shadow: var(--shadow-raised);
-  transition: opacity var(--transition), box-shadow 0.15s, transform 0.1s;
+  box-shadow: none;
+  transition: none;
 }
 
 .config-btn-primary:hover:not(:disabled) {
-  filter: brightness(1.06);
+  background: #444444;
 }
 
 .config-btn-primary:active:not(:disabled) {
-  box-shadow: var(--shadow-inset);
+  background: #111111;
 }
 
 .config-btn-primary:disabled {
@@ -443,23 +481,24 @@
 /* 底部栏主按钮：紫色 + 新拟态凸起 */
 .config-btn-footer-primary {
   padding: 11px 22px;
-  border-radius: var(--radius-btn);
+  border-radius: 0;
+  font-family: monospace;
+  text-transform: uppercase;
   font-size: 0.88rem;
-  font-weight: 700;
+  font-weight: bold;
   letter-spacing: 0.03em;
   color: #fff;
-  border: none;
+  border: 1px solid var(--industrial-border-color);
   background: var(--accent);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
 }
 
 .config-btn-footer-primary:hover:not(:disabled) {
-  filter: brightness(1.08);
+  background: #c9302c;
 }
 
 .config-btn-footer-primary:active:not(:disabled) {
-  box-shadow: var(--shadow-inset);
-  transform: translateY(1px);
+  background: #ac2925;
 }
 
 .config-btn-footer-primary:disabled {
@@ -564,30 +603,13 @@
 
 /* 脉冲动画（有未保存修改时，与 footer 主按钮阴影一致） */
 @keyframes config-pulse {
-  0% {
-    box-shadow:
-      0 3px 0 rgba(139, 62, 8, 0.35),
-      0 8px 24px rgba(196, 93, 24, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
-      0 0 0 0 rgba(224, 122, 46, 0.55);
-  }
-  70% {
-    box-shadow:
-      0 3px 0 rgba(139, 62, 8, 0.35),
-      0 8px 24px rgba(196, 93, 24, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
-      0 0 0 14px rgba(224, 122, 46, 0);
-  }
-  100% {
-    box-shadow:
-      0 3px 0 rgba(139, 62, 8, 0.35),
-      0 8px 24px rgba(196, 93, 24, 0.38),
-      inset 0 1px 0 rgba(255, 255, 255, 0.22),
-      0 0 0 0 rgba(224, 122, 46, 0);
-  }
+  0% { border-color: var(--accent); }
+  50% { border-color: transparent; }
+  100% { border-color: var(--accent); }
 }
 
 .config-btn-footer-primary.has-changes:not(:disabled) {
+  border: 2px solid var(--accent);
   animation: config-pulse 2s infinite;
 }
 
@@ -616,37 +638,25 @@
 
 .skeleton-line {
   height: 14px;
-  background: linear-gradient(90deg,
-    rgba(244, 162, 97, 0.1) 25%,
-    rgba(244, 162, 97, 0.2) 50%,
-    rgba(244, 162, 97, 0.1) 75%);
-  background-size: 200% 100%;
-  border-radius: 4px;
-  animation: config-shimmer 1.5s infinite;
+  background: #eeeeee;
+  border-radius: 0;
+  animation: none;
 }
 
 .skeleton-slider {
   width: 180px;
-  height: 6px;
-  border-radius: 3px;
-  background: linear-gradient(90deg,
-    rgba(244, 162, 97, 0.1) 25%,
-    rgba(244, 162, 97, 0.2) 50%,
-    rgba(244, 162, 97, 0.1) 75%);
-  background-size: 200% 100%;
-  animation: config-shimmer 1.5s infinite;
+  height: 8px;
+  border-radius: 0;
+  background: #eeeeee;
+  animation: none;
 }
 
 .skeleton-number {
   width: 68px;
   height: 34px;
-  border-radius: var(--radius-btn);
-  background: linear-gradient(90deg,
-    rgba(244, 162, 97, 0.1) 25%,
-    rgba(244, 162, 97, 0.2) 50%,
-    rgba(244, 162, 97, 0.1) 75%);
-  background-size: 200% 100%;
-  animation: config-shimmer 1.5s infinite;
+  border-radius: 0;
+  background: #eeeeee;
+  animation: none;
 }
 
 @keyframes config-shimmer {
@@ -661,14 +671,15 @@
   right: 20px;
   z-index: 2000;
   padding: 14px 24px;
-  border-radius: var(--radius-btn);
+  border-radius: 0;
   background: var(--surface);
-  border: none;
+  border: var(--border-card);
   border-left: 4px solid var(--status-green);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   color: var(--text-main);
+  font-family: monospace;
   font-size: 0.95rem;
-  font-weight: 500;
+  font-weight: bold;
   animation: config-toast-in 0.3s ease-out;
 }
 
@@ -702,19 +713,37 @@
 
 .config-confirm-box {
   width: 360px;
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
   text-align: center;
+  position: relative;
+}
+
+.config-confirm-box::before {
+  content: 'MOD_CONFIRM';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .config-confirm-title {
-  font-family: 'Lora', serif;
+  font-family: 'Courier New', Courier, monospace;
+  text-transform: uppercase;
+  font-weight: bold;
   font-size: 1.2rem;
   color: var(--text-main);
   margin-bottom: 12px;
+  margin-top: 12px;
 }
 
 .config-confirm-desc {

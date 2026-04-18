@@ -205,7 +205,7 @@ cedarstar/                          # 项目根目录
 | `TELEGRAM_PROXY` | 可选。仅 **Telegram Bot API**（`python-telegram-bot` / httpx）访问 `api.telegram.org` 使用：在 `HTTPXRequest` 上 **显式** `proxy=`，且 `httpx_kwargs={"trust_env": False}`，**不**读取 `HTTP_PROXY`/`HTTPS_PROXY`，避免与 Discord 启动时写入的环境变量混用。留空则 **直连**（部分网络下 `initialize()` 易超时）。国内常见：Clash **SOCKS5**（如 `socks5://127.0.0.1:7897`，端口与 Clash「混合端口」或 SOCKS 配置一致）；纯 `http://` 经 CONNECT 访问 Telegram 易出现 `ConnectError`/`start_tls` 失败。需安装 `requirements.txt` 中的 `python-telegram-bot[socks]`、`httpx[socks]` |
 | `LLM_API_KEY / LLM_API_BASE / LLM_MODEL_NAME` | 主 LLM 配置 |
 | `LLM_TIMEOUT` / `LLM_VISION_TIMEOUT` | `requests` 读超时（秒）：默认 **60** / **180**；`LLMInterface` 在 **messages 含多模态图片** 时取二者较大值作为单次 `chat/completions`（或等价）超时，否则仅用 `LLM_TIMEOUT`；**`config_type=vision`** 时实例 `timeout` 保底为 `max(LLM_TIMEOUT, LLM_VISION_TIMEOUT)` |
-| `LLM_STREAM_READ_TIMEOUT` | 可选。仅 **`generate_stream`（SSE）** 的 **读** 超时（两次 chunk 之间最长等待）；默认 **`max(LLM_TIMEOUT, 300)`**，避免推理模型（如 R1）长时间无 token 时误触发 `ReadTimeout`。未设置时不必写 `.env` |
+| `LLM_STREAM_READ_TIMEOUT` | 可选。仅 **`generate_stream`（SSE）** 的 **读** 超时（两次 chunk 之间最长等待）；默认 **60** 秒。未设置时不必写 `.env` |
 | `OPENAI_API_KEY / OPENAI_API_BASE` | 语音转录（STT）在库内无激活 `stt` 配置时回退；**不复用** `LLM_API_*`；`OPENAI_API_BASE` 默认 `https://api.openai.com/v1` |
 | `SUMMARY_API_KEY / SUMMARY_API_BASE / SUMMARY_MODEL_NAME` | 摘要专用 LLM 配置 |
 | `ZHIPU_API_KEY` | 智谱 Embedding API 密钥 |
@@ -433,6 +433,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
 
+**失败后约 2 小时自动重试：** `run_daily_batch.py`、`schedule_daily_batch`、`trigger_daily_batch_manual` 在 **`run_daily_batch` 返回失败** 时调用 **`spawn_run_daily_batch_retry_after_hours`**（`memory.daily_batch`）：独立子进程等待 **7200s** 后再执行 **`run_daily_batch.py <batch_date>`**（与 cron 同源）；若仍失败会再排一次。
+
 **系统日志保留（Mini App「系统日志」）：** 每次 **`run_daily_batch`** 在五步流水线**开始前**调用 **`purge_logs_older_than_days(7)`**（`MessageDatabase` / `memory.database` 模块便捷函数），删除 **`logs`** 表中 **`created_at` 早于当前时刻 7 天** 的行；删除数大于 0 时 INFO。清理失败仅 **WARNING**，不中断跑批（见 §5.10）。
 
 **库内自建调度（`schedule_daily_batch`，可选）：** 每次到点先将 `batch_date` 早于「含今日共 7 天」窗口且仍有未完成步骤的行标记为 `error_message='expired, skipped'`、五步均置 1；再对窗口内未完成日期按 `batch_date` 升序串行调用 `run_daily_batch(该日)`；若当日未出现在补跑列表中，最后再 `run_daily_batch()` 执行今天。**当前 `main.py` 主进程不启动此循环**；若需进程内定时器，须自行在独立进程或脚本中调用，生产推荐 **cron + `run_daily_batch.py`**。
@@ -535,7 +537,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **技术：** React 18 + React Router + Vite，无 UI 组件库（纯 CSS）
 
-**视觉（2026-04）：** Mini App 使用统一 **新拟态（Soft UI）** 规范：页面与卡片表面色 `#E8ECF0`，主/次文字 `#4A5568` / `#8A94A6`，强调色紫色 `#7C6BC4`、状态绿 `#48C78E`；**凸起**与**内凹**（输入框）阴影、圆角与间距等以 CSS 变量集中在 **`miniapp/src/styles/global.css`**（如 `--shadow-raised` / `--shadow-inset`、`--surface`），按钮类控件默认凸起阴影、**`:active`** 时切换为内凹；七页各自 `*.css` 与之对齐。
+**视觉（2026-04）：** Mini App 使用统一 **浅色工业数据图纸** 规范：页面带有细灰色网格底纹，全局背景 `#f5f5f5`，卡片表面 `#ffffff`；主/次文字 `#222222` / `#666666`，强调色工业橙红 `#d9534f`、状态绿 `#5cb85c`；无发光、无圆角、**无**内/外阴影，组件边界使用深灰色 `#444444` 细实线框定；排版强调等宽字体（`Courier New` / `monospace`）以体现硬核风格。点缀元素为卡片左上角的直角小色块（伪元素 `::before` 结合绝对定位），样式变量集中在 **`miniapp/src/styles/global.css`**（如 `--industrial-border-color`、`--border-card`）；七页各自 `*.css` 与之对齐。
 
 **页面与对应 API：**
 

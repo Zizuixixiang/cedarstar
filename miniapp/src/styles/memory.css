@@ -31,8 +31,9 @@
   gap: 8px;
   padding: 6px;
   background: var(--surface);
-  border-radius: var(--radius-card); /* 使包裹这四个选项的大框呈现圆角 */
-  box-shadow: var(--shadow-inset); /* 给整个容器加个内凹光影，形成天然轨道 */
+  border-radius: 0;
+  border: var(--border-card);
+  box-shadow: none;
 }
 
 /* Tab 内容区：仅此区域纵向滚动 */
@@ -57,31 +58,36 @@
   -webkit-appearance: none;
   margin: 0;
   padding: 10px 18px;
-  border: none;
-  border-radius: var(--radius-btn);
-  background: var(--surface);
+  border: 1px solid transparent;
+  border-radius: 0;
+  background: transparent;
   color: var(--text-sub);
   font-size: 0.95rem;
-  font-weight: 500;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   cursor: pointer;
   line-height: 1.25;
-  box-shadow: var(--shadow-raised);
-  transition: color var(--transition), box-shadow 0.15s, transform 0.1s;
+  box-shadow: none;
+  transition: none;
 }
 
 .memory-tabs button.memory-tab:hover {
   color: var(--text-main);
-  filter: brightness(1.02);
+  background: #eeeeee;
+  border-color: var(--industrial-border-color);
 }
 
 .memory-tabs button.memory-tab.active {
-  color: var(--accent);
-  font-weight: 600;
-  box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent-muted);
+  color: var(--text-main);
+  background: var(--page-bg);
+  border: 1px solid var(--industrial-border-color);
+  box-shadow: none;
 }
 
 .memory-tabs button.memory-tab:active {
-  box-shadow: var(--shadow-inset);
+  background: #dddddd;
+  box-shadow: none;
 }
 
 .memory-tabs button.memory-tab:focus {
@@ -90,11 +96,11 @@
 
 .memory-tabs button.memory-tab:focus-visible {
   outline: none;
-  box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent-muted);
+  border: 1px solid var(--accent);
 }
 
 .memory-tabs button.memory-tab.active:focus-visible {
-  box-shadow: var(--shadow-raised), 0 0 0 2px var(--accent-muted);
+  border: 1px solid var(--accent);
 }
 
 .tab-loading {
@@ -122,9 +128,10 @@ h2.memory-tab-header__title,
   margin: 0;
   padding: 0;
   font-size: 1.25rem;
-  font-weight: 600;
+  font-weight: bold;
+  text-transform: uppercase;
   color: var(--text-main);
-  font-family: 'Lora', 'Noto Sans SC', serif;
+  font-family: 'Courier New', Courier, monospace;
   line-height: 1;
 }
 
@@ -175,23 +182,37 @@ h2.memory-tab-header__title,
 
 /* 记忆卡片 */
 .memory-card {
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
-  transition: filter var(--transition), box-shadow var(--transition);
+  transition: none;
   position: relative;
   min-height: 200px;
 }
 
+.memory-card::before {
+  content: 'MOD_MEM';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
+}
+
 .memory-card:hover {
-  filter: brightness(1.02);
+  background: #fafafa;
 }
 
 .memory-card.empty {
-  border: none;
-  box-shadow: var(--shadow-inset);
+  border: var(--border-dashed);
+  box-shadow: none;
   background: var(--surface);
 }
 
@@ -245,19 +266,22 @@ h2.memory-tab-header__title,
 .card-view-full-link {
   display: block;
   margin: -8px 0 12px;
-  padding: 0;
-  border: none;
-  background: none;
-  color: var(--accent);
-  font-size: 0.9rem;
+  padding: 4px 8px;
+  border: 1px solid var(--industrial-border-color);
+  background: #eeeeee;
+  color: var(--text-main);
+  font-size: 0.85rem;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   cursor: pointer;
   text-align: left;
-  text-decoration: underline;
-  text-underline-offset: 3px;
+  text-decoration: none;
+  width: fit-content;
 }
 
 .card-view-full-link:hover {
-  filter: brightness(1.08);
+  background: #dddddd;
 }
 
 /* 只读全文：挂到 body，纯色遮罩 + 单层阅读面板，避免与背后卡片叠成「框套框」 */
@@ -278,12 +302,28 @@ h2.memory-tab-header__title,
   max-width: 560px;
   max-height: min(92dvh, 820px);
   background: var(--surface);
-  border-radius: var(--radius-card);
-  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.18);
+  border: var(--border-card);
+  border-radius: 0;
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   box-sizing: border-box;
+  position: relative;
+}
+
+.memory-view-sheet::before {
+  content: 'MOD_VIEW';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .memory-view-sheet-header {
@@ -294,6 +334,7 @@ h2.memory-tab-header__title,
   gap: 12px;
   padding: 16px 18px 14px;
   border-bottom: 1px solid rgba(74, 85, 104, 0.12);
+  margin-top: 12px;
 }
 
 .memory-view-sheet-headings {
@@ -302,9 +343,10 @@ h2.memory-tab-header__title,
 
 .memory-view-sheet-title {
   margin: 0;
-  font-family: 'Lora', serif;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 1.2rem;
-  font-weight: 600;
+  font-weight: bold;
+  text-transform: uppercase;
   color: var(--text-main);
   line-height: 1.3;
 }
@@ -319,18 +361,24 @@ h2.memory-tab-header__title,
   flex-shrink: 0;
   margin-top: 2px;
   padding: 8px 14px;
-  border: none;
-  border-radius: var(--radius-btn);
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
   background: var(--accent);
   color: #fff;
+  font-family: monospace;
+  text-transform: uppercase;
   font-size: 0.9rem;
-  font-weight: 500;
+  font-weight: bold;
   cursor: pointer;
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
+}
+
+.memory-view-close:hover {
+  background: #c9302c;
 }
 
 .memory-view-close:active {
-  box-shadow: var(--shadow-inset);
+  background: #ac2925;
 }
 
 .memory-view-sheet-body {
@@ -399,39 +447,42 @@ h2.memory-tab-header__title,
 .search-input {
   flex: 1;
   padding: 12px 16px;
-  border: none;
-  border-radius: var(--radius-btn);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-inset);
+  box-shadow: none;
   color: var(--text-main);
+  font-family: monospace;
   font-size: 0.95rem;
-  transition: box-shadow 0.2s;
+  transition: none;
 }
 
 .search-input:focus {
   outline: none;
-  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
+  border: 1px solid var(--accent);
 }
 
 .add-button {
   padding: 12px 20px;
   background: var(--accent);
   color: white;
-  border: none;
-  border-radius: var(--radius-btn);
-  font-weight: 500;
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   cursor: pointer;
-  box-shadow: var(--shadow-raised);
-  transition: filter var(--transition), box-shadow 0.15s;
+  box-shadow: none;
+  transition: none;
   white-space: nowrap;
 }
 
 .add-button:hover {
-  filter: brightness(1.06);
+  background: #c9302c;
 }
 
 .add-button:active {
-  box-shadow: var(--shadow-inset);
+  background: #ac2925;
 }
 
 /* 长期记忆列表 */
@@ -442,12 +493,27 @@ h2.memory-tab-header__title,
 }
 
 .memory-item {
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
-  transition: filter 0.2s;
+  transition: none;
+  position: relative;
+}
+
+.memory-item::before {
+  content: 'MOD_LTM';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .memory-item:hover {
@@ -500,13 +566,16 @@ h2.memory-tab-header__title,
 .memory-meta-chip {
   display: inline-flex;
   align-items: center;
-  padding: 5px 12px;
-  border-radius: 999px;
+  padding: 4px 10px;
+  border-radius: 0;
   font-size: 0.78rem;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   line-height: 1.35;
-  color: #6d597a;
-  background: rgba(109, 89, 122, 0.07);
-  border: 1px solid rgba(109, 89, 122, 0.12);
+  color: var(--text-main);
+  background: #eeeeee;
+  border: 1px solid var(--industrial-border-color);
   max-width: 100%;
 }
 
@@ -517,11 +586,13 @@ h2.memory-tab-header__title,
 
 .score-badge {
   display: inline-block;
-  background: var(--accent-muted);
+  background: #eeeeee;
+  border: 1px solid var(--industrial-border-color);
   color: var(--accent);
   padding: 4px 10px;
-  border-radius: 12px;
-  font-weight: 500;
+  border-radius: 0;
+  font-family: monospace;
+  font-weight: bold;
   font-size: 0.9rem;
 }
 
@@ -531,12 +602,13 @@ h2.memory-tab-header__title,
   gap: 3px;
   margin-left: 8px;
   padding: 2px 8px;
-  border-radius: 999px;
+  border-radius: 0;
+  font-family: monospace;
   font-size: 0.75rem;
-  font-weight: 600;
+  font-weight: bold;
   color: #2e7d55;
-  background: rgba(46, 125, 85, 0.10);
-  border: 1px solid rgba(46, 125, 85, 0.22);
+  background: #eaf5eb;
+  border: 1px solid #2e7d55;
   vertical-align: middle;
   white-space: nowrap;
   cursor: default;
@@ -544,22 +616,26 @@ h2.memory-tab-header__title,
 
 .delete-button {
   padding: 6px 12px;
-  background: var(--surface);
-  color: #e07070;
-  border: none;
-  border-radius: var(--radius-btn);
+  background: #eeeeee;
+  color: var(--industrial-red);
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   font-size: 0.85rem;
   cursor: pointer;
-  box-shadow: var(--shadow-raised);
-  transition: box-shadow 0.15s;
+  box-shadow: none;
+  transition: none;
 }
 
 .delete-button:hover {
-  filter: brightness(1.02);
+  background: #fdd;
+  border-color: var(--industrial-red);
 }
 
 .delete-button:active {
-  box-shadow: var(--shadow-inset);
+  background: #fcc;
 }
 
 /* 分页控件（单行） */
@@ -576,21 +652,24 @@ h2.memory-tab-header__title,
 
 .pagination-button {
   padding: 8px 16px;
-  border: none;
-  border-radius: var(--radius-btn);
-  background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  border: var(--border-card);
+  border-radius: 0;
+  background: #eeeeee;
+  box-shadow: none;
   color: var(--text-main);
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   cursor: pointer;
-  transition: box-shadow 0.15s, color 0.2s;
+  transition: none;
 }
 
 .pagination-button:hover:not(:disabled) {
-  color: var(--accent);
+  background: #dddddd;
 }
 
 .pagination-button:active:not(:disabled) {
-  box-shadow: var(--shadow-inset);
+  background: #cccccc;
 }
 
 .pagination-button:disabled {
@@ -624,18 +703,36 @@ h2.memory-tab-header__title,
 .modal-container {
   width: 100%;
   max-width: 500px;
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
+  position: relative;
+}
+
+.modal-container::before {
+  content: 'MOD_EDIT';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .modal-title {
-  font-family: 'Lora', serif;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 1.3rem;
+  font-weight: bold;
+  text-transform: uppercase;
   color: var(--text-main);
   margin-bottom: 24px;
+  margin-top: 12px;
   text-align: center;
 }
 
@@ -651,10 +748,10 @@ h2.memory-tab-header__title,
 }
 
 .current-content {
-  background: var(--surface);
-  border: none;
-  border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-inset);
+  background: #fafafa;
+  border: var(--border-card);
+  border-radius: 0;
+  box-shadow: none;
   padding: 12px 16px;
   color: var(--text-main);
   font-size: 0.95rem;
@@ -667,21 +764,21 @@ h2.memory-tab-header__title,
   width: 100%;
   min-height: 150px;
   padding: 12px 16px;
-  border: none;
-  border-radius: var(--radius-btn);
-  background: var(--surface);
-  box-shadow: var(--shadow-inset);
+  border: var(--border-card);
+  border-radius: 0;
+  background: #fafafa;
+  box-shadow: none;
   color: var(--text-main);
   font-size: 0.95rem;
   line-height: 1.5;
   resize: vertical;
-  transition: box-shadow 0.2s;
-  font-family: inherit;
+  transition: none;
+  font-family: monospace;
 }
 
 .edit-textarea:focus {
   outline: none;
-  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
+  border-color: var(--accent);
 }
 
 .modal-actions {
@@ -693,35 +790,43 @@ h2.memory-tab-header__title,
 .modal-button {
   flex: 1;
   padding: 12px;
-  border: none;
-  border-radius: var(--radius-btn);
-  font-weight: 500;
+  border: var(--border-card);
+  border-radius: 0;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   cursor: pointer;
-  box-shadow: var(--shadow-raised);
-  transition: box-shadow 0.15s, filter 0.2s;
+  box-shadow: none;
+  transition: none;
 }
 
 .modal-button.cancel {
-  background: var(--surface);
+  background: #eeeeee;
   color: var(--text-main);
 }
 
+.modal-button.cancel:hover {
+  background: #dddddd;
+}
+
 .modal-button.confirm {
-  background: var(--accent);
+  background: var(--industrial-text);
   color: white;
+  border-color: var(--industrial-text);
+}
+
+.modal-button.confirm:hover {
+  background: #444444;
 }
 
 .modal-button.delete {
-  background: #e07070;
+  background: var(--industrial-red);
   color: white;
+  border-color: var(--industrial-red);
 }
 
-.modal-button:hover {
-  filter: brightness(1.05);
-}
-
-.modal-button:active {
-  box-shadow: var(--shadow-inset);
+.modal-button.delete:hover {
+  background: #c9302c;
 }
 
 /* 确认弹窗 */
@@ -732,6 +837,7 @@ h2.memory-tab-header__title,
 .confirm-message {
   text-align: center;
   color: var(--text-main);
+  font-family: monospace;
   line-height: 1.6;
   margin-bottom: 8px;
 }
@@ -755,12 +861,14 @@ h2.memory-tab-header__title,
 
 .toast {
   padding: 16px 24px;
-  border-radius: var(--radius-btn);
+  border-radius: 0;
   background: var(--surface);
-  border: none;
-  box-shadow: var(--shadow-raised);
+  border: var(--border-card);
+  box-shadow: none;
   color: var(--text-main);
+  font-family: monospace;
   font-size: 0.95rem;
+  font-weight: bold;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -804,42 +912,38 @@ h2.memory-tab-header__title,
 /* 按钮基础样式 */
 .action-button {
   padding: 6px 12px;
-  border: none;
-  border-radius: var(--radius-btn);
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   font-size: 0.85rem;
   cursor: pointer;
-  transition: all var(--transition);
+  transition: none;
   display: inline-flex;
   align-items: center;
   gap: 4px;
 }
 
 .edit-button {
-  background: var(--surface);
-  color: var(--accent);
-  box-shadow: var(--shadow-raised);
+  background: #eeeeee;
+  color: var(--text-main);
+  box-shadow: none;
 }
 
 .edit-button:hover {
-  filter: brightness(1.03);
-}
-
-.edit-button:active {
-  box-shadow: var(--shadow-inset);
+  background: #dddddd;
 }
 
 .delete-card-button {
-  background: var(--surface);
-  color: #e07070;
-  box-shadow: var(--shadow-raised);
+  background: #eeeeee;
+  color: var(--industrial-red);
+  box-shadow: none;
 }
 
 .delete-card-button:hover {
-  filter: brightness(1.03);
-}
-
-.delete-card-button:active {
-  box-shadow: var(--shadow-inset);
+  background: #fdd;
+  border-color: var(--industrial-red);
 }
 
 /* 骨架屏 */
@@ -850,10 +954,10 @@ h2.memory-tab-header__title,
 }
 
 .skeleton-card {
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
   display: flex;
   flex-direction: column;
@@ -862,13 +966,9 @@ h2.memory-tab-header__title,
 
 .skeleton-line {
   height: 16px;
-  background: linear-gradient(90deg,
-    rgba(124, 107, 196, 0.08) 25%,
-    rgba(124, 107, 196, 0.14) 50%,
-    rgba(124, 107, 196, 0.08) 75%);
-  background-size: 200% 100%;
-  border-radius: 4px;
-  animation: shimmer 1.5s infinite;
+  background: #eeeeee;
+  border-radius: 0;
+  animation: none;
 }
 
 .skeleton-line.short {
@@ -906,11 +1006,26 @@ h2.memory-tab-header__title,
 }
 
 .temporal-item {
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
+  position: relative;
+}
+
+.temporal-item::before {
+  content: 'MOD_TMP';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .temporal-item-head {
@@ -918,22 +1033,27 @@ h2.memory-tab-header__title,
   align-items: center;
   justify-content: space-between;
   margin-bottom: 10px;
+  margin-top: 8px;
 }
 
 .temporal-status-pill {
+  font-family: monospace;
+  text-transform: uppercase;
   font-size: 0.8rem;
-  font-weight: 600;
-  padding: 4px 10px;
-  border-radius: 999px;
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 0;
+  border: 1px solid var(--industrial-border-color);
 }
 
 .temporal-status-active {
-  background: rgba(46, 160, 120, 0.15);
-  color: var(--status-green, #2ea078);
+  background: #eaf5eb;
+  color: var(--status-green);
+  border-color: var(--status-green);
 }
 
 .temporal-status-expired {
-  background: rgba(109, 89, 122, 0.12);
+  background: #eeeeee;
   color: var(--text-sub);
 }
 
@@ -963,11 +1083,26 @@ h2.memory-tab-header__title,
 }
 
 .timeline-item {
-  border: none;
-  border-radius: var(--radius-card);
+  border: var(--border-card);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
+  position: relative;
+}
+
+.timeline-item::before {
+  content: 'MOD_TL';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .timeline-item-head {
@@ -976,20 +1111,25 @@ h2.memory-tab-header__title,
   align-items: center;
   gap: 10px;
   margin-bottom: 10px;
+  margin-top: 8px;
 }
 
 .timeline-time {
+  font-family: monospace;
   font-size: 0.85rem;
   color: var(--text-sub);
 }
 
 .timeline-type-badge {
+  font-family: monospace;
+  text-transform: uppercase;
   font-size: 0.8rem;
-  font-weight: 600;
-  padding: 3px 10px;
-  border-radius: 999px;
-  background: var(--accent-muted);
-  color: var(--accent);
+  font-weight: bold;
+  padding: 2px 8px;
+  border-radius: 0;
+  background: #eeeeee;
+  border: 1px solid var(--industrial-border-color);
+  color: var(--text-main);
 }
 
 .timeline-content-text {

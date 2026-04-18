@@ -9,12 +9,12 @@
   height: 100vh;
   width: var(--sidebar-width);
   background: var(--surface);
-  border-right: none;
-  box-shadow: var(--shadow-raised);
+  border-right: 1px solid var(--industrial-border-color);
+  box-shadow: none;
   display: flex;
   flex-direction: column;
   padding: var(--card-padding);
-  transition: width var(--transition), transform var(--transition);
+  transition: none; /* 移除过渡动画 */
   z-index: 100;
   overflow: hidden;
 }
@@ -37,14 +37,14 @@
   align-items: center;
   gap: 8px;
   min-width: 0;
-  font-family: 'Lora', serif;
+  font-family: 'Courier New', Courier, monospace;
   font-size: 1.1rem;
-  font-weight: 600;
+  font-weight: bold;
   color: var(--accent);
   white-space: nowrap;
   overflow: hidden;
   opacity: 1;
-  transition: opacity var(--transition);
+  transition: none;
 }
 
 .sidebar-logo-icon {
@@ -67,19 +67,23 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8a98af;
+  color: var(--text-main);
   border-radius: var(--radius-btn);
   flex-shrink: 0;
-  background: var(--surface);
-  box-shadow: var(--shadow-raised);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  background: transparent;
+  border: 1px solid transparent;
+  box-shadow: none;
+  transition: none;
   -webkit-tap-highlight-color: transparent;
 }
 
+.sidebar-toggle:hover {
+  background: #eeeeee;
+  border-color: var(--industrial-border-color);
+}
+
 .sidebar-toggle:active {
-  transform: scale(0.96);
-  box-shadow: var(--shadow-inset);
-  filter: brightness(0.97);
+  background: #dddddd;
 }
 
 .sidebar-nav {
@@ -93,30 +97,28 @@
   display: flex;
   align-items: center;
   padding: 12px 14px;
-  border-radius: var(--radius-btn);
-  color: #8a98af;
+  border-radius: 0;
+  color: var(--text-sub);
   text-decoration: none;
-  transition: box-shadow 0.15s ease, transform 0.12s ease, background 0.12s ease,
-    filter 0.12s ease;
+  transition: none;
   position: relative;
   overflow: hidden;
-  border: none;
+  border: 1px solid transparent;
   background: transparent;
   -webkit-tap-highlight-color: transparent;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  text-transform: uppercase;
 }
 
-/* 触控按下：未选中项 — 浅白遮罩 + 轻阴影 + 微缩放（替代桌面 hover） */
-.nav-item:not(.active):active {
-  background: rgba(255, 255, 255, 0.4);
-  box-shadow: 0 2px 8px rgba(74, 85, 104, 0.08), 0 1px 3px rgba(124, 107, 196, 0.06);
-  transform: scale(0.98);
+.nav-item:hover {
+  background: #eeeeee;
+  border-color: var(--industrial-border-color);
+  color: var(--text-main);
 }
 
-/* 当前选中项按下：保留凸起与指示条，仅轻微内陷与缩放 */
-.nav-item.active:active {
-  transform: scale(0.985);
-  box-shadow: var(--shadow-inset);
-  filter: brightness(0.98);
+.nav-item:active {
+  background: #dddddd;
 }
 
 .nav-icon {
@@ -126,7 +128,7 @@
   width: 28px;
   flex-shrink: 0;
   color: currentColor;
-  transition: transform var(--transition);
+  transition: none;
 }
 
 .nav-icon svg {
@@ -142,7 +144,7 @@
   font-size: 0.95rem;
   white-space: nowrap;
   opacity: 1;
-  transition: opacity var(--transition);
+  transition: none;
 }
 
 .sidebar.collapsed .nav-text {
@@ -150,25 +152,20 @@
 }
 
 .nav-item.active {
-  background: var(--surface);
+  background: var(--page-bg);
   color: var(--accent);
-  box-shadow: var(--shadow-raised);
+  border: 1px solid var(--industrial-border-color);
 }
 
 .nav-item.active::before {
   content: '';
   position: absolute;
   left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 60%;
+  top: 0;
+  width: 4px;
+  height: 100%;
   background: var(--accent);
-  border-radius: 0 2px 2px 0;
-}
-
-.nav-item.active .nav-icon {
-  transform: scale(1.05);
+  border-radius: 0;
 }
 
 @media screen and (max-width: 767px) {

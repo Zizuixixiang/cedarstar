@@ -4,39 +4,44 @@
  */
 
 :root {
-  --page-bg: #e8ecf0;
-  --surface: #e8ecf0;
-  --bg-gradient: #e8ecf0;
-  --card-bg: #e8ecf0;
+  /* 浅色工业图纸风格 */
+  --page-bg: #f5f5f5;
+  --surface: #ffffff;
+  --bg-gradient: #f5f5f5;
+  --card-bg: #ffffff;
 
-  --text-main: #4a5568;
-  --text-sub: #8a94a6;
-  --accent: #7c6bc4;
-  --accent-muted: rgba(124, 107, 196, 0.18);
-  --status-green: #48c78e;
+  --text-main: #222222;
+  --text-sub: #666666;
+  --accent: #d9534f; /* 工业橙红 */
+  --accent-muted: rgba(217, 83, 79, 0.18);
+  --status-green: #5cb85c;
 
-  --shadow-raised: 6px 6px 12px #c5c9cd, -6px -6px 12px #ffffff;
-  --shadow-inset: inset 4px 4px 8px #c5c9cd, inset -4px -4px 8px #ffffff;
+  /* 工业风核心：去除所有阴影，改用硬直角和细实线边框 */
+  --shadow-raised: none;
+  --shadow-inset: none;
 
-  --radius-card: 16px;
-  --radius-btn: 12px;
+  --radius-card: 0px;
+  --radius-btn: 0px;
   --card-padding: 20px 24px;
   --space-page: 20px;
   --card-gap: 20px;
 
-  /* 兼容旧变量名 */
-  --shadow-card: var(--shadow-raised);
-  --shadow-soft: var(--shadow-raised);
-  --shadow-soft-lg: var(--shadow-raised);
-  --shadow-control: var(--shadow-raised);
-  --shadow-pressed: var(--shadow-inset);
+  /* 兼容旧变量名，统一替换为无阴影和实线边框 */
+  --shadow-card: none;
+  --shadow-soft: none;
+  --shadow-soft-lg: none;
+  --shadow-control: none;
+  --shadow-pressed: none;
   --card-blur: none;
-  --border-card: none;
-  --border-dashed: none;
+  
+  /* 定义工业风细实线边框 */
+  --industrial-border-color: #444444;
+  --border-card: 1px solid var(--industrial-border-color);
+  --border-dashed: 1px dashed var(--industrial-border-color);
 
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 76px;
-  --transition: 0.2s ease;
+  --transition: none; /* 工业风不需要过渡动画 */
 }
 
 * {
@@ -52,8 +57,15 @@ body {
 }
 
 body {
-  font-family: 'Noto Sans SC', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  background: var(--page-bg);
+  font-family: 'Courier New', Courier, monospace; /* 全局等宽字体强化硬核感 */
+  background-color: var(--page-bg);
+  /* 全局图纸网格底纹 */
+  background-image: 
+    linear-gradient(#e0e0e0 1px, transparent 1px),
+    linear-gradient(90deg, #e0e0e0 1px, transparent 1px),
+    linear-gradient(#d5d5d5 1px, transparent 1px),
+    linear-gradient(90deg, #d5d5d5 1px, transparent 1px);
+  background-size: 10px 10px, 10px 10px, 50px 50px, 50px 50px;
   background-attachment: fixed;
   color: var(--text-main);
   line-height: 1.6;
@@ -62,7 +74,9 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Lora', 'Noto Sans SC', serif;
+  font-family: 'Courier New', Courier, monospace;
+  font-weight: bold;
+  text-transform: uppercase;
   color: var(--text-main);
 }
 
@@ -75,7 +89,7 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   min-height: 100vh;
   width: 100%;
-  background: var(--page-bg);
+  background: transparent; /* 使用 body 的背景 */
 }
 
 /* 主内容区：页面内边距 20px */
@@ -87,7 +101,7 @@ h1, h2, h3, h4, h5, h6 {
   min-height: 100vh;
   display: flex;
   flex-direction: column;
-  background: var(--page-bg);
+  background: transparent; /* 使用 body 的背景 */
 }
 
 .main-content-inner {
@@ -123,11 +137,12 @@ h1, h2, h3, h4, h5, h6 {
 /* 通用卡片块（占位页等） */
 .neo-panel {
   background: var(--surface);
-  border: none;
+  border: var(--border-card);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
   margin-bottom: var(--card-gap);
+  position: relative; /* 准备添加小色块 */
 }
 
 .neo-panel:last-child {
@@ -136,37 +151,38 @@ h1, h2, h3, h4, h5, h6 {
 
 /* 凸起按钮基类（页面内可叠加） */
 .neo-btn {
-  background: var(--surface);
-  border: none;
+  background: #eeeeee;
+  border: var(--border-card);
   border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   color: var(--text-main);
   font-family: inherit;
-  transition: box-shadow 0.15s ease, transform 0.1s ease;
+  font-weight: bold;
+  text-transform: uppercase;
+  transition: none;
 }
 
 .neo-btn:hover {
-  filter: brightness(1.02);
+  background: #dddddd;
 }
 
 .neo-btn:active {
-  box-shadow: var(--shadow-inset);
-  transform: translateY(1px);
+  background: #cccccc;
 }
 
 /* 内凹输入基类 */
 .neo-input {
   background: var(--surface);
-  border: none;
+  border: var(--border-card);
   border-radius: var(--radius-btn);
-  box-shadow: var(--shadow-inset);
+  box-shadow: none;
   color: var(--text-main);
   font-family: inherit;
 }
 
 .neo-input:focus {
   outline: none;
-  box-shadow: var(--shadow-inset), 0 0 0 2px var(--accent-muted);
+  border: 1px solid var(--accent);
 }
 
 .neo-input::placeholder {
@@ -282,8 +298,8 @@ h1, h2, h3, h4, h5, h6 {
     left: 0;
     z-index: 80;
     background: var(--page-bg);
-    border-bottom: none;
-    box-shadow: var(--shadow-raised);
+    border-bottom: var(--border-card);
+    box-shadow: none;
   }
 
   .main-content-inner {
@@ -321,13 +337,28 @@ h1, h2, h3, h4, h5, h6 {
 
 .card {
   background: var(--surface);
-  border: none;
+  border: var(--border-card);
   border-radius: var(--radius-card);
-  box-shadow: var(--shadow-raised);
+  box-shadow: none;
   padding: var(--card-padding);
   margin-bottom: var(--card-gap);
   width: 100%;
   max-width: 600px;
+  position: relative;
+}
+
+.card::before {
+  content: 'MOD_XX';
+  position: absolute;
+  top: -1px;
+  left: -1px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+  padding: 2px 6px;
+  z-index: 10;
+  font-family: monospace;
 }
 
 .card:last-child {
