@@ -5,6 +5,7 @@
 Step 1 - 到期 temporal_states 结算并改写为客观过去时，供 Step 2 使用
 Step 2 - 生成今日小传（prompt 含 Step 1 输出）
 Step 3 - 记忆卡片 Upsert + 可选写入 relationship_timeline
+Step 3.5 - 从今日小传自动提取时效状态并入库（Step 4 未完成时执行）
 Step 4 - 今日小传全量向量化（按分映射 halflife_days），可选拆事件片段入库 + BM25 增量
 Step 5 - Chroma 长期未访问且衰减得分过低、无子节点的记忆 GC
 
@@ -20,7 +21,10 @@ import os
 import re
 from datetime import datetime, date, timedelta
 from typing import List, Dict, Any, Optional, Tuple
+from uuid import uuid4
 import pytz
+
+from bot.logutil import exc_detail
 
 # 添加项目根目录到 Python 路径
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -70,13 +74,15 @@ try:
         get_all_active_memory_cards,
         save_memory_card,
         update_memory_card,
-        get_recent_daily_summaries,
+        get_daily_summary_by_date,
         save_daily_batch_log,
         get_daily_batch_log,
         update_daily_batch_step_status,
         get_unsummarized_count_by_session,
         list_expired_active_temporal_states,
         deactivate_temporal_states_by_ids,
+        get_all_active_temporal_states,
+        save_temporal_state,
         insert_relationship_timeline_event,
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
@@ -97,13 +103,15 @@ except ImportError:
         get_all_active_memory_cards,
         save_memory_card,
         update_memory_card,
-        get_recent_daily_summaries,
+        get_daily_summary_by_date,
         save_daily_batch_log,
         get_daily_batch_log,
         update_daily_batch_step_status,
         get_unsummarized_count_by_session,
         list_expired_active_temporal_states,
         deactivate_temporal_states_by_ids,
+        get_all_active_temporal_states,
+        save_temporal_state,
         insert_relationship_timeline_event,
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
@@ -397,6 +405,24 @@ class DailyBatchProcessor:
                     return False
             else:
                 logger.info(f"Step 3 已跳过（已完成），日期: {batch_date}")
+
+            # Step 3.5 — 时效状态自动提取（Step 4 未完成时执行，避免已跑完全部步骤后重复写入）
+            if _s(3) == 1 and _s(4) == 0:
+                try:
+                    ds = await get_daily_summary_by_date(batch_date)
+                    today_summary_text = (
+                        str(ds.get("summary_text") or "").strip() if ds else ""
+                    )
+                    if today_summary_text:
+                        await self._step35_extract_temporal_states(
+                            today_summary_text,
+                            date.fromisoformat(batch_date),
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "[Step 3.5] 时效状态提取失败，跳过: %s",
+                        exc_detail(e),
+                    )
             
             # Step 4 — 全量向量归档 + 事件拆分
             if _s(4) == 0:
@@ -490,7 +516,7 @@ class DailyBatchProcessor:
         Step 2 - 生成今日小传（prompt 开头附带 Step 1 结算的时效事件）。
         """
         try:
-            chunk_summaries = await get_today_chunk_summaries()
+            chunk_summaries = await get_today_chunk_summaries(batch_date)
             
             today_content = ""
             if self._settled_temporal_snippets:
@@ -555,10 +581,11 @@ class DailyBatchProcessor:
                 summary_text=daily_summary,
                 start_message_id=0,
                 end_message_id=0,
-                summary_type="daily"
+                summary_type="daily",
+                source_date=date.fromisoformat(batch_date),
             )
 
-            n_chunk_del = await delete_today_chunk_summaries()
+            n_chunk_del = await delete_today_chunk_summaries(batch_date)
             if n_chunk_del:
                 logger.info(
                     "已删除今日 chunk 摘要 %s 条（daily 写入成功后），日期: %s",
@@ -663,6 +690,164 @@ class DailyBatchProcessor:
                     return t[i : j + 1]
         return None
 
+    @staticmethod
+    def _extract_first_json_array(text: str) -> Optional[str]:
+        """
+        从可能含前置说明、markdown 代码块的文本中截取第一个平衡的 JSON 数组字符串。
+        """
+        if not text:
+            return None
+        t = text.strip()
+        if "```" in t:
+            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
+            if m:
+                inner = m.group(1).strip()
+                if inner.startswith("["):
+                    t = inner
+        i = t.find("[")
+        if i < 0:
+            t = t.replace("［", "[").replace("］", "]")
+            i = t.find("[")
+        if i < 0:
+            return None
+        depth = 0
+        in_str = False
+        escape = False
+        for j in range(i, len(t)):
+            ch = t[j]
+            if escape:
+                escape = False
+                continue
+            if ch == "\\" and in_str:
+                escape = True
+                continue
+            if ch == '"' and not in_str:
+                in_str = True
+                continue
+            if ch == '"' and in_str:
+                in_str = False
+                continue
+            if in_str:
+                continue
+            if ch == "[":
+                depth += 1
+            elif ch == "]":
+                depth -= 1
+                if depth == 0:
+                    return t[i : j + 1]
+        return None
+
+    def _parse_step35_temporal_states_json(self, raw: str) -> List[Dict[str, Any]]:
+        """解析时效状态 LLM 返回的 JSON 数组（整段 loads → 平衡方括号 → 贪婪正则）。"""
+        raw_s = (raw or "").strip()
+        if not raw_s:
+            raise ValueError("empty response")
+        try:
+            data = json.loads(raw_s)
+            if isinstance(data, list):
+                return data
+        except json.JSONDecodeError:
+            pass
+        slice_json = self._extract_first_json_array(raw_s)
+        if slice_json:
+            try:
+                data = json.loads(slice_json)
+                if isinstance(data, list):
+                    return data
+            except json.JSONDecodeError:
+                pass
+        json_match = re.search(r"\[[\s\S]*\]", raw_s)
+        if json_match:
+            try:
+                data = json.loads(json_match.group())
+                if isinstance(data, list):
+                    return data
+            except json.JSONDecodeError:
+                pass
+        raise ValueError("JSON 数组解析失败")
+
+    async def _step35_extract_temporal_states(
+        self, today_summary_text: str, batch_date: date
+    ) -> None:
+        """从今日小传提取时效状态并写入 temporal_states。"""
+        text = (today_summary_text or "").strip()
+        if not text:
+            return
+
+        active_rows = await get_all_active_temporal_states()
+        existing_contents = [
+            str(r.get("state_content") or "").strip()
+            for r in active_rows
+            if (r.get("state_content") or "").strip()
+        ]
+        existing_states_text = (
+            "\n".join(f"- {c}" for c in existing_contents)
+            if existing_contents
+            else "（无）"
+        )
+
+        prompt = self._persona_dialogue_prefix() + f"""以下是今日小传：
+{text}
+
+已有的时效状态（请勿重复写入语义相同的条目）：
+{existing_states_text}
+
+请从今日小传中提取具有明确时效性的状态信息（如生病、考试备考、临时约定、特殊情绪阶段等）。
+每条输出以下字段：
+- state_content: 状态描述（一句话，陈述句，不超过50字）
+- action_rule: AI应对策略（可选，无则输出null）
+- expire_days: 预计持续天数（整数，无法判断则输出7）
+
+若今日小传中无时效性信息，返回空数组 []。
+
+只输出JSON数组，不要任何额外文字：
+[{{"state_content":"...","action_rule":"...","expire_days":7}}, ...]"""
+
+        raw_resp = self._call_summary_llm_custom(prompt)
+        try:
+            items = self._parse_step35_temporal_states_json(raw_resp)
+        except Exception as e:
+            logger.warning("[Step 3.5] JSON 解析失败，跳过: %s", e)
+            return
+
+        n_written = 0
+        base_dt = datetime.combine(batch_date, datetime.min.time())
+
+        for it in items:
+            if not isinstance(it, dict):
+                continue
+            state_content = str(it.get("state_content") or "").strip()
+            if not state_content:
+                continue
+
+            raw_ed = it.get("expire_days", 7)
+            try:
+                expire_days = int(raw_ed)
+            except (TypeError, ValueError):
+                expire_days = 7
+            expire_days = max(1, min(365, expire_days))
+
+            ar = it.get("action_rule")
+            if ar is None or (isinstance(ar, str) and ar.strip().lower() in ("null", "none", "")):
+                action_rule: Optional[str] = None
+            else:
+                action_rule = str(ar).strip() or None
+
+            expire_at = base_dt + timedelta(days=expire_days)
+            sid = f"auto_{batch_date.isoformat()}_{uuid4().hex[:8]}"
+
+            await save_temporal_state(
+                id=sid,
+                state_content=state_content,
+                action_rule=action_rule,
+                expire_at=expire_at,
+                is_active=1,
+            )
+            n_written += 1
+
+        if n_written > 0:
+            logger.info("[Step 3.5] 写入 %s 条时效状态", n_written)
+
     async def _merge_memory_card_contents(
         self,
         dimension: str,
@@ -760,13 +945,12 @@ class DailyBatchProcessor:
             Tuple[bool, Optional[str]]: (是否成功, 错误信息)
         """
         try:
-            # 1. 获取今日 daily 摘要（取最新一条）
-            daily_summaries = await get_recent_daily_summaries(limit=1)
-            if not daily_summaries:
+            # 1. 获取本 batch_date 的 daily 摘要（按 source_date 对齐，支持补跑历史日）
+            daily_summary = await get_daily_summary_by_date(batch_date)
+            if not daily_summary:
                 logger.info(f"今日没有 daily 摘要，跳过 Step 3，日期: {batch_date}")
                 return True, None
 
-            daily_summary = daily_summaries[0]
             summary_text = daily_summary['summary_text']
             summary_row_id = daily_summary.get("id")
             logger.info(f"获取到今日小传，长度: {len(summary_text)}，日期: {batch_date}")
@@ -1053,12 +1237,11 @@ content 强制要求：
         Step 4 - 今日小传全量入库 Chroma，按分映射 halflife_days，可选事件拆分 + BM25。
         """
         try:
-            daily_summaries = await get_recent_daily_summaries(limit=1)
-            if not daily_summaries:
+            daily_summary = await get_daily_summary_by_date(batch_date)
+            if not daily_summary:
                 logger.info(f"今日没有小传，跳过 Step 4，日期: {batch_date}")
                 return True, None
-            
-            daily_summary = daily_summaries[0]
+
             summary_text = daily_summary['summary_text']
             summary_id = daily_summary['id']
             

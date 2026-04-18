@@ -14,6 +14,7 @@ import {
   HeartHandshake,
   FileText,
   Lock,
+  ScrollText,
 } from 'lucide-react';
 import './../styles/memory.css';
 
@@ -43,6 +44,12 @@ const SUMMARY_TYPE_LABELS = {
 };
 
 const LONGTERM_PAGE_SIZE = 20;
+const SUMMARIES_PAGE_SIZE = 20;
+
+const SUMMARY_KIND_LABELS = {
+  chunk: 'chunk',
+  daily: 'daily',
+};
 
 /**
  * 判断记忆卡片正文是否被 -webkit-line-clamp 截断。
@@ -85,10 +92,11 @@ function isMemoryCardContentTruncated(el, text) {
 }
 
 const MEMORY_TABS = [
+  { id: 'summaries', label: '摘要' },
+  { id: 'temporal', label: '时效状态' },
+  { id: 'timeline', label: '关系时间线' },
   { id: 'cards', label: '记忆卡片' },
   { id: 'longterm', label: '长期记忆' },
-  { id: 'temporal', label: '时效状态' },
-  { id: 'timeline', label: '关系时间线' }
 ];
 
 function getTemporalDisplayStatus(row) {
@@ -122,6 +130,36 @@ function formatLongtermTitleLine(memory) {
     return memory.date;
   }
   return formatLastAccessTs(memory.last_access_ts);
+}
+
+/** 将 date input 规范为 YYYY-MM-DD（兼容部分环境带 / ） */
+function normalizeSummaryDateInput(value) {
+  const t = String(value || '').trim();
+  if (!t) return '';
+  const iso = t.replace(/\//g, '-');
+  return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : t;
+}
+
+function formatSummaryRecordTitle(row) {
+  if (row.source_date) {
+    try {
+      const d = new Date(row.source_date);
+      if (!Number.isNaN(d.getTime())) {
+        return d.toLocaleDateString('zh-CN');
+      }
+    } catch {
+      /* fallthrough */
+    }
+    return String(row.source_date).slice(0, 10);
+  }
+  if (row.created_at) {
+    try {
+      return new Date(row.created_at).toLocaleString('zh-CN');
+    } catch {
+      return '—';
+    }
+  }
+  return '—';
 }
 
 /**
@@ -247,6 +285,182 @@ function ViewLongtermMemoryModal({ title, content, onClose }) {
       </div>
     </div>,
     document.body
+  );
+}
+
+/**
+ * 摘要表：编辑正文（与 History 单条编辑一致：textarea + 保存）
+ */
+function SummaryEditModal({ row, onClose, onSaved, addToast }) {
+  const [text, setText] = useState(row?.summary_text || '');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setText(row?.summary_text || '');
+  }, [row]);
+
+  const handleSave = async () => {
+    if (!row?.id || busy) return;
+    setBusy(true);
+    try {
+      const res = await apiFetch(`/api/memory/summaries/${row.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ summary_text: text }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || '保存失败');
+      }
+      onSaved?.();
+      onClose();
+    } catch (e) {
+      console.error(e);
+      addToast?.(e.message || '保存失败', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" role="presentation" onClick={() => !busy && onClose()}>
+      <div
+        className="modal-container summary-edit-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="summary-edit-title"
+      >
+        <div className="modal-title" id="summary-edit-title">
+          编辑摘要
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">正文</div>
+          <textarea
+            className="edit-textarea summary-edit-textarea"
+            rows={12}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            disabled={busy}
+            autoFocus
+          />
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="modal-button cancel" onClick={onClose} disabled={busy}>
+            取消
+          </button>
+          <button type="button" className="modal-button confirm" onClick={handleSave} disabled={busy}>
+            {busy ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 摘要表：单条卡片（长期记忆列表风格 + Settings 行内删除确认）
+ */
+function SummaryRecordItem({
+  row,
+  confirmDeleteId,
+  onBeginDelete,
+  onCancelDelete,
+  onDeleteConfirm,
+  onEdit,
+}) {
+  const [viewOpen, setViewOpen] = useState(false);
+  const [showViewFull, setShowViewFull] = useState(false);
+  const bodyRef = useRef(null);
+  const bodyText = row.summary_text || '';
+  const titleLine = formatSummaryRecordTitle(row);
+  const typeLabel = SUMMARY_KIND_LABELS[row.summary_type] || row.summary_type || '—';
+
+  useLayoutEffect(() => {
+    if (!bodyText.trim()) {
+      setShowViewFull(false);
+      return;
+    }
+    const el = bodyRef.current;
+    if (!el) {
+      setShowViewFull(false);
+      return;
+    }
+    const check = () => setShowViewFull(isMemoryCardContentTruncated(el, bodyText));
+    check();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(check) : null;
+    if (ro) ro.observe(el);
+    window.addEventListener('resize', check);
+    return () => {
+      if (ro) ro.disconnect();
+      window.removeEventListener('resize', check);
+    };
+  }, [bodyText]);
+
+  return (
+    <div className={`memory-item summary-record-item ${showViewFull ? 'memory-item--has-view-link' : ''}`}>
+      {viewOpen && (
+        <ViewLongtermMemoryModal title={titleLine} content={bodyText} onClose={() => setViewOpen(false)} />
+      )}
+      <div className="memory-item-head memory-item-head--longterm">
+        <div className="memory-item-head__meta">
+          <span className="memory-longterm-title">{titleLine}</span>
+          <span className="memory-longterm-type-badge timeline-type-badge" title="summary_type">
+            {typeLabel}
+          </span>
+        </div>
+        <div className="memory-item-head__actions summary-record-actions">
+          {confirmDeleteId === row.id ? (
+            <span className="summary-delete-confirm-wrap">
+              <span className="summary-delete-confirm-text">确认删除？</span>
+              <button type="button" className="summary-delete-confirm-btn" onClick={() => onDeleteConfirm(row.id)}>
+                确认
+              </button>
+              <button type="button" className="summary-delete-cancel-btn" onClick={onCancelDelete}>
+                取消
+              </button>
+            </span>
+          ) : (
+            <>
+              <button type="button" className="action-button edit-button" onClick={() => onEdit(row)}>
+                编辑
+              </button>
+              <button type="button" className="delete-button" onClick={() => onBeginDelete(row.id)}>
+                删除
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      <div className="memory-longterm-body-wrap">
+        <div ref={bodyRef} className="memory-summary memory-summary--longterm-only">
+          {bodyText}
+        </div>
+        {showViewFull ? (
+          <button type="button" className="card-view-full-link" onClick={() => setViewOpen(true)}>
+            查看全文
+          </button>
+        ) : null}
+      </div>
+      <div className="summary-record-meta-footer">
+        <div
+          className="summary-record-meta-line"
+          title={
+            row.session_id
+              ? `id: ${row.id} · session: ${row.session_id}`
+              : `id: ${row.id}`
+          }
+        >
+          <span className="summary-record-meta-id">id: {row.id}</span>
+          {row.session_id ? (
+            <>
+              <span className="summary-record-meta-dot"> · </span>
+              <span className="summary-record-meta-session">session: {row.session_id}</span>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -906,7 +1120,7 @@ function SkeletonLoader() {
     <div className="memory-container">
       <div className="memory-tabs-scroll" aria-label="记忆页签切换">
         <div className="memory-tabs skeleton-tabs">
-          {[1, 2, 3, 4].map((i) => (
+          {[1, 2, 3, 4, 5].map((i) => (
             <div key={i} className="skeleton-line short" style={{ width: '88px', height: '36px' }} />
           ))}
         </div>
@@ -987,17 +1201,30 @@ function Memory() {
   const [showTemporalAddModal, setShowTemporalAddModal] = useState(false);
   const [longtermEditMemory, setLongtermEditMemory] = useState(null);
   
-  const [activeTab, setActiveTab] = useState('cards');
+  const [activeTab, setActiveTab] = useState('summaries');
   const [temporalStates, setTemporalStates] = useState([]);
   const [temporalLoading, setTemporalLoading] = useState(false);
   const [timelineEvents, setTimelineEvents] = useState([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
+
+  // 摘要表（summaries）：chunk/daily + 可选 source_date 区间 + 分页
+  const [summariesItems, setSummariesItems] = useState([]);
+  const [summariesTotal, setSummariesTotal] = useState(0);
+  const [summariesPage, setSummariesPage] = useState(1);
+  const [summariesLoading, setSummariesLoading] = useState(false);
+  const [summaryKindFilter, setSummaryKindFilter] = useState('chunk');
+  const [summariesDateFrom, setSummariesDateFrom] = useState('');
+  const [summariesDateTo, setSummariesDateTo] = useState('');
+  const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState(null);
+  const [summaryEditingRow, setSummaryEditingRow] = useState(null);
+  const summariesFetchSeqRef = useRef(0);
   
   // 长期记忆：summary_type 筛选与分页
   const [longtermTypeFilter, setLongtermTypeFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
   const [longtermTotal, setLongtermTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(longtermTotal / LONGTERM_PAGE_SIZE));
+  const summariesTotalPages = Math.max(1, Math.ceil(summariesTotal / SUMMARIES_PAGE_SIZE));
   
   // 添加 Toast
   const addToast = useCallback((message, type = 'info') => {
@@ -1147,14 +1374,70 @@ function Memory() {
       setTimelineLoading(false);
     }
   }, [addToast]);
+
+  const loadSummaries = useCallback(async () => {
+    const seq = ++summariesFetchSeqRef.current;
+    setSummariesLoading(true);
+    try {
+      const params = new URLSearchParams({
+        page: String(summariesPage),
+        page_size: String(SUMMARIES_PAGE_SIZE),
+        summary_type: summaryKindFilter,
+      });
+      const df = normalizeSummaryDateInput(summariesDateFrom);
+      const dt = normalizeSummaryDateInput(summariesDateTo);
+      if (df) {
+        params.set('source_date_from', df);
+      }
+      if (dt) {
+        params.set('source_date_to', dt);
+      }
+      const response = await apiFetch(`/api/memory/summaries?${params.toString()}`);
+      const data = await response.json();
+      if (seq !== summariesFetchSeqRef.current) {
+        return;
+      }
+      if (data.success) {
+        const items = data.data?.items || [];
+        const total = Number(data.data?.total) || 0;
+        setSummariesItems(items);
+        setSummariesTotal(total);
+        const p = Number(data.data?.page);
+        if (!Number.isNaN(p) && p >= 1) {
+          setSummariesPage(p);
+        }
+        if (items.length === 0 && total > 0) {
+          setSummariesPage((prev) => Math.max(1, prev - 1));
+        }
+        if (total === 0) {
+          setSummariesPage(1);
+        }
+      } else {
+        throw new Error(data.message || '加载失败');
+      }
+    } catch (error) {
+      if (seq === summariesFetchSeqRef.current) {
+        console.error('加载摘要列表失败:', error);
+        setSummariesItems([]);
+        setSummariesTotal(0);
+        addToast(error.message || '加载摘要失败', 'error');
+      }
+    } finally {
+      if (seq === summariesFetchSeqRef.current) {
+        setSummariesLoading(false);
+      }
+    }
+  }, [summariesPage, summaryKindFilter, summariesDateFrom, summariesDateTo, addToast]);
   
   useEffect(() => {
     if (activeTab === 'temporal') {
       loadTemporalStates();
     } else if (activeTab === 'timeline') {
       loadRelationshipTimeline();
+    } else if (activeTab === 'summaries') {
+      loadSummaries();
     }
-  }, [activeTab, loadTemporalStates, loadRelationshipTimeline]);
+  }, [activeTab, loadTemporalStates, loadRelationshipTimeline, loadSummaries]);
   
   // 初始化加载数据
   useEffect(() => {
@@ -1418,6 +1701,48 @@ function Memory() {
     setCurrentPage(totalPages);
     loadLongTermMemories(totalPages);
   };
+
+  const handleSummariesPrevPage = () => {
+    if (summariesPage > 1) {
+      setSummariesPage(summariesPage - 1);
+    }
+  };
+
+  const handleSummariesNextPage = () => {
+    if (summariesPage < summariesTotalPages) {
+      setSummariesPage(summariesPage + 1);
+    }
+  };
+
+  const handleSummariesFirstPage = () => {
+    if (summariesPage <= 1) {
+      return;
+    }
+    setSummariesPage(1);
+  };
+
+  const handleSummariesLastPage = () => {
+    if (summariesPage >= summariesTotalPages) {
+      return;
+    }
+    setSummariesPage(summariesTotalPages);
+  };
+
+  const handleSummaryDeleteConfirm = async (id) => {
+    setConfirmDeleteSummaryId(null);
+    try {
+      const response = await apiFetch(`/api/memory/summaries/${id}`, { method: 'DELETE' });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || '删除失败');
+      }
+      addToast('已删除', 'success');
+      await loadSummaries();
+    } catch (error) {
+      console.error('删除摘要失败:', error);
+      addToast(error.message || '删除失败', 'error');
+    }
+  };
   
   const handleAddTemporalState = async (payload) => {
     try {
@@ -1498,6 +1823,19 @@ function Memory() {
         <AddTemporalStateModal
           onClose={() => setShowTemporalAddModal(false)}
           onSubmit={handleAddTemporalState}
+        />
+      )}
+
+      {summaryEditingRow && (
+        <SummaryEditModal
+          row={summaryEditingRow}
+          addToast={addToast}
+          onClose={() => setSummaryEditingRow(null)}
+          onSaved={() => {
+            addToast('已保存', 'success');
+            setSummaryEditingRow(null);
+            loadSummaries();
+          }}
         />
       )}
       
@@ -1681,6 +2019,99 @@ function Memory() {
           )}
         </>
       )}
+
+      {activeTab === 'summaries' && (
+        <>
+          <div className="memory-tab-header">
+            <h2 className="memory-tab-header__title">
+              <span className="memory-tab-header__icon" aria-hidden="true">
+                <ScrollText size={20} strokeWidth={2} />
+              </span>
+              <span className="memory-tab-header__title-text">摘要</span>
+            </h2>
+          </div>
+
+          <div className="summaries-toolbar">
+            <div className="summaries-type-toggle" role="group" aria-label="摘要类型">
+              <button
+                type="button"
+                className={`summaries-type-btn ${summaryKindFilter === 'chunk' ? 'active' : ''}`}
+                onClick={() => {
+                  setSummaryKindFilter('chunk');
+                  setSummariesPage(1);
+                }}
+              >
+                chunk
+              </button>
+              <button
+                type="button"
+                className={`summaries-type-btn ${summaryKindFilter === 'daily' ? 'active' : ''}`}
+                onClick={() => {
+                  setSummaryKindFilter('daily');
+                  setSummariesPage(1);
+                }}
+              >
+                daily
+              </button>
+            </div>
+            <div className="summaries-date-range" role="group" aria-label="source_date 范围">
+              <span className="summaries-filter-label-text">source_date</span>
+              <label className="summaries-date-field">
+                <span className="summaries-date-field-label">起</span>
+                <input
+                  type="date"
+                  className="search-input summaries-date-input"
+                  value={summariesDateFrom}
+                  onChange={(e) => {
+                    setSummariesDateFrom(e.target.value);
+                    setSummariesPage(1);
+                  }}
+                />
+              </label>
+              <span className="summaries-date-sep" aria-hidden>
+                —
+              </span>
+              <label className="summaries-date-field">
+                <span className="summaries-date-field-label">止</span>
+                <input
+                  type="date"
+                  className="search-input summaries-date-input"
+                  value={summariesDateTo}
+                  onChange={(e) => {
+                    setSummariesDateTo(e.target.value);
+                    setSummariesPage(1);
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {summariesLoading ? (
+            <div className="tab-loading">加载中…</div>
+          ) : summariesItems.length === 0 ? (
+            <div className="empty-state">
+              <div className="empty-state-icon" aria-hidden>
+                <ScrollText size={48} strokeWidth={1.25} />
+              </div>
+              <div className="empty-state-text">暂无摘要记录</div>
+            </div>
+          ) : (
+            <div className="memory-list">
+              {summariesItems.map((row) => (
+                <SummaryRecordItem
+                  key={row.id}
+                  row={row}
+                  confirmDeleteId={confirmDeleteSummaryId}
+                  onBeginDelete={(id) => setConfirmDeleteSummaryId(id)}
+                  onCancelDelete={() => setConfirmDeleteSummaryId(null)}
+                  onDeleteConfirm={handleSummaryDeleteConfirm}
+                  onEdit={(r) => setSummaryEditingRow(r)}
+                />
+              ))}
+            </div>
+          )}
+        </>
+      )}
       </div>
 
       {activeTab === 'longterm' && longtermTotal > 0 && totalPages > 1 && (
@@ -1722,6 +2153,51 @@ function Memory() {
             type="button"
             onClick={handleLastPage}
             disabled={currentPage >= totalPages}
+          >
+            尾页
+          </button>
+        </div>
+      )}
+
+      {activeTab === 'summaries' && summariesTotal > 0 && summariesTotalPages > 1 && (
+        <div className="pagination pagination--outside">
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleSummariesFirstPage}
+            disabled={summariesPage <= 1}
+          >
+            首页
+          </button>
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleSummariesPrevPage}
+            disabled={summariesPage <= 1}
+          >
+            上页
+          </button>
+          <div
+            className="pagination-info pagination-info--stacked"
+            role="status"
+            aria-live="polite"
+          >
+            <span className="pagination-info-line">第 {summariesPage} 页</span>
+            <span className="pagination-info-line">共 {summariesTotalPages} 页</span>
+          </div>
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleSummariesNextPage}
+            disabled={summariesPage >= summariesTotalPages}
+          >
+            下页
+          </button>
+          <button
+            className="pagination-button"
+            type="button"
+            onClick={handleSummariesLastPage}
+            disabled={summariesPage >= summariesTotalPages}
           >
             尾页
           </button>

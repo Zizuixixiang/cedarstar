@@ -17,8 +17,12 @@ export const MINIAPP_TOKEN = import.meta.env.VITE_MINIAPP_TOKEN || '';
 
 export async function apiFetch(path, options = {}) {
   const url = apiUrl(path);
+  const method = String(options.method || 'GET').toUpperCase();
+  /** GET 无 body 时不带 Content-Type，避免少数 WebView/代理对带 JSON Content-Type 的 GET 处理异常 */
   const headers = {
-    'Content-Type': 'application/json',
+    ...(method === 'GET' && options.body == null
+      ? {}
+      : { 'Content-Type': 'application/json' }),
     'X-Cedarstar-Token': MINIAPP_TOKEN,
     ...(options.headers || {}),
   };

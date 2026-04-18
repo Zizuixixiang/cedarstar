@@ -47,6 +47,10 @@ class TemporalStateCreate(BaseModel):
     expire_at: Optional[str] = None
 
 
+class SummaryTextPatch(BaseModel):
+    summary_text: str
+
+
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
     return {"success": success, "data": data, "message": message}
 
@@ -208,6 +212,86 @@ async def deactivate_memory_card(card_id: int):
     except Exception as e:
         logger.error(f"停用记忆卡片失败: {e}")
         return create_response(False, None, f"停用记忆卡片失败: {str(e)}")
+
+
+# ==========================================
+# summaries 表（chunk / daily 摘要管理）
+# ==========================================
+
+
+@router.get("/summaries")
+async def list_summaries(
+    summary_type: Optional[str] = None,
+    source_date_from: Optional[str] = None,
+    source_date_to: Optional[str] = None,
+    page: int = 1,
+    page_size: int = 20,
+):
+    """分页列出 summaries；可选按 summary_type、source_date 区间（起止 YYYY-MM-DD，可只填一侧）过滤。"""
+    from memory.database import get_summaries_filtered
+
+    st = (summary_type or "").strip() or None
+    if st is not None and st not in ("chunk", "daily"):
+        return create_response(False, None, "summary_type 须为 chunk 或 daily")
+
+    d_from = (source_date_from or "").strip() or None
+    d_to = (source_date_to or "").strip() or None
+
+    try:
+        items, total = await get_summaries_filtered(
+            page=page,
+            page_size=page_size,
+            summary_type=st,
+            source_date_from=d_from,
+            source_date_to=d_to,
+        )
+    except ValueError as e:
+        return create_response(False, None, str(e))
+    except Exception as e:
+        logger.error(f"列出 summaries 失败: {e}")
+        return create_response(False, None, f"查询失败: {str(e)}")
+
+    payload = {
+        "items": items,
+        "total": total,
+        "page": max(1, page),
+        "page_size": max(1, min(page_size, 200)),
+    }
+    return create_response(True, payload, "获取摘要列表成功")
+
+
+@router.patch("/summaries/{summary_id}")
+async def patch_summary(summary_id: int, body: SummaryTextPatch):
+    """更新单条 summary 正文。"""
+    from memory.database import update_summary_by_id
+
+    text = (body.summary_text or "").strip()
+    if not text:
+        return create_response(False, None, "summary_text 不能为空")
+
+    try:
+        ok = await update_summary_by_id(summary_id, text)
+        if ok:
+            return create_response(True, {"id": summary_id}, "更新成功")
+        return create_response(False, None, "记录不存在")
+    except Exception as e:
+        logger.error(f"更新 summary 失败 id={summary_id}: {e}")
+        return create_response(False, None, f"更新失败: {str(e)}")
+
+
+@router.delete("/summaries/{summary_id}")
+async def delete_summary(summary_id: int):
+    """物理删除单条 summary。"""
+    from memory.database import delete_summary_by_id
+
+    try:
+        ok = await delete_summary_by_id(summary_id)
+        if ok:
+            return create_response(True, {"id": summary_id}, "删除成功")
+        return create_response(False, None, "记录不存在")
+    except Exception as e:
+        logger.error(f"删除 summary 失败 id={summary_id}: {e}")
+        return create_response(False, None, f"删除失败: {str(e)}")
 
 
 # ==========================================

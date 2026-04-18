@@ -1126,13 +1126,14 @@ class MessageDatabase:
         start_message_id: int,
         end_message_id: int,
         summary_type: str = "chunk",
+        source_date: Optional[date] = None,
     ) -> int:
-        """保存对话摘要，返回插入 ID。"""
+        """保存对话摘要，返回插入 ID。source_date 默认当天；日终跑批传入 batch_date 以便按日历日查询。"""
         if summary_type not in {"chunk", "daily"}:
             raise ValueError(
                 f"summary_type '{summary_type}' 不在允许的值中。允许的值: {{'chunk', 'daily'}}"
             )
-        source_date = _dt.datetime.now().date()
+        sd = source_date if source_date is not None else _dt.datetime.now().date()
         async with self.pool.acquire() as conn:
             summary_id = await conn.fetchval(
                 """
@@ -1144,12 +1145,174 @@ class MessageDatabase:
                 RETURNING id
                 """,
                 session_id, summary_text, start_message_id, end_message_id,
-                summary_type, source_date,
+                summary_type, sd,
             )
         logger.debug(
             "保存摘要成功: ID=%s, session=%s, type=%s", summary_id, session_id, summary_type
         )
         return summary_id
+
+    async def get_daily_summary_by_date(
+        self, batch_date: str
+    ) -> Optional[Dict[str, Any]]:
+        """
+        按 source_date 日历日 + summary_type=daily 取最新一条（用于日终跑批与 batch_date 对齐）。
+        batch_date: YYYY-MM-DD。
+        """
+        try:
+            d = date.fromisoformat(str(batch_date).strip())
+        except ValueError:
+            logger.warning("get_daily_summary_by_date: 无效日期 %s", batch_date)
+            return None
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, session_id, summary_text, start_message_id, end_message_id,
+                       created_at, summary_type, source_date
+                FROM summaries
+                WHERE summary_type = 'daily'
+                  AND source_date IS NOT NULL
+                  AND source_date::date = $1::date
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                d,
+            )
+        if not row:
+            return None
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "summary_text": row["summary_text"],
+            "start_message_id": row["start_message_id"],
+            "end_message_id": row["end_message_id"],
+            "created_at": _norm(row["created_at"]),
+            "summary_type": row["summary_type"],
+            "source_date": _norm(row["source_date"]),
+        }
+
+    async def get_summaries_filtered(
+        self,
+        page: int = 1,
+        page_size: int = 20,
+        summary_type: Optional[str] = None,
+        source_date_from_str: Optional[str] = None,
+        source_date_to_str: Optional[str] = None,
+    ) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        分页查询 summaries；可选 summary_type（chunk/daily）、内容日区间（起止 YYYY-MM-DD，可只填一侧）。
+        筛选日使用 COALESCE(source_date::date, created_at::date)，避免 source_date 为空时筛不出。
+        排序：source_date DESC（内容所属日，补跑历史也会按该日排在合适位置），空 source_date 置后，再按 created_at DESC。
+        返回 (行列表, 总条数)。
+        """
+        page = max(1, page)
+        page_size = max(1, min(int(page_size), 200))
+        offset = (page - 1) * page_size
+
+        if summary_type is not None and summary_type not in ("chunk", "daily"):
+            raise ValueError("summary_type 须为 chunk、daily 或省略")
+
+        df: Optional[date] = None
+        dt: Optional[date] = None
+        if source_date_from_str and str(source_date_from_str).strip():
+            try:
+                df = date.fromisoformat(str(source_date_from_str).strip())
+            except ValueError:
+                logger.warning(
+                    "get_summaries_filtered: 无效 source_date_from %s",
+                    source_date_from_str,
+                )
+        if source_date_to_str and str(source_date_to_str).strip():
+            try:
+                dt = date.fromisoformat(str(source_date_to_str).strip())
+            except ValueError:
+                logger.warning(
+                    "get_summaries_filtered: 无效 source_date_to %s",
+                    source_date_to_str,
+                )
+        if df is not None and dt is not None and df > dt:
+            df, dt = dt, df
+
+        conds: List[str] = []
+        params: List[Any] = []
+
+        if summary_type in ("chunk", "daily"):
+            params.append(summary_type)
+            conds.append(f"summary_type = ${len(params)}")
+
+        # 筛选日：优先 source_date 日历日；旧数据 source_date 为空时用 created_at::date，否则仅有 source_date 时选不到
+        day_expr = "COALESCE(source_date::date, created_at::date)"
+
+        if df is not None:
+            params.append(df)
+            conds.append(f"{day_expr} >= ${len(params)}::date")
+        if dt is not None:
+            params.append(dt)
+            conds.append(f"{day_expr} <= ${len(params)}::date")
+
+        where_sql = " AND ".join(conds) if conds else "TRUE"
+
+        async with self.pool.acquire() as conn:
+            total = await conn.fetchval(
+                f"SELECT COUNT(*) FROM summaries WHERE {where_sql}",
+                *params,
+            )
+            total = int(total or 0)
+
+            params_with_lim = list(params)
+            params_with_lim.append(page_size)
+            lim_ph = len(params_with_lim)
+            params_with_lim.append(offset)
+            off_ph = len(params_with_lim)
+
+            rows = await conn.fetch(
+                f"""
+                SELECT id, session_id, summary_text, start_message_id, end_message_id,
+                       created_at, summary_type, source_date
+                FROM summaries
+                WHERE {where_sql}
+                ORDER BY source_date DESC NULLS LAST, created_at DESC
+                LIMIT ${lim_ph} OFFSET ${off_ph}
+                """,
+                *params_with_lim,
+            )
+
+        items = [
+            {
+                "id": r["id"],
+                "session_id": r["session_id"],
+                "summary_text": r["summary_text"],
+                "start_message_id": r["start_message_id"],
+                "end_message_id": r["end_message_id"],
+                "created_at": _norm(r["created_at"]),
+                "summary_type": r["summary_type"],
+                "source_date": _norm(r["source_date"]),
+            }
+            for r in rows
+        ]
+        return items, total
+
+    async def update_summary_by_id(self, summary_id: int, summary_text: str) -> bool:
+        """更新 summaries.summary_text；不存在则 False。"""
+        text = (summary_text or "").strip()
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                """
+                UPDATE summaries SET summary_text = $1 WHERE id = $2
+                """,
+                text,
+                summary_id,
+            )
+        return _rowcount(status) > 0
+
+    async def delete_summary_by_id(self, summary_id: int) -> bool:
+        """物理删除 summaries 行。"""
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM summaries WHERE id = $1",
+                summary_id,
+            )
+        return _rowcount(status) > 0
 
     async def get_summaries(
         self,
@@ -1342,22 +1505,40 @@ class MessageDatabase:
         logger.debug("获取最近每日摘要: count=%s", len(summaries))
         return summaries
 
-    async def get_today_chunk_summaries(self) -> List[Dict[str, Any]]:
+    async def get_today_chunk_summaries(
+        self, batch_date: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
         """
-        获取今天的所有 chunk 摘要（全局查询，按 created_at 正序）。
+        获取 chunk 摘要（全局查询，按 created_at 正序）。
 
-        注意：使用 PostgreSQL 的 CURRENT_DATE，依赖数据库服务器时区配置。
+        内容日 = COALESCE(source_date::date, created_at::date)。
+        - batch_date 为 YYYY-MM-DD：内容日 <= batch_date（日终会把此前积压的 chunk 一并卷入当日 daily）。
+        - 未传 batch_date：内容日 <= 东八区「今天」（Context / Dashboard；与 delete 对称）。
         """
+        day_col = "COALESCE(source_date::date, created_at::date)"
+        if batch_date and str(batch_date).strip():
+            try:
+                d = date.fromisoformat(str(batch_date).strip())
+            except ValueError:
+                logger.warning("get_today_chunk_summaries: 无效 batch_date %s", batch_date)
+                return []
+            where_day = f"{day_col} <= $1::date"
+            params = (d,)
+        else:
+            where_day = f"{day_col} <= (now() AT TIME ZONE 'Asia/Shanghai')::date"
+            params = ()
+
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type
+                       created_at, summary_type, source_date
                 FROM summaries
                 WHERE summary_type = 'chunk'
-                  AND created_at::date = CURRENT_DATE
+                  AND {where_day}
                 ORDER BY created_at ASC
-                """
+                """,
+                *params,
             )
         summaries = [
             {
@@ -1368,26 +1549,45 @@ class MessageDatabase:
                 "end_message_id": r["end_message_id"],
                 "created_at": _norm(r["created_at"]),
                 "summary_type": r["summary_type"],
+                "source_date": _norm(r["source_date"]),
             }
             for r in rows
         ]
         logger.debug("获取今天的 chunk 摘要: count=%s", len(summaries))
         return summaries
 
-    async def delete_today_chunk_summaries(self) -> int:
+    async def delete_today_chunk_summaries(
+        self, batch_date: Optional[str] = None
+    ) -> int:
         """
-        删除当天 summary_type='chunk' 的记录（日期规则与 get_today_chunk_summaries 一致）。
+        删除 chunk 记录（规则与 get_today_chunk_summaries 一致）。
+
+        内容日 <= batch_date（或 <= 东八区今天）的全部 chunk 删除，避免滞后写入的积压残留。
 
         Returns:
             int: 删除的行数。
         """
+        day_col = "COALESCE(source_date::date, created_at::date)"
+        if batch_date and str(batch_date).strip():
+            try:
+                d = date.fromisoformat(str(batch_date).strip())
+            except ValueError:
+                logger.warning("delete_today_chunk_summaries: 无效 batch_date %s", batch_date)
+                return 0
+            where_day = f"{day_col} <= $1::date"
+            params = (d,)
+        else:
+            where_day = f"{day_col} <= (now() AT TIME ZONE 'Asia/Shanghai')::date"
+            params = ()
+
         async with self.pool.acquire() as conn:
             status = await conn.execute(
-                """
+                f"""
                 DELETE FROM summaries
                 WHERE summary_type = 'chunk'
-                  AND created_at::date = CURRENT_DATE
-                """
+                  AND {where_day}
+                """,
+                *params,
             )
         try:
             parts = str(status).split()
@@ -1816,6 +2016,30 @@ class MessageDatabase:
                 eid, state_content, action_rule or "", dt_expire,
             )
         return eid
+
+    async def save_temporal_state(
+        self,
+        id: str,
+        state_content: str,
+        action_rule: Optional[str],
+        expire_at: _dt.datetime,
+        is_active: int = 1,
+    ) -> None:
+        """插入一条 temporal_states；id 冲突则忽略。"""
+        exp = _pg_timestamp_naive_utc(expire_at)
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO temporal_states (id, state_content, action_rule, expire_at, is_active, created_at)
+                VALUES ($1, $2, $3, $4, $5, NOW())
+                ON CONFLICT (id) DO NOTHING
+                """,
+                id,
+                state_content,
+                action_rule,
+                exp,
+                is_active,
+            )
 
     async def list_relationship_timeline_all_desc(self) -> List[Dict[str, Any]]:
         """全部 relationship_timeline，按 created_at 倒序。"""
@@ -2824,10 +3048,46 @@ async def save_summary(
     start_message_id: int,
     end_message_id: int,
     summary_type: str = "chunk",
+    source_date: Optional[date] = None,
 ) -> int:
     return await get_database().save_summary(
-        session_id, summary_text, start_message_id, end_message_id, summary_type
+        session_id,
+        summary_text,
+        start_message_id,
+        end_message_id,
+        summary_type,
+        source_date,
     )
+
+
+async def get_daily_summary_by_date(
+    batch_date: str,
+) -> Optional[Dict[str, Any]]:
+    return await get_database().get_daily_summary_by_date(batch_date)
+
+
+async def get_summaries_filtered(
+    page: int = 1,
+    page_size: int = 20,
+    summary_type: Optional[str] = None,
+    source_date_from: Optional[str] = None,
+    source_date_to: Optional[str] = None,
+) -> Tuple[List[Dict[str, Any]], int]:
+    return await get_database().get_summaries_filtered(
+        page=page,
+        page_size=page_size,
+        summary_type=summary_type,
+        source_date_from_str=source_date_from,
+        source_date_to_str=source_date_to,
+    )
+
+
+async def update_summary_by_id(summary_id: int, summary_text: str) -> bool:
+    return await get_database().update_summary_by_id(summary_id, summary_text)
+
+
+async def delete_summary_by_id(summary_id: int) -> bool:
+    return await get_database().delete_summary_by_id(summary_id)
 
 
 async def get_summaries(
@@ -2890,6 +3150,18 @@ async def insert_temporal_state(
 ) -> str:
     return await get_database().insert_temporal_state(
         state_content, action_rule, expire_at
+    )
+
+
+async def save_temporal_state(
+    id: str,
+    state_content: str,
+    action_rule: Optional[str],
+    expire_at: _dt.datetime,
+    is_active: int = 1,
+) -> None:
+    return await get_database().save_temporal_state(
+        id, state_content, action_rule, expire_at, is_active
     )
 
 
@@ -2965,12 +3237,16 @@ async def get_recent_daily_summaries(limit: int = 5) -> List[Dict[str, Any]]:
     return await get_database().get_recent_daily_summaries(limit)
 
 
-async def get_today_chunk_summaries() -> List[Dict[str, Any]]:
-    return await get_database().get_today_chunk_summaries()
+async def get_today_chunk_summaries(
+    batch_date: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await get_database().get_today_chunk_summaries(batch_date)
 
 
-async def delete_today_chunk_summaries() -> int:
-    return await get_database().delete_today_chunk_summaries()
+async def delete_today_chunk_summaries(
+    batch_date: Optional[str] = None,
+) -> int:
+    return await get_database().delete_today_chunk_summaries(batch_date)
 
 
 async def get_today_user_character_pairs(batch_date: str) -> List[Dict[str, Any]]:

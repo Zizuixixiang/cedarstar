@@ -22,22 +22,44 @@
 
 /* 80px ≈ .main-content 上下 padding(20×2) + 顶区留白 */
 
-/* Tab 外层：桌面端不参与布局（子级 .memory-tabs 仍直接参与 flex 列） */
+/* Tab 外层：横向滚动，避免窄屏下 Tab 被压缩或文字省略 */
 .memory-tabs-scroll {
-  display: contents;
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  /* flex 子项默认 min-width:auto，会按内容撑宽父级导致 Tab 被裁切而非内部滚动 */
+  min-width: 0;
+  flex-shrink: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  padding: 0 12px;
+  box-sizing: border-box;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
 }
 
-/* Tab 条：无外框，各 Tab 为独立实体按键 */
+.memory-tabs-scroll::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* Tab 条：单行排列，总宽度随内容撑开，由外层横向滚动 */
 .memory-tabs {
-  flex-shrink: 0;
   display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+  flex-wrap: nowrap;
+  flex-shrink: 0;
+  width: max-content;
+  max-width: none;
+  min-width: min-content;
+  gap: 12px;
   padding: 0;
   background: transparent;
   border-radius: 0;
   border: none;
   box-shadow: none;
+  align-items: center;
 }
 
 /* Tab 内容区：仅此区域纵向滚动 */
@@ -59,6 +81,7 @@
 .memory-tabs button.memory-tab {
   appearance: none;
   -webkit-appearance: none;
+  flex-shrink: 0;
   margin: 0;
   padding: 10px 18px;
   border: none;
@@ -73,6 +96,7 @@
   line-height: 1.25;
   box-shadow: none;
   transition: none;
+  white-space: nowrap;
 }
 
 .memory-tabs button.memory-tab:hover:not(.active) {
@@ -1354,44 +1378,51 @@ h2.memory-tab-header__title,
     padding: 0; /* 移动端不再需要额外 padding，因为 memory-container 已经有了 padding */
   }
 
-  /* 移动端 Tab 栏：平分宽度，每个 Tab 占 25%，缩小字体和内边距 */
-  /* 移动端 Tab 栏：平分宽度，每个 Tab 占 25%，突破外层 padding 制约 */
+  /* 移动端 Tab 栏：横向滑动，完整显示文案（与桌面共用滚动方案） */
   .memory-tabs-scroll {
-    display: block;
-    width: auto;
-    margin: 0 -16px; /* 向两边突破 16px padding 的限制 */
-    padding: 0 8px; /* 稍微给真实屏幕边缘留一点点内边距 */
-    flex-shrink: 0;
-    box-sizing: border-box;
-    overflow: hidden; /* 取消横向滚动 */
+    margin: 0 -16px;
+    padding: 0 14px;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+
+  .memory-tabs-scroll::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
   }
 
   .memory-tabs {
-    width: 100%;
-    max-width: 100%;
-    min-width: 0;
+    width: max-content;
+    max-width: none;
+    min-width: min-content;
     flex-wrap: nowrap;
+    gap: 10px;
     box-sizing: border-box;
-    gap: 4px;
   }
 
-  /* 强制每个 Tab 按钮平分宽度，并稍微缩小字体以适应屏幕 */
   .memory-tabs button.memory-tab {
-    flex: 1;
-    min-width: 0;
-    width: 25%;
-    padding: 8px 1px;
-    font-size: 0.78rem; /* 稍微再调小一点点避免极限情况溢出 */
-    letter-spacing: -0.2px; /* 微微缩紧字距拯救空间 */
+    flex: none;
+    flex-shrink: 0;
+    min-width: auto;
+    width: auto;
+    padding: 8px 12px;
+    font-size: 0.85rem;
+    letter-spacing: 0;
     white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    overflow: visible;
+    text-overflow: clip;
     text-align: center;
   }
 
   /* 修复下方卡片，强制换行，防止长文本撑破屏幕 */
   .memory-card,
   .memory-item,
+  .summary-record-item,
   .temporal-item,
   .timeline-item {
     width: 100%;
@@ -1464,4 +1495,211 @@ h2.memory-tab-header__title,
     padding: 6px 8px;
   }
 
+  .summaries-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  /* 日期范围保持单行：窄屏横向滑动，不折行 */
+  .summaries-date-range {
+    flex-wrap: nowrap;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    -webkit-overflow-scrolling: touch;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+    padding-bottom: 2px;
+  }
+
+  .summaries-date-range::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+  }
+
+}
+
+/* --- 摘要 Tab（summaries，PostgreSQL） --- */
+.summaries-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px 16px;
+  margin-bottom: 16px;
+}
+
+.summaries-type-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.memory-container .summaries-type-toggle button.summaries-type-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  padding: 8px 16px;
+  border: 2px solid var(--text-main);
+  background: #e8e4da;
+  color: var(--text-main);
+  font-family: monospace;
+  font-weight: bold;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-radius: 0;
+}
+
+.memory-container .summaries-type-toggle button.summaries-type-btn.active {
+  background: var(--memory-moss-deep);
+  color: #ffffff;
+  border-color: var(--memory-tab-ink);
+  box-shadow: 4px 4px 0 var(--memory-tab-ink);
+}
+
+.summaries-date-range {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  box-sizing: border-box;
+}
+
+.summaries-date-range::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.summaries-date-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.summaries-date-field-label {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  font-family: monospace;
+  white-space: nowrap;
+}
+
+.summaries-date-sep {
+  font-family: monospace;
+  color: var(--text-sub);
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.summaries-filter-label-text {
+  font-size: 0.85rem;
+  color: var(--text-sub);
+  font-family: monospace;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.summaries-date-input {
+  min-width: 132px;
+  flex-shrink: 0;
+}
+
+.summary-record-meta-footer {
+  margin-top: 10px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.summary-record-meta-line {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: baseline;
+  gap: 0;
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  font-size: 0.75rem;
+  color: var(--text-sub);
+  font-family: monospace;
+}
+
+.summary-record-meta-line::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+.summary-record-meta-id,
+.summary-record-meta-dot {
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.summary-record-meta-session {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
+
+.summary-delete-confirm-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: 100%;
+}
+
+.summary-delete-confirm-text {
+  font-size: 0.8rem;
+  color: var(--industrial-red);
+  font-weight: bold;
+}
+
+.summary-delete-confirm-btn,
+.summary-delete-cancel-btn {
+  padding: 6px 12px;
+  font-family: monospace;
+  font-size: 0.8rem;
+  font-weight: bold;
+  cursor: pointer;
+  border: 2px solid var(--text-main);
+  border-radius: 0;
+  background: #e8e4da;
+  color: var(--text-main);
+}
+
+.summary-delete-confirm-btn {
+  background: #fdd;
+  color: var(--industrial-red);
+}
+
+.summary-record-actions {
+  min-width: 0;
+}
+
+.modal-container.summary-edit-modal::before {
+  content: 'EDIT SUMMARY';
+}
+
+.summary-edit-textarea {
+  min-height: 200px;
+}
+
+.memory-container .pagination.pagination--outside {
+  flex-shrink: 0;
+  margin-top: 0;
 }

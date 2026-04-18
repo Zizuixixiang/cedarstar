@@ -294,7 +294,7 @@ def init_bm25_index():
 3. 长期记忆（两阶段召回，见下方详述）
 
 4. 近期摘要：今日小传若干条（`summary_type=daily`，条数=`context_max_daily_summaries`，默认 5）
-   + 今天日内的碎片摘要（summary_type=chunk）
+   + 碎片摘要（`summary_type=chunk`）：实现为 **`get_today_chunk_summaries()`**，条件为 **内容日** `COALESCE(source_date::date, created_at::date) <=` 东八区今日（**含尚未被日终卷入的积压**；见「五 / 六」）
 
 5. 最近若干条原生消息（`is_summarized=0`，条数=`short_term_limit`，默认 40，按时间正序）
 
@@ -402,14 +402,14 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ## 五、日内微批处理
 
-**触发条件：** 当前 session 中 `is_summarized=0` 的消息达到阈值时异步触发（阈值=`chunk_threshold`，默认 50，优先 SQLite `config`）。
+**触发条件：** 当前 session 中 `is_summarized=0` 且 `vision_processed=1` 的消息达到阈值时异步触发（阈值=`chunk_threshold`，默认 50，优先 PostgreSQL **`config.chunk_threshold`**）。
 
 **执行流程：**
 
 ```
-1. 查询最早的「阈值」条 is_summarized=0 的消息
+1. 查询最早的「阈值」条未摘要消息
 2. 调用摘要模型生成《碎片摘要》
-3. 写入 summaries 表，summary_type=chunk（直接落库，防止重启丢失）
+3. 写入 summaries 表，summary_type=chunk；source_date = chunk_source_date_from_messages（本批最后一条消息的东八区日历日；与按日筛选/日终卷入一致）
 4. 批量 UPDATE 本批消息的 messages.is_summarized=1
 ```
 
@@ -417,7 +417,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ## 六、日终跑批流水线（东八区整点，默认 23:00）
 
-时区固定 `Asia/Shanghai`；**触发小时**由 SQLite `config.daily_batch_hour` 控制（默认 **23**），调度循环每次睡眠前读库，支持热更新。支持断点续跑，每步完成后更新 `daily_batch_log`。
+时区固定 `Asia/Shanghai`；**触发小时**由 PostgreSQL **`config.daily_batch_hour`** 控制（默认 **23**）；生产多为 **cron** 调用 **`run_daily_batch.py`**，与整点对齐。支持断点续跑，每步完成后更新 `daily_batch_log`。
 
 ---
 
@@ -439,14 +439,14 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ### Step 2：汇总今日小传（Summary Merge）
 
-将以下内容统一提交给摘要模型，生成唯一的《今日小传》：
+将以下内容统一提交给摘要模型，生成唯一的《今日小传》（**`batch_date`** = 当日业务日 **YYYY-MM-DD**）：
 - Step 1 输出的到期事件字符串（若有）
-- 今日所有的 chunk 碎片摘要
-- 今日剩余未满微批阈值（默认 50，可配置）的原始消息
+- **chunk 碎片摘要**：**`get_today_chunk_summaries(batch_date)`**，条件为 **内容日** `COALESCE(source_date::date, created_at::date) <= batch_date`（**此前积压、尚未卷入**的 chunk 一并并入，避免孤儿碎片）
+- （若实现侧仍拼接）当日未满阈值的原始消息等材料，以 **`memory/daily_batch.py`** 为准
 
-写入 `summaries` 表，`summary_type=daily`，`source_date=today`。
+写入 `summaries` 表，`summary_type=daily`，**`source_date=batch_date`**（与业务日一致）。
 
-**今日小传写入成功后，再删除今天的 chunk 摘要记录。删除操作必须在写入成功之后执行，不可提前。**
+**今日小传写入成功后，再执行 `delete_today_chunk_summaries(batch_date)`**：删除 **同上界** `COALESCE(source_date::date, created_at::date) <= batch_date` 的全部 chunk。**删除必须在 daily 写入成功之后执行，不可提前。**
 
 更新 `step2_status=1`。
 

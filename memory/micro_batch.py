@@ -18,7 +18,9 @@ import logging
 import sys
 import os
 from typing import List, Dict, Any, Optional, Tuple
-from datetime import datetime
+from datetime import datetime, date
+
+import pytz
 
 # 添加项目根目录到 Python 路径
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -32,6 +34,48 @@ from llm.llm_interface import (
     batch_one_shot_with_async_output_guard,
 )
 from tools.lutopia import strip_lutopia_internal_memory_blocks
+
+# 与日终跑批、业务时区一致：摘要「内容日」按东八区日历展示/筛选
+_TZ_SH = pytz.timezone("Asia/Shanghai")
+
+
+def _parse_message_created_at_utc(val: Any) -> Optional[datetime]:
+    """将消息的 created_at（datetime 或 ISO 字符串）规范为 UTC aware；无时区则按 UTC naive 处理。"""
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        dt = val
+        if dt.tzinfo is None:
+            return pytz.utc.localize(dt)
+        return dt.astimezone(pytz.utc)
+    s = str(val).strip().replace("Z", "+00:00")
+    if not s:
+        return None
+    try:
+        dt = datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if dt.tzinfo is None:
+        return pytz.utc.localize(dt)
+    return dt.astimezone(pytz.utc)
+
+
+def chunk_source_date_from_messages(messages: List[Dict[str, Any]]) -> date:
+    """
+    本批 chunk 对应的「内容日」：取本批消息里最后一条的东八区日历日。
+    与 Mini App 按 source_date 区间筛选一致；避免误用「微批写入日」。
+    """
+    latest_utc: Optional[datetime] = None
+    for m in messages:
+        dt = _parse_message_created_at_utc(m.get("created_at"))
+        if dt is None:
+            continue
+        if latest_utc is None or dt > latest_utc:
+            latest_utc = dt
+    if latest_utc is None:
+        return datetime.now(_TZ_SH).date()
+    return latest_utc.astimezone(_TZ_SH).date()
+
 
 # 导入数据库函数
 try:
@@ -327,13 +371,15 @@ async def process_micro_batch(session_id: str) -> None:
             )  # 可恢复/已兜底，降为 warning
             return
         
-        # 3. 保存摘要到数据库
+        # 3. 保存摘要到数据库（source_date = 本批对话在东八区的内容日，便于按日期筛选）
+        chunk_day = chunk_source_date_from_messages(messages)
         summary_id = await save_summary(
             session_id=session_id,
             summary_text=summary_text,
             start_message_id=start_message_id,
             end_message_id=end_message_id,
-            summary_type="chunk"
+            summary_type="chunk",
+            source_date=chunk_day,
         )
         
         logger.info(f"摘要保存成功，ID: {summary_id}, 会话: {session_id}")
