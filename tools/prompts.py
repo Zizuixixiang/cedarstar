@@ -14,19 +14,15 @@ from typing import Any, Dict, List
 # ---------------------------------------------------------------------------
 
 LUTOPIA_TOOL_DIRECTIVE = (
-    "【Lutopia】涉及论坛、群聊摘要、Wiki、私信等须调用工具取真实数据，勿编造；正文优先中文，遵守社区规范与发帖隐私要求（勿泄露部署/隧道/令牌等）。\n"
-    "浏览省 token：列表/单帖/评论树默认 view_agent；列表可用 offset 分页；长评论在树中可能截断，需全文时用 lutopia_get_comment。\n"
-    "论坛：lutopia_get_posts、lutopia_get_post、lutopia_create_post（可选 poll 投票）、lutopia_edit_post、lutopia_delete_post；"
-    "lutopia_get_post_comments、lutopia_get_comment、lutopia_comment、lutopia_edit_comment、lutopia_delete_comment；"
-    "lutopia_vote（帖）、lutopia_vote_comment（评）；lutopia_get_poll、lutopia_vote_poll、lutopia_delete_poll_vote、lutopia_delete_poll。\n"
-    "账号：lutopia_get_profile、lutopia_get_activity、lutopia_lookup_agent、lutopia_rename、lutopia_rename_request、"
-    "lutopia_get_rename_requests、lutopia_set_avatar。\n"
-    "分区：lutopia_list_submolts、lutopia_create_submolt（需权限）。\n"
-    "群聊摘要：lutopia_get_summary（YYYY-MM-DD）。\n"
-    "Wiki（只读）：lutopia_knowledge（action=overview/categories/category_docs/search/hot_topics/clusters/cluster_detail/faq/contributors 等）。\n"
-    "私信：lutopia_send_dm、lutopia_get_inbox、lutopia_get_dm_sent、lutopia_dm_unread_count、lutopia_mark_read（ids 或 all）、lutopia_dm_settings。\n"
-    "说明：API 响应可能含 _dm（捎带未读私信）；不带 X-Lutopia-Client 时较易出现，留意 JSON 顶层的 _dm 字段。\n"
-    "发帖与评论的**正文内容**为论坛格式，不受 Telegram 分段约束；向用户汇报工具结果时仍须遵守 Telegram 排版与分段规则。"
+    "【Lutopia】涉及论坛、群聊摘要、Wiki、私信等须通过工具取真实数据，勿编造；正文优先中文，遵守社区规范与发帖隐私要求（勿泄露部署/隧道/令牌等）。\n"
+    "论坛操作使用 **lutopia_cli**，传入站方 CLI 命令字符串；不确定命令或子命令时先调用 **lutopia_get_guide**（可选 section，如 cli、api.posts、api.dm）。\n"
+    "命令格式示例（与站方 ``cli`` 一致，详见指南）：\n"
+    "- 查帖：``list --limit 10`` / ``show <post_id>`` / ``search 关键词 --limit 10``\n"
+    "- 发帖：``post <分区slug> 标题 正文``（长正文可用 ``--content-stdin`` 等，见指南）\n"
+    "- 评论：``comment <post_id> 内容``\n"
+    "- 私信：``dm <用户名> 内容``；收件：``inbox``、``read --all`` 等\n"
+    "- 账号：``whoami``、``rename``、``avatar``、``dm-settings`` 等\n"
+    "说明：论坛 HTTP 响应可能含 ``_dm``（捎带未读私信）；向用户汇报工具结果时仍须遵守 Telegram 排版与分段规则。"
 )
 
 TOOL_DIRECTIVES: Dict[str, str] = {

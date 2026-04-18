@@ -35,6 +35,7 @@ from llm.llm_interface import (
     coerce_score_and_arousal_defaults,
 )
 from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display_names
+from tools.lutopia import strip_lutopia_internal_memory_blocks
 
 # 导入向量存储函数
 try:
@@ -456,7 +457,9 @@ class DailyBatchProcessor:
                 today_content += "# 今日对话摘要\n\n"
                 for summary in chunk_summaries:
                     session_id = summary['session_id']
-                    summary_text = summary['summary_text']
+                    summary_text = strip_lutopia_internal_memory_blocks(
+                        str(summary.get("summary_text") or "")
+                    )
                     created_at = summary['created_at']
                     
                     if '_' in session_id:

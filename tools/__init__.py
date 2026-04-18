@@ -9,15 +9,9 @@ from tools.prompts import (
 from tools.lutopia import (
     OPENAI_LUTOPIA_TOOLS,
     append_tool_exchange_to_messages,
+    create_lutopia_mcp_session,
     execute_lutopia_function_call,
     get_lutopia_token,
-    lutopia_comment,
-    lutopia_create_post,
-    lutopia_get_post,
-    lutopia_get_posts,
-    lutopia_get_profile,
-    lutopia_get_summary,
-    lutopia_vote,
 )
 
 __all__ = [
@@ -27,13 +21,7 @@ __all__ = [
     "inject_tool_suffix_into_messages",
     "OPENAI_LUTOPIA_TOOLS",
     "append_tool_exchange_to_messages",
+    "create_lutopia_mcp_session",
     "execute_lutopia_function_call",
     "get_lutopia_token",
-    "lutopia_comment",
-    "lutopia_create_post",
-    "lutopia_get_post",
-    "lutopia_get_posts",
-    "lutopia_get_profile",
-    "lutopia_get_summary",
-    "lutopia_vote",
 ]

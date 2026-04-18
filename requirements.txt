@@ -32,6 +32,9 @@ python-dotenv
 requests
 httpx[socks]
 
+# Lutopia MCP（SSE + tools/call，与站方 cli / get_guide 对齐）
+mcp
+
 # Telegram 正文：Markdown 转 HTML + 安全白名单（bleach）
 markdown
 bleach

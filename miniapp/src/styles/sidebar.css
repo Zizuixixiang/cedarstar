@@ -184,16 +184,6 @@
   transition: none;
 }
 
-.nav-code {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 0.68rem;
-  font-weight: bold;
-  letter-spacing: 0.06em;
-  color: inherit;
-  opacity: 0.4;
-  flex-shrink: 0;
-}
-
 .nav-text-main {
   flex: 1 1 auto;
   min-width: 0;
@@ -206,10 +196,6 @@
   opacity: 0;
 }
 
-.sidebar.collapsed .nav-code {
-  display: none;
-}
-
 /* 选中项：实体插片 — 粗黑框 + 右下硬阴影，从菜单中浮起 */
 .nav-item.active {
   overflow: visible; /* 勿裁切 box-shadow */
@@ -220,11 +206,6 @@
   margin-bottom: 6px;
   margin-right: 2px;
   z-index: 1;
-}
-
-.nav-item.active .nav-code {
-  opacity: 0.62;
-  color: #1a1a1a;
 }
 
 .nav-item.active::before {
@@ -276,10 +257,6 @@
     font-size: 13px;
     margin-left: 8px;
     gap: 4px 6px;
-  }
-
-  .nav-code {
-    font-size: 0.62rem;
   }
 
   .nav-icon {

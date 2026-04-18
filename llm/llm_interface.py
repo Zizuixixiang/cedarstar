@@ -1707,7 +1707,7 @@ class LLMInterface:
 
 
 class LutopiaToolLoopOutcome(NamedTuple):
-    """``complete_with_lutopia_tool_loop`` 的返回值。``behavior_appendix`` 恒为空（工具摘要仅写日志，不落库）。"""
+    """``complete_with_lutopia_tool_loop`` 的返回值。``behavior_appendix`` 为工具旁白（可拼入 assistant 落库）。"""
 
     response: LLMResponse
     aggregated_assistant_text: str
@@ -1734,6 +1734,8 @@ async def complete_with_lutopia_tool_loop(
     """
     from tools.lutopia import (
         OPENAI_LUTOPIA_TOOLS,
+        build_lutopia_internal_memory_appendix,
+        create_lutopia_mcp_session,
         execute_lutopia_function_call,
     )
     from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
@@ -1744,74 +1746,77 @@ async def complete_with_lutopia_tool_loop(
     )
     last: Optional[LLMResponse] = None
     round_texts: List[str] = []
-    tool_pairs: List[Tuple[str, str]] = []
-    for _ in range(max_tool_rounds):
-        last = await asyncio.to_thread(
-            llm.generate_with_context_and_tracking,
-            work,
-            platform,
-            OPENAI_LUTOPIA_TOOLS,
-        )
-        if last is None:
-            break
-        if not last.tool_calls:
+    tool_pairs: List[Tuple[str, str, str]] = []
+    async with create_lutopia_mcp_session() as mcp_session:
+        for _ in range(max_tool_rounds):
+            last = await asyncio.to_thread(
+                llm.generate_with_context_and_tracking,
+                work,
+                platform,
+                OPENAI_LUTOPIA_TOOLS,
+            )
+            if last is None:
+                break
+            if not last.tool_calls:
+                piece = (last.content or "").strip()
+                if piece:
+                    round_texts.append(piece)
+                return LutopiaToolLoopOutcome(
+                    last,
+                    "\n".join(round_texts),
+                    build_lutopia_internal_memory_appendix(tool_pairs),
+                )
             piece = (last.content or "").strip()
             if piece:
                 round_texts.append(piece)
-            return LutopiaToolLoopOutcome(
-                last,
-                "\n".join(round_texts),
-                "",
-            )
-        piece = (last.content or "").strip()
-        if piece:
-            round_texts.append(piece)
-            if on_assistant_partial_text:
-                await on_assistant_partial_text(piece)
-        assistant_message: Dict[str, Any] = {
-            "role": "assistant",
-            "content": piece or None,
-            "tool_calls": [
-                {
-                    "id": tc.get("id") or "",
-                    "type": "function",
-                    "function": {
-                        "name": tc.get("name") or "",
-                        "arguments": tc.get("arguments")
-                        if isinstance(tc.get("arguments"), str)
-                        else json.dumps(tc.get("arguments") or {}, ensure_ascii=False),
-                    },
-                }
-                for tc in last.tool_calls
-                if isinstance(tc, dict)
-            ],
-        }
-        work.append(assistant_message)
-        for tc in last.tool_calls or []:
-            if not isinstance(tc, dict):
-                continue
-            nm = tc.get("name") or ""
-            raw_args = tc.get("arguments")
-            if not isinstance(raw_args, str):
-                raw_args = json.dumps(raw_args if raw_args is not None else {}, ensure_ascii=False)
-            if on_tool_start:
-                await on_tool_start(nm)
-            result_str = await execute_lutopia_function_call(nm, raw_args or "{}")
-            tool_pairs.append((nm, result_str))
-            if on_tool_done:
-                await on_tool_done(nm, result_str)
-            work.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": tc.get("id") or "",
-                    "content": result_str,
-                }
-            )
+                if on_assistant_partial_text:
+                    await on_assistant_partial_text(piece)
+            assistant_message: Dict[str, Any] = {
+                "role": "assistant",
+                "content": piece or None,
+                "tool_calls": [
+                    {
+                        "id": tc.get("id") or "",
+                        "type": "function",
+                        "function": {
+                            "name": tc.get("name") or "",
+                            "arguments": tc.get("arguments")
+                            if isinstance(tc.get("arguments"), str)
+                            else json.dumps(tc.get("arguments") or {}, ensure_ascii=False),
+                        },
+                    }
+                    for tc in last.tool_calls
+                    if isinstance(tc, dict)
+                ],
+            }
+            work.append(assistant_message)
+            for tc in last.tool_calls or []:
+                if not isinstance(tc, dict):
+                    continue
+                nm = tc.get("name") or ""
+                raw_args = tc.get("arguments")
+                if not isinstance(raw_args, str):
+                    raw_args = json.dumps(raw_args if raw_args is not None else {}, ensure_ascii=False)
+                if on_tool_start:
+                    await on_tool_start(nm)
+                result_str = await execute_lutopia_function_call(
+                    nm, raw_args or "{}", mcp_session=mcp_session
+                )
+                tool_pairs.append((nm, raw_args or "{}", result_str))
+                if on_tool_done:
+                    await on_tool_done(nm, result_str)
+                work.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": tc.get("id") or "",
+                        "content": result_str,
+                    }
+                )
     fin = last or LLMResponse(content="", model=llm.model_name)
     return LutopiaToolLoopOutcome(
         fin,
         "\n".join(round_texts),
-        "",
+        build_lutopia_internal_memory_appendix(tool_pairs),
     )
 
 

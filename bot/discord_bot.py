@@ -33,6 +33,7 @@ from bot.vision_caption import schedule_generate_image_caption
 from memory.database import save_message
 from memory.micro_batch import trigger_micro_batch_check
 from memory.context_builder import build_context
+from tools.lutopia import strip_lutopia_user_facing_assistant_text
 
 
 # 设置日志
@@ -436,6 +437,7 @@ class DiscordBot:
             if not messages:
                 messages = [{"role": "user", "content": combined_content}]
             
+            lutopia_appendix = ""
             if oral:
                 outcome = await complete_with_lutopia_tool_loop(
                     llm, messages, platform=Platform.DISCORD
@@ -445,6 +447,7 @@ class DiscordBot:
                     outcome.aggregated_assistant_text
                 )
                 reply = reply_display
+                lutopia_appendix = outcome.behavior_appendix or ""
             else:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
@@ -476,11 +479,17 @@ class DiscordBot:
                     platform=Platform.DISCORD,
                 )
             
-            # 保存AI回复到数据库（与频道展示一致，不含 Lutopia 工具摘要附录）
+            assistant_db = reply_display
+            if lutopia_appendix:
+                assistant_db = (
+                    (reply_display.rstrip() + "\n" + lutopia_appendix)
+                    if (reply_display or "").strip()
+                    else lutopia_appendix
+                )
             await save_message(
                 session_id=session_id,
                 role="assistant",
-                content=reply,
+                content=assistant_db,
                 user_id=str(base_message.author.id),
                 channel_id=str(base_message.channel.id),
                 message_id=f"ai_{base_message.id}",
@@ -495,7 +504,7 @@ class DiscordBot:
             # 异步触发微批处理检查
             asyncio.create_task(trigger_micro_batch_check(session_id))
             
-            return reply_display
+            return strip_lutopia_user_facing_assistant_text(reply_display)
             
         except ValueError as e:
             logger.error(f"LLM 配置错误: {e}")
@@ -553,6 +562,7 @@ class DiscordBot:
             if not messages:
                 messages = [{"role": "user", "content": content}]
             
+            lutopia_appendix = ""
             if oral:
                 outcome = await complete_with_lutopia_tool_loop(
                     llm, messages, platform=Platform.DISCORD
@@ -562,6 +572,7 @@ class DiscordBot:
                     outcome.aggregated_assistant_text
                 )
                 reply = reply_display
+                lutopia_appendix = outcome.behavior_appendix or ""
             else:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
@@ -581,11 +592,17 @@ class DiscordBot:
                 platform=Platform.DISCORD
             )
             
-            # 保存AI回复到数据库（与频道展示一致）
+            assistant_db = reply_display
+            if lutopia_appendix:
+                assistant_db = (
+                    (reply_display.rstrip() + "\n" + lutopia_appendix)
+                    if (reply_display or "").strip()
+                    else lutopia_appendix
+                )
             await save_message(
                 session_id=session_id,
                 role="assistant",
-                content=reply,
+                content=assistant_db,
                 user_id=str(message.author.id),
                 channel_id=str(message.channel.id),
                 message_id=f"ai_{message.id}",
@@ -600,7 +617,7 @@ class DiscordBot:
             # 异步触发微批处理检查
             asyncio.create_task(trigger_micro_batch_check(session_id))
             
-            return reply_display
+            return strip_lutopia_user_facing_assistant_text(reply_display)
             
         except ValueError as e:
             logger.error(f"LLM 配置错误: {e}")

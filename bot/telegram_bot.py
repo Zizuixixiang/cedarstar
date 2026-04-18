@@ -81,7 +81,9 @@ from memory.context_builder import build_context
 from tools.lutopia import (
     OPENAI_LUTOPIA_TOOLS,
     append_tool_exchange_to_messages,
-    strip_lutopia_behavior_appendix,
+    build_lutopia_internal_memory_appendix,
+    create_lutopia_mcp_session,
+    strip_lutopia_user_facing_assistant_text,
 )
 from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
 from tools.meme import search_meme_async, send_meme
@@ -741,7 +743,8 @@ class TelegramBot:
         self, text: str, max_html_len: int = 4096
     ) -> List[str]:
         """正文：白名单净化后按 Telegram 4096 限长切分。"""
-        return split_body_into_html_chunks(text or "", max_html_len)
+        text = strip_lutopia_user_facing_assistant_text(text or "")
+        return split_body_into_html_chunks(text, max_html_len)
 
     @staticmethod
     def _think_display_trunc(think_e: str, max_len: int, trunc_marker: str) -> str:
@@ -1391,6 +1394,9 @@ class TelegramBot:
         chat_id = base_message.chat.id
         sse: Optional[_TelegramSseRound] = None
         pre_tool_segments: List[str] = []
+        # 跨每一轮 SSE（含多轮工具调用）共用同一列表：每轮 append_tool_exchange 按 tool_calls 顺序追加，
+        # 全局顺序 = 第 1 轮工具… → 第 2 轮工具…，收尾时一次性 build_lutopia_internal_memory_appendix，不会丢中间轮。
+        lutopia_stream_exec_log: List[Tuple[str, str, str]] = []
 
         def _merge_stream_outcome(outcome: _TelegramStreamOutcome) -> _TelegramStreamOutcome:
             merged_parts = [p for p in pre_tool_segments if p.strip()]
@@ -1398,73 +1404,83 @@ class TelegramBot:
                 merged_parts.append(outcome.body_for_db)
             merged_speech = "\n".join(merged_parts)
             cleaned_merged = schedule_update_memory_hits_and_clean_reply(merged_speech)
+            ap = build_lutopia_internal_memory_appendix(lutopia_stream_exec_log)
+            if ap and cleaned_merged.strip():
+                body_for_db = cleaned_merged + "\n" + ap
+            elif ap:
+                body_for_db = ap
+            else:
+                body_for_db = cleaned_merged
             return _TelegramStreamOutcome(
-                body_for_db=cleaned_merged,
+                body_for_db=body_for_db,
                 assistant_message_id=outcome.assistant_message_id,
                 thinking=outcome.thinking,
                 save_user=outcome.save_user,
             )
 
-        for _ in range(8):
-            for attempt in range(2):
-                sse = await self._telegram_stream_llm_one_sse_round(
-                    llm,
-                    cur_messages,
-                    base_message,
-                    bot,
-                    tools=OPENAI_LUTOPIA_TOOLS,
-                )
-                fin = sse.done_payload or {}
-                if fin.get("guard_refusal_abort") and attempt == 0:
-                    cur_messages = append_guard_hint_to_last_user_message(
-                        cur_messages, TELEGRAM_GUARD_PROMPT_APPEND
+        async with create_lutopia_mcp_session() as lutopia_mcp_session:
+            for _ in range(8):
+                for attempt in range(2):
+                    sse = await self._telegram_stream_llm_one_sse_round(
+                        llm,
+                        cur_messages,
+                        base_message,
+                        bot,
+                        tools=OPENAI_LUTOPIA_TOOLS,
                     )
-                    logger.warning(
-                        "CedarClio Guard：同步链路流式掐断或拒答，正在静默重试一次（含 Lutopia 工具）"
+                    fin = sse.done_payload or {}
+                    if fin.get("guard_refusal_abort") and attempt == 0:
+                        cur_messages = append_guard_hint_to_last_user_message(
+                            cur_messages, TELEGRAM_GUARD_PROMPT_APPEND
+                        )
+                        logger.warning(
+                            "CedarClio Guard：同步链路流式掐断或拒答，正在静默重试一次（含 Lutopia 工具）"
+                        )
+                        continue
+                    break
+                assert sse is not None
+                fin = sse.done_payload or {}
+                tc = fin.get("tool_calls")
+                if isinstance(tc, list) and len(tc) > 0:
+                    rc = (sse.raw_content or "").strip()
+                    if rc:
+                        pre_tool_segments.append(rc)
+                        await self._telegram_lutopia_send_partial_user_text(
+                            bot,
+                            chat_id,
+                            rc,
+                        )
+
+                    async def _lutopia_on_start(tool_name: str) -> None:
+                        await self._telegram_lutopia_notify_tool_before(
+                            bot, chat_id, tool_name
+                        )
+
+                    async def _lutopia_on_done(tool_name: str, out: str) -> None:
+                        await self._telegram_lutopia_notify_tool_after(
+                            bot, chat_id, tool_name, out
+                        )
+
+                    await append_tool_exchange_to_messages(
+                        cur_messages,
+                        sse.raw_content or "",
+                        tc,
+                        on_tool_start=_lutopia_on_start,
+                        on_tool_done=_lutopia_on_done,
+                        execution_log=lutopia_stream_exec_log,
+                        mcp_session=lutopia_mcp_session,
                     )
                     continue
-                break
-            assert sse is not None
-            fin = sse.done_payload or {}
-            tc = fin.get("tool_calls")
-            if isinstance(tc, list) and len(tc) > 0:
-                rc = (sse.raw_content or "").strip()
-                if rc:
-                    pre_tool_segments.append(rc)
-                    await self._telegram_lutopia_send_partial_user_text(
-                        bot,
-                        chat_id,
-                        rc,
-                    )
-
-                async def _lutopia_on_start(tool_name: str) -> None:
-                    await self._telegram_lutopia_notify_tool_before(
-                        bot, chat_id, tool_name
-                    )
-
-                async def _lutopia_on_done(tool_name: str, out: str) -> None:
-                    await self._telegram_lutopia_notify_tool_after(
-                        bot, chat_id, tool_name, out
-                    )
-
-                await append_tool_exchange_to_messages(
-                    cur_messages,
-                    sse.raw_content or "",
-                    tc,
-                    on_tool_start=_lutopia_on_start,
-                    on_tool_done=_lutopia_on_done,
+                outcome = await self._telegram_finalize_sse_round_outcome(
+                    sse, base_message, bot
                 )
-                continue
+                return _merge_stream_outcome(outcome)
+            assert sse is not None
+            logger.warning("Lutopia 工具轮次已达上限（8），按末轮 SSE 结果收尾")
             outcome = await self._telegram_finalize_sse_round_outcome(
                 sse, base_message, bot
             )
             return _merge_stream_outcome(outcome)
-        assert sse is not None
-        logger.warning("Lutopia 工具轮次已达上限（8），按末轮 SSE 结果收尾")
-        outcome = await self._telegram_finalize_sse_round_outcome(
-            sse, base_message, bot
-        )
-        return _merge_stream_outcome(outcome)
 
     async def _telegram_lutopia_notify_tool_before(
         self, bot: Any, chat_id: int, tool_name: str
@@ -1515,7 +1531,7 @@ class TelegramBot:
         工具轮次之间的口播：与最终正文一致——先按 ``|||`` / ``[meme:…]`` / 换行二级分段，
         再对每段走 Markdown→HTML；不得在分段前对整段做空白折叠（否则会吃掉用于拆段的换行）。
         """
-        raw = (text or "").strip()
+        raw = strip_lutopia_user_facing_assistant_text((text or "").strip())
         if not raw:
             return
         try:
@@ -1552,7 +1568,7 @@ class TelegramBot:
         head = "<blockquote expandable>🧠 思维链\n"
         tail = "</blockquote>\n"
         trunc_m = _TELEGRAM_PLAIN_TRUNC_SUFFIX
-        reply = reply or ""
+        reply = strip_lutopia_user_facing_assistant_text(reply or "")
         th_raw = (thinking or "").strip()
 
         if not th_raw:
@@ -1948,7 +1964,7 @@ class TelegramBot:
             try:
                 await base_message.reply_text(
                     telegram_send_text_collapse(
-                        strip_lutopia_behavior_appendix(gen.reply)
+                        strip_lutopia_user_facing_assistant_text(gen.reply)
                     ),
                     parse_mode=None,
                 )
@@ -1986,6 +2002,7 @@ class TelegramBot:
             if not messages:
                 messages = [{"role": "user", "content": content}]
 
+            lutopia_appendix = ""
             if oral:
                 if telegram_bot is not None:
 
@@ -2017,6 +2034,7 @@ class TelegramBot:
                         llm, messages, platform=Platform.TELEGRAM
                     )
                 llm_resp = outcome.response
+                lutopia_appendix = outcome.behavior_appendix or ""
                 cleaned = schedule_update_memory_hits_and_clean_reply(
                     outcome.aggregated_assistant_text
                 )
@@ -2072,10 +2090,17 @@ class TelegramBot:
                     content
                 ),
             )
+            assistant_content = reply
+            if lutopia_appendix:
+                assistant_content = (
+                    (reply.rstrip() + "\n" + lutopia_appendix)
+                    if (reply or "").strip()
+                    else lutopia_appendix
+                )
             await save_message(
                 session_id=session_id,
                 role="assistant",
-                content=reply,
+                content=assistant_content,
                 user_id=user_id,
                 channel_id=chat_id,
                 message_id=f"ai_{message_id}",

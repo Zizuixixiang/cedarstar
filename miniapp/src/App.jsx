@@ -39,7 +39,7 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
         {/* 导航菜单 */}
         <nav className="sidebar-nav">
-          {navItems.map(({ Icon, text, path, code, dividerBefore }) => (
+          {navItems.map(({ Icon, text, path, dividerBefore }) => (
             <Fragment key={path}>
               {dividerBefore && (
                 <div className="sidebar-nav-divider" aria-hidden="true">
@@ -56,7 +56,6 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
                   <Icon size={22} strokeWidth={1.75} aria-hidden />
                 </span>
                 <span className="nav-text">
-                  {code && <span className="nav-code">{code}</span>}
                   <span className="nav-text-main">{text}</span>
                 </span>
               </NavLink>

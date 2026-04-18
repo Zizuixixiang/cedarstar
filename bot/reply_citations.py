@@ -325,9 +325,14 @@ def parse_telegram_segments_with_memes(
 ) -> Tuple[List[TelegramOrderedSegment], str]:
     """
     一级：将 `|||` 与 `[meme:描述]` 视为同级顺序分隔符，拆成 (text|meme)* 序列。
-    二级：对每个 text 段在 `<pre>` / `<code>` / `<blockquote>` 块外按换行（``\\n``）拆行，
+
+    二级（仅当正文中 **不出现** ``|||`` 时执行；``[meme:…]`` 不算「AI 已分段」）：
+    对每个 text 段在 `<pre>` / `<code>` / `<blockquote>` 块外按换行（``\\n``）拆行，
     再对超长切片按句末标点切分（`_split_oversized_chunk`：成对 ``（）``「」、“” 等未闭合时不在句末切开），再合并过短段（strip 后 < 15 字），
     最后若总段数超过 ``max_msg`` 则优先均匀合并相邻 text 段。
+
+    若正文中含至少一处 ``|||``（全角 ``｜｜｜`` 会先归一为 ASCII），则 **只** 按一级顺序切分，
+    不再做上述二级强行走分割 / ``max_msg`` 合并；发送侧仍会对单条 HTML 做 Telegram 4096 限长处理。
     须在 schedule_update_memory_hits_and_clean_reply 之后调用。
 
     Returns:
@@ -339,6 +344,9 @@ def parse_telegram_segments_with_memes(
     raw = reply_text.replace("｜｜｜", "|||")
     if not raw.strip():
         return [], ""
+
+    # 仅 ||| 视为模型显式分段；仅有 [meme:…] 时仍走强行走分割二级逻辑。
+    has_ai_pipe_split = "|||" in raw
 
     parts = _MEME_OR_TRIPLE_PIPE_SPLIT_RE.split(raw)
     primary: List[TelegramOrderedSegment] = []
@@ -359,6 +367,11 @@ def parse_telegram_segments_with_memes(
         if kind == "meme":
             segments.append(("meme", piece))
             continue
+        if has_ai_pipe_split:
+            t = (piece or "").strip()
+            if t:
+                segments.append(("text", t))
+            continue
         sub = _split_by_newline_outside_html_blocks(piece)
         expanded: List[str] = []
         for line in sub:
@@ -368,7 +381,8 @@ def parse_telegram_segments_with_memes(
             if (s or "").strip():
                 segments.append(("text", s))
 
-    segments = _enforce_max_msg_segments(segments, max_msg)
+    if not has_ai_pipe_split:
+        segments = _enforce_max_msg_segments(segments, max_msg)
 
     text_lines: List[str] = []
     for kind, s in segments:

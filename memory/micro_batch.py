@@ -31,6 +31,7 @@ from llm.llm_interface import (
     CedarClioOutputGuardExhausted,
     batch_one_shot_with_async_output_guard,
 )
+from tools.lutopia import strip_lutopia_internal_memory_blocks
 
 # 导入数据库函数
 try:
@@ -316,10 +317,13 @@ async def generate_summary_for_messages(
         formatted_messages = []
         for msg in messages:
             role = "user" if msg['role'] == 'user' else "assistant"
-            formatted_messages.append({
-                "role": role,
-                "content": msg['content']
-            })
+            raw = str(msg.get("content") or "")
+            formatted_messages.append(
+                {
+                    "role": role,
+                    "content": strip_lutopia_internal_memory_blocks(raw),
+                }
+            )
         
         # 生成摘要（Guard 用尽时不写入占位摘要，由上层跳过落库）
         summary = summary_llm.generate_summary(
