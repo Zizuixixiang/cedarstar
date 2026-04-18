@@ -6,6 +6,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { apiFetch } from '../apiBase';
+import { KeyRound, BarChart3 } from 'lucide-react';
 import '../styles/settings.css';
 
 /* ─── 工具函数 ─── */
@@ -429,7 +430,10 @@ function Settings() {
       {/* ① API 配置管理 */}
       <div className="settings-card">
         <div className="card-header">
-          <h2 className="card-title">🔑 API 配置管理</h2>
+          <h2 className="card-title card-title--with-icon">
+            <KeyRound className="card-title-icon" strokeWidth={1.75} aria-hidden />
+            API 配置管理
+          </h2>
           <div className="config-tabs">
             <button 
               className={`config-tab ${activeTab === 'chat' ? 'active' : ''}`}
@@ -526,7 +530,10 @@ function Settings() {
       {/* ② Token 消耗统计 */}
       <div className="settings-card">
         <div className="card-header">
-          <h2 className="card-title">📊 Token 消耗统计</h2>
+          <h2 className="card-title card-title--with-icon">
+            <BarChart3 className="card-title-icon" strokeWidth={1.75} aria-hidden />
+            Token 消耗统计
+          </h2>
           <div className="period-tabs">
             {[['latest','本次'], ['today','今日'], ['week','本周'], ['month','本月']].map(([v, l]) => (
               <button
@@ -565,14 +572,18 @@ function Settings() {
                 return (
                   <div key={p.label} className="platform-bar-row">
                     <span className="platform-label">{p.label}</span>
-                    <div className="bar-track">
-                      <div
-                        className="bar-fill"
-                        style={{ width: `${pct}%`, background: p.color }}
-                      />
+                    <div className="platform-bar-mid">
+                      <div className="bar-track">
+                        <div
+                          className="bar-fill"
+                          style={{ width: `${pct}%`, background: p.color }}
+                        />
+                      </div>
                     </div>
-                    <span className="platform-val">{fmt(p.value)}</span>
-                    <span className="platform-pct">{pct}%</span>
+                    <div className="platform-stats">
+                      <span className="platform-val">{fmt(p.value)}</span>
+                      <span className="platform-pct">{pct}%</span>
+                    </div>
                   </div>
                 );
               })}

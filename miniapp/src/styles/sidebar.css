@@ -9,14 +9,20 @@
   height: 100vh;
   width: var(--sidebar-width);
   background: var(--text-main); /* 深绿背景 */
-  border-right: 2px solid var(--text-main);
-  box-shadow: none;
+  /* 舱门感：与主内容区交界为粗黑边 + 向右的纯黑硬阴影，像金属板切入画面 */
+  border-right: 2px solid #1a1a1a;
+  box-shadow:
+    6px 0 0 0 rgba(0, 0, 0, 0.55),
+    10px 0 24px rgba(0, 0, 0, 0.18);
   display: flex;
   flex-direction: column;
   padding: var(--card-padding);
+  padding-right: 14px;
   transition: none;
   z-index: 100;
-  overflow: hidden;
+  overflow-x: hidden;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .sidebar.collapsed {
@@ -91,6 +97,32 @@
   flex-direction: column;
   gap: 8px;
   flex: 1;
+  min-height: 0;
+}
+
+/* 功能分区：虚线 + 终端结束符 ■ */
+.sidebar-nav-divider {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  padding: 0 2px 0 4px;
+  user-select: none;
+}
+
+.sidebar-nav-divider-line {
+  flex: 1;
+  height: 0;
+  border: none;
+  border-top: 2px dashed rgba(245, 241, 231, 0.28);
+}
+
+.sidebar-nav-divider-mark {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 9px;
+  line-height: 1;
+  color: rgba(245, 241, 231, 0.45);
+  flex-shrink: 0;
 }
 
 .nav-item {
@@ -140,22 +172,57 @@
 
 .nav-text {
   margin-left: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 6px 8px;
+  min-width: 0;
   font-size: 0.95rem;
-  white-space: nowrap;
+  white-space: normal;
   opacity: 1;
   transition: none;
+}
+
+.nav-code {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.68rem;
+  font-weight: bold;
+  letter-spacing: 0.06em;
+  color: inherit;
+  opacity: 0.4;
+  flex-shrink: 0;
+}
+
+.nav-text-main {
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .sidebar.collapsed .nav-text {
   opacity: 0;
 }
 
+.sidebar.collapsed .nav-code {
+  display: none;
+}
+
+/* 选中项：实体插片 — 粗黑框 + 右下硬阴影，从菜单中浮起 */
 .nav-item.active {
   background: var(--page-bg);
-  color: var(--text-main);
-  border: 2px solid var(--text-main);
-  box-shadow: 2px 2px 0px var(--text-main);
-  margin-bottom: 4px; /* 防止阴影被裁切 */
+  color: #1a1a1a;
+  border: 2px solid #1a1a1a;
+  box-shadow: 4px 4px 0 #1a1a1a;
+  margin-bottom: 6px;
+  margin-right: 2px;
+  z-index: 1;
+}
+
+.nav-item.active .nav-code {
+  opacity: 0.62;
+  color: #1a1a1a;
 }
 
 .nav-item.active::before {
@@ -167,6 +234,10 @@
     transform: translateX(-100%);
     width: 180px !important;
     padding: 12px;
+    padding-right: 12px;
+    box-shadow:
+      6px 0 0 0 rgba(0, 0, 0, 0.55),
+      12px 0 32px rgba(0, 0, 0, 0.22);
   }
 
   .sidebar.mobile-open {
@@ -202,6 +273,11 @@
   .nav-text {
     font-size: 13px;
     margin-left: 8px;
+    gap: 4px 6px;
+  }
+
+  .nav-code {
+    font-size: 0.62rem;
   }
 
   .nav-icon {

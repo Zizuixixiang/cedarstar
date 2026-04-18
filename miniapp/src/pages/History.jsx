@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { History as HistoryIcon, Cpu, MessageCircle } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/history.css';
 
@@ -127,6 +128,7 @@ function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
 
       {shouldCollapse && (
         <button
+          type="button"
           className="toggle-content-btn"
           onClick={() => setExpanded(!expanded)}
         >
@@ -137,10 +139,12 @@ function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
       {isAssistant && message.thinking && message.thinking.trim() && (
         <>
           <button
+            type="button"
             className="toggle-thinking-btn"
             onClick={() => setThinkingExpanded(!thinkingExpanded)}
           >
-            {thinkingExpanded ? '收起思维链' : '🧠 展开思维链'}
+            <Cpu className="toggle-thinking-btn__icon" size={14} strokeWidth={2} aria-hidden />
+            <span>{thinkingExpanded ? '收起思维链' : '展开思维链'}</span>
           </button>
 
           {thinkingExpanded && (
@@ -204,7 +208,9 @@ function SkeletonLoader() {
 function EmptyState() {
   return (
     <div className="empty-state">
-      <div className="empty-state-icon">🗨️</div>
+      <div className="empty-state-icon" aria-hidden>
+        <MessageCircle size={56} strokeWidth={1.25} />
+      </div>
       <div className="empty-state-text">暂无对话记录</div>
     </div>
   );
@@ -814,8 +820,13 @@ function History() {
       <div className="message-list-container">
         <div className="history-chat-column">
           <div className="section-title">
-            <span>🕰️ 对话历史</span>
-            <span style={{ color: 'var(--text-sub)', fontSize: '14px', marginLeft: 'auto' }}>
+            <span className="section-title__lead">
+              <span className="section-title__icon" aria-hidden>
+                <HistoryIcon size={22} strokeWidth={2} />
+              </span>
+              <span>对话历史</span>
+            </span>
+            <span className="section-title__meta">
               共 {totalItems} 条记录
             </span>
           </div>

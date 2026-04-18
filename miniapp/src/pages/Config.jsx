@@ -198,8 +198,18 @@ function ConfigSkeleton() {
   return (
     <div className="config-container">
       <div className="config-card">
-        <div className="config-card-title">助手配置</div>
-        <div className="config-card-subtitle">修改后点击保存即时生效，无需重启服务</div>
+        <header className="config-card-header">
+          <h1 className="config-card-title">
+            <span className="config-card-title__prefix" aria-hidden="true">
+              ■
+            </span>
+            <span className="config-card-title__text">助手配置</span>
+          </h1>
+          <p className="config-card-subtitle">
+            <span className="config-card-subtitle__prompt">[INFO]</span>
+            修改后点击保存即时生效，无需重启服务
+          </p>
+        </header>
 
         {CONFIG_METADATA.map((item, index) => (
           <div key={item.key}>
@@ -512,8 +522,18 @@ function Config() {
       {/* 仅成功拉取配置后展示表单 */}
       {config && (
       <div className="config-card">
-        <div className="config-card-title">助手配置</div>
-        <div className="config-card-subtitle">修改后点击保存即时生效，无需重启服务</div>
+        <header className="config-card-header">
+          <h1 className="config-card-title">
+            <span className="config-card-title__prefix" aria-hidden="true">
+              ■
+            </span>
+            <span className="config-card-title__text">助手配置</span>
+          </h1>
+          <p className="config-card-subtitle">
+            <span className="config-card-subtitle__prompt">[INFO]</span>
+            修改后点击保存即时生效，无需重启服务
+          </p>
+        </header>
 
         {/* 线下模式开关 */}
         <div className="config-item">
@@ -524,12 +544,13 @@ function Config() {
           <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px', justifyContent: 'flex-end', flex: 1 }}>
             <button
               type="button"
-              className={parseInt(config.offline_mode_active || '0', 10) === 1 ? "config-btn-primary" : "config-btn-secondary"}
-              style={{ minWidth: '90px' }}
+              className={`config-offline-toggle ${
+                parseInt(config.offline_mode_active || '0', 10) === 1 ? 'is-on' : ''
+              }`}
               onClick={handleToggleOfflineMode}
               disabled={isSaving}
             >
-              {parseInt(config.offline_mode_active || '0', 10) === 1 ? '已开启' : '点击开启'}
+              {parseInt(config.offline_mode_active || '0', 10) === 1 ? '[ ACTIVE ]' : '点击开启'}
             </button>
           </div>
         </div>

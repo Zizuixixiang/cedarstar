@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { Terminal, FileCode } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/logs.css';
 
@@ -170,7 +171,9 @@ function SkeletonLoader() {
 function EmptyState() {
   return (
     <div className="empty-state">
-      <div className="empty-state-icon">📝</div>
+      <div className="empty-state-icon" aria-hidden>
+        <FileCode size={52} strokeWidth={1.25} />
+      </div>
       <div className="empty-state-text">暂无日志记录</div>
     </div>
   );
@@ -550,10 +553,13 @@ function Logs() {
         {/* 日志列表 */}
         <div className="logs-list-container">
           <div className="section-title">
-            <span>🪵 系统日志</span>
-            <span style={{ color: 'var(--text-sub)', fontSize: '14px', marginLeft: 'auto' }}>
-              共 {totalItems} 条记录
+            <span className="section-title__lead">
+              <span className="section-title__icon" aria-hidden>
+                <Terminal size={22} strokeWidth={2} />
+              </span>
+              <span>系统日志</span>
             </span>
+            <span className="section-title__meta">共 {totalItems} 条记录</span>
           </div>
 
           <div

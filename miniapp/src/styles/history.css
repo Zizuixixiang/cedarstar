@@ -1,6 +1,11 @@
 /* 对话历史页面样式 */
 
 .history-container {
+  --history-moss-deep: #2d4a3f;
+  --history-tab-ink: #1a1a1a;
+  --history-tab-active-shadow: 4px 4px 0 var(--history-tab-ink);
+  --history-control-shadow: 3px 3px 0 var(--shadow-color-deep);
+  --history-inner-btn-shadow: 2px 2px 0 var(--shadow-color-deep);
   padding: var(--space-page);
   max-width: 1200px;
   width: 100%;
@@ -50,23 +55,25 @@
   font-weight: 500;
 }
 
-/* 平台切换：胶囊内横向滚动，Tab 文案不换行、不被挤压 */
+/* 平台切换：无外框，与记忆页 Tab 一致；选中为深墨绿实心 */
 .platform-tabs {
   display: inline-flex;
   flex-wrap: nowrap;
   align-items: center;
-  height: 44px;
+  min-height: 44px;
+  height: auto;
   max-width: 100%;
   box-sizing: border-box;
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  background: var(--surface);
-  border-radius: var(--radius-btn);
-  padding: 4px;
-  border: var(--border-card);
+  background: transparent;
+  border-radius: 0;
+  padding: 0;
+  border: none;
   box-shadow: none;
+  gap: 8px;
 }
 
 .platform-tabs::-webkit-scrollbar {
@@ -79,12 +86,12 @@
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  height: 100%;
-  min-height: 0;
-  padding: 0 16px;
-  border: 1px solid transparent;
+  min-height: 44px;
+  height: auto;
+  padding: 10px 16px;
+  border: none;
   background: transparent;
-  color: var(--text-sub);
+  color: var(--text-main);
   font-weight: bold;
   font-family: monospace;
   text-transform: uppercase;
@@ -95,21 +102,30 @@
   box-sizing: border-box;
 }
 
-.tab-button:hover {
-  background: #eeeeee;
-  border-color: var(--industrial-border-color);
+.tab-button:hover:not(.active):not(.disabled) {
+  background: transparent;
+  color: var(--text-main);
 }
 
 .tab-button.active {
-  background: var(--page-bg);
-  color: var(--accent);
-  border: 1px solid var(--industrial-border-color);
-  box-shadow: none;
+  background: var(--history-moss-deep);
+  color: #ffffff;
+  border: 2px solid var(--history-tab-ink);
+  box-shadow: var(--history-tab-active-shadow);
 }
 
-.tab-button:active {
-  background: #dddddd;
-  box-shadow: none;
+.tab-button.active:hover {
+  background: var(--history-moss-deep);
+  color: #ffffff;
+}
+
+.tab-button:active:not(.disabled):not(.active) {
+  opacity: 0.92;
+}
+
+.tab-button.active:active {
+  transform: translate(1px, 1px);
+  box-shadow: 3px 3px 0 var(--history-tab-ink);
 }
 
 .tab-button.disabled {
@@ -117,27 +133,49 @@
   cursor: not-allowed;
 }
 
-/* 搜索框（与平台 Tab、日期下拉同高） */
+.tab-button:focus {
+  outline: none;
+}
+
+.tab-button:focus-visible:not(.disabled) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.tab-button.active:focus-visible {
+  outline-color: #ffffff;
+  outline-offset: 3px;
+}
+
+/* 搜索框 / 下拉 / 日期：控制面板插槽 — 粗边框 + 右下硬阴影 */
 .history-search-input {
   width: 100%;
   height: 44px;
   box-sizing: border-box;
   padding: 0 16px;
-  border: var(--border-card);
-  border-radius: var(--radius-btn);
+  border: 2px solid #2c3628;
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--history-control-shadow);
   color: var(--text-main);
   font-family: monospace;
   font-size: 0.9rem;
   transition: none;
   margin: 0;
-  display: block; /* 确保它作为块级元素填满容器 */
+  display: block;
+  appearance: none;
+  -webkit-appearance: none;
+}
+
+input[type='date'].date-select {
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .history-search-input:focus {
   outline: none;
-  border: 1px solid var(--accent);
+  border: 2px solid var(--accent);
+  box-shadow: var(--history-control-shadow);
 }
 
 /* 日期选择器 / 日期输入 */
@@ -146,16 +184,22 @@
   width: 100%;
   box-sizing: border-box;
   padding: 0 16px;
-  border: var(--border-card);
-  border-radius: var(--radius-btn);
+  border: 2px solid #2c3628;
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--history-control-shadow);
   color: var(--text-main);
   font-family: monospace;
   font-size: 0.9rem;
   cursor: pointer;
   margin: 0;
   display: block;
+}
+
+.date-select:focus {
+  outline: none;
+  border: 2px solid var(--accent);
+  box-shadow: var(--history-control-shadow);
 }
 
 .date-range-container {
@@ -228,7 +272,36 @@
   padding-right: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.section-title__lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.section-title__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+  color: var(--text-main);
+}
+
+.section-title__icon svg {
+  display: block;
+}
+
+.section-title__meta {
+  color: var(--text-sub);
+  font-size: 14px;
+  flex-shrink: 0;
 }
 
 /* 消息列表：不在两侧再加 padding，由外层承担贴边；间距收紧便于一屏 6～8 条 */
@@ -277,8 +350,8 @@
   box-sizing: border-box;
 }
 
+/* 宝宝（用户）：纯白底；助手：暖浅底（不用 accent 混色，否则整泡会发灰紫） */
 .message-bubble.user {
-  /* 工业风：直角边框 */
   background: #ffffff;
   border: 2px solid var(--industrial-border-color);
   border-right: 4px solid var(--industrial-border-color);
@@ -287,8 +360,7 @@
 }
 
 .message-bubble.assistant {
-  /* 工业风：直角边框 */
-  background: var(--page-bg);
+  background: var(--surface);
   border: 2px solid var(--industrial-border-color);
   border-left: 4px solid var(--accent);
   border-radius: 0;
@@ -324,8 +396,9 @@
   text-align: right;
 }
 
+/* 平台小标：实体贴纸感 — 淡色底 + 深色字 + 同色轻阴影（非黑框） */
 .platform-tag {
-  padding: 2px 6px;
+  padding: 4px 10px;
   border-radius: 0;
   font-size: 10px;
   font-weight: bold;
@@ -333,17 +406,24 @@
   text-transform: uppercase;
   flex-shrink: 0;
   line-height: 1.35;
-  border: 1px solid var(--industrial-border-color);
+  border: 1px solid rgba(44, 54, 40, 0.28);
+  box-shadow: 2px 2px 0 rgba(44, 54, 40, 0.14);
+  color: var(--text-main);
+  background: #f2efe9;
 }
 
 .platform-tag.telegram {
-  background: #f0f8ff;
-  color: #0077b6;
+  background: #e4eef8;
+  color: #1a4970;
+  border-color: rgba(26, 73, 112, 0.28);
+  box-shadow: 2px 3px 0 rgba(26, 73, 112, 0.2);
 }
 
 .platform-tag.discord {
-  background: #f0f0ff;
-  color: #4e5dff;
+  background: #ede8f2;
+  color: #4a3d63;
+  border-color: rgba(94, 74, 125, 0.32);
+  box-shadow: 2px 3px 0 rgba(94, 74, 125, 0.18);
 }
 
 .time-text {
@@ -374,32 +454,36 @@
   font-weight: 600;
 }
 
-/* 折叠/展开按钮 */
-.toggle-content-btn {
-  background: #eeeeee;
-  border: 1px solid var(--industrial-border-color);
+/* 展开全文 / 展开思维链：同一套极浅主题底 */
+.toggle-content-btn,
+.toggle-thinking-btn {
+  background: var(--accent-muted);
+  border: 2px solid var(--industrial-border-color);
   color: var(--text-main);
   font-size: 12px;
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
   cursor: pointer;
-  padding: 4px 10px;
+  padding: 5px 10px;
   margin-top: 4px;
-  display: flex;
+  display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--history-inner-btn-shadow);
   transition: none;
 }
 
-.toggle-content-btn:hover {
-  background: #dddddd;
+.toggle-content-btn:hover,
+.toggle-thinking-btn:hover {
+  background: rgba(94, 74, 125, 0.16);
 }
 
-.toggle-content-btn:active {
-  background: #cccccc;
+.toggle-content-btn:active,
+.toggle-thinking-btn:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--shadow-color-deep);
 }
 
 .message-bubble.user .toggle-content-btn,
@@ -425,31 +509,9 @@
   box-sizing: border-box;
 }
 
-.toggle-thinking-btn {
-  background: #eeeeee;
-  border: 1px solid var(--industrial-border-color);
-  color: var(--text-main);
-  font-family: monospace;
-  font-weight: bold;
-  text-transform: uppercase;
-  font-size: 12px;
-  cursor: pointer;
-  padding: 4px 10px;
-  margin-top: 4px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  border-radius: 0;
-  box-shadow: none;
-  transition: none;
-}
-
-.toggle-thinking-btn:hover {
-  background: #dddddd;
-}
-
-.toggle-thinking-btn:active {
-  background: #cccccc;
+.toggle-thinking-btn__icon {
+  flex-shrink: 0;
+  color: var(--accent);
 }
 
 /* 空状态 */
@@ -463,9 +525,16 @@
 }
 
 .empty-state-icon {
-  font-size: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 16px;
-  opacity: 0.5;
+  color: var(--text-main);
+  opacity: 0.42;
+}
+
+.empty-state-icon svg {
+  display: block;
 }
 
 .empty-state-text {
@@ -486,31 +555,49 @@
   box-sizing: border-box;
 }
 
-.pagination-button {
+/* 与 global 中 .pagination.pagination--outside .pagination-button 对齐优先级 */
+.history-container .pagination.pagination--outside .pagination-button {
   padding: 8px 16px;
-  border: var(--border-card);
+  border: 2px solid var(--industrial-border-color);
   border-radius: 0;
-  background: #eeeeee;
+  background: #e8e4da;
   color: var(--text-main);
   font-weight: bold;
   font-family: monospace;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: none;
+  box-shadow: var(--history-control-shadow);
   transition: none;
 }
 
-.pagination-button:hover:not(:disabled) {
-  background: #dddddd;
+.history-container .pagination.pagination--outside .pagination-button:hover:not(:disabled) {
+  filter: brightness(0.97);
 }
 
-.pagination-button:active:not(:disabled) {
-  background: #cccccc;
+.history-container .pagination.pagination--outside .pagination-button:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
-.pagination-button:disabled {
-  opacity: 0.5;
+/* 禁用：保留粗边框与厚重感，浅灰底 + 斜线纹理 + 灰字 */
+.history-container .pagination.pagination--outside .pagination-button:disabled {
+  opacity: 1;
   cursor: not-allowed;
+  color: #7a7a76;
+  border: 2px solid var(--industrial-border-color);
+  background: repeating-linear-gradient(
+    -45deg,
+    #d4d2cc,
+    #d4d2cc 5px,
+    #c9c7c1 5px,
+    #c9c7c1 10px
+  );
+  box-shadow: var(--history-control-shadow);
+  transform: none;
+}
+
+.history-container .pagination.pagination--outside .pagination-button:disabled:hover {
+  filter: none;
 }
 
 .pagination-info {
@@ -722,27 +809,37 @@
   font-family: monospace;
   text-transform: uppercase;
   font-weight: bold;
-  padding: 4px 10px;
+  padding: 5px 10px;
   border-radius: 0;
-  border: var(--border-card);
-  background: #eeeeee;
+  border: 2px solid var(--industrial-border-color);
+  background: transparent;
   color: var(--text-main);
   cursor: pointer;
+  box-shadow: var(--history-inner-btn-shadow);
 }
 
 .message-toolbar-btn:hover:not(:disabled) {
-  background: #dddddd;
+  background: rgba(44, 54, 40, 0.07);
+}
+
+.message-toolbar-btn:active:not(:disabled) {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 var(--shadow-color-deep);
+}
+
+.message-toolbar-btn.danger {
+  color: var(--industrial-red);
 }
 
 .message-toolbar-btn.danger:hover:not(:disabled) {
-  background: #fdd;
-  color: var(--industrial-red);
-  border-color: var(--industrial-red);
+  background: rgba(224, 112, 112, 0.12);
 }
 
 .message-toolbar-btn:disabled {
-  opacity: 0.5;
+  opacity: 0.55;
   cursor: not-allowed;
+  transform: none;
+  box-shadow: var(--history-inner-btn-shadow);
 }
 
 /* 编辑弹窗 */

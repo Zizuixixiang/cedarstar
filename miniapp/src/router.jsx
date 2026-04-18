@@ -26,13 +26,13 @@ import Settings from './pages/Settings.jsx'
  * 包含图标、文字和路由路径
  */
 export const navItems = [
-  { Icon: LayoutDashboard, text: '控制台概览', path: '/' },
-  { Icon: UserCircle, text: '人设与参数', path: '/persona' },
-  { Icon: BookMarked, text: '记忆日记本', path: '/memory' },
-  { Icon: HistoryIcon, text: '时光机历史', path: '/history' },
-  { Icon: ScrollText, text: '系统日志', path: '/logs' },
-  { Icon: SlidersHorizontal, text: '助手配置', path: '/config' },
-  { Icon: KeyRound, text: '核心设置', path: '/settings' },
+  { Icon: LayoutDashboard, text: '控制台概览', path: '/', code: '[ 01 ]' },
+  { Icon: UserCircle, text: '人设与参数', path: '/persona', code: '[ 02 ]' },
+  { Icon: BookMarked, text: '记忆日记本', path: '/memory', code: '[ 03 ]' },
+  { Icon: HistoryIcon, text: '时光机历史', path: '/history', code: '[ 04 ]' },
+  { Icon: ScrollText, text: '系统日志', path: '/logs', code: '[ 05 ]' },
+  { Icon: SlidersHorizontal, text: '助手配置', path: '/config', code: '[ 06 ]', dividerBefore: true },
+  { Icon: KeyRound, text: '核心设置', path: '/settings', code: '[ SYS ]' },
 ]
 
 /**

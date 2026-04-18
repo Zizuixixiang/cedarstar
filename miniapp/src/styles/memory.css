@@ -4,9 +4,10 @@
 
 /* Memory 页面容器：固定视口内高度，避免 Tab 切换时整页高度与滚动条抖动 */
 .memory-container {
-  /* 深墨绿 Tab 选中态、统一控制台按钮硬阴影 */
-  --memory-moss-deep: #1a3328;
-  --memory-console-shadow: 3px 3px 0 var(--shadow-color-deep);
+  /* 深墨绿 Tab 选中态（略浅于旧色）；黑线分隔底色与投影 */
+  --memory-moss-deep: #2d4a3f;
+  --memory-tab-ink: #1a1a1a;
+  --memory-tab-active-shadow: 4px 4px 0 var(--memory-tab-ink);
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
@@ -82,8 +83,8 @@
 .memory-tabs button.memory-tab.active {
   color: #ffffff;
   background: var(--memory-moss-deep);
-  border: none;
-  box-shadow: var(--memory-console-shadow);
+  border: 2px solid var(--memory-tab-ink);
+  box-shadow: var(--memory-tab-active-shadow);
 }
 
 .memory-tabs button.memory-tab.active:hover {
@@ -97,7 +98,7 @@
 
 .memory-tabs button.memory-tab.active:active {
   transform: translate(1px, 1px);
-  box-shadow: 2px 2px 0 var(--shadow-color-deep);
+  box-shadow: 3px 3px 0 var(--memory-tab-ink);
 }
 
 .memory-tabs button.memory-tab:focus {
@@ -193,11 +194,6 @@ h2.memory-tab-header__title,
 .memory-container .card-view-full-link,
 .memory-container .pagination-button,
 .memory-container .modal-button {
-  border: 2px solid var(--industrial-border-color);
-  box-shadow: 3px 3px 0 var(--shadow-color-deep);
-}
-
-.memory-view-close {
   border: 2px solid var(--industrial-border-color);
   box-shadow: 3px 3px 0 var(--shadow-color-deep);
 }
@@ -413,7 +409,9 @@ h2.memory-tab-header__title,
   flex-shrink: 0;
   margin-top: 2px;
   padding: 8px 14px;
+  border: 2px solid var(--industrial-border-color);
   border-radius: 0;
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
   background: var(--accent);
   color: #fff;
   font-family: monospace;

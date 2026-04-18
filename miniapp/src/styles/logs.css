@@ -4,6 +4,11 @@
 
 /* 日志容器 */
 .logs-container {
+  --logs-slot-shadow: 4px 4px 0 #1a1a1a;
+  --logs-tag-shadow: 2px 2px 0 #1a1a1a;
+  --logs-segment-active-bg: #2d4a3f;
+  --logs-segment-ink: #1a1a1a;
+  --logs-segment-active-shadow: 3px 3px 0 var(--logs-segment-ink);
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
@@ -103,31 +108,33 @@
   font-weight: 500;
 }
 
-/* 分段按钮组 */
+/* 分段按钮组：外层插槽粗框 + 硬阴影；选项独立成块 */
 .segmented-buttons {
   display: flex;
+  flex-wrap: nowrap;
+  align-items: stretch;
   background: var(--surface);
   border-radius: 0;
-  padding: 4px;
-  gap: 4px;
-  height: 44px;
+  padding: 6px;
+  gap: 6px;
+  min-height: 44px;
   box-sizing: border-box;
-  border: var(--border-card);
-  box-shadow: none;
+  border: 2px solid var(--industrial-border-color);
+  box-shadow: var(--logs-slot-shadow);
 }
 
 .segmented-button {
   flex: 1;
-  padding: 0 16px;
-  height: 100%;
-  border: 1px solid transparent;
+  min-width: 0;
+  padding: 8px 10px;
+  border: none;
   background: transparent;
   border-radius: 0;
   font-size: 14px;
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
-  color: var(--text-sub);
+  color: var(--text-main);
   text-align: center;
   transition: none;
   white-space: nowrap;
@@ -136,43 +143,72 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  appearance: none;
+  -webkit-appearance: none;
+  box-shadow: none;
 }
 
-.segmented-button:hover {
-  background: #eeeeee;
-  border-color: var(--industrial-border-color);
+.segmented-button:hover:not(.active) {
+  background: rgba(44, 54, 40, 0.07);
 }
 
 .segmented-button.active {
-  background: var(--page-bg);
-  color: var(--text-main);
-  border: 1px solid var(--industrial-border-color);
-  box-shadow: none;
+  background: var(--logs-segment-active-bg);
+  color: #ffffff;
+  border: 2px solid var(--logs-segment-ink);
+  box-shadow: var(--logs-segment-active-shadow);
 }
 
-.segmented-button:active {
-  background: #dddddd;
-  box-shadow: none;
+.segmented-button.active:hover {
+  background: var(--logs-segment-active-bg);
+  color: #ffffff;
 }
 
-/* 搜索输入框 */
+.segmented-button:active:not(.active) {
+  opacity: 0.92;
+}
+
+.segmented-button.active:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--logs-segment-ink);
+}
+
+.segmented-button:focus {
+  outline: none;
+}
+
+.segmented-button:focus-visible:not(.active) {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.segmented-button.active:focus-visible {
+  outline-color: #ffffff;
+  outline-offset: 3px;
+}
+
+/* 搜索 / 时间：控制面板插槽 — 粗边框 + 右下硬阴影 */
 .search-input {
+  width: 100%;
   padding: 0 16px;
   height: 44px;
-  border: var(--border-card);
-  border-radius: var(--radius-btn);
+  border: 2px solid var(--industrial-border-color);
+  border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--logs-slot-shadow);
   color: var(--text-main);
   font-family: monospace;
   font-size: 14px;
   transition: none;
   box-sizing: border-box;
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 .search-input:focus {
   outline: none;
-  border: 1px solid var(--accent);
+  border: 2px solid var(--accent);
+  box-shadow: var(--logs-slot-shadow);
 }
 
 .search-input::placeholder {
@@ -216,10 +252,39 @@
   font-size: 1.5rem;
   color: var(--text-main);
   margin-bottom: 12px;
-  padding: 0; /* 标题与下方卡片完美左对齐 */
+  padding: 0;
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.section-title__lead {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5em;
+  min-width: 0;
+}
+
+.section-title__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+  color: var(--text-main);
+}
+
+.section-title__icon svg {
+  display: block;
+}
+
+.section-title__meta {
+  color: var(--text-sub);
+  font-size: 14px;
+  flex-shrink: 0;
 }
 
 /* 日志列表 */
@@ -285,12 +350,12 @@
   white-space: nowrap;
 }
 
-/* 级别标签 (主要信息：柔和背景色块) */
+/* 级别标签：黑实线 + 小硬阴影（复古贴纸感） */
 .level-tag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 4px 10px;
+  padding: 3px 9px;
   border-radius: 0;
   font-family: monospace;
   font-size: 11px;
@@ -299,7 +364,8 @@
   letter-spacing: 0.5px;
   min-width: 60px;
   white-space: nowrap;
-  border: 1px solid var(--industrial-border-color);
+  border: 2px solid #1a1a1a;
+  box-shadow: var(--logs-tag-shadow);
 }
 
 .level-tag.error {
@@ -314,7 +380,7 @@
 
 .level-tag.info {
   background-color: #e0f2fe;
-  color: #0ea5e9;
+  color: #0369a1;
 }
 
 .level-tag.debug {
@@ -327,21 +393,22 @@
   color: #dc2626;
 }
 
-/* 平台标签 (次要信息：幽灵样式) */
+/* 平台标签：与级别标统一粗框 + 阴影 */
 .platform-tag {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  padding: 3px 9px; /* 减去边框的 1px，保持视觉大小一致 */
+  padding: 2px 8px;
   border-radius: 0;
   font-family: monospace;
   font-size: 11px;
   font-weight: bold;
   text-transform: uppercase;
-  min-width: 60px; /* 统一宽度 */
+  min-width: 60px;
   white-space: nowrap;
   background-color: #eeeeee;
-  border: 1px solid var(--industrial-border-color);
+  border: 2px solid #1a1a1a;
+  box-shadow: var(--logs-tag-shadow);
   color: var(--text-main);
 }
 
@@ -356,11 +423,13 @@
   gap: 8px;
 }
 
-/* 消息内容 */
+/* 日志正文：等宽代码字体 */
 .log-message {
-  font-size: 14px;
+  font-family: ui-monospace, 'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas,
+    'SFMono-Regular', Menlo, Monaco, 'Courier New', monospace;
+  font-size: 13px;
   color: var(--text-main);
-  line-height: 1.5;
+  line-height: 1.55;
   word-break: break-word;
 }
 
@@ -368,7 +437,7 @@
   flex-shrink: 0;
 }
 
-/* 展开按钮 */
+/* 展开 / 查看全文：粗黑框 + 小硬阴影 */
 .expand-button {
   padding: 4px 12px;
   border-radius: 0;
@@ -377,15 +446,22 @@
   text-transform: uppercase;
   font-size: 12px;
   color: var(--text-main);
-  background: #eeeeee;
-  border: 1px solid var(--industrial-border-color);
+  background: #e8e4da;
+  border: 2px solid #1a1a1a;
+  box-shadow: var(--logs-tag-shadow);
   transition: none;
   white-space: nowrap;
+  cursor: pointer;
 }
 
 .expand-button:hover {
-  background: #dddddd;
+  filter: brightness(0.97);
   color: var(--text-main);
+}
+
+.expand-button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 1px 1px 0 #1a1a1a;
 }
 
 /* 堆栈信息 */
@@ -416,9 +492,16 @@
 }
 
 .empty-state-icon {
-  font-size: 48px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 16px;
-  opacity: 0.5;
+  color: var(--text-main);
+  opacity: 0.42;
+}
+
+.empty-state-icon svg {
+  display: block;
 }
 
 .empty-state-text {
@@ -566,31 +649,24 @@
     box-sizing: border-box;
   }
 
-  /* 筛选按钮：取消横向滚动，改为平分宽度 */
+  /* 筛选：保持立体插槽，窄屏平分宽度 */
   .segmented-buttons {
-    display: flex;
-    flex-wrap: nowrap;
     width: 100%;
     justify-content: space-between;
-    gap: 4px; /* 减小间距 */
-    box-sizing: border-box;
-    overflow: hidden; /* 取消横向滚动 */
-    padding: 4px;
+    gap: 4px;
+    padding: 5px;
+    min-height: 42px;
+    overflow: hidden;
   }
 
-  /* 按钮等比缩放，平分容器 */
   .segmented-button {
     flex: 1;
-    min-width: 0; /* 允许按钮收缩 */
-    text-align: center;
-    padding: 6px 0; /* 左右 padding 为 0 */
-    font-size: 12px; /* 缩小字体 */
+    min-width: 0;
+    padding: 6px 2px;
+    font-size: 11px;
     white-space: nowrap;
     overflow: hidden;
-    text-overflow: ellipsis; /* 如果实在太窄，显示省略号 */
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    text-overflow: ellipsis;
   }
 
   /* 修复搜索框防溢出与撑起高度 */

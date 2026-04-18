@@ -2,7 +2,7 @@
  * 根组件
  * 包含侧边栏和路由出口，管理侧边栏展开/收起状态
  */
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
 import { Menu, Sparkles, Share2, Copy, Plus } from 'lucide-react'
 import { navItems, routes } from './router.jsx'
@@ -39,18 +39,28 @@ function Sidebar({ collapsed, onToggle, mobileOpen, onMobileClose }) {
 
         {/* 导航菜单 */}
         <nav className="sidebar-nav">
-          {navItems.map(({ Icon, text, path }) => (
-            <NavLink
-              key={path}
-              to={path}
-              className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
-              onClick={onMobileClose}
-            >
-              <span className="nav-icon">
-                <Icon size={22} strokeWidth={1.75} aria-hidden />
-              </span>
-              <span className="nav-text">{text}</span>
-            </NavLink>
+          {navItems.map(({ Icon, text, path, code, dividerBefore }) => (
+            <Fragment key={path}>
+              {dividerBefore && (
+                <div className="sidebar-nav-divider" aria-hidden="true">
+                  <span className="sidebar-nav-divider-line" />
+                  <span className="sidebar-nav-divider-mark">■</span>
+                </div>
+              )}
+              <NavLink
+                to={path}
+                className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+                onClick={onMobileClose}
+              >
+                <span className="nav-icon">
+                  <Icon size={22} strokeWidth={1.75} aria-hidden />
+                </span>
+                <span className="nav-text">
+                  {code && <span className="nav-code">{code}</span>}
+                  <span className="nav-text-main">{text}</span>
+                </span>
+              </NavLink>
+            </Fragment>
           ))}
         </nav>
       </aside>
