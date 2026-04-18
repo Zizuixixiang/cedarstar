@@ -1258,7 +1258,8 @@ class MessageDatabase:
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
-                SELECT id, role, content, created_at, session_id, user_id, channel_id
+                SELECT id, role, content, created_at, session_id, user_id, channel_id,
+                       character_id
                 FROM messages
                 WHERE session_id = $1 AND is_summarized = 0 AND vision_processed = 1
                 ORDER BY created_at ASC
@@ -1275,6 +1276,7 @@ class MessageDatabase:
                 "session_id": r["session_id"],
                 "user_id": r["user_id"],
                 "channel_id": r["channel_id"],
+                "character_id": r["character_id"],
             }
             for r in rows
         ]

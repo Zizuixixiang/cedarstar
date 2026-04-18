@@ -37,6 +37,7 @@ from tools.lutopia import strip_lutopia_internal_memory_blocks
 try:
     from .database import (
         get_database,
+        get_memory_cards,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
         save_summary,
@@ -47,6 +48,7 @@ except ImportError:
     # 如果相对导入失败，尝试绝对导入
     from memory.database import (
         get_database,
+        get_memory_cards,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
         save_summary,
@@ -102,6 +104,57 @@ async def fetch_active_persona_display_names() -> Tuple[str, str]:
         return DEFAULT_BATCH_CHAR_NAME, DEFAULT_BATCH_USER_NAME
 
 
+async def _active_character_id_fallback() -> str:
+    """激活 chat 人设 id，供消息行缺 character_id 时对齐记忆卡主键。"""
+    try:
+        cfg = await get_database().get_active_api_config("chat")
+        if cfg and cfg.get("persona_id") is not None:
+            s = str(cfg.get("persona_id")).strip()
+            if s and s.lower() != "none":
+                return s
+    except Exception:
+        pass
+    return str(config.DEFAULT_CHARACTER_ID)
+
+
+async def _get_micro_batch_memory_prefix(user_id: str, character_id: str) -> str:
+    """chunk 摘要前注入关系锚点与激活记忆卡（current_status / relationships）。"""
+    dims = {
+        "current_status": "用户近况",
+        "relationships": "重要关系",
+    }
+    lines = ["【基础设定】小克是南杉的二号男友。"]
+    try:
+        for dim, label in dims.items():
+            cards = await get_memory_cards(user_id, character_id, dim, limit=1)
+            card = cards[0] if cards else None
+            if card and card.get("content"):
+                lines.append(f"【{label}】{card['content']}")
+    except Exception as e:
+        logger.warning("微批记忆上下文前缀构建失败: %s", e)
+    return "\n".join(lines) + "\n\n"
+
+
+async def _resolve_micro_batch_memory_prefix(
+    messages: List[Dict[str, Any]],
+) -> str:
+    uid = "default_user"
+    for m in messages:
+        u = m.get("user_id")
+        if u is not None and str(u).strip():
+            uid = str(u).strip()
+            break
+    cid: Optional[str] = None
+    for m in messages:
+        c = m.get("character_id")
+        if c is not None and str(c).strip():
+            cid = str(c).strip()
+            break
+    if not cid:
+        cid = await _active_character_id_fallback()
+    return await _get_micro_batch_memory_prefix(uid, cid)
+
+
 class SummaryLLMInterface:
     """
     摘要专用的 LLM 接口类。
@@ -140,6 +193,7 @@ class SummaryLLMInterface:
         messages: List[Dict[str, Any]],
         char_name: str = DEFAULT_BATCH_CHAR_NAME,
         user_name: str = DEFAULT_BATCH_USER_NAME,
+        memory_prefix: str = "",
     ) -> str:
         """
         生成消息摘要。
@@ -160,13 +214,14 @@ class SummaryLLMInterface:
             raise ValueError("摘要 API 密钥未设置，无法生成摘要")
         
         prefix = f"这是 {char_name} 与 {user_name} 的对话记录。\n"
+        mp = memory_prefix or ""
         # 构建摘要提示
         conversation_text = ""
         for msg in messages:
             role_label = user_name if msg["role"] == "user" else char_name
             conversation_text += f"{role_label}: {msg['content']}\n\n"
         
-        prompt = f"""{prefix}请为以下对话生成150-200字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。
+        prompt = f"""{prefix}{mp}请为以下对话生成150-200字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。
 输出客观凝练，无主观修饰，严格符合字数要求。
 【对话记录】
 {conversation_text}
@@ -325,9 +380,14 @@ async def generate_summary_for_messages(
                 }
             )
         
+        memory_prefix = await _resolve_micro_batch_memory_prefix(messages)
+
         # 生成摘要（Guard 用尽时不写入占位摘要，由上层跳过落库）
         summary = summary_llm.generate_summary(
-            formatted_messages, char_name=char_name, user_name=user_name
+            formatted_messages,
+            char_name=char_name,
+            user_name=user_name,
+            memory_prefix=memory_prefix,
         )
         
         return summary

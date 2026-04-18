@@ -61,14 +61,15 @@ try:
         get_database,
         get_today_chunk_summaries,
         delete_today_chunk_summaries,
+        get_today_user_character_pairs,
+        get_memory_cards,
+        get_latest_memory_card_for_dimension,
         get_unsummarized_messages_by_session,
         save_summary,
         mark_messages_as_summarized_by_ids,
         get_all_active_memory_cards,
         save_memory_card,
         update_memory_card,
-        get_memory_cards,
-        get_latest_memory_card_for_dimension,
         get_recent_daily_summaries,
         save_daily_batch_log,
         get_daily_batch_log,
@@ -87,14 +88,15 @@ except ImportError:
         get_database,
         get_today_chunk_summaries,
         delete_today_chunk_summaries,
+        get_today_user_character_pairs,
+        get_memory_cards,
+        get_latest_memory_card_for_dimension,
         get_unsummarized_messages_by_session,
         save_summary,
         mark_messages_as_summarized_by_ids,
         get_all_active_memory_cards,
         save_memory_card,
         update_memory_card,
-        get_memory_cards,
-        get_latest_memory_card_for_dimension,
         get_recent_daily_summaries,
         save_daily_batch_log,
         get_daily_batch_log,
@@ -221,7 +223,9 @@ class DailyBatchProcessor:
         self._settled_temporal_snippets: List[str] = []
         self._batch_char_name: str = "AI"
         self._batch_user_name: str = "用户"
-        
+        self._batch_user_id: str = "default_user"
+        self._batch_char_id: str = "sirius"
+
         # 维度列表
         self.dimensions = [
             "preferences",  # 偏好与喜恶
@@ -238,6 +242,46 @@ class DailyBatchProcessor:
     def _persona_dialogue_prefix(self) -> str:
         """跑批 Prompt 统一前缀：标明角色称呼，减轻上下文断裂与名字丢失。"""
         return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录。\n"
+
+    async def _resolve_batch_memory_identity(self, batch_date: str) -> None:
+        """按当日首对 user/character 解析记忆卡查询主键；无则与 Step 3 兜底一致。"""
+        try:
+            pairs = await get_today_user_character_pairs(batch_date)
+            if pairs:
+                r0 = pairs[0]
+                self._batch_user_id = str(r0.get("user_id") or "default_user")
+                c = r0.get("character_id")
+                self._batch_char_id = (
+                    str(c).strip()
+                    if c is not None and str(c).strip()
+                    else "sirius"
+                )
+            else:
+                self._batch_user_id = "default_user"
+                self._batch_char_id = "sirius"
+        except Exception as e:
+            logger.warning("跑批记忆身份解析失败，使用兜底: %s", e)
+            self._batch_user_id = "default_user"
+            self._batch_char_id = "sirius"
+
+    async def _memory_context_prefix(self) -> str:
+        """注入 current_status / relationships 激活卡与关系锚点，供小模型对齐语义。"""
+        dims = {
+            "current_status": "用户近况",
+            "relationships": "重要关系",
+        }
+        lines = ["【基础设定】小克是南杉的二号男友。"]
+        try:
+            for dim, label in dims.items():
+                cards = await get_memory_cards(
+                    self._batch_user_id, self._batch_char_id, dim, limit=1
+                )
+                card = cards[0] if cards else None
+                if card and card.get("content"):
+                    lines.append(f"【{label}】{card['content']}")
+        except Exception as e:
+            logger.warning("构建跑批记忆上下文前缀失败（已跳过卡片行）: %s", e)
+        return "\n".join(lines) + "\n\n"
 
     async def _retry_call_and_parse(self, task_name: str, generate_func, parse_func, max_retries: int = 5):
         import asyncio
@@ -277,7 +321,9 @@ class DailyBatchProcessor:
 
             if batch_date is None:
                 batch_date = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
-            
+
+            await self._resolve_batch_memory_identity(batch_date)
+
             logger.info(f"开始日终跑批处理，日期: {batch_date}")
 
             try:
@@ -476,8 +522,9 @@ class DailyBatchProcessor:
             if not today_content.strip():
                 logger.info(f"今日没有内容需要生成小传，日期: {batch_date}")
                 return True, None
-            
-            prompt = self._persona_dialogue_prefix() + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+
+            memory_prefix = await self._memory_context_prefix()
+            prompt = self._persona_dialogue_prefix() + memory_prefix + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在150–400字，内容丰富可写至上限，平淡日常满足150字即可。
 - 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
@@ -755,16 +802,27 @@ class DailyBatchProcessor:
             }
             dimensions_list = "\n".join([f"- {k}：{v}" for k, v in dimensions_desc.items()])
 
+            old_interaction = await get_latest_memory_card_for_dimension(
+                self._batch_user_id, self._batch_char_id, "interaction_patterns"
+            )
+            old_interaction_block = ""
+            if old_interaction and old_interaction.get("content"):
+                old_interaction_block = (
+                    "（既有 interaction_patterns 记录，仅供判断新旧是否矛盾，禁止直接复制）：\n"
+                    f"{old_interaction['content']}\n\n"
+                )
+
             prompt = f"""请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照7个维度分类输出，禁止推理、禁止编造、禁止扩写。
-今日小传（{batch_date}）：
+{old_interaction_block}今日小传（{batch_date}）：
 {summary_text}
 请按以下7个维度分析，提取今日小传中出现的新信息：
 {dimensions_list}
 输出要求：
 1. 只写结论性事实，禁止写事件过程、对话细节、流水账描述。
-2. 字数限制：interaction_patterns 不超过 150 字；其余所有维度不超过 80 字。
-3. 该维度无新增信息时，必须返回 null。
-4. 直接输出纯 JSON 字符串，无代码块、无前言、无解释、无多余内容。
+2. 同一条信息只归入语义最相关的维度，禁止跨维度重复记录同一事实。
+3. 字数限制：interaction_patterns 不超过 150 字；其余所有维度不超过 80 字。
+4. 该维度无新增信息时，必须返回 null。
+5. 直接输出纯 JSON 字符串，无代码块、无前言、无解释、无多余内容。
 格式示例：
 {{"preferences":null,"interaction_patterns":"...","current_status":null,"goals":null,"relationships":null,"key_events":null,"rules":null}}"""
 

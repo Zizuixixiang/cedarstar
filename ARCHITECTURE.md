@@ -31,6 +31,8 @@
 > **2026-04-13（TG 分段）：** **`reply_citations._split_oversized_chunk`**：二级分段中超长按句末 **`。！？…～!?`** 切开时，仅在 **成对符号栈空**（`（）`「」“”《》【】`()` 与 Unicode 弯引号配对）且 **不在 ASCII `"` 成对内**时允许切段，避免把括号、引号从中间拆开。详见 `bot/reply_citations.py`。
 >
 > **2026-04-19（TG 分段，以代码为准）：** **`reply_citations.parse_telegram_segments_with_memes`**：正文经 **`｜｜｜`→`|||`** 归一后，若**至少含一处 `|||`**，则**仅**做一级顺序切分（**`|||`** 与 **`[meme:…]`** 同级），各 text 段整段保留（`strip`），**不**再执行二级换行拆段 / **`_split_oversized_chunk`** / 过短合并 / **`_enforce_max_msg_segments`**；若**全文无 `|||`**（**仅有 `[meme:…]` 不算**「已用 `|||` 分段」），则仍走二级强行走分割与 **`telegram_max_chars`** / **`telegram_max_msg`** 条数封顶。发送侧每条待发 HTML 仍可能因 **Telegram 4096** 在 **`telegram_html_sanitize.split_body_into_html_chunks`**（经 **`markdown_telegram_html`**）再切。详见 `bot/reply_citations.py`。
+>
+> **2026-04-20（跑批 / 微批 Prompt 记忆锚点，以代码为准）：** **`DailyBatchProcessor`**：定好 **`batch_date`** 后 **`await _resolve_batch_memory_identity`**（**`get_today_user_character_pairs`** 当日首对 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`sirius`**，无对则 **`default_user`/`sirius`**），写入 **`_batch_user_id` / `_batch_char_id`**；**`_memory_context_prefix()`** 注入关系锚点 **`【基础设定】…`** 与激活 **`get_memory_cards(..., current_status|relationships, limit=1)`**。**Step 2** 今日小传：**`_persona_dialogue_prefix()` + `_memory_context_prefix()` + 材料正文**。**Step 3** 七维 JSON：在「今日小传」前可选附既有 **`interaction_patterns`**（**`get_latest_memory_card_for_dimension`**，供矛盾判断）；输出要求含**「同一条信息只归入语义最相关的维度，禁止跨维度重复记录同一事实」**。**`memory/micro_batch`**：**`get_unsummarized_messages_by_session`** 额外返回 **`character_id`**；**`generate_summary_for_messages`** **`await _resolve_micro_batch_memory_prefix(messages)`**（消息行取 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`_active_character_id_fallback()`** 读激活 **`chat`** **`persona_id`**）；**`SummaryLLMInterface.generate_summary(..., memory_prefix=…)`** 插在称呼行与摘要指令之间。详见 §3.4.3、§3.4.4、§6.3。
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -119,8 +121,8 @@ cedarstar/                          # 项目根目录
 │   ├── __init__.py                 # 包初始化文件
 │   ├── database.py                 # PostgreSQL 数据库封装（asyncpg 连接池 + MessageDatabase 类 + 全局单例 + 便捷函数）
 │   ├── context_builder.py          # Context 组装器（system + … + 近期消息）；近期 **`assistant`** 经 **`strip_lutopia_behavior_appendix`**；**`user`** 条经 **`inject_user_sent_at_into_llm_content`** 注入东八区 **`【当前时间：…】`**（仅 LLM，不落库）；可选 **`telegram_segment_hint`**、**`tool_oral_coaching`**（Lutopia 口播引导）
-│   ├── micro_batch.py              # 微批处理（消息达阈值时异步生成 chunk 摘要；喂摘要 LLM 前 **`strip_lutopia_internal_memory_blocks`**）
-│   ├── daily_batch.py              # 日终五步流水线实现（`DailyBatchProcessor.run_daily_batch`）；生产由 cron 执行 `run_daily_batch.py`。库内仍保留 `schedule_daily_batch` 循环供自建调度，`main.py` 不启动
+│   ├── micro_batch.py              # 微批处理（chunk 摘要；**`strip_lutopia_internal_memory_blocks`**；**`memory_prefix`** 注入锚点 + **`current_status`/`relationships`** 激活卡；**`get_unsummarized_messages_by_session`** 含 **`character_id`**）
+│   ├── daily_batch.py              # 日终五步（`DailyBatchProcessor`）；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含**既有 interaction_patterns** 块与**单维去重**指令；cron 执行 `run_daily_batch.py`；`schedule_daily_batch` 可选；`main.py` 不启动
 │   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding + 增删查）
 │   ├── meme_store.py               # 表情包专用 Chroma 集合 `meme_pack`（与主记忆隔离；写入/查询用显式向量，硅基流动 BAAI/bge-m3）
 │   ├── bm25_retriever.py           # BM25 关键词检索（jieba 分词 + rank_bm25，内存缓存索引）
@@ -409,6 +411,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **✅ 已改动（2026-04-19）：** **`generate_summary_for_messages`** 在构造 **`formatted_messages`** 时对每条 **`content`** 先 **`strip_lutopia_internal_memory_blocks`**（去掉 **`[系统内部记忆：…]`**），再交给 **`SummaryLLMInterface.generate_summary`**。
 
+**✅ 已改动（2026-04-20）：** **`generate_summary_for_messages`** 先 **`await _resolve_micro_batch_memory_prefix(messages)`**（**`get_memory_cards`** 读 **`current_status` / `relationships`** 各最新激活行 + 关系锚点），传入 **`SummaryLLMInterface.generate_summary(..., memory_prefix=...)`**，插在 **`这是 {char_name} 与 {user_name} 的对话记录。`** 与「请为以下对话生成…摘要」之间；**`get_unsummarized_messages_by_session`** 的 SELECT 含 **`character_id`** 以便按会话对齐记忆卡主键（缺省时 **`_active_character_id_fallback()`**）。
+
 **✅ CedarClio Guard（2026-04-09）：** `SummaryLLMInterface.generate_summary` 经 **`batch_one_shot_with_async_output_guard`** 生成 chunk 摘要；若 Guard 用尽则**不落库、不标记已摘要**（与 §3.3 一致）。
 
 **日志（以代码为准）：** Guard 用尽跳过写入、摘要未生成即返回、检查/处理/触发路径吞异常不阻断主流程等，对应 **WARNING**（非 ERROR）。
@@ -426,8 +430,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | 步骤 | 说明 |
 |------|------|
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
-| Step 2 | 将 Step 1 输出附在 prompt 开头，合并今日 chunk 摘要（每条 **`summary_text`** 先 **`strip_lutopia_internal_memory_blocks`**），调用 SUMMARY LLM 生成今日小传（`summary_type='daily'`）；**`save_summary` 写入 daily 成功后**调用 **`delete_today_chunk_summaries()`**，删除当日 `summary_type='chunk'` 行（与 `get_today_chunk_summaries` 同日规则一致） |
-| Step 3 | 记忆卡片 Upsert：无对应维度则 `INSERT`；**有则**对 `current_status` / `preferences` 先将旧正文 **`vector_store.add_memory`** 归档（`summary_type=state_archive`，`doc_id` 含 `user_id`/`character_id`/`dimension`/`batch_date`，失败仅 warning）；再 **`_merge_memory_card_contents`** 合并后 `UPDATE`（**失败时 fallback** 追加写入）。**关系时间轴** JSON：第三人称、真实姓名、禁「今天/昨天」等相对日期词。结束时写入 `relationship_timeline` |
+| Step 2 | **`_resolve_batch_memory_identity`**（当日 **`get_today_user_character_pairs`** 首对）后，**`_persona_dialogue_prefix()` + `_memory_context_prefix()`**（锚点 + **`current_status`/`relationships`** 激活卡）+ Step 1 输出 + 今日 chunk 摘要（每条 **`summary_text`** 先 **`strip_lutopia_internal_memory_blocks`**），生成今日小传（`summary_type='daily'`）；**`save_summary` 成功后** **`delete_today_chunk_summaries()`** |
+| Step 3 | 七维 JSON：prompt 含可选既有 **`interaction_patterns`**（**`get_latest_memory_card_for_dimension`**，供新旧矛盾判断）；输出要求含**禁止跨维度重复同一事实**。记忆卡片 Upsert：无则 `INSERT`；**有则**对 `current_status` / `preferences` 先 **`vector_store.add_memory`** 归档（`state_archive`）再 **`_merge_memory_card_contents`** → `UPDATE`（失败 fallback）。**关系时间轴** JSON 与 **`relationship_timeline`** 写入同前 |
 | Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
@@ -437,10 +441,10 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 外壳）。**维度三分支：** `interaction_patterns` 单独细则；**`current_status` / `preferences`** 为覆写型（旧状态已归档向量侧，合并 prompt 不含「矛盾则双保留并标日期」句）；**其余维度**保留「矛盾则 `[YYYY-MM-DD]` 标注」句。输出严格 JSON `{"content":"…"}`。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」。`update_memory_card(..., reactivate=True)` 写库并**重新激活**。
 
 **跑批 Prompt 与人物称呼（2026-04，与代码一致）：**
-- **`run_daily_batch`** 在 **`await LLMInterface.create()`** 之后 **`await fetch_active_persona_display_names()`**（同 §3.4.3，来自 `memory.micro_batch`），写入 **`_batch_char_name` / `_batch_user_name`**；**`_persona_dialogue_prefix()`** 返回 `这是 {char} 与 {user} 的对话记录。\n`。
+- **`run_daily_batch`** 在 **`await LLMInterface.create()`** 之后 **`await fetch_active_persona_display_names()`**（同 §3.4.3，来自 `memory.micro_batch`），写入 **`_batch_char_name` / `_batch_user_name`**；定 **`batch_date`** 后 **`await _resolve_batch_memory_identity(batch_date)`** 写入 **`_batch_user_id` / `_batch_char_id`**；**`_persona_dialogue_prefix()`** 返回 `这是 {char} 与 {user} 的对话记录。\n`。
 - **Step 1**（时效状态 JSON 数组改写）：**前缀 + 原任务正文**，仅 **`_call_summary_llm_custom`**，避免套 chunk「为对话生成摘要」模板。
-- **Step 2**（今日小传）：**前缀 +** 按时间顺序、话题/事件/情感、保留互动细节与羁绊、勿分点列举等指令 + **`today_content`** + **`今日小传（中文）:`**，**`_call_summary_llm_custom`**。
-- **Step 3**（七维 JSON、**关系时间轴** JSON）：仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
+- **Step 2**（今日小传）：**`_persona_dialogue_prefix()` + `await _memory_context_prefix()`** + 按时间顺序、话题/事件/情感、保留互动细节与羁绊、勿分点列举等指令 + **`today_content`** + **`今日小传（中文）:`**，**`_call_summary_llm_custom`**。
+- **Step 3**（七维 JSON、**关系时间轴** JSON）：七维 prompt 前可选 **`old_interaction_block`**（既有 **`interaction_patterns`**）；输出要求含**单条事实只归入最相关一维、禁止跨维重复**。仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
 - **Step 4**（小传 **score/arousal**）：主 LLM 的 user **prompt 前加 `_persona_dialogue_prefix()`**；**事件拆分**仍 **`generate_summary`** 并传 `char_name` / `user_name`。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
@@ -1098,7 +1102,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 1. 从 `summaries` 表取最新一条 `summary_type='daily'` 的今日小传（Step 2 产出）
 2. 从 `messages` 表查询当批日期的 `(user_id, character_id)` 列表（无记录时兜底 `default_user/sirius`）
-3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）
+3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）；含既有 **`interaction_patterns`** 参考块与**禁止跨维度重复同一事实**句（见 §3.4.4）
 4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
 5. **Upsert：** `get_latest_memory_card_for_dimension`（**含 `is_active=0`**）；有旧卡时：若维度为 **`current_status` / `preferences`** 且旧正文非空，先 **`add_memory`** 归档至 Chroma（`summary_type=state_archive`，失败仅 warning），再 **`_merge_memory_card_contents`**（维度三分支合并规则，见 §3.4.4）→ `update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
 6. 单维度 `try/except + continue`，互不拖累
