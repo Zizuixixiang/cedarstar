@@ -1331,8 +1331,8 @@ class ContextBuilder:
         """
         组装完整的 system prompt。
 
-        顺序：系统时间 → system → temporal_states → memory_cards → relationship_timeline
-        → 长期记忆检索 → daily → chunk；末尾注入引用死命令与思维链语言要求。
+        顺序：系统时间 → system → **记忆块冲突消解优先级** → temporal_states → memory_cards
+        → relationship_timeline → 长期记忆检索 → daily → chunk；末尾注入引用死命令与思维链语言要求。
         """
         from datetime import datetime, timezone, timedelta
         tz_utc_8 = timezone(timedelta(hours=8))
@@ -1340,6 +1340,7 @@ class ContextBuilder:
         time_section = f"【当前系统时间（东八区）：{now_str}】\n(提示：在对话中若关注时间信息，请以此时间为基准！)"
 
         sections = [time_section, system_prompt]
+        sections.append(MEMORY_BLOCK_PRIORITY_DIRECTIVE)
 
         if temporal_states_section:
             sections.append(temporal_states_section)
@@ -1363,7 +1364,6 @@ class ContextBuilder:
             sections.append("---")
             sections.append("以上是历史信息和用户记忆，请基于这些信息进行对话。")
 
-        sections.append(MEMORY_BLOCK_PRIORITY_DIRECTIVE)
         sections.append(MEMORY_CITATION_DIRECTIVE)
         sections.append(THINKING_LANGUAGE_DIRECTIVE)
 

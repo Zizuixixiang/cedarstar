@@ -32,7 +32,9 @@
 >
 > **2026-04-19（TG 分段，以代码为准）：** **`reply_citations.parse_telegram_segments_with_memes`**：正文经 **`｜｜｜`→`|||`** 归一后，若**至少含一处 `|||`**，则**仅**做一级顺序切分（**`|||`** 与 **`[meme:…]`** 同级），各 text 段整段保留（`strip`），**不**再执行二级换行拆段 / **`_split_oversized_chunk`** / 过短合并 / **`_enforce_max_msg_segments`**；若**全文无 `|||`**（**仅有 `[meme:…]` 不算**「已用 `|||` 分段」），则仍走二级强行走分割与 **`telegram_max_chars`** / **`telegram_max_msg`** 条数封顶。发送侧每条待发 HTML 仍可能因 **Telegram 4096** 在 **`telegram_html_sanitize.split_body_into_html_chunks`**（经 **`markdown_telegram_html`**）再切。详见 `bot/reply_citations.py`。
 >
-> **2026-04-20（跑批 / 微批 Prompt 记忆锚点，以代码为准）：** **`DailyBatchProcessor`**：定好 **`batch_date`** 后 **`await _resolve_batch_memory_identity`**（**`get_today_user_character_pairs`** 当日首对 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`sirius`**，无对则 **`default_user`/`sirius`**），写入 **`_batch_user_id` / `_batch_char_id`**；**`_memory_context_prefix()`** 注入关系锚点 **`【基础设定】…`** 与激活 **`get_memory_cards(..., current_status|relationships, limit=1)`**。**Step 2** 今日小传：**`_persona_dialogue_prefix()` + `_memory_context_prefix()` + 材料正文**。**Step 3** 七维 JSON：在「今日小传」前可选附既有 **`interaction_patterns`**（**`get_latest_memory_card_for_dimension`**，供矛盾判断）；输出要求含**「同一条信息只归入语义最相关的维度，禁止跨维度重复记录同一事实」**。**`memory/micro_batch`**：**`get_unsummarized_messages_by_session`** 额外返回 **`character_id`**；**`generate_summary_for_messages`** **`await _resolve_micro_batch_memory_prefix(messages)`**（消息行取 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`_active_character_id_fallback()`** 读激活 **`chat`** **`persona_id`**）；**`SummaryLLMInterface.generate_summary(..., memory_prefix=…)`** 插在称呼行与摘要指令之间。详见 §3.4.3、§3.4.4、§6.3。
+> **2026-04-20（跑批 / 微批 Prompt 记忆锚点，以代码为准）：** **`DailyBatchProcessor`**：定好 **`batch_date`** 后 **`await _resolve_batch_memory_identity`**（**`get_today_user_character_pairs`** 当日首对 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`sirius`**，无对则 **`default_user`/`sirius`**），写入 **`_batch_user_id` / `_batch_char_id`**；**`_memory_context_prefix()`** 注入关系锚点 **`【基础设定】…`** 与激活 **`get_memory_cards(..., current_status|relationships, limit=1)`**。**Step 2** 今日小传：**`_persona_dialogue_prefix()` + `_memory_context_prefix()` + 材料正文**。**Step 3** 七维 JSON：在「今日小传」前附 **7 个维度**既有记忆卡各一条（**`get_latest_memory_card_for_dimension`** ×7，拼 **`old_cards_block`**，供对比与增量提取）；输出要求含禁止跨维重复、**仅提取增量/状态变化/与旧认知冲突**等句。**`memory/micro_batch`**：**`get_unsummarized_messages_by_session`** 额外返回 **`character_id`**；**`generate_summary_for_messages`** **`await _resolve_micro_batch_memory_prefix(messages)`**（消息行取 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`_active_character_id_fallback()`** 读激活 **`chat`** **`persona_id`**）；**`SummaryLLMInterface.generate_summary(..., memory_prefix=…)`** 插在称呼行与摘要指令之间。详见 §3.4.3、§3.4.4、§6.3。
+>
+> **2026-04-19（记忆管线 / Mini App 长期记忆，以代码为准）：** **`context_builder._assemble_full_system_prompt`**：在 **`system_prompt`（人设正文）之后、各记忆块（`temporal_states`、记忆卡片、`relationship_timeline`、向量检索、daily、chunk）之前**注入 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**；**`MEMORY_CITATION_DIRECTIVE` 与 `THINKING_LANGUAGE_DIRECTIVE` 仍在 system 块末尾**（与 v2 旧述「仅在文末」不同，以代码为准）。**`GET /api/memory/longterm`**：从 **ChromaDB** 分页列出全量向量（`page` / `page_size` / 可选 **`summary_type`** 过滤 **`metadata.summary_type`**）；**`DELETE /api/memory/longterm/{chroma_doc_id}`** 仅允许 **`manual_` 前缀**（先删 Chroma，再 **`delete_longterm_memory_by_chroma_id`** 删 **`longterm_memories`**）；**`PATCH /api/memory/longterm/{chroma_doc_id}/metadata`** 仅更新 **`halflife_days` / `arousal`**。Mini App「长期记忆」Tab 类型筛选：**`daily` / `daily_event` / `manual` / `state_archive`**（**不含 `chunk`**：微批 **`summaries.summary_type=chunk`** 不写入 Chroma）。详见 §3.4.2、§3.4.4、§5.6、§6.7、§7.3。
 > 项目仓库：https://github.com/Zizuixixiang/cedarstar
 
 ---
@@ -122,7 +124,7 @@ cedarstar/                          # 项目根目录
 │   ├── database.py                 # PostgreSQL 数据库封装（asyncpg 连接池 + MessageDatabase 类 + 全局单例 + 便捷函数）
 │   ├── context_builder.py          # Context 组装器（system + … + 近期消息）；近期 **`assistant`** 经 **`strip_lutopia_behavior_appendix`**；**`user`** 条经 **`inject_user_sent_at_into_llm_content`** 注入东八区 **`【当前时间：…】`**（仅 LLM，不落库）；可选 **`telegram_segment_hint`**、**`tool_oral_coaching`**（Lutopia 口播引导）
 │   ├── micro_batch.py              # 微批处理（chunk 摘要；**`strip_lutopia_internal_memory_blocks`**；**`memory_prefix`** 注入锚点 + **`current_status`/`relationships`** 激活卡；**`get_unsummarized_messages_by_session`** 含 **`character_id`**）
-│   ├── daily_batch.py              # 日终五步（`DailyBatchProcessor`）；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含**既有 interaction_patterns** 块与**单维去重**指令；cron 执行 `run_daily_batch.py`；`schedule_daily_batch` 可选；`main.py` 不启动
+│   ├── daily_batch.py              # 日终五步（`DailyBatchProcessor`）；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含**7 维既有卡 `old_cards_block`** 与增量/跨维去重指令；cron 执行 `run_daily_batch.py`；`schedule_daily_batch` 可选；`main.py` 不启动
 │   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding + 增删查）
 │   ├── meme_store.py               # 表情包专用 Chroma 集合 `meme_pack`（与主记忆隔离；写入/查询用显式向量，硅基流动 BAAI/bge-m3）
 │   ├── bm25_retriever.py           # BM25 关键词检索（jieba 分词 + rank_bm25，内存缓存索引）
@@ -379,7 +381,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **边界：**
 - 同步版 `build_context()`：双路检索 + 父子折叠，无 Cohere；长期记忆块标题为「双路检索结果」
 - 异步版 `build_context_async()`：并行检索 + 折叠 + Cohere 全候选打分 + 上述融合公式取 top **N**（同上）；`COHERE_API_KEY` 不可用时回退为同步双路逻辑
-- System 块在「历史桥接」之后、固定指令之前：先追加 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**（多区块信息冲突时：**时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆**，以较新、较具体为准；与上文「组装顺序」为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）；再追加 **`MEMORY_CITATION_DIRECTIVE`**（须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应）；最后 **`THINKING_LANGUAGE_DIRECTIVE`**（思维链须中文）
+- **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**：在 **`system_prompt` 之后、第一个记忆相关块（如 `temporal_states`）之前**注入（多区块信息冲突时：**时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆**，以较新、较具体为准；与上文「向量块 / daily / chunk」**拼接顺序**为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）。**`MEMORY_CITATION_DIRECTIVE`** 与 **`THINKING_LANGUAGE_DIRECTIVE`** 仍在 **system 块末尾**（「历史桥接」各块之后）：引用须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应；思维链须中文
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**——**【Telegram 排版】**：HTML 白名单、自然换行多气泡、`|||` 可选强制分段、MAX_CHARS / MAX_MSG（`config` 表；**发送侧**二者仅约束**无 `|||`** 时的二级强分）、`[meme:…]` 与顺序说明；正文勿用大段 `<blockquote>` / 行首 `>`（思维链 blockquote 由系统处理）；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 - 可选 **`tool_oral_coaching=True`**：在 system 末尾追加 **`TOOL_ORAL_COACHING_BLOCK`**（调用工具前口语提示）；与 `telegram_segment_hint` 可并用；**`persona.enable_lutopia`** 且主对话走 OpenAI 兼容 **tools** 时由 **Telegram / Discord** 在 **`build_context`** 调用前置位
 
@@ -431,7 +433,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 |------|------|
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | **`_resolve_batch_memory_identity`**（当日 **`get_today_user_character_pairs`** 首对）后，**`_persona_dialogue_prefix()` + `_memory_context_prefix()`**（锚点 + **`current_status`/`relationships`** 激活卡）+ Step 1 输出 + 今日 chunk 摘要（每条 **`summary_text`** 先 **`strip_lutopia_internal_memory_blocks`**），生成今日小传（`summary_type='daily'`）；**`save_summary` 成功后** **`delete_today_chunk_summaries()`** |
-| Step 3 | 七维 JSON：prompt 含可选既有 **`interaction_patterns`**（**`get_latest_memory_card_for_dimension`**，供新旧矛盾判断）；输出要求含**禁止跨维度重复同一事实**。记忆卡片 Upsert：无则 `INSERT`；**有则**对 `current_status` / `preferences` 先 **`vector_store.add_memory`** 归档（`state_archive`）再 **`_merge_memory_card_contents`** → `UPDATE`（失败 fallback）。**关系时间轴** JSON 与 **`relationship_timeline`** 写入同前 |
+| Step 3 | 七维 JSON：prompt 在今日小传前附 **7 维既有卡**（对每维 **`get_latest_memory_card_for_dimension`**，拼 **`old_cards_block`**）；输出要求含禁止跨维重复、**仅提取增量/变化/冲突**等。记忆卡片 Upsert：无则 `INSERT`；**有则**对 `current_status` / `preferences` 先 **`vector_store.add_memory`** 归档（`state_archive`）再 **`_merge_memory_card_contents`** → `UPDATE`（失败 fallback）。**关系时间轴** JSON 与 **`relationship_timeline`** 写入同前 |
 | Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
@@ -444,7 +446,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - **`run_daily_batch`** 在 **`await LLMInterface.create()`** 之后 **`await fetch_active_persona_display_names()`**（同 §3.4.3，来自 `memory.micro_batch`），写入 **`_batch_char_name` / `_batch_user_name`**；定 **`batch_date`** 后 **`await _resolve_batch_memory_identity(batch_date)`** 写入 **`_batch_user_id` / `_batch_char_id`**；**`_persona_dialogue_prefix()`** 返回 `这是 {char} 与 {user} 的对话记录。\n`。
 - **Step 1**（时效状态 JSON 数组改写）：**前缀 + 原任务正文**，仅 **`_call_summary_llm_custom`**，避免套 chunk「为对话生成摘要」模板。
 - **Step 2**（今日小传）：**`_persona_dialogue_prefix()` + `await _memory_context_prefix()`** + 按时间顺序、话题/事件/情感、保留互动细节与羁绊、勿分点列举等指令 + **`today_content`** + **`今日小传（中文）:`**，**`_call_summary_llm_custom`**。
-- **Step 3**（七维 JSON、**关系时间轴** JSON）：七维 prompt 前可选 **`old_interaction_block`**（既有 **`interaction_patterns`**）；输出要求含**单条事实只归入最相关一维、禁止跨维重复**。仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
+- **Step 3**（七维 JSON、**关系时间轴** JSON）：七维 prompt 前附 **`old_cards_block`**（7 维各取最近一条既有卡）；输出要求含**单条事实只归入最相关一维、禁止跨维重复**与**增量对比**句。仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
 - **Step 4**（小传 **score/arousal**）：主 LLM 的 user **prompt 前加 `_persona_dialogue_prefix()`**；**事件拆分**仍 **`generate_summary`** 并传 `char_name` / `user_name`。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
@@ -540,7 +542,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - `dashboard.py` 维护一个进程内共享的 `_bot_status` 字典，由 bot 的 `on_ready`/`on_disconnect` 事件写入
 - **`GET /api/dashboard/status` 的模型信息：** `active_api_config` / `model_name` 来自 `get_active_api_config('chat')`，与 Settings「对话 API」Tab 的激活项及 Bot 对话路径一致（不包含摘要 API）
 - `settings.py` 的 API Key 在返回时脱敏（只显示末4位）
-- `memory.py` 手工长期记忆：`POST /longterm` 先写 ChromaDB（`doc_id` 形如 `manual_{uuid}`），成功后再写数据库；`DELETE /longterm/{id}` 先删数据库再删 ChromaDB，Chroma 步骤失败仅记日志、接口仍返回成功；`GET /longterm` 在每条记录上附加 `is_orphan`（`chroma_doc_id` 缺失时为 `true`，非数据库列），并按 `chroma_doc_id` 批量读取 Chroma 元数据附加 `hits`、`halflife_days`、`last_access_ts`（孤儿行三项为 `null`）
+- `memory.py` 长期记忆：**`GET /longterm`** 从 **ChromaDB** 分页拉取全量向量（可选查询参数 **`summary_type`** 过滤 **`metadata.summary_type`**；返回 `items` 含 `chroma_doc_id`、`content`、`summary_type`、`date`、`hits`、`halflife_days`、`arousal`、`last_access_ts`、`base_score`、`is_manual` 等）；**`POST /longterm`** 先写 Chroma（`doc_id` 形如 `manual_{uuid}`，`summary_type=manual`），成功后再写 **`longterm_memories`**；**`DELETE /longterm/{chroma_doc_id}`** 仅 **`manual_` 前缀**，先删 Chroma 再删镜像表（**`delete_longterm_memory_by_chroma_id`**）；**`PATCH /longterm/{chroma_doc_id}/metadata`** 仅更新 **`halflife_days` / `arousal`**（合并写回 Chroma metadata）
 - `memory.py` 时效状态：`GET/POST /temporal-states`、`DELETE /temporal-states/{id}`（将 `is_active` 置 0）；`GET /relationship-timeline` 返回全表按 `created_at` 倒序（只读）
 
 **✅ 已改动（2026-04-05）：** **`/api/persona`** 人设 CRUD 与预览已读写 **`persona_configs.user_work`**，与库迁移、Mini App Persona 页、`context_builder._build_system_prompt` 一致。
@@ -901,13 +903,12 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `score` | INTEGER | 价值分（1-10，日终打分结果） |
 | `created_at` | TIMESTAMP | 创建时间 |
 
-> 此表是 ChromaDB 的数据库镜像，用于 Mini App 展示，两者通过 `chroma_doc_id` 关联。
+> 此表是 **手动新增长期记忆**（`doc_id` 以 `manual_` 开头）的 PostgreSQL 镜像；**列表与筛选以 Chroma 为准**（`GET /longterm` 直接分页读向量库）。历史遗留行可能出现 Chroma 已删而表行仍在的情况，以实际接口返回为准。
 
-**API 说明：** 
-- `GET /api/memory/longterm` 返回的每条 `items[]` 在表字段之外包含：
-  - `is_orphan`（布尔）：当 `chroma_doc_id` 为空或仅空白时为 `true`（历史双写失败遗留）；新通过 Mini App 创建的长期记忆在正常路径下恒为 `false`。
-  - `hits`、`halflife_days`、`last_access_ts`：来自 Chroma 文档元数据（与 `memory/vector_store.py` 写入规则一致）；当 `is_orphan` 为 `true` 时三项均为 `null`。`last_access_ts` 为 Unix 时间戳（秒，浮点）。
-- `POST /api/memory/longterm`（2026-04 最新增加）：支持经由 Mini App 手动新增，且可手动配置 `score` (默认5分) 与 `halflife_days` (默认30天) 等级参数，数据会在 ChromaDB 与 SQLite 保持双写一致。
+**API 说明（以代码为准）：**
+- **`GET /api/memory/longterm`**：数据源为 **ChromaDB**（分页 `page` / `page_size`，可选 **`summary_type`** 等于 **`metadata.summary_type`**）。`data` 含 `items`、`total`、`page`、`page_size`；每条含 `chroma_doc_id`、`content`、**`summary_type`**（Chroma 元数据，如 `daily` / `daily_event` / `manual` / `state_archive`）、`date`、`hits`、`halflife_days`、`arousal`、`last_access_ts`、`base_score`、`is_manual` 等。**微批 `summaries.summary_type=chunk` 不写入 Chroma**，故 Mini App 不提供 `chunk` 类型筛选。
+- **`POST /api/memory/longterm`**：先 Chroma 后 **`longterm_memories`**；可配 `score`、`halflife_days`（写入 Chroma metadata）。
+- **`DELETE` / `PATCH`**：见文首更新条与 §6.7。
 
 ---
 
@@ -1102,7 +1103,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 1. 从 `summaries` 表取最新一条 `summary_type='daily'` 的今日小传（Step 2 产出）
 2. 从 `messages` 表查询当批日期的 `(user_id, character_id)` 列表（无记录时兜底 `default_user/sirius`）
-3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）；含既有 **`interaction_patterns`** 参考块与**禁止跨维度重复同一事实**句（见 §3.4.4）
+3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）；含 **7 维既有卡 `old_cards_block`** 与**禁止跨维度重复同一事实**、**增量对比**句（见 §3.4.4）
 4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
 5. **Upsert：** `get_latest_memory_card_for_dimension`（**含 `is_active=0`**）；有旧卡时：若维度为 **`current_status` / `preferences`** 且旧正文非空，先 **`add_memory`** 归档至 Chroma（`summary_type=state_archive`，失败仅 warning），再 **`_merge_memory_card_contents`**（维度三分支合并规则，见 §3.4.4）→ `update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
 6. 单维度 `try/except + continue`，互不拖累
@@ -1145,15 +1146,17 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ---
 
-### 6.7 ✅ 已修复：`longterm_memories` 表与 ChromaDB 双写不一致风险
+### 6.7 ✅ 已演进：`longterm_memories` 与 Chroma、Mini App 长期记忆列表
 
-**问题：** `api/memory.py` 的 `create_longterm_memory()` 先写数据库再写 ChromaDB，如果 ChromaDB 写入失败，数据库中已有记录但 `chroma_doc_id` 为空，导致数据不一致。删除时也可能出现 ChromaDB 删除成功但数据库删除失败的情况。
+**原问题（2026-03-21）：** 手工长期记忆若先写数据库再写 Chroma，会产生无向量关联行。
 
-**修复（2026-03-21）：**
+**创建（仍以代码为准）：** **`POST /longterm`** 先 **`vector_store.add_memory()`**（`doc_id`=`manual_{uuid}`），成功后再 **`create_longterm_memory(..., chroma_doc_id=...)`**；Chroma 失败则不写库；库写失败则尝试 **`delete_memory`** 回滚 Chroma。
 
-1. **创建：** 先 `vector_store.add_memory()`（`doc_id` 使用 `manual_{uuid}`），成功后再 `create_longterm_memory(..., chroma_doc_id=...)`；Chroma 失败则直接返回业务失败且不写数据库。若数据库写入失败则尝试 `delete_memory` 回滚 Chroma 中的同 `doc_id`。
-2. **删除：** 先 `delete_longterm_memory`，成功后再删 Chroma；数据库失败仍返回删除失败；Chroma 删除失败仅 `warning` 日志，接口仍返回成功（避免向量残留影响接口语义，由运维/后续清理处理）。
-3. **查询：** `GET /longterm` 对每条记录附加 `is_orphan: true/false`（`chroma_doc_id` 缺失即为孤儿行），供前端提示历史遗留数据。
+**列表查询（2026-04 演进）：** **`GET /longterm`** 以 **ChromaDB 全量分页** 为数据源，**不再**依赖 `get_longterm_memories` 表扫描 + `is_orphan` 合并逻辑；镜像表主要用于 **手动条目的删除同步** 与 Dashboard 等辅助统计。
+
+**删除（2026-04 演进）：** **`DELETE /longterm/{chroma_doc_id}`** 仅 **`manual_` 前缀**：先删 Chroma，再 **`delete_longterm_memory_by_chroma_id`**；日终归档类向量不允许在此接口删除。
+
+**元数据：** **`PATCH /longterm/{chroma_doc_id}/metadata`** 仅更新 Chroma 中 **`halflife_days` / `arousal`**（读旧 metadata 合并后写回）。
 
 ---
 
@@ -1241,7 +1244,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 **说明（2026-03-21）：** Bot 侧 `messages.character_id` 已改为随激活 API 配置的 `persona_id` 写入（见 §6.2），本节前端 Mock 排查结论未变；History 等页若按 `character_id` 过滤，将反映数据库中的实际值。
 
-**说明（2026-03-21）：** `GET /api/memory/longterm` 的 `items[]` 已包含 `is_orphan` 字段（见 §6.7）。Memory 页可对 `is_orphan === true` 的长期记忆展示「未关联向量库」等提示，不属于 Mock 数据问题，为可选 UI 增强。
+**说明：** 长期记忆列表以 **Chroma** 为准（见 §5.6、§6.7）；若需提示表侧孤儿行，属历史数据问题，非当前 `GET /longterm` 主路径。
 
 **说明（2026-03-21）：** `miniapp/src/router.jsx` 已显式 `import React from 'react'`（见 §6.11、§7.5），属路由工程规范修复，与页面 Mock 数据无关。
 
@@ -1298,7 +1301,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 **页面名称：** Memory（记忆管理）
 
-**说明（2026-03-21 任务 7）：** 页面分为四个 Tab：记忆卡片、长期记忆、时效状态（`temporal_states` 列表/新增/软删除）、关系时间线（`relationship_timeline` 只读倒序）。长期记忆每条展示 Chroma 侧 `hits`、`halflife_days`、`last_access_ts`，并对 `is_orphan` 显示提示文案。
+**说明（2026-03-21 任务 7，演进以代码为准）：** 页面分为四个 Tab：记忆卡片、长期记忆、时效状态（`temporal_states` 列表/新增/软删除）、关系时间线（`relationship_timeline` 只读倒序）。**长期记忆** Tab：`GET /api/memory/longterm` 拉取 **Chroma** 分页数据；类型筛选为 **`metadata.summary_type`**（**`daily` / `daily_event` / `manual` / `state_archive`**，**无 `chunk`**）；条目展示 `hits`、`halflife_days`、`arousal`、`base_score` 等；**`manual_` 文档可删**；**PATCH 元数据**编辑半衰期/情绪强度；顶栏与正文/「查看全文」/2×2 参数格布局见 `memory.css`。
 
 **时效状态 Tab UI：** 列表状态由 `getTemporalDisplayStatus` 根据 `is_active` 与 `expire_at` 推导（`生效中` / `已过期`）。**「软删除」（停用）按钮仅对「生效中」展示**；`expire_at` 已到期但日终跑批尚未把该行 `is_active` 置 0 时，界面显示「已过期」且**不**出现软删除，与 §6.2 Step 1 到期结算语义一致，避免对已到期记录重复操作。
 
@@ -1314,7 +1317,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 | 页面 | 调用的 API 接口 |
 |------|---------------|
-| **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{id}`、`GET/POST /api/memory/temporal-states`、`DELETE /api/memory/temporal-states/{id}`、`GET /api/memory/relationship-timeline` |
+| **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`（分页 + 可选 `summary_type`）、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{chroma_doc_id}`（仅 `manual_`）、`PATCH /api/memory/longterm/{chroma_doc_id}/metadata`、`GET/POST /api/memory/temporal-states`、`DELETE /api/memory/temporal-states/{id}`、`GET /api/memory/relationship-timeline` |
 | **History.jsx** | `GET /api/history`（platform / keyword / date_from / date_to / page / page_size）；`PATCH /api/history/{id}`（`content` / `thinking` 可选但至少其一）；`DELETE /api/history/{id}` |
 | **Logs.jsx** | `GET /api/logs`（`platform` / `level` / `keyword` / 可选 `time_from`·`time_to` / `page` / `page_size`） |
 | **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |

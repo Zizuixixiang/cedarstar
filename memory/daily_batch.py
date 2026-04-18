@@ -802,27 +802,53 @@ class DailyBatchProcessor:
             }
             dimensions_list = "\n".join([f"- {k}：{v}" for k, v in dimensions_desc.items()])
 
-            old_interaction = await get_latest_memory_card_for_dimension(
-                self._batch_user_id, self._batch_char_id, "interaction_patterns"
-            )
-            old_interaction_block = ""
-            if old_interaction and old_interaction.get("content"):
-                old_interaction_block = (
-                    "（既有 interaction_patterns 记录，仅供判断新旧是否矛盾，禁止直接复制）：\n"
-                    f"{old_interaction['content']}\n\n"
+            _dim_order = [
+                "preferences",
+                "interaction_patterns",
+                "current_status",
+                "goals",
+                "relationships",
+                "key_events",
+                "rules",
+            ]
+            _dim_labels = {
+                "preferences": "偏好与喜恶",
+                "interaction_patterns": "相处模式",
+                "current_status": "近况与生活动态",
+                "goals": "目标与计划",
+                "relationships": "重要关系",
+                "key_events": "重要事件",
+                "rules": "相处规则与禁区",
+            }
+            old_cards_lines = []
+            for dim in _dim_order:
+                card = await get_latest_memory_card_for_dimension(
+                    self._batch_user_id, self._batch_char_id, dim
+                )
+                if card and card.get("content"):
+                    old_cards_lines.append(
+                        f"{dim}（{_dim_labels[dim]}）：{card['content']}"
+                    )
+            old_cards_block = ""
+            if old_cards_lines:
+                old_cards_block = (
+                    "（既有记忆卡片，仅供对比，禁止直接复制）：\n"
+                    + "\n\n".join(old_cards_lines)
+                    + "\n\n"
                 )
 
             prompt = f"""请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照7个维度分类输出，禁止推理、禁止编造、禁止扩写。
-{old_interaction_block}今日小传（{batch_date}）：
+{old_cards_block}今日小传（{batch_date}）：
 {summary_text}
 请按以下7个维度分析，提取今日小传中出现的新信息：
 {dimensions_list}
 输出要求：
 1. 只写结论性事实，禁止写事件过程、对话细节、流水账描述。
-2. 同一条信息只归入语义最相关的维度，禁止跨维度重复记录同一事实。
-3. 字数限制：interaction_patterns 不超过 150 字；其余所有维度不超过 80 字。
-4. 该维度无新增信息时，必须返回 null。
-5. 直接输出纯 JSON 字符串，无代码块、无前言、无解释、无多余内容。
+2. 字数限制：interaction_patterns 不超过 150 字；其余所有维度不超过 80 字。
+3. 该维度无新增信息时，必须返回 null。
+4. 直接输出纯 JSON 字符串，无代码块、无前言、无解释、无多余内容。
+5. 同一条信息只归入语义最相关的维度，禁止跨维度重复记录同一事实。
+6. 对比现有记忆，仅提取今日新增的、发生状态变化的、或与旧认知有冲突的增量信息。已有的固定事实禁止重复提取。
 格式示例：
 {{"preferences":null,"interaction_patterns":"...","current_status":null,"goals":null,"relationships":null,"key_events":null,"rules":null}}"""
 

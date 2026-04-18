@@ -571,6 +571,11 @@ h2.memory-tab-header__title,
   filter: brightness(1.02);
 }
 
+/* 长期记忆：全文按钮已改为正文下方块级流式排版，仅需略增底距避免贴边 */
+.memory-item.memory-item--has-view-link {
+  padding-bottom: calc(var(--card-padding, 16px) + 4px);
+}
+
 .memory-summary {
   color: var(--text-main);
   font-size: 0.95rem;
@@ -580,6 +585,103 @@ h2.memory-tab-header__title,
   -webkit-line-clamp: 3;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+
+/* 长期记忆正文与「查看全文」：正文单独占一行，免删徽章不混入截断区 */
+.memory-longterm-body-wrap {
+  margin-bottom: 12px;
+}
+
+/* 覆盖记忆卡片的负 margin-top，避免「查看全文」压到正文上；按钮在正文下方独立成行 */
+.memory-longterm-body-wrap .card-view-full-link {
+  margin: 12px 0 0;
+  width: fit-content;
+  max-width: 100%;
+  position: relative;
+  z-index: 0;
+}
+
+.memory-longterm-badge-row {
+  margin-bottom: 8px;
+}
+
+/* 长期记忆顶栏：单行 flex，左（日期+类型）与右（编辑/删除）两端对齐 */
+.memory-item-head--longterm {
+  display: flex;
+  flex-direction: row;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+  min-width: 0;
+}
+
+.memory-item-head__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.memory-longterm-title {
+  font-weight: 600;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.memory-item-head__actions {
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.memory-longterm-type-badge {
+  line-height: 1.2;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+/* 长期记忆底部：last_access_ts + doc_id，小字浅灰、行距舒适，长 doc_id 强制断行 */
+.memory-longterm-meta-footer {
+  margin-top: 8px;
+  padding-top: 6px;
+  font-size: 0.72rem;
+  color: var(--text-sub);
+  line-height: 1.5;
+}
+
+.memory-longterm-meta-footer__line {
+  margin-bottom: 10px;
+  word-break: break-word;
+}
+
+.memory-longterm-meta-footer__doc {
+  display: block;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+.memory-longterm-meta-footer__doc-label {
+  opacity: 0.92;
+}
+
+.memory-longterm-doc-id {
+  display: inline;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  font-family: monospace;
+  font-size: 0.68rem;
+  line-height: 1.5;
+  color: var(--text-sub);
+}
+
+.memory-summary.memory-summary--longterm-only {
+  margin-bottom: 0;
 }
 
 .memory-meta {
@@ -608,10 +710,22 @@ h2.memory-tab-header__title,
   margin-bottom: 6px;
 }
 
-/* 长期记忆：hits / halflife 胶囊标签，与右侧留白解耦、更易扫读 */
+/* 长期记忆：四个元数据标签固定 2×2 网格；框内允许换行，避免 HALFLIFE_DAYS 等被裁切 */
 .memory-detail-row--chroma-stats {
-  gap: 10px 12px;
-  align-items: center;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px 12px;
+  align-items: stretch;
+}
+
+.memory-detail-row--chroma-stats .memory-meta-chip {
+  min-width: 0;
+  display: flex;
+  align-items: flex-start;
+  white-space: normal;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  line-height: 1.35;
 }
 
 .memory-meta-chip {
@@ -1342,6 +1456,12 @@ h2.memory-tab-header__title,
 
   .longterm-header .search-input {
     min-width: 0;
+  }
+
+  /* 窄屏下参数框略缩字号，仍允许换行完整显示 */
+  .memory-detail-row--chroma-stats .memory-meta-chip {
+    font-size: 0.68rem;
+    padding: 6px 8px;
   }
 
 }

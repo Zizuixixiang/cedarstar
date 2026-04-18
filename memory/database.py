@@ -2488,6 +2488,18 @@ class MessageDatabase:
             )
         return _rowcount(result) > 0
 
+    async def delete_longterm_memory_by_chroma_id(self, chroma_doc_id: str) -> bool:
+        """按 Chroma 文档 id 删除 longterm_memories 镜像行（若有）。"""
+        cid = (chroma_doc_id or "").strip()
+        if not cid:
+            return False
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM longterm_memories WHERE chroma_doc_id = $1",
+                cid,
+            )
+        return _rowcount(result) > 0
+
     # ------------------------------------------------------------------
     # meme_pack
     # ------------------------------------------------------------------

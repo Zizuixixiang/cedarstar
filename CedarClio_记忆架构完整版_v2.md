@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-12（与 CedarStar 实现对齐：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准）
+> 文档版本：2026-04-19（与 CedarStar 实现对齐：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**）
 
 ---
 
@@ -65,7 +65,7 @@
 | `session_id` | 来源会话或 `daily_batch` 等 |
 | `summary_text` | 摘要正文 |
 | `start_message_id` / `end_message_id` | chunk 对应消息范围（日终 daily 可为占位） |
-| `summary_type` | `chunk` / `daily`（枚举约束以代码为准） |
+| `summary_type` | `chunk` / `daily`（**仅 `summaries` 表**；枚举约束以代码为准） |
 | `source_date` | 业务日期（迁移补齐） |
 | `created_at` | 创建时间 |
 
@@ -198,9 +198,10 @@ doc_id:    daily_{batch_date}_event_0、_event_1...
 text:      单条事件正文
 metadata:
   date
+  session_id       来源 session（与轨道一一致）
+  summary_type     实现为 **"daily_event"**（与轨道一 **"daily"** 区分）
   parent_id        关联回当天 daily 的 doc_id（软引用，非硬外键）
-  event_type       highlight / rant / milestone / health 等
-  base_score       按单条事件独立打分
+  base_score       按单条事件独立打分（与当日 daily 同批打分策略）
   halflife_days
   arousal          继承自当日 daily 的 arousal 值（float，0.0–1.0）
   hits             初始值 0
@@ -218,6 +219,16 @@ metadata:
 | 8-10 分 | 600 天 |
 | 4-7 分 | 200 天 |
 | 1-3 分 | 30 天 |
+
+### 2.1 Chroma `metadata.summary_type`（与 `summaries.summary_type` 区分）
+
+- **PostgreSQL `summaries` 表**的 **`summary_type`** 只有 **`chunk`（微批）** 与 **`daily`（今日小传文本）**，供 Context 注入与跑批衔接；**`chunk` 不落 Chroma**。
+- **ChromaDB** 每条向量另有 **`metadata.summary_type`**，由写入路径决定，常见取值：
+  - **`daily`**：轨道一主文档（`doc_id=daily_{batch_date}`）
+  - **`daily_event`**：轨道二事件片段（实现侧字段名；文档「轨道二」表若未列此项，以代码为准）
+  - **`state_archive`**：日终 Step 3 覆盖 `preferences` / `current_status` 前，旧正文归档量
+  - **`manual`**：Mini App 手动新增长期记忆（`doc_id` 前缀 `manual_`）
+- **Mini App「长期记忆」类型筛选**按 Chroma 的 **`metadata.summary_type`** 过滤；**不提供 `chunk`**。
 
 ---
 
@@ -290,7 +301,7 @@ def init_bm25_index():
 6. 引用指令注入（Prompt 末尾死命令，见 Citation 机制）
 ```
 
-**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system 内各区块的拼接顺序**（越靠后的块在字面上离「当前轮」越远、越像背景）。另有一套并列规则：在 **`memory/context_builder.py`** 末尾注入的 **冲突消解优先级**（例如时效状态高于近期消息、每日摘要与记忆卡片、长期记忆的取舍），与拼接顺序 **独立存在**——模型在信息冲突时按该优先级消解，**不因**拼接顺序而自动覆盖。
+**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system 内各区块的拼接顺序**（越靠后的块在字面上离「当前轮」越远、越像背景）。**冲突消解优先级**（时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆等）由 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 定义；在 **`_assemble_full_system_prompt` 中于 `system_prompt`（人设正文）之后、第一个记忆块（如 `temporal_states`）之前注入**，与上表拼接顺序 **并列存在**——模型在信息冲突时按该优先级消解，**不因**字面拼接顺序而自动覆盖。**引用死命令与思维链语言要求**（`MEMORY_CITATION_DIRECTIVE`、`THINKING_LANGUAGE_DIRECTIVE`）仍在 **system 块末尾**（各记忆块与桥接语之后）。
 
 ### 两阶段长期记忆召回
 
@@ -445,12 +456,9 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 基于 Step 2 的今日小传：
 
-**卡片 Upsert：**
-- 让模型判断今日内容是否包含 7 个维度的新信息
-- 有则查询该 dimension 是否已有 `is_active=1` 的卡片
-  - 没有 → INSERT
-  - 有 → 融合重写后 UPDATE
-- 数据库唯一约束 `UNIQUE(user_id, dimension)` 从结构上防止膨胀
+**卡片 Upsert（以 `memory/daily_batch.py` 为准）：**
+- 七维提取 prompt 在「今日小传」前附 **7 个维度**既有记忆卡各一条（`get_latest_memory_card_for_dimension`，**不过滤 `is_active`**），供对比与**增量/冲突**判断；输出为严格 JSON。
+- 各维无新信息则为 `null`；有则对该维 Upsert：**无行 → INSERT**；**有行 →** 对 `current_status` / `preferences` 且旧正文非空时先 **`add_memory`**（`summary_type=state_archive`）再合并更新，其余维按合并规则 **UPDATE**（应用层保证不膨胀，**非**依赖 `UNIQUE(user_id, dimension)` 单表约束——实现为 **`user_id`+`character_id`+`dimension`**）。
 
 **关系时间线追加：**
 - 由模型判断今日是否发生了关系里程碑事件（含 Step 1 刚完结的重要时效事件）

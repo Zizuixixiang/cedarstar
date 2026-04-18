@@ -2,7 +2,7 @@
 记忆管理 API 模块。
 提供记忆卡片管理接口和长期记忆库接口。
 长期记忆：创建时先写 ChromaDB（成功后再写 SQLite）；删除时先删 SQLite 再删 ChromaDB。
-列表接口对 chroma_doc_id 为空的记录附带 is_orphan 标记。
+GET /longterm 从 ChromaDB 分页全量列出；SQLite 镜像仅对手动条目维护，列表以向量库为准。
 """
 from fastapi import APIRouter
 from pydantic import BaseModel
@@ -34,6 +34,11 @@ class LongTermMemoryCreate(BaseModel):
     content: str
     score: Optional[int] = 5
     halflife_days: Optional[int] = 30
+
+
+class LongTermMetadataPatch(BaseModel):
+    halflife_days: Optional[int] = None
+    arousal: Optional[float] = None
 
 
 class TemporalStateCreate(BaseModel):
@@ -211,19 +216,86 @@ async def deactivate_memory_card(card_id: int):
 
 @router.get("/longterm")
 async def get_longterm_memories(
-    keyword: str = "",
     page: int = 1,
-    page_size: int = 20
+    page_size: int = 20,
+    summary_type: Optional[str] = None,
 ):
-    """获取长期记忆列表（带搜索和分页，从真实数据库读取）。"""
-    from memory.database import get_database
-    
+    """从 ChromaDB 分页拉取长期记忆全量；可选按 metadata.summary_type 过滤。"""
+    from memory.vector_store import get_vector_store
+
     try:
-        db = get_database()
-        result = await db.get_longterm_memories(keyword=keyword, page=page, page_size=page_size)
-        result = _annotate_longterm_query_result(result)
-        result = _annotate_longterm_chroma_stats(result)
-        return create_response(True, result, "获取长期记忆成功")
+        vs = get_vector_store()
+        st = (summary_type or "").strip() or None
+        where = {"summary_type": st} if st else None
+
+        if where:
+            filt = vs.collection.get(where=where, include=["metadatas"])
+            total = len(filt.get("ids") or [])
+        else:
+            total = vs.collection.count()
+
+        page = max(1, page)
+        page_size = max(1, min(page_size, 200))
+        offset = (page - 1) * page_size
+
+        items: List[Dict[str, Any]] = []
+        if total > 0 and offset < total:
+            result = vs.collection.get(
+                limit=page_size,
+                offset=offset,
+                where=where,
+                include=["documents", "metadatas"],
+            )
+            ids = result.get("ids") or []
+            docs = result.get("documents") or []
+            metas = result.get("metadatas") or []
+            for i, doc_id in enumerate(ids):
+                meta = metas[i] if i < len(metas) else None
+                meta = dict(meta or {})
+                doc = docs[i] if i < len(docs) else ""
+                lat = meta.get("last_access_ts")
+                last_ts: Optional[float] = None
+                if lat is not None:
+                    try:
+                        last_ts = float(lat)
+                    except (TypeError, ValueError):
+                        last_ts = None
+                raw_arousal = meta.get("arousal")
+                arousal_val: Optional[float] = None
+                if raw_arousal is not None:
+                    try:
+                        arousal_val = float(raw_arousal)
+                    except (TypeError, ValueError):
+                        arousal_val = None
+                raw_base = meta.get("base_score")
+                base_score = 5.0
+                if raw_base is not None:
+                    try:
+                        base_score = float(raw_base)
+                    except (TypeError, ValueError):
+                        base_score = 5.0
+                items.append(
+                    {
+                        "chroma_doc_id": doc_id,
+                        "content": doc or "",
+                        "is_manual": str(doc_id).startswith("manual_"),
+                        "summary_type": meta.get("summary_type"),
+                        "date": meta.get("date"),
+                        "hits": _safe_int(meta.get("hits"), 0),
+                        "halflife_days": _safe_int(meta.get("halflife_days"), 30),
+                        "arousal": arousal_val,
+                        "last_access_ts": last_ts,
+                        "base_score": base_score,
+                    }
+                )
+
+        payload = {
+            "items": items,
+            "total": total,
+            "page": page,
+            "page_size": page_size,
+        }
+        return create_response(True, payload, "获取长期记忆成功")
     except Exception as e:
         logger.error(f"获取长期记忆失败: {e}")
         return create_response(False, None, f"获取长期记忆失败: {str(e)}")
@@ -293,48 +365,64 @@ async def create_longterm_memory(body: LongTermMemoryCreate):
     return create_response(True, {"memory": new_memory}, "长期记忆创建成功")
 
 
-@router.delete("/longterm/{memory_id}")
-async def delete_longterm_memory(memory_id: int):
+@router.patch("/longterm/{chroma_doc_id}/metadata")
+async def update_longterm_metadata(chroma_doc_id: str, body: LongTermMetadataPatch):
+    """更新 Chroma 元数据（halflife_days、arousal）；合并写入，避免覆盖其他 metadata 字段。"""
+    from memory.vector_store import get_vector_store
+
+    patch = body.model_dump(exclude_unset=True)
+    if not patch:
+        return create_response(False, None, "无可更新字段")
+
+    vs = get_vector_store()
+    try:
+        got = vs.collection.get(ids=[chroma_doc_id], include=["metadatas"])
+        if not got.get("ids"):
+            return create_response(False, None, "记录不存在")
+        md = dict((got["metadatas"] or [None])[0] or {})
+        if "halflife_days" in patch:
+            md["halflife_days"] = int(patch["halflife_days"])
+        if "arousal" in patch:
+            md["arousal"] = float(patch["arousal"])
+        vs.collection.update(ids=[chroma_doc_id], metadatas=[md])
+        return create_response(True, {"chroma_doc_id": chroma_doc_id}, "更新成功")
+    except Exception as e:
+        logger.error(f"更新长期记忆元数据失败 doc_id={chroma_doc_id}: {e}")
+        return create_response(False, None, f"更新失败: {str(e)}")
+
+
+@router.delete("/longterm/{chroma_doc_id}")
+async def delete_longterm_memory(chroma_doc_id: str):
     """
-    删除长期记忆。
-    先删 SQLite，再删 ChromaDB。SQLite 失败返回删除失败；Chroma 失败仅记日志，接口仍返回成功。
+    按 Chroma doc_id 删除；仅允许 manual_ 前缀（Mini App 手动新增）。
+    先删 ChromaDB，再尝试删除 longterm_memories 镜像行。
     """
+    if not chroma_doc_id.startswith("manual_"):
+        return create_response(False, None, "日终归档记忆不允许删除")
+
     from memory.database import get_database
     from memory.vector_store import get_vector_store
-    
-    db = get_database()
-    
-    record = await db.get_longterm_memory(memory_id)
-    if not record:
-        return create_response(False, None, "记忆不存在")
-    
-    chroma_doc_id = record.get("chroma_doc_id")
-    
-    sqlite_deleted = False
+
+    vs = get_vector_store()
     try:
-        sqlite_deleted = await db.delete_longterm_memory(memory_id)
+        chroma_ok = vs.delete_memory(chroma_doc_id)
+        if not chroma_ok:
+            return create_response(False, None, "删除失败")
     except Exception as e:
-        logger.error(f"从 SQLite 删除长期记忆失败 memory_id={memory_id}: {e}")
-    
-    if not sqlite_deleted:
-        return create_response(False, None, "删除失败")
-    
-    if chroma_doc_id and not _is_chroma_doc_id_missing(chroma_doc_id):
-        try:
-            store = get_vector_store()
-            chroma_ok = store.delete_memory(chroma_doc_id)
-            if not chroma_ok:
-                logger.warning(
-                    f"SQLite 已删除但 ChromaDB 删除未成功 memory_id={memory_id} "
-                    f"doc_id={chroma_doc_id}"
-                )
-        except Exception as e:
-            logger.warning(
-                f"SQLite 已删除但 ChromaDB 删除异常 memory_id={memory_id} "
-                f"doc_id={chroma_doc_id}: {e}"
-            )
-    
-    return create_response(True, {"memory_id": memory_id}, "长期记忆删除成功")
+        logger.error(f"ChromaDB 删除长期记忆失败 doc_id={chroma_doc_id}: {e}")
+        return create_response(False, None, f"删除失败: {str(e)}")
+
+    db = get_database()
+    try:
+        await db.delete_longterm_memory_by_chroma_id(chroma_doc_id)
+    except Exception as e:
+        logger.warning(
+            "Chroma 已删除但镜像表删除失败 chroma_doc_id=%s: %s",
+            chroma_doc_id,
+            e,
+        )
+
+    return create_response(True, {"chroma_doc_id": chroma_doc_id}, "长期记忆删除成功")
 
 
 # ==========================================

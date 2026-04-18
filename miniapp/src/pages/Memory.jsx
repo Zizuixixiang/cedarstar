@@ -35,6 +35,15 @@ const EVENT_TYPE_MAP = {
   daily_warmth: '日常温情'
 };
 
+const SUMMARY_TYPE_LABELS = {
+  daily: '日总 daily',
+  daily_event: '日终片段 daily_event',
+  manual: '手动 manual',
+  state_archive: '状态归档 state_archive',
+};
+
+const LONGTERM_PAGE_SIZE = 20;
+
 /**
  * 判断记忆卡片正文是否被 -webkit-line-clamp 截断。
  * 部分环境下截断后 scrollHeight === clientHeight，仅用 scrollHeight 会漏掉「查看全文」。
@@ -108,6 +117,13 @@ function formatLastAccessTs(ts) {
   return new Date(n * 1000).toLocaleString('zh-CN');
 }
 
+function formatLongtermTitleLine(memory) {
+  if (memory.date) {
+    return memory.date;
+  }
+  return formatLastAccessTs(memory.last_access_ts);
+}
+
 /**
  * Toast 提示组件
  */
@@ -168,6 +184,58 @@ function ViewMemoryCardModal({ dimension, content, onClose }) {
           <div className="memory-view-sheet-headings">
             <h2 id="memory-view-title" className="memory-view-sheet-title">
               {title}
+            </h2>
+            <p className="memory-view-sheet-sub">只读预览</p>
+          </div>
+          <button type="button" className="memory-view-close" onClick={onClose} aria-label="关闭">
+            完成
+          </button>
+        </header>
+        <div className="memory-view-sheet-body">{content}</div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
+ * 长期记忆：只读全文弹窗
+ */
+function ViewLongtermMemoryModal({ title, content, onClose }) {
+  useEffect(() => {
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => {
+      if (e.key === 'Escape') {
+        onClose();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [onClose]);
+
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const heading = title || '长期记忆';
+
+  return createPortal(
+    <div className="memory-view-overlay" onClick={onClose} role="presentation">
+      <div
+        className="memory-view-sheet"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="longterm-view-title"
+      >
+        <header className="memory-view-sheet-header">
+          <div className="memory-view-sheet-headings">
+            <h2 id="longterm-view-title" className="memory-view-sheet-title">
+              {heading}
             </h2>
             <p className="memory-view-sheet-sub">只读预览</p>
           </div>
@@ -593,24 +661,157 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
 }
 
 /**
- * 长期记忆项组件
+ * 长期记忆：编辑 Chroma 元数据（halflife_days、arousal）
  */
-function LongTermMemoryItem({ memory, onDelete, gcExemptHitsThreshold }) {
+function LongTermMetadataModal({ memory, onClose, onSave }) {
+  const [halflifeDays, setHalflifeDays] = useState('30');
+  const [arousal, setArousal] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!memory) {
+      return;
+    }
+    setHalflifeDays(String(memory.halflife_days ?? 30));
+    setArousal(memory.arousal != null && memory.arousal !== '' ? String(memory.arousal) : '');
+  }, [memory]);
+
+  if (!memory) {
+    return null;
+  }
+
+  const handleSubmit = async () => {
+    const payload = {};
+    const hl = parseInt(halflifeDays, 10);
+    if (!Number.isNaN(hl)) {
+      payload.halflife_days = hl;
+    }
+    const ar = arousal.trim();
+    if (ar !== '') {
+      const a = parseFloat(ar);
+      if (!Number.isNaN(a)) {
+        payload.arousal = a;
+      }
+    }
+    if (!Object.keys(payload).length) {
+      onClose();
+      return;
+    }
+    setSubmitting(true);
+    try {
+      const ok = await onSave(memory.chroma_doc_id, payload);
+      if (ok) {
+        onClose();
+      }
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" role="presentation" onClick={onClose}>
+      <div
+        className="modal-container"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="longterm-meta-title"
+      >
+        <div className="modal-title" id="longterm-meta-title">
+          编辑元数据
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">半衰期 halflife_days（天）</div>
+          <input
+            type="number"
+            className="search-input"
+            value={halflifeDays}
+            onChange={(e) => setHalflifeDays(e.target.value)}
+            min={1}
+            disabled={submitting}
+          />
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">情绪强度 arousal（可选）</div>
+          <input
+            type="number"
+            step="any"
+            className="search-input"
+            value={arousal}
+            onChange={(e) => setArousal(e.target.value)}
+            placeholder="留空表示不在此修改"
+            disabled={submitting}
+          />
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="modal-button cancel" onClick={onClose} disabled={submitting}>
+            取消
+          </button>
+          <button type="button" className="modal-button confirm" onClick={handleSubmit} disabled={submitting}>
+            {submitting ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * 长期记忆项组件（Chroma 全量列表）
+ */
+function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold }) {
   const [showConfirm, setShowConfirm] = useState(false);
-  
+  const [viewOpen, setViewOpen] = useState(false);
+  const [showViewFull, setShowViewFull] = useState(false);
+  const longtermSummaryRef = useRef(null);
+  const bodyText = memory.content || '';
+
   const handleDelete = () => {
     setShowConfirm(true);
   };
-  
+
   const confirmDelete = () => {
-    onDelete(memory.id);
+    onDelete(memory.chroma_doc_id);
     setShowConfirm(false);
   };
+
+  useLayoutEffect(() => {
+    if (!bodyText.trim()) {
+      setShowViewFull(false);
+      return;
+    }
+    const el = longtermSummaryRef.current;
+    if (!el) {
+      setShowViewFull(false);
+      return;
+    }
+    const checkOverflow = () => {
+      setShowViewFull(isMemoryCardContentTruncated(el, bodyText));
+    };
+    checkOverflow();
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(checkOverflow) : null;
+    if (ro) {
+      ro.observe(el);
+    }
+    window.addEventListener('resize', checkOverflow);
+    return () => {
+      if (ro) {
+        ro.disconnect();
+      }
+      window.removeEventListener('resize', checkOverflow);
+    };
+  }, [bodyText]);
 
   const hitsNum = memory.hits != null ? Number(memory.hits) : null;
   const isGcExempt = hitsNum != null && gcExemptHitsThreshold != null && hitsNum >= gcExemptHitsThreshold;
   const arousalDisplay = memory.arousal != null ? Number(memory.arousal).toFixed(2) : null;
-  
+  const baseDisplay =
+    memory.base_score != null && memory.base_score !== ''
+      ? Number(memory.base_score).toFixed(1)
+      : '—';
+  const summaryType = memory.summary_type || '';
+  const typeLabel = SUMMARY_TYPE_LABELS[summaryType] || summaryType || '—';
+
   if (showConfirm) {
     return (
       <div className="modal-overlay">
@@ -619,10 +820,10 @@ function LongTermMemoryItem({ memory, onDelete, gcExemptHitsThreshold }) {
           <div className="confirm-message">确认删除这条长期记忆吗？</div>
           <div className="confirm-warning">删除后不可恢复。</div>
           <div className="modal-actions">
-            <button className="modal-button cancel" onClick={() => setShowConfirm(false)}>
+            <button type="button" className="modal-button cancel" onClick={() => setShowConfirm(false)}>
               取消
             </button>
-            <button className="modal-button delete" onClick={confirmDelete}>
+            <button type="button" className="modal-button delete" onClick={confirmDelete}>
               确认删除
             </button>
           </div>
@@ -630,45 +831,67 @@ function LongTermMemoryItem({ memory, onDelete, gcExemptHitsThreshold }) {
       </div>
     );
   }
-  
+
   return (
-    <div className="memory-item">
-      <div className="memory-summary">
-        {memory.content}
-        {isGcExempt && (
+    <div className={`memory-item ${showViewFull ? 'memory-item--has-view-link' : ''}`}>
+      {viewOpen && (
+        <ViewLongtermMemoryModal
+          title={formatLongtermTitleLine(memory)}
+          content={bodyText}
+          onClose={() => setViewOpen(false)}
+        />
+      )}
+      <div className="memory-item-head memory-item-head--longterm">
+        <div className="memory-item-head__meta">
+          <span className="memory-longterm-title">{formatLongtermTitleLine(memory)}</span>
+          {summaryType ? (
+            <span className="memory-longterm-type-badge timeline-type-badge" title="summary_type">
+              {typeLabel}
+            </span>
+          ) : null}
+        </div>
+        <div className="memory-item-head__actions">
+          <button type="button" className="action-button edit-button" onClick={() => onEdit(memory)}>
+            编辑
+          </button>
+          {memory.is_manual ? (
+            <button type="button" className="delete-button" onClick={handleDelete}>
+              删除
+            </button>
+          ) : null}
+        </div>
+      </div>
+      {isGcExempt ? (
+        <div className="memory-longterm-badge-row">
           <span className="gc-exempt-badge" title={`引用次数 ${hitsNum} ≥ 阈值 ${gcExemptHitsThreshold}，已豁免自动删除`}>
             <Lock className="gc-exempt-badge__icon" size={12} strokeWidth={2} aria-hidden />
             免删
           </span>
-        )}
-      </div>
-      {memory.is_orphan ? (
-        <div className="memory-orphan-hint">未同步到向量库（is_orphan）</div>
+        </div>
       ) : null}
-      <div className="memory-detail-row memory-detail-row--chroma-stats">
-        <span className="memory-meta-chip">
-          引用次数 hits：{hitsNum != null ? hitsNum : '—'}
-        </span>
-        <span className="memory-meta-chip">
-          半衰期 halflife_days：{memory.halflife_days != null ? memory.halflife_days : '—'}
-        </span>
-        {arousalDisplay != null && (
-          <span className="memory-meta-chip">
-            情绪强度 arousal：{arousalDisplay}
-          </span>
-        )}
-      </div>
-      <div className="memory-detail-row memory-detail-row-single">
-        最近访问 last_access_ts：
-        {formatLastAccessTs(memory.last_access_ts)}
-      </div>
-      <div className="memory-meta">
-        <span>归档: {new Date(memory.created_at).toLocaleDateString('zh-CN')}</span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <span className="score-badge">★ {memory.score || '0'}分</span>
-          <button className="delete-button" onClick={handleDelete}>
-            删除
+      <div className="memory-longterm-body-wrap">
+        <div ref={longtermSummaryRef} className="memory-summary memory-summary--longterm-only">
+          {memory.content}
+        </div>
+        {showViewFull ? (
+          <button type="button" className="card-view-full-link" onClick={() => setViewOpen(true)}>
+            查看全文
           </button>
+        ) : null}
+      </div>
+      <div className="memory-detail-row memory-detail-row--chroma-stats">
+        <span className="memory-meta-chip">hits：{hitsNum != null ? hitsNum : '—'}</span>
+        <span className="memory-meta-chip">halflife_days：{memory.halflife_days != null ? memory.halflife_days : '—'}</span>
+        <span className="memory-meta-chip">arousal：{arousalDisplay != null ? arousalDisplay : '—'}</span>
+        <span className="memory-meta-chip">base_score：{baseDisplay}</span>
+      </div>
+      <div className="memory-longterm-meta-footer">
+        <div className="memory-longterm-meta-footer__line">
+          最近访问 last_access_ts：{formatLastAccessTs(memory.last_access_ts)}
+        </div>
+        <div className="memory-longterm-meta-footer__doc">
+          <span className="memory-longterm-meta-footer__doc-label">doc_id: </span>
+          <span className="memory-longterm-doc-id">{memory.chroma_doc_id}</span>
         </div>
       </div>
     </div>
@@ -762,6 +985,7 @@ function Memory() {
   
   const [showAddModal, setShowAddModal] = useState(false);
   const [showTemporalAddModal, setShowTemporalAddModal] = useState(false);
+  const [longtermEditMemory, setLongtermEditMemory] = useState(null);
   
   const [activeTab, setActiveTab] = useState('cards');
   const [temporalStates, setTemporalStates] = useState([]);
@@ -769,11 +993,11 @@ function Memory() {
   const [timelineEvents, setTimelineEvents] = useState([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
   
-  // 搜索和分页
-  const [searchKeyword, setSearchKeyword] = useState('');
+  // 长期记忆：summary_type 筛选与分页
+  const [longtermTypeFilter, setLongtermTypeFilter] = useState('');
   const [currentPage, setCurrentPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
-  const searchTimeoutRef = useRef(null);
+  const [longtermTotal, setLongtermTotal] = useState(0);
+  const totalPages = Math.max(1, Math.ceil(longtermTotal / LONGTERM_PAGE_SIZE));
   
   // 添加 Toast
   const addToast = useCallback((message, type = 'info') => {
@@ -846,34 +1070,39 @@ function Memory() {
     }
   }, [addToast]);
   
-  // 加载长期记忆数据
-  const loadLongTermMemories = useCallback(async (keyword = '', page = 1) => {
-    try {
-      const params = new URLSearchParams({
-        keyword,
-        page: page.toString(),
-        page_size: '20'
-      });
-      
-      const response = await apiFetch(`/api/memory/longterm?${params}`);
-      if (!response.ok) {
-        throw new Error('获取长期记忆失败');
+  // 加载长期记忆数据（ChromaDB 全量分页）
+  const loadLongTermMemories = useCallback(
+    async (page = 1, summaryTypeFilter = longtermTypeFilter) => {
+      try {
+        const params = new URLSearchParams({
+          page: page.toString(),
+          page_size: String(LONGTERM_PAGE_SIZE),
+        });
+        if (summaryTypeFilter) {
+          params.set('summary_type', summaryTypeFilter);
+        }
+
+        const response = await apiFetch(`/api/memory/longterm?${params}`);
+        if (!response.ok) {
+          throw new Error('获取长期记忆失败');
+        }
+        const data = await response.json();
+
+        if (data.success) {
+          setLongTermMemories(data.data?.items || []);
+          setLongtermTotal(Number(data.data?.total) || 0);
+          setCurrentPage(data.data?.page ?? page);
+        }
+      } catch (error) {
+        console.error('加载长期记忆失败:', error);
+        setLongTermMemories([]);
+        setLongtermTotal(0);
+        setCurrentPage(1);
+        addToast('加载长期记忆失败：' + error.message, 'error');
       }
-      const data = await response.json();
-      
-      if (data.success) {
-        setLongTermMemories(data.data?.items || []);
-        setTotalPages(data.data?.total_pages || 1);
-        setCurrentPage(data.data?.current_page || 1);
-      }
-    } catch (error) {
-      console.error('加载长期记忆失败:', error);
-      setLongTermMemories([]);
-      setTotalPages(1);
-      setCurrentPage(1);
-      addToast('加载长期记忆失败：' + error.message, 'error');
-    }
-  }, [addToast]);
+    },
+    [addToast, longtermTypeFilter]
+  );
   
   const loadTemporalStates = useCallback(async () => {
     setTemporalLoading(true);
@@ -950,25 +1179,6 @@ function Memory() {
     loadAllData();
   }, [loadMemoryCards, loadLongTermMemories]);
   
-  // 搜索防抖（仅在长期记忆 Tab 时触发请求）
-  useEffect(() => {
-    if (activeTab !== 'longterm') {
-      return undefined;
-    }
-    if (searchTimeoutRef.current) {
-      clearTimeout(searchTimeoutRef.current);
-    }
-    
-    searchTimeoutRef.current = setTimeout(() => {
-      loadLongTermMemories(searchKeyword, 1);
-    }, 500);
-    
-    return () => {
-      if (searchTimeoutRef.current) {
-        clearTimeout(searchTimeoutRef.current);
-      }
-    };
-  }, [searchKeyword, loadLongTermMemories, activeTab]);
   
   // 处理编辑记忆卡片
   const handleEditCard = (dimension) => {
@@ -1125,34 +1335,54 @@ function Memory() {
       
       addToast('长期记忆添加成功', 'success');
       setShowAddModal(false);
-      
-      // 重新加载数据
-      loadLongTermMemories(searchKeyword, currentPage);
+
+      await loadLongTermMemories(currentPage);
     } catch (error) {
       console.error('新增长期记忆失败:', error);
       addToast('操作失败，请重试', 'error');
     }
   };
   
-  // 处理删除长期记忆
-  const handleDeleteMemory = async (memoryId) => {
+  // 删除长期记忆（仅 manual_ 文档）
+  const handleDeleteMemory = async (chromaDocId) => {
     try {
-      // 调用删除API
-      const response = await apiFetch(`/api/memory/longterm/${memoryId}`, {
-        method: 'DELETE'
+      const response = await apiFetch(`/api/memory/longterm/${encodeURIComponent(chromaDocId)}`, {
+        method: 'DELETE',
       });
-      
-      if (!response.ok) {
-        throw new Error('删除记忆失败');
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || '删除记忆失败');
       }
-      
+
       addToast('长期记忆删除成功', 'success');
-      
-      // 重新加载数据
-      loadLongTermMemories(searchKeyword, currentPage);
+      await loadLongTermMemories(currentPage);
     } catch (error) {
       console.error('删除长期记忆失败:', error);
-      addToast('操作失败，请重试', 'error');
+      addToast(error.message || '操作失败，请重试', 'error');
+    }
+  };
+
+  const handleSaveLongtermMetadata = async (chromaDocId, payload) => {
+    try {
+      const response = await apiFetch(
+        `/api/memory/longterm/${encodeURIComponent(chromaDocId)}/metadata`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        }
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        addToast(data.message || '更新失败', 'error');
+        return false;
+      }
+      addToast('元数据已更新', 'success');
+      await loadLongTermMemories(currentPage);
+      return true;
+    } catch (error) {
+      addToast(error.message || '更新失败', 'error');
+      return false;
     }
   };
   
@@ -1161,15 +1391,15 @@ function Memory() {
     if (currentPage > 1) {
       const newPage = currentPage - 1;
       setCurrentPage(newPage);
-      loadLongTermMemories(searchKeyword, newPage);
+      loadLongTermMemories(newPage);
     }
   };
-  
+
   const handleNextPage = () => {
     if (currentPage < totalPages) {
       const newPage = currentPage + 1;
       setCurrentPage(newPage);
-      loadLongTermMemories(searchKeyword, newPage);
+      loadLongTermMemories(newPage);
     }
   };
 
@@ -1178,7 +1408,7 @@ function Memory() {
       return;
     }
     setCurrentPage(1);
-    loadLongTermMemories(searchKeyword, 1);
+    loadLongTermMemories(1);
   };
 
   const handleLastPage = () => {
@@ -1186,7 +1416,7 @@ function Memory() {
       return;
     }
     setCurrentPage(totalPages);
-    loadLongTermMemories(searchKeyword, totalPages);
+    loadLongTermMemories(totalPages);
   };
   
   const handleAddTemporalState = async (payload) => {
@@ -1253,6 +1483,14 @@ function Memory() {
         <AddMemoryModal
           onClose={() => setShowAddModal(false)}
           onSubmit={handleAddMemory}
+        />
+      )}
+
+      {longtermEditMemory && (
+        <LongTermMetadataModal
+          memory={longtermEditMemory}
+          onClose={() => setLongtermEditMemory(null)}
+          onSave={handleSaveLongtermMetadata}
         />
       )}
       
@@ -1322,16 +1560,29 @@ function Memory() {
             </div>
           </div>
 
-          <div className="longterm-header">
-            <input
-              type="text"
-              className="search-input"
-              placeholder="搜索长期记忆..."
-              value={searchKeyword}
-              onChange={(e) => setSearchKeyword(e.target.value)}
-            />
+          <div className="longterm-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
+            <label className="longterm-filter-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <span style={{ whiteSpace: 'nowrap' }}>类型筛选</span>
+              <select
+                className="search-input"
+                style={{ minWidth: '200px' }}
+                value={longtermTypeFilter}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setLongtermTypeFilter(v);
+                  setCurrentPage(1);
+                  loadLongTermMemories(1, v);
+                }}
+              >
+                <option value="">全部</option>
+                <option value="daily">daily（日总）</option>
+                <option value="daily_event">daily_event（日终片段）</option>
+                <option value="manual">manual（手动）</option>
+                <option value="state_archive">state_archive（状态归档）</option>
+              </select>
+            </label>
           </div>
-          
+
           <div className="memory-list">
             {longTermMemories.length === 0 ? (
               <div className="empty-state">
@@ -1343,9 +1594,10 @@ function Memory() {
             ) : (
               longTermMemories.map((memory) => (
                 <LongTermMemoryItem
-                  key={memory.id}
+                  key={memory.chroma_doc_id}
                   memory={memory}
                   onDelete={handleDeleteMemory}
+                  onEdit={(m) => setLongtermEditMemory(m)}
                   gcExemptHitsThreshold={gcExemptHitsThreshold}
                 />
               ))
@@ -1431,7 +1683,7 @@ function Memory() {
       )}
       </div>
 
-      {activeTab === 'longterm' && longTermMemories.length > 0 && (
+      {activeTab === 'longterm' && longtermTotal > 0 && totalPages > 1 && (
         <div className="pagination pagination--outside">
           <button
             className="pagination-button"
