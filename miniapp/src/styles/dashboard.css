@@ -353,6 +353,51 @@
   margin-bottom: 10px;
 }
 
+/* 长期记忆库：已归档小传 | 已收录片段 两列并列 */
+.memory-archive-metrics {
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.memory-archive-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.memory-archive-metrics .metric-hero--stacked {
+  margin-bottom: 0;
+}
+
+/* 实时感知：短期携带量 + 活跃时效状态 两列对称 */
+.realtime-kpi-row {
+  display: flex;
+  flex-direction: row;
+  gap: 14px;
+  align-items: stretch;
+  margin-bottom: 10px;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
+.realtime-kpi-col {
+  flex: 1 1 0;
+  min-width: 0;
+}
+
+.realtime-kpi-col .metric-hero--stacked {
+  margin-bottom: 0;
+}
+
+.realtime-kpi-col .metric-hero--tight {
+  margin-bottom: 0;
+}
+
 .metric-hero__value {
   font-size: 2.2rem;
   font-weight: 700;
@@ -821,6 +866,14 @@
 
   .memory-overview-grid {
     gap: 12px;
+  }
+
+  .realtime-kpi-row {
+    gap: 10px;
+  }
+
+  .memory-archive-metrics {
+    gap: 10px;
   }
 
   .dashboard-container .section-title {

@@ -256,7 +256,9 @@ function MemoryOverviewCard({ data, loading }) {
     short_term_limit = 40,
     dimension_status = {},
     chunk_summary_count = 0,
-    latest_daily_summary_time = null
+    latest_daily_summary_time = null,
+    daily_summary_count = 0,
+    active_temporal_states_count = 0
   } = data || {};
   
   const dimensions = [
@@ -285,9 +287,19 @@ function MemoryOverviewCard({ data, loading }) {
             <span>长期记忆库</span>
           </div>
           <div className="section-content">
-            <div className="metric-hero">
-              <div className="metric-hero__label metric-hero__label--top">已收录片段数量</div>
-              <div className="metric-hero__value">{chromadb_count}</div>
+            <div className="memory-archive-metrics">
+              <div className="memory-archive-col">
+                <div className="metric-hero metric-hero--stacked">
+                  <div className="metric-hero__label metric-hero__label--top">已归档小传数量</div>
+                  <div className="metric-hero__value">{daily_summary_count}</div>
+                </div>
+              </div>
+              <div className="memory-archive-col">
+                <div className="metric-hero metric-hero--stacked">
+                  <div className="metric-hero__label metric-hero__label--top">已收录片段数量</div>
+                  <div className="metric-hero__value">{chromadb_count}</div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -298,9 +310,19 @@ function MemoryOverviewCard({ data, loading }) {
             <span>实时感知</span>
           </div>
           <div className="section-content">
-            <div className="metric-hero metric-hero--tight">
-              <div className="metric-hero__label metric-hero__label--top">短期携带量（条）</div>
-              <div className="metric-hero__value">{short_term_limit}</div>
+            <div className="realtime-kpi-row">
+              <div className="realtime-kpi-col">
+                <div className="metric-hero metric-hero--tight metric-hero--stacked">
+                  <div className="metric-hero__label metric-hero__label--top">短期携带量（条）</div>
+                  <div className="metric-hero__value">{short_term_limit}</div>
+                </div>
+              </div>
+              <div className="realtime-kpi-col">
+                <div className="metric-hero metric-hero--tight metric-hero--stacked">
+                  <div className="metric-hero__label metric-hero__label--top">活跃时效状态（条）</div>
+                  <div className="metric-hero__value">{active_temporal_states_count}</div>
+                </div>
+              </div>
             </div>
 
             <p className="metric-secondary metric-secondary--dark metric-line--after-kpi">

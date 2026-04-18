@@ -74,21 +74,23 @@ async def get_batch_log():
 async def get_memory_overview():
     """
     获取记忆概览：
-    - chromadb_count：从 longterm_memories 表 COUNT(*)
+    - chromadb_count：Chroma 集合总条数（get_vector_store().collection.count()）
     - short_term_limit：从 config 表读取
     - dimension_status：从 memory_cards 表查 is_active=1 的维度
     - chunk_summary_count：今日 chunk 摘要数量
     - latest_daily_summary_time：summaries 表最新 daily 记录的 created_at
+    - daily_summary_count：summaries 表中 summary_type='daily' 的条数
+    - active_temporal_states_count：temporal_states 中 is_active=1 的条数
     """
     from memory.database import get_database
+    from memory.vector_store import get_vector_store
 
     db = get_database()
 
-    # 1. longterm_memories 条数（复用分页查询的 total_items，不加载全表）
-    longterm_count = 0
+    # 1. Chroma 向量库条数
+    chromadb_count = 0
     try:
-        lt = await db.get_longterm_memories(keyword="", page=1, page_size=1)
-        longterm_count = int(lt.get("total_items") or 0)
+        chromadb_count = int(get_vector_store().collection.count() or 0)
     except Exception:
         pass
 
@@ -133,10 +135,31 @@ async def get_memory_overview():
     except Exception:
         pass
 
+    # 6. daily 小传条数、激活中的时效状态条数
+    daily_summary_count = 0
+    active_temporal_states_count = 0
+    try:
+        if db.pool:
+            async with db.pool.acquire() as conn:
+                row_ds = await conn.fetchrow(
+                    "SELECT COUNT(*) AS c FROM summaries WHERE summary_type = 'daily'"
+                )
+                if row_ds is not None:
+                    daily_summary_count = int(row_ds["c"] or 0)
+                row_ts = await conn.fetchrow(
+                    "SELECT COUNT(*) AS c FROM temporal_states WHERE is_active = 1"
+                )
+                if row_ts is not None:
+                    active_temporal_states_count = int(row_ts["c"] or 0)
+    except Exception:
+        pass
+
     return create_response(True, {
-        "chromadb_count": longterm_count,
+        "chromadb_count": chromadb_count,
         "short_term_limit": short_term_limit,
         "dimension_status": dimension_status,
         "chunk_summary_count": chunk_count,
         "latest_daily_summary_time": latest_daily_time,
+        "daily_summary_count": daily_summary_count,
+        "active_temporal_states_count": active_temporal_states_count,
     })
