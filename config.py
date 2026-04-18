@@ -107,8 +107,7 @@ class Config:
     def LLM_STREAM_READ_TIMEOUT(self) -> int:
         """
         SSE 流式 chat/completions：两次收到数据之间的读超时（秒）。
-        推理模型（如 R1）在 reasoning 阶段可能长时间无新 chunk，若与 LLM_TIMEOUT 相同
-        易触发 ReadTimeout；默认 max(LLM_TIMEOUT, 300)，可用 LLM_STREAM_READ_TIMEOUT 覆盖。
+        默认 60；可通过环境变量 LLM_STREAM_READ_TIMEOUT 覆盖。
         """
         try:
             raw = os.getenv("LLM_STREAM_READ_TIMEOUT")
@@ -116,11 +115,7 @@ class Config:
                 return int(raw)
         except ValueError:
             pass
-        try:
-            base = int(os.getenv("LLM_TIMEOUT", "60"))
-        except ValueError:
-            base = 60
-        return max(base, 300)
+        return 60
 
     @property
     def LLM_VISION_TIMEOUT(self) -> int:

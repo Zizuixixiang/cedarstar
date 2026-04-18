@@ -6,6 +6,15 @@
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import { apiFetch } from '../apiBase';
+import {
+  Calendar,
+  Database,
+  BookOpen,
+  Timer,
+  HeartHandshake,
+  FileText,
+  Lock,
+} from 'lucide-react';
 import './../styles/memory.css';
 
 // 维度映射
@@ -628,7 +637,8 @@ function LongTermMemoryItem({ memory, onDelete, gcExemptHitsThreshold }) {
         {memory.content}
         {isGcExempt && (
           <span className="gc-exempt-badge" title={`引用次数 ${hitsNum} ≥ 阈值 ${gcExemptHitsThreshold}，已豁免自动删除`}>
-            🔒 免删
+            <Lock className="gc-exempt-badge__icon" size={12} strokeWidth={2} aria-hidden />
+            免删
           </span>
         )}
       </div>
@@ -683,7 +693,7 @@ function SkeletonLoader() {
         <>
           <div className="memory-tab-header">
             <h2 className="memory-tab-header__title">
-              <span className="memory-tab-header__emoji" aria-hidden="true">{'\u00a0'}</span>
+              <span className="memory-tab-header__icon memory-tab-header__icon--skeleton" aria-hidden="true" />
               <span className="memory-tab-header__title-text">
                 <span className="skeleton-line" style={{ width: '140px', height: '20px', display: 'inline-block', verticalAlign: 'middle' }} />
               </span>
@@ -704,7 +714,7 @@ function SkeletonLoader() {
         <>
           <div className="memory-tab-header">
             <h2 className="memory-tab-header__title">
-              <span className="memory-tab-header__emoji" aria-hidden="true">{'\u00a0'}</span>
+              <span className="memory-tab-header__icon memory-tab-header__icon--skeleton" aria-hidden="true" />
               <span className="memory-tab-header__title-text">
                 <span className="skeleton-line" style={{ width: '140px', height: '20px', display: 'inline-block', verticalAlign: 'middle' }} />
               </span>
@@ -1275,7 +1285,9 @@ function Memory() {
         <>
           <div className="memory-tab-header">
             <h2 className="memory-tab-header__title">
-              <span className="memory-tab-header__emoji" aria-hidden="true">📓</span>
+              <span className="memory-tab-header__icon" aria-hidden="true">
+                <BookOpen size={20} strokeWidth={2} />
+              </span>
               <span className="memory-tab-header__title-text">记忆卡片</span>
             </h2>
           </div>
@@ -1296,11 +1308,13 @@ function Memory() {
       
       {activeTab === 'longterm' && (
         <>
-          <div className="memory-tab-header">
-            <h2 className="memory-tab-header__title">
-              <span className="memory-tab-header__emoji" aria-hidden="true">📚</span>
-              <span className="memory-tab-header__title-text">长期记忆库</span>
-            </h2>
+        <div className="memory-tab-header">
+          <h2 className="memory-tab-header__title">
+            <span className="memory-tab-header__icon" aria-hidden="true">
+              <Database size={20} strokeWidth={2} />
+            </span>
+            <span className="memory-tab-header__title-text">长期记忆库</span>
+          </h2>
             <div className="memory-tab-header__actions">
               <button className="add-button" type="button" onClick={() => setShowAddModal(true)}>
                 + 手动新增
@@ -1321,7 +1335,9 @@ function Memory() {
           <div className="memory-list">
             {longTermMemories.length === 0 ? (
               <div className="empty-state">
-                <div className="empty-state-icon">📝</div>
+                <div className="empty-state-icon" aria-hidden>
+                  <FileText size={48} strokeWidth={1.25} />
+                </div>
                 <div className="empty-state-text">暂无长期记忆记录</div>
               </div>
             ) : (
@@ -1342,7 +1358,9 @@ function Memory() {
         <>
           <div className="memory-tab-header">
             <h2 className="memory-tab-header__title">
-              <span className="memory-tab-header__emoji" aria-hidden="true">⏱</span>
+              <span className="memory-tab-header__icon" aria-hidden="true">
+                <Timer size={20} strokeWidth={2} />
+              </span>
               <span className="memory-tab-header__title-text">时效状态</span>
             </h2>
             <div className="memory-tab-header__actions">
@@ -1355,7 +1373,9 @@ function Memory() {
             <div className="tab-loading">加载中…</div>
           ) : temporalStates.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-icon">⏱</div>
+              <div className="empty-state-icon" aria-hidden>
+                <Timer size={48} strokeWidth={1.25} />
+              </div>
               <div className="empty-state-text">暂无时效状态</div>
             </div>
           ) : (
@@ -1377,7 +1397,9 @@ function Memory() {
         <>
           <div className="memory-tab-header">
             <h2 className="memory-tab-header__title">
-              <span className="memory-tab-header__emoji" aria-hidden="true">💞</span>
+              <span className="memory-tab-header__icon" aria-hidden="true">
+                <HeartHandshake size={20} strokeWidth={2} />
+              </span>
               <span className="memory-tab-header__title-text">关系时间线</span>
             </h2>
           </div>
@@ -1385,8 +1407,8 @@ function Memory() {
             <div className="tab-loading">加载中…</div>
           ) : timelineEvents.length === 0 ? (
             <div className="empty-state">
-              <div className="empty-state-icon">📅</div>
-              <div className="empty-state-text">暂无关系时间线记录</div>
+            <div className="empty-state-icon"><Calendar size={48} strokeWidth={1} /></div>
+            <div className="empty-state-text">暂无关系时间线记录</div>
             </div>
           ) : (
             <div className="timeline-list">

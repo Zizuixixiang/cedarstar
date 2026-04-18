@@ -8,13 +8,13 @@
   top: 0;
   height: 100vh;
   width: var(--sidebar-width);
-  background: var(--surface);
-  border-right: 1px solid var(--industrial-border-color);
+  background: var(--text-main); /* 深绿背景 */
+  border-right: 2px solid var(--text-main);
   box-shadow: none;
   display: flex;
   flex-direction: column;
   padding: var(--card-padding);
-  transition: none; /* 移除过渡动画 */
+  transition: none;
   z-index: 100;
   overflow: hidden;
 }
@@ -40,7 +40,7 @@
   font-family: 'Courier New', Courier, monospace;
   font-size: 1.1rem;
   font-weight: bold;
-  color: var(--accent);
+  color: var(--page-bg);
   white-space: nowrap;
   overflow: hidden;
   opacity: 1;
@@ -49,7 +49,7 @@
 
 .sidebar-logo-icon {
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--badge-config);
 }
 
 .sidebar-logo-text {
@@ -67,7 +67,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  color: var(--text-main);
+  color: var(--page-bg);
   border-radius: var(--radius-btn);
   flex-shrink: 0;
   background: transparent;
@@ -78,12 +78,12 @@
 }
 
 .sidebar-toggle:hover {
-  background: #eeeeee;
-  border-color: var(--industrial-border-color);
+  background: rgba(255,255,255,0.1);
+  border-color: transparent;
 }
 
 .sidebar-toggle:active {
-  background: #dddddd;
+  background: rgba(255,255,255,0.2);
 }
 
 .sidebar-nav {
@@ -98,12 +98,12 @@
   align-items: center;
   padding: 12px 14px;
   border-radius: 0;
-  color: var(--text-sub);
+  color: rgba(245, 241, 231, 0.7); /* 偏淡的米色 */
   text-decoration: none;
   transition: none;
   position: relative;
   overflow: hidden;
-  border: 1px solid transparent;
+  border: 2px solid transparent;
   background: transparent;
   -webkit-tap-highlight-color: transparent;
   font-family: 'Courier New', Courier, monospace;
@@ -112,13 +112,12 @@
 }
 
 .nav-item:hover {
-  background: #eeeeee;
-  border-color: var(--industrial-border-color);
-  color: var(--text-main);
+  background: rgba(255,255,255,0.05);
+  color: var(--page-bg);
 }
 
 .nav-item:active {
-  background: #dddddd;
+  background: rgba(255,255,255,0.1);
 }
 
 .nav-icon {
@@ -153,19 +152,14 @@
 
 .nav-item.active {
   background: var(--page-bg);
-  color: var(--accent);
-  border: 1px solid var(--industrial-border-color);
+  color: var(--text-main);
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
+  margin-bottom: 4px; /* 防止阴影被裁切 */
 }
 
 .nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 0;
-  width: 4px;
-  height: 100%;
-  background: var(--accent);
-  border-radius: 0;
+  display: none;
 }
 
 @media screen and (max-width: 767px) {

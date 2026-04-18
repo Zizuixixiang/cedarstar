@@ -179,13 +179,32 @@
 /* 消息列表：明亮毛玻璃 + 柔和外阴影 */
 .message-list-container {
   background: var(--surface);
-  border: var(--border-card);
+  border: 2px solid var(--text-main);
   border-radius: var(--radius-card);
   padding: var(--card-padding);
   margin-bottom: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   display: flex;
   flex-direction: column;
+  position: relative;
+  margin-top: 16px;
+}
+
+.message-list-container::before {
+  content: 'HISTORY';
+  position: absolute;
+  top: -14px;
+  right: 16px;
+  left: auto;
+  background: var(--badge-history);
+  color: var(--text-main);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  font-weight: bold;
+  padding: 4px 12px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
+  z-index: 10;
 }
 
 /* 对话流主栏：PC 居中，占满可用宽度 */
@@ -261,19 +280,19 @@
 .message-bubble.user {
   /* 工业风：直角边框 */
   background: #ffffff;
-  border: 1px solid var(--industrial-border-color);
+  border: 2px solid var(--industrial-border-color);
   border-right: 4px solid var(--industrial-border-color);
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow-solid-sm);
 }
 
 .message-bubble.assistant {
   /* 工业风：直角边框 */
-  background: #fafafa;
-  border: 1px solid var(--industrial-border-color);
+  background: var(--page-bg);
+  border: 2px solid var(--industrial-border-color);
   border-left: 4px solid var(--accent);
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow-solid-sm);
 }
 
 /* 消息头部：来源 Tag + 时间，字号略小、与正文更贴近 */
@@ -745,26 +764,29 @@
   max-height: min(90vh, 640px);
   overflow: auto;
   background: var(--surface, #fff);
-  border: var(--border-card);
+  border: 2px solid var(--text-main);
   border-radius: 0;
   padding: 20px;
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   box-sizing: border-box;
   position: relative;
+  margin-top: 16px;
 }
 
 .history-modal::before {
-  content: 'MOD_EDIT';
+  content: 'EDIT MEMORY';
   position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
+  top: -14px;
+  left: 16px;
+  background: var(--badge-history);
+  color: var(--text-main);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 4px 12px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
   z-index: 10;
-  font-family: monospace;
 }
 
 .history-modal-title {

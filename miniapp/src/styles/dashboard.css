@@ -8,28 +8,24 @@
   margin: 0 auto;
   display: flex;
   flex-direction: column;
-  gap: var(--card-gap);
+  gap: 18px;
   box-sizing: border-box;
   min-width: 0;
   align-self: stretch;
-  padding-bottom: 32px;
-  font-family: 'Courier New', Courier, monospace;
-  background-color: #f5f5f5;
-  background-image: 
-    linear-gradient(#e0e0e0 1px, transparent 1px),
-    linear-gradient(90deg, #e0e0e0 1px, transparent 1px),
-    linear-gradient(#d5d5d5 1px, transparent 1px),
-    linear-gradient(90deg, #d5d5d5 1px, transparent 1px);
-  background-size: 10px 10px, 10px 10px, 50px 50px, 50px 50px;
-  color: #333333;
-  --batch-success-text: #2ca02c;
-  --industrial-border: #444444;
-  --industrial-orange: #d9534f;
-  --industrial-green: #5cb85c;
-  --industrial-red: #d9534f;
-  --industrial-text: #222222;
-  --industrial-text-sub: #666666;
-  --industrial-bg: #ffffff;
+  padding-bottom: 28px;
+  font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
+  background-color: transparent;
+  color: var(--text-main);
+  --card-padding: 16px 14px;
+  --card-gap: 18px;
+  --batch-success-text: var(--status-green);
+  --industrial-border: var(--industrial-border-color);
+  --industrial-orange: var(--badge-config);
+  --industrial-green: var(--status-green);
+  --industrial-red: #c98e9e;
+  --industrial-text: var(--text-main);
+  --industrial-text-sub: var(--text-sub);
+  --industrial-bg: var(--surface);
 }
 
 .dashboard-container > * {
@@ -54,100 +50,188 @@
 
 .dashboard-container .health-card {
   width: 100%;
-  border: 1px solid var(--industrial-border);
+  max-width: 100%;
+  min-width: 0;
+  border: 2px solid var(--industrial-border);
   border-radius: 0;
   background: var(--industrial-bg);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   padding: var(--card-padding);
   display: flex;
-  flex-wrap: nowrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
   box-sizing: border-box;
   position: relative;
-  margin-top: 16px;
+  margin-top: 20px;
+}
+
+/* 卡片标签：fieldset/legend 式 — 骑在上边框线上，宽度随文字 */
+.dashboard-container .health-card::before,
+.dashboard-container .dashboard-card::before,
+.dashboard-container .batch-detail-panel::before,
+.dashboard-container .memory-section:nth-child(1)::before,
+.dashboard-container .memory-section:nth-child(2)::before {
+  position: absolute;
+  display: inline-block;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  white-space: nowrap;
+  top: 0;
+  transform: translateY(-50%);
+  line-height: 1.15;
+  padding: 2px 6px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  z-index: 10;
 }
 
 .dashboard-container .health-card::before {
-  content: 'MOD_00';
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--industrial-orange);
-  color: #fff;
+  content: 'SYSTEM CONFIG';
+  right: 16px;
+  left: auto;
+  background: var(--badge-config);
+  color: var(--text-main);
   font-size: 10px;
-  font-weight: bold;
-  padding: 2px 6px;
-  border-bottom-right-radius: 0;
 }
 
 .dashboard-container .health-card::after {
-  content: 'SYSTEM_INIT :: V3.0_PRO';
-  position: absolute;
-  top: -20px;
-  left: 0;
-  font-size: 12px;
-  font-weight: bold;
-  color: var(--industrial-orange);
+  display: none;
 }
 
-.health-item {
-  flex: 1;
+.health-row {
   display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 7px 0;
   min-width: 0;
   z-index: 1;
 }
 
-.health-item:nth-child(3) .health-value {
-  color: var(--industrial-text);
-  text-shadow: none;
-  font-weight: bold;
-  font-size: 1.1rem;
+.health-row:first-child {
+  padding-top: 4px;
 }
 
-.health-item:nth-child(3)::before {
-  display: none;
+.health-row:last-child {
+  padding-bottom: 4px;
+}
+
+.health-row-divider {
+  border-bottom: 1px dotted rgba(44, 54, 40, 0.3);
+  width: 100%;
 }
 
 .health-label {
   color: var(--industrial-text-sub);
-  font-size: 0.9rem;
-  font-weight: bold;
+  font-size: 0.65rem;
+  font-weight: 700;
+  line-height: 1.25;
   text-transform: uppercase;
+  letter-spacing: 0.06em;
   white-space: nowrap;
   flex-shrink: 0;
 }
 
+.health-value-group {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.endpoint-item {
+  display: flex;
+  align-items: center;
+  font-size: 0.8rem;
+  color: var(--industrial-text);
+  font-weight: 500;
+}
+
+.endpoint-item--discord .status-dot.online {
+  background-color: #a86868;
+  border-color: rgba(44, 54, 40, 0.35);
+}
+
+.endpoint-item--telegram .status-dot.online {
+  background-color: #6d9478;
+  border-color: rgba(44, 54, 40, 0.35);
+}
+
 .health-value {
-  font-weight: bold;
+  font-weight: 600;
   color: var(--industrial-text);
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-family: monospace;
-  font-size: 1.2rem;
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 0.7rem;
 }
 
-.health-value--status {
+.value-box {
+  padding: 2px 8px;
+  border: 1px solid var(--industrial-border);
+  background: var(--control-surface);
+  box-shadow: none;
+  max-width: 100%;
+}
+
+/* 模型配置：宽度随文字，右对齐；过长时占满剩余空间并省略 */
+.health-row .value-box--neutral {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex: 0 1 auto;
+  width: fit-content;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: auto;
   white-space: nowrap;
-  font-size: 1.2rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  line-height: 1.4;
+  font-weight: 600;
 }
 
-.health-value--batch {
-  font-weight: bold;
+.value-box--success {
+  background: var(--control-surface);
+  color: var(--industrial-green);
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.value-box--error {
+  background: var(--control-surface);
+  color: #a85c5c;
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  font-size: 0.68rem;
+  font-weight: 600;
+}
+
+.check-icon {
+  margin-right: 3px;
+  font-size: 0.85em;
+  font-weight: 700;
 }
 
 .status-dot {
-  width: 12px;
-  height: 12px;
-  border-radius: 0;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   display: inline-block;
-  margin-right: 6px;
-  border: 1px solid var(--industrial-border);
+  margin-right: 5px;
+  border: 1px solid rgba(44, 54, 40, 0.35);
+  flex-shrink: 0;
 }
 
 .status-dot.online {
@@ -166,17 +250,23 @@
 }
 
 .batch-calendar-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 8px;
-  margin-top: 16px;
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  min-width: 0;
+  width: 100%;
+  -webkit-overflow-scrolling: touch;
 }
 
 .memory-overview-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: var(--card-gap);
-  margin-top: 16px;
+  margin-top: 10px;
   box-sizing: border-box;
   min-width: 0;
   overflow: visible;
@@ -184,35 +274,35 @@
 
 .dashboard-container .dashboard-card {
   width: 100%;
-  border: 1px solid var(--industrial-border);
+  max-width: 100%;
+  min-width: 0;
+  border: 2px solid var(--industrial-border);
   border-radius: 0;
   background: var(--industrial-bg);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   padding: var(--card-padding);
   box-sizing: border-box;
   position: relative;
-  margin-top: 16px;
-}
-
-.dashboard-container .dashboard-card:nth-child(1)::before {
-  content: 'MOD_01';
-}
-
-.dashboard-container .dashboard-card:nth-child(2)::before {
-  content: 'MOD_02';
+  margin-top: 18px;
 }
 
 .dashboard-container .dashboard-card::before {
-  content: 'MOD_XX';
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--industrial-orange);
-  color: #fff;
+  content: 'DASHBOARD';
+  right: 16px;
+  left: auto;
+  background: var(--badge-history);
+  color: var(--text-main);
   font-size: 10px;
-  font-weight: bold;
-  padding: 2px 6px;
-  z-index: 10;
+}
+
+.dashboard-main-grid > .dashboard-card:nth-child(1)::before {
+  content: 'HISTORY';
+  background: var(--badge-history);
+}
+
+.dashboard-main-grid > .dashboard-card:nth-child(2)::before {
+  content: 'VAULT';
+  background: var(--badge-vault);
 }
 
 .dashboard-container .dashboard-card::after {
@@ -220,25 +310,34 @@
 }
 
 .dashboard-container .card-title {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 1.1rem;
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 0.76rem;
   color: var(--industrial-text);
-  font-weight: bold;
+  font-weight: 700;
   text-transform: uppercase;
-  margin-bottom: 16px;
+  letter-spacing: 0.05em;
+  margin-bottom: 8px;
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   text-shadow: none;
-  margin-top: 12px;
+  margin-top: 4px;
+}
+
+.dashboard-container .card-title .title-icon {
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: 2px solid var(--industrial-border-color);
+  color: var(--industrial-border-color);
 }
 
 .number-tag {
   display: inline-block;
-  background: #eee;
+  background: var(--control-surface);
   border: 1px solid var(--industrial-border);
   color: var(--industrial-text);
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   font-weight: bold;
   padding: 2px 6px;
   border-radius: 0;
@@ -256,12 +355,13 @@
 
 .metric-hero__value {
   font-size: 2.2rem;
-  font-weight: bold;
+  font-weight: 700;
   line-height: 1.15;
-  color: var(--industrial-text);
+  color: var(--accent);
   text-shadow: none;
-  letter-spacing: 1px;
-  font-family: monospace;
+  letter-spacing: 0.02em;
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-variant-numeric: tabular-nums;
 }
 
 .metric-hero__label {
@@ -296,144 +396,165 @@
 }
 
 .dashboard-container .calendar-day {
-  display: grid;
-  grid-template-rows: 2rem auto;
-  justify-items: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
   align-items: center;
-  gap: 8px;
-  padding: 8px;
+  gap: 6px;
+  padding: 6px 2px;
   border-radius: 0;
-  background: #fafafa;
-  border: 1px solid var(--industrial-border);
+  background: var(--control-surface);
+  border: 2px solid transparent;
   box-shadow: none;
   cursor: pointer;
   transition: all 0.2s;
+  min-height: 56px;
+  flex: 1 1 0;
+  min-width: 0;
 }
 
 .dashboard-container .calendar-day:hover {
-  background: #eee;
+  background: var(--surface);
   border-color: var(--industrial-text);
 }
 
 .dashboard-container .calendar-day:active {
-  background: #ddd;
+  background: #e8e4db;
 }
 
 .dashboard-container .calendar-date {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
   color: var(--industrial-text-sub);
   box-sizing: border-box;
   width: 100%;
   min-height: 100%;
-  font-weight: bold;
+  font-weight: 600;
+}
+
+.dashboard-container .calendar-day--today {
+  border: 2px solid var(--industrial-text);
+  background: var(--control-surface);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .dashboard-container .calendar-day--today .calendar-date {
-  width: auto;
-  min-width: 2rem;
-  min-height: 2rem;
-  padding: 2px;
-  border-radius: 0;
-  background: var(--industrial-text);
-  border: 1px solid var(--industrial-text);
-  font-weight: bold;
-  color: #fff;
-  box-shadow: none;
-}
-
-.dashboard-container .calendar-status--today-mark {
-  transform: none;
-  box-shadow: none;
+  color: var(--industrial-text);
+  font-weight: 700;
+  font-size: 0.78rem;
 }
 
 .dashboard-container .calendar-day.selected:not(.calendar-day--today) {
   border: 2px solid var(--industrial-text);
+  background: var(--control-surface);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .dashboard-container .calendar-status {
-  width: 12px;
-  height: 12px;
-  border-radius: 0;
-  border: 1px solid var(--industrial-border);
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1px solid var(--industrial-text);
+  background-color: var(--industrial-text);
+  flex-shrink: 0;
 }
 
 .dashboard-container .calendar-status.success {
-  background-color: var(--industrial-green);
+  background-color: var(--industrial-text);
+  border-color: var(--industrial-text);
   box-shadow: none;
 }
 
 .dashboard-container .calendar-status.failed {
-  background-color: var(--industrial-red);
+  background-color: #b07070;
+  border-color: #2c3628;
   box-shadow: none;
 }
 
 .dashboard-container .calendar-status.none {
-  background-color: #ddd;
+  background-color: transparent;
+  border-color: var(--industrial-text);
+}
+
+.dashboard-container .calendar-status.calendar-status--today-mark {
+  box-shadow: 0 0 0 1px var(--control-surface), 0 0 0 2px var(--industrial-text);
 }
 
 .dashboard-container .batch-detail-panel {
   width: 100%;
-  margin-top: var(--card-gap);
-  padding: var(--card-padding);
-  background: #fafafa;
+  margin-top: 10px;
+  padding: 6px 10px 8px;
+  background: var(--control-surface);
   border-radius: 0;
-  border: 1px solid var(--industrial-border);
-  box-shadow: none;
+  border: 2px solid var(--industrial-border);
+  box-shadow: var(--shadow-solid-sm);
   box-sizing: border-box;
   position: relative;
 }
 
 .dashboard-container .batch-detail-panel::before {
   content: 'LOG_DETAILS';
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--industrial-text-sub);
-  color: #fff;
-  font-size: 10px;
-  font-weight: bold;
-  padding: 2px 6px;
+  right: 12px;
+  left: auto;
+  background: var(--badge-history);
+  color: var(--text-main);
+  font-size: 8px;
 }
 
 .dashboard-container .batch-step {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 0;
-  border-bottom: 1px solid #ddd;
-  margin-top: 12px;
+  gap: 8px;
+  padding: 4px 0;
+  margin: 0;
+  border-bottom: 1px solid #e0dcd4;
+  min-width: 0;
 }
 
 .dashboard-container .batch-step:last-child {
   border-bottom: none;
+  padding-bottom: 2px;
 }
 
 .batch-step-name {
   color: var(--industrial-text);
-  font-weight: bold;
+  font-weight: 600;
+  font-size: 0.7rem;
+  line-height: 1.35;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 
 .batch-step-status {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 5px;
   color: var(--industrial-text);
-  font-family: monospace;
+  font-family: 'Noto Sans SC', ui-monospace, monospace;
+  font-size: 0.65rem;
+  flex-shrink: 0;
+}
+
+.dashboard-container .batch-step .status-dot {
+  width: 6px;
+  height: 6px;
+  margin-right: 0;
 }
 
 .error-stack {
-  margin-top: 12px;
-  padding: 12px;
+  margin-top: 8px;
+  padding: 8px;
   background: #fee;
   border: 1px solid var(--industrial-red);
   border-radius: 0;
   font-family: 'Courier New', monospace;
-  font-size: 0.85rem;
+  font-size: 0.72rem;
+  line-height: 1.35;
   color: var(--industrial-red);
-  max-height: 100px;
+  max-height: 80px;
   overflow-y: auto;
   white-space: pre-wrap;
 }
@@ -441,17 +562,37 @@
 .dashboard-container .memory-section {
   width: 100%;
   padding: var(--card-padding);
-  background: #fafafa;
+  background: var(--control-surface);
   border-radius: 0;
-  border: 1px solid var(--industrial-border);
-  box-shadow: none;
+  border: 2px solid var(--industrial-border);
+  box-shadow: var(--shadow-solid-sm);
   box-sizing: border-box;
   min-width: 0;
   position: relative;
+  margin-top: 12px;
+}
+
+.dashboard-container .memory-section:nth-child(1)::before {
+  content: 'ARCHIVE';
+  left: 16px;
+  right: auto;
+  background: var(--badge-archive);
+  color: var(--text-main);
+  font-size: 9px;
+}
+
+.dashboard-container .memory-section:nth-child(2)::before {
+  content: 'REAL-TIME';
+  left: 16px;
+  right: auto;
+  background: var(--badge-realtime);
+  color: #fff;
+  font-size: 9px;
 }
 
 .dashboard-container .memory-section:hover {
-  background: #f0f0f0;
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
 }
 
 .dashboard-container .section-title {
@@ -484,9 +625,9 @@
 }
 
 .dashboard-container .dimension-dot {
-  width: 16px;
-  height: 16px;
-  border-radius: 0;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
   display: inline-block;
   cursor: default;
   position: relative;
@@ -500,8 +641,8 @@
 }
 
 .dashboard-container .dimension-dot.empty {
-  background-color: #eee;
-  border-color: #ccc;
+  background-color: #e8e8e8;
+  border-color: #c8c8c8;
 }
 
 .dashboard-container .dimension-dot-container {
@@ -588,6 +729,10 @@
   max-width: 100%;
 }
 
+.dashboard-main-grid > * {
+  min-width: 0;
+}
+
 @media (max-width: 900px) {
   .dashboard-main-grid {
     grid-template-columns: 1fr;
@@ -599,7 +744,7 @@
   }
 
   .dashboard-container .health-card {
-    padding: 24px 20px;
+    padding: var(--card-padding);
     flex-wrap: wrap;
     gap: 16px;
   }
@@ -611,67 +756,67 @@
 }
 
 @media screen and (max-width: 767px) {
+  .batch-calendar-grid {
+    gap: 6px;
+    margin-top: 10px;
+  }
+
   .dashboard-container {
     gap: 16px;
-    /* 解决安卓端边框显示不全：修改内边距，给边缘留出1px绘制边框的空间 */
-    padding: 16px 17px; 
-    padding-bottom: calc(16px + 32px);
-    box-sizing: border-box;
-    margin-left: 0;
-    margin-right: 0;
+    padding: 0;
+    margin: 0;
     width: 100%;
-    max-width: 100%;
+    box-sizing: border-box;
   }
 
   .dashboard-container .health-card {
-    padding: 20px 16px;
-    gap: 16px;
+    padding: var(--card-padding);
+    gap: 0;
   }
 
   .health-label {
-    font-size: 0.8rem;
+    font-size: 0.62rem;
   }
 
-  .health-value, .health-value--status {
-    font-size: 1rem;
+  .health-value,
+  .health-value--status {
+    font-size: 0.68rem;
   }
 
   .dashboard-container .dashboard-card {
-    padding: 20px 16px;
+    padding: var(--card-padding);
   }
 
   .dashboard-container .card-title {
-    font-size: 1rem;
-    margin-bottom: 12px;
+    font-size: 0.72rem;
+    margin-bottom: 8px;
   }
 
   .metric-hero__value {
-    font-size: 1.8rem;
+    font-size: 1.85rem;
   }
 
   .metric-hero__label,
   .metric-secondary {
-    font-size: 0.75rem;
-  }
-
-  .batch-calendar-grid {
-    gap: 6px;
-    margin-top: 12px;
+    font-size: 0.68rem;
   }
 
   .dashboard-container .calendar-day {
-    padding: 6px 4px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
     gap: 6px;
-    grid-template-rows: 1.8rem auto;
-  }
-
-  .dashboard-container .calendar-date {
-    font-size: 0.75rem;
-  }
-
-  .dashboard-container .calendar-status {
-    width: 10px;
-    height: 10px;
+    padding: 6px 2px;
+    border-radius: 0;
+    background: var(--control-surface);
+    border: 2px solid transparent;
+    box-shadow: none;
+    cursor: pointer;
+    transition: none;
+    min-height: 52px;
+    flex: 1 1 0;
+    min-width: 0;
   }
 
   .memory-overview-grid {

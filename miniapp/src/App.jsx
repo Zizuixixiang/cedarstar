@@ -4,7 +4,7 @@
  */
 import { useState } from 'react'
 import { BrowserRouter, Routes, Route, NavLink } from 'react-router-dom'
-import { Menu, Sparkles } from 'lucide-react'
+import { Menu, Sparkles, Share2, Copy, Plus } from 'lucide-react'
 import { navItems, routes } from './router.jsx'
 import { APP_DISPLAY_NAME } from './appName.js'
 import './styles/sidebar.css'
@@ -75,6 +75,17 @@ function MainContent({ sidebarCollapsed, onOpenMobileSidebar }) {
           <Sparkles className="mobile-logo-icon" size={18} strokeWidth={2} aria-hidden />
           <span className="mobile-logo-text">{APP_DISPLAY_NAME}</span>
         </span>
+        <div className="mobile-header-actions">
+          <button type="button" className="mobile-header-action" aria-label="分享" title="分享">
+            <Share2 size={16} strokeWidth={1.5} aria-hidden />
+          </button>
+          <button type="button" className="mobile-header-action" aria-label="复制" title="复制">
+            <Copy size={16} strokeWidth={1.5} aria-hidden />
+          </button>
+          <button type="button" className="mobile-header-action" aria-label="添加" title="添加">
+            <Plus size={16} strokeWidth={1.5} aria-hidden />
+          </button>
+        </div>
       </div>
       
       <div className="main-content-inner">

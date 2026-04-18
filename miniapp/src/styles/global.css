@@ -4,44 +4,54 @@
  */
 
 :root {
-  /* 浅色工业图纸风格 */
-  --page-bg: #f5f5f5;
-  --surface: #ffffff;
-  --bg-gradient: #f5f5f5;
-  --card-bg: #ffffff;
+  /* 页面底：暖灰米色；面板：浅白；内嵌控件/子块：纯白（层次与参考稿一致） */
+  --page-bg: #e8e4da;
+  --surface: #f6f4ef;
+  --bg-gradient: #e8e4da;
+  --card-bg: #f6f4ef;
+  --control-surface: #ffffff;
 
-  --text-main: #222222;
+  --text-main: #2c3628;
   --text-sub: #666666;
-  --accent: #d9534f; /* 工业橙红 */
-  --accent-muted: rgba(217, 83, 79, 0.18);
-  --status-green: #5cb85c;
+  --accent: #5e4a7d; /* 深紫数字/强调色 */
+  --accent-muted: rgba(94, 74, 125, 0.1);
+  --status-green: #5e8469; /* 柔和绿 */
 
-  /* 工业风核心：去除所有阴影，改用硬直角和细实线边框 */
-  --shadow-raised: none;
+  /* 徽章：略降饱和的粉/灰/驼色 */
+  --badge-config: #c4b393;
+  --badge-history: #7a8d96;
+  --badge-vault: #b59aa3;
+  --badge-archive: #d4b2bc;
+  --badge-realtime: #5c6670;
+
+  /* 线框仍用深绿；实体投影用偏灰绿，避免纯黑过重 */
+  --industrial-border-color: #2c3628;
+  --shadow-color-deep: #3e4742;
+  --shadow-solid: 4px 4px 0 var(--shadow-color-deep);
+  --shadow-solid-sm: 2px 2px 0 var(--shadow-color-deep);
+
+  --shadow-raised: var(--shadow-solid-sm);
   --shadow-inset: none;
 
   --radius-card: 0px;
   --radius-btn: 0px;
-  --card-padding: 20px 24px;
+  --card-padding: 24px 24px;
   --space-page: 20px;
-  --card-gap: 20px;
+  --card-gap: 24px;
 
-  /* 兼容旧变量名，统一替换为无阴影和实线边框 */
-  --shadow-card: none;
-  --shadow-soft: none;
-  --shadow-soft-lg: none;
-  --shadow-control: none;
+  --shadow-card: var(--shadow-solid);
+  --shadow-soft: var(--shadow-solid);
+  --shadow-soft-lg: var(--shadow-solid);
+  --shadow-control: var(--shadow-solid-sm);
   --shadow-pressed: none;
   --card-blur: none;
   
-  /* 定义工业风细实线边框 */
-  --industrial-border-color: #444444;
-  --border-card: 1px solid var(--industrial-border-color);
-  --border-dashed: 1px dashed var(--industrial-border-color);
+  --border-card: 2px solid var(--industrial-border-color);
+  --border-dashed: 2px dashed var(--industrial-border-color);
 
   --sidebar-width: 220px;
   --sidebar-collapsed-width: 76px;
-  --transition: none; /* 工业风不需要过渡动画 */
+  --transition: none;
 }
 
 * {
@@ -54,19 +64,12 @@ html,
 body {
   height: 100%;
   width: 100%;
+  background-color: var(--page-bg);
 }
 
 body {
-  font-family: 'Courier New', Courier, monospace; /* 全局等宽字体强化硬核感 */
+  font-family: 'Noto Sans SC', system-ui, -apple-system, sans-serif;
   background-color: var(--page-bg);
-  /* 全局图纸网格底纹 */
-  background-image: 
-    linear-gradient(#e0e0e0 1px, transparent 1px),
-    linear-gradient(90deg, #e0e0e0 1px, transparent 1px),
-    linear-gradient(#d5d5d5 1px, transparent 1px),
-    linear-gradient(90deg, #d5d5d5 1px, transparent 1px);
-  background-size: 10px 10px, 10px 10px, 50px 50px, 50px 50px;
-  background-attachment: fixed;
   color: var(--text-main);
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
@@ -74,22 +77,24 @@ body {
 }
 
 h1, h2, h3, h4, h5, h6 {
-  font-family: 'Courier New', Courier, monospace;
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
   font-weight: bold;
-  text-transform: uppercase;
   color: var(--text-main);
 }
 
 #root {
   height: 100%;
   width: 100%;
+  min-height: 100%;
+  background-color: var(--page-bg);
 }
 
 .app-container {
   display: flex;
   min-height: 100vh;
   width: 100%;
-  background: transparent; /* 使用 body 的背景 */
+  min-width: 0;
+  background: var(--page-bg);
 }
 
 /* 主内容区：页面内边距 20px */
@@ -139,10 +144,10 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--surface);
   border: var(--border-card);
   border-radius: var(--radius-card);
-  box-shadow: none;
+  box-shadow: var(--shadow-card);
   padding: var(--card-padding);
   margin-bottom: var(--card-gap);
-  position: relative; /* 准备添加小色块 */
+  position: relative;
 }
 
 .neo-panel:last-child {
@@ -151,10 +156,10 @@ h1, h2, h3, h4, h5, h6 {
 
 /* 凸起按钮基类（页面内可叠加） */
 .neo-btn {
-  background: #eeeeee;
+  background: var(--surface);
   border: var(--border-card);
   border-radius: var(--radius-btn);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid-sm);
   color: var(--text-main);
   font-family: inherit;
   font-weight: bold;
@@ -163,19 +168,22 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .neo-btn:hover {
-  background: #dddddd;
+  background: var(--page-bg);
+  transform: translate(-1px, -1px);
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
 }
 
 .neo-btn:active {
-  background: #cccccc;
+  transform: translate(2px, 2px);
+  box-shadow: none;
 }
 
 /* 内凹输入基类 */
 .neo-input {
-  background: var(--surface);
+  background: var(--control-surface);
   border: var(--border-card);
   border-radius: var(--radius-btn);
-  box-shadow: none;
+  box-shadow: inset 2px 2px 0px rgba(0,0,0,0.05);
   color: var(--text-main);
   font-family: inherit;
 }
@@ -195,6 +203,8 @@ h1, h2, h3, h4, h5, h6 {
   align-items: center;
   padding: 12px 0;
   margin-bottom: 24px;
+  background-color: var(--text-main); /* 顶栏使用深绿色 */
+  color: var(--page-bg);
 }
 
 .mobile-menu-btn {
@@ -203,12 +213,13 @@ h1, h2, h3, h4, h5, h6 {
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #8a98af;
+  color: var(--page-bg);
   border-radius: var(--radius-btn);
   margin-right: 12px;
-  background: var(--surface);
-  box-shadow: var(--shadow-raised);
-  transition: transform 0.12s ease, box-shadow 0.12s ease, filter 0.12s ease;
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  transition: none;
   -webkit-tap-highlight-color: transparent;
 }
 
@@ -221,17 +232,46 @@ h1, h2, h3, h4, h5, h6 {
 .mobile-logo {
   display: flex;
   align-items: center;
-  gap: 8px;
+  justify-content: center;
+  flex: 1;
+  gap: 6px;
   min-width: 0;
-  font-family: 'Lora', serif;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--accent);
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--page-bg);
+}
+
+.mobile-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+
+.mobile-header-action {
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--page-bg);
+  border-radius: var(--radius-btn);
+  background: transparent;
+  box-shadow: none;
+  border: none;
+  transition: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.mobile-header-action:active {
+  transform: scale(0.96);
+  opacity: 0.9;
 }
 
 .mobile-logo-icon {
   flex-shrink: 0;
-  color: var(--accent);
+  color: var(--badge-config);
 }
 
 .mobile-logo-text {
@@ -270,6 +310,7 @@ h1, h2, h3, h4, h5, h6 {
   #root,
   .app-container {
     max-width: 100%;
+    width: 100%;
     overflow-x: hidden;
     min-width: 0;
   }
@@ -286,8 +327,10 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mobile-header {
-    display: flex;
-    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: 44px 1fr 108px;
+    align-items: center;
+    padding: 12px 12px;
     margin-bottom: 0;
     width: 100%;
     max-width: 100%;
@@ -296,9 +339,10 @@ h1, h2, h3, h4, h5, h6 {
     position: fixed;
     top: 0;
     left: 0;
+    right: 0;
     z-index: 80;
-    background: var(--page-bg);
-    border-bottom: var(--border-card);
+    background: var(--text-main);
+    border-bottom: 2px solid var(--text-main);
     box-shadow: none;
   }
 
@@ -309,15 +353,18 @@ h1, h2, h3, h4, h5, h6 {
     align-self: stretch;
     justify-content: flex-start;
     align-items: stretch;
-    padding: var(--space-page);
+    /* 为卡片 2px 边框 + 4px 实体阴影留出可见空间，避免右侧被裁切 */
+    padding: 16px 12px 32px 12px;
     padding-top: 72px;
     box-sizing: border-box;
   }
 
   .mobile-menu-btn {
+    grid-column: 1;
+    justify-self: start;
     width: 36px;
     height: 36px;
-    margin-right: 8px;
+    margin-right: 0;
   }
 
   .mobile-menu-btn svg {
@@ -326,7 +373,17 @@ h1, h2, h3, h4, h5, h6 {
   }
 
   .mobile-logo {
-    font-size: 16px;
+    grid-column: 2;
+    justify-self: center;
+    flex: none;
+    width: 100%;
+    font-size: 15px;
+    font-weight: 500;
+  }
+
+  .mobile-header-actions {
+    grid-column: 3;
+    justify-self: end;
   }
 
   .card {
@@ -339,26 +396,48 @@ h1, h2, h3, h4, h5, h6 {
   background: var(--surface);
   border: var(--border-card);
   border-radius: var(--radius-card);
-  box-shadow: none;
+  box-shadow: var(--shadow-card);
   padding: var(--card-padding);
   margin-bottom: var(--card-gap);
   width: 100%;
   max-width: 600px;
   position: relative;
+  margin-top: 12px; /* 给徽章留出空间 */
 }
 
-.card::before {
-  content: 'MOD_XX';
-  position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--accent);
+.title-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background-color: var(--industrial-border-color);
   color: #fff;
-  font-size: 10px;
+  border-radius: 0;
+  flex-shrink: 0;
+}
+
+/* 默认的右上方徽章样式 */
+.card-badge {
+  position: absolute;
+  top: -16px;
+  right: 16px;
+  padding: 4px 12px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
   font-weight: bold;
-  padding: 2px 6px;
+  color: var(--text-main);
+  background: var(--surface);
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
   z-index: 10;
-  font-family: monospace;
+  text-transform: uppercase;
+}
+
+/* 顶部左侧徽章变体 */
+.card-badge.left {
+  right: auto;
+  left: 16px;
 }
 
 .card:last-child {

@@ -14,6 +14,7 @@ Step 5 - Chroma 长期未访问且衰减得分过低、无子节点的记忆 GC
 import asyncio
 import json
 import logging
+import subprocess
 import sys
 import os
 import re
@@ -111,6 +112,45 @@ logger = logging.getLogger(__name__)
 
 # 时区配置
 TIMEZONE = pytz.timezone("Asia/Shanghai")
+
+# 跑批失败后由独立进程延迟重试（秒）；与 cron 入口 ``run_daily_batch.py`` 共用
+DAILY_BATCH_FAILURE_RETRY_SECONDS = 2 * 3600
+
+
+def spawn_run_daily_batch_retry_after_hours(
+    batch_date: str,
+    *,
+    delay_seconds: int = DAILY_BATCH_FAILURE_RETRY_SECONDS,
+) -> None:
+    """
+    跑批失败后：在独立后台进程中等待 ``delay_seconds``，再执行
+    ``python run_daily_batch.py <batch_date>``（与 cron 同源；断点续跑仍有效）。
+
+    若再次失败，该次入口同样会再排一次延迟重试。
+    """
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    script = os.path.join(root, "run_daily_batch.py")
+    argv = [sys.executable, script, batch_date]
+    code = (
+        "import time, subprocess; "
+        f"time.sleep({int(delay_seconds)}); "
+        f"subprocess.run({argv!r})"
+    )
+    try:
+        subprocess.Popen(
+            [sys.executable, "-c", code],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        logger.info(
+            "已安排 %ss 后由子进程重试日终跑批（batch_date=%s）",
+            int(delay_seconds),
+            batch_date,
+        )
+    except Exception as e:
+        logger.error("无法启动跑批延迟重试子进程: %s", e)
 
 
 async def _daily_batch_trigger_hour() -> int:
@@ -1145,6 +1185,7 @@ async def schedule_daily_batch():
                     ran_today = True
                 if not ok:
                     logger.error("日终跑批补跑失败 batch_date=%s", d)
+                    spawn_run_daily_batch_retry_after_hours(d)
             if not ran_today:
                 logger.info("触发日终跑批处理（今日）")
                 success = await processor.run_daily_batch()
@@ -1152,6 +1193,7 @@ async def schedule_daily_batch():
                     logger.info("日终跑批处理（今日）执行成功")
                 else:
                     logger.error("日终跑批处理（今日）执行失败")
+                    spawn_run_daily_batch_retry_after_hours(today_s)
             else:
                 logger.info("今日已在补跑队列中执行，跳过重复 run_daily_batch()")
             
@@ -1175,17 +1217,21 @@ def trigger_daily_batch_manual(batch_date: Optional[str] = None) -> bool:
         bool: 批处理是否成功完成
     """
     try:
+        resolved = batch_date or datetime.now(TIMEZONE).strftime("%Y-%m-%d")
         # 创建事件循环并运行
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        
+
         processor = DailyBatchProcessor()
         success = loop.run_until_complete(processor.run_daily_batch(batch_date))
-        
+
         loop.close()
-        
+
+        if not success:
+            spawn_run_daily_batch_retry_after_hours(resolved)
+
         return success
-        
+
     except Exception as e:
         logger.error(f"手动触发日终跑批失败: {e}")
         return False

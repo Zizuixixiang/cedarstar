@@ -9,6 +9,7 @@ import json
 import logging
 import asyncio
 import copy
+import time
 import re
 from typing import (
     Any,
@@ -738,8 +739,8 @@ class LLMInterface:
         stream: bool = False,
     ) -> requests.Response:
         """
-        POST JSON；对 HTTP 429 / 503 最多重试 5 次（首次 + 5 次重试共 6 次请求），立即重试不等待。
-        其他状态码立即 raise_for_status（不重试）。
+        POST JSON；对 HTTP 429 / 503 最多重试 5 次（首次 + 5 次重试共 6 次请求），
+        每次重试前等待 2 秒。其他状态码立即 raise_for_status（不重试）。
         """
         headers = self._prepare_headers()
         max_attempts = 6  # 首次 1 次 + 重试 5 次
@@ -753,11 +754,12 @@ class LLMInterface:
             )
             if resp.status_code in (429, 503) and attempt < max_attempts - 1:
                 logger.warning(
-                    "LLM API HTTP %s，立即重试（第 %s/5 次重试）",
+                    "LLM API HTTP %s，等待 2s 后重试（第 %s/5 次重试）",
                     resp.status_code,
                     attempt + 1,
                 )
                 resp.close()
+                time.sleep(2)
                 continue
             if resp.status_code >= 400:
                 body_prev = (resp.text or "")[:1200]

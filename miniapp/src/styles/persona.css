@@ -3,21 +3,39 @@
    风格：暖光晨露 / 奶油日记风
    ======================================== */
 
-/* 页面整体容器 */
-.persona-system-rules-hint {
-  font-size: 0.8125rem;
-  line-height: 1.45;
-  color: var(--text-muted, #6b7280);
-  margin: 0 0 10px;
+/* 编辑区短说明：白底 + 虚线框，与控制台卡片层次一致 */
+.persona-field-hint {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--persona-ink-mid);
+  margin: 0;
+  padding: 10px 12px;
+  background: rgba(255, 255, 255, 0.72);
+  border: 1px dashed rgba(61, 68, 61, 0.35);
+  box-shadow: 2px 2px 0 rgba(90, 94, 88, 0.12);
+}
+
+.persona-tool-toggle + .persona-field-hint {
+  margin-top: 10px;
+}
+
+.persona-section-head + .persona-field-hint {
+  margin-bottom: 12px;
 }
 
 .persona-inline-code {
-  font-family: monospace;
-  font-size: 0.85em;
-  background: #eeeeee;
-  padding: 0.1em 0.35em;
+  font-family: ui-monospace, monospace;
+  font-size: 0.82em;
+  background: rgba(232, 228, 218, 0.65);
+  padding: 0.12em 0.35em;
   border-radius: 0;
-  border: 1px solid var(--industrial-border-color);
+  border: 1px solid rgba(61, 68, 61, 0.32);
+  color: var(--persona-ink);
+}
+
+.persona-field-hint .persona-inline-code {
+  margin: 0 2px;
+  vertical-align: baseline;
 }
 
 .persona-tool-toggle {
@@ -26,7 +44,7 @@
   gap: 10px;
   cursor: pointer;
   font-size: 0.9rem;
-  color: var(--text-main);
+  color: var(--persona-ink);
   user-select: none;
 }
 
@@ -36,17 +54,60 @@
 }
 
 .persona-page {
+  /* 低饱和局部色：略灰的墨绿/灰紫/暖灰，避免高纯度跳色 */
+  --persona-ink: #3d443f;
+  --persona-ink-mid: #6d726d;
+  --persona-mauve-dust: rgba(102, 95, 112, 0.14);
+  --persona-sage-dust: rgba(88, 102, 94, 0.12);
+  --persona-warm-dust: rgba(112, 100, 88, 0.11);
+  --persona-slate-dust: rgba(90, 98, 108, 0.12);
+  --persona-glyph-mauve: #6f6978;
+  --persona-glyph-sage: #5d6b62;
+  --persona-glyph-warm: #756c62;
+  --persona-glyph-slate: #636d78;
+  --persona-shadow-soft: #5a5e58;
+  --persona-rule-dash: rgba(58, 64, 58, 0.34);
+  --persona-badge-bg: #b9b0a2;
   width: 100%;
   max-width: 1200px;
   display: flex;
   flex-direction: column;
   background: var(--surface);
-  border: var(--border-card);
+  border: 2px solid var(--persona-ink);
   border-radius: 0;
-  box-shadow: none;
-  overflow-x: hidden;
+  box-shadow: 4px 4px 0 var(--persona-shadow-soft);
+  overflow-x: visible;
   overflow-y: visible;
   min-height: calc(100vh - 48px);
+  position: relative;
+  margin-top: 16px;
+  box-sizing: border-box;
+}
+
+/* 与控制台一致：标签骑在最外框上边框线上，宽度随文字 */
+.persona-page::before {
+  content: 'PERSONA SETTINGS';
+  position: absolute;
+  display: inline-block;
+  width: max-content;
+  max-width: calc(100% - 24px);
+  box-sizing: border-box;
+  white-space: nowrap;
+  top: 0;
+  right: 12px;
+  left: auto;
+  transform: translateY(-50%);
+  line-height: 1.15;
+  padding: 2px 6px;
+  background: var(--persona-badge-bg);
+  color: var(--persona-ink);
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  border: 2px solid var(--persona-ink);
+  box-shadow: 2px 2px 0 var(--persona-shadow-soft);
+  z-index: 10;
 }
 
 /* ========================================
@@ -55,8 +116,9 @@
 .persona-tabs {
   display: flex;
   align-items: center;
-  padding: 0 var(--card-padding);
-  border-bottom: 1px solid var(--industrial-border-color);
+  /* 与顶部 PERSONA SETTINGS 角标拉开一点垂直间距 */
+  padding: 10px var(--card-padding) 0;
+  border-bottom: 1px solid rgba(61, 68, 61, 0.28);
   box-shadow: none;
   background: var(--surface);
   min-height: 52px;
@@ -80,7 +142,7 @@
 .persona-tab {
   padding: 14px 20px;
   font-size: 0.88rem;
-  color: var(--text-sub);
+  color: var(--persona-ink-mid);
   border: none;
   border-bottom: 3px solid transparent;
   background: transparent;
@@ -94,23 +156,23 @@
 }
 
 .persona-tab:hover {
-  color: var(--text-main);
-  background: #eeeeee;
+  color: var(--persona-ink);
+  background: rgba(232, 228, 218, 0.55);
 }
 
 .persona-tab.active {
-  color: var(--accent);
-  border-bottom-color: var(--accent);
+  color: #5a5268;
+  border-bottom-color: #5a5268;
   font-weight: bold;
 }
 
 .persona-tab-new {
   padding: 8px 16px;
   font-size: 0.82rem;
-  color: var(--text-main);
-  border: 1px solid var(--industrial-border-color);
+  color: var(--persona-ink);
+  border: 1px solid rgba(61, 68, 61, 0.4);
   border-radius: 0;
-  background: #eeeeee;
+  background: rgba(245, 242, 236, 0.95);
   box-shadow: none;
   white-space: nowrap;
   cursor: pointer;
@@ -123,11 +185,11 @@
 }
 
 .persona-tab-new:hover {
-  background: #dddddd;
+  background: rgba(232, 228, 218, 0.85);
 }
 
 .persona-tab-new:active {
-  background: #cccccc;
+  background: rgba(220, 216, 208, 0.95);
 }
 
 /* ========================================
@@ -138,6 +200,23 @@
   flex: 1;
   overflow: visible;
   min-height: 0;
+  position: relative;
+}
+
+/* 「Char」区块星标：骑在标签栏底边线上（与上方分隔线视觉对齐） */
+.persona-body::before {
+  content: '✦';
+  position: absolute;
+  top: 0;
+  left: var(--card-padding);
+  transform: translateY(-50%);
+  z-index: 2;
+  font-size: 1.05rem;
+  line-height: 1;
+  color: var(--text-main);
+  pointer-events: none;
+  background: var(--surface);
+  padding: 0 6px;
 }
 
 /* 左栏：编辑区 60% */
@@ -177,14 +256,134 @@
   gap: 14px;
 }
 
-.section-title {
-  font-family: 'Courier New', Courier, monospace;
-  font-size: 1rem;
-  font-weight: bold;
-  text-transform: uppercase;
-  color: var(--text-main);
+/* 区块标题：等宽 slug + 机甲铭牌 + 蓝图分割线（替代原 section-title 竖线） */
+.persona-section-head {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+  margin: 0 0 4px 0;
+  width: 100%;
+  max-width: 100%;
+}
+
+.persona-section-head__slug {
+  display: block;
+  font-family: ui-monospace, 'Cascadia Code', 'Courier New', monospace;
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  color: var(--persona-ink-mid);
+  line-height: 1.3;
+  margin-bottom: 6px;
+  opacity: 0.88;
+}
+
+.persona-section-head__nameplate {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding: 6px 12px 7px;
+  background: var(--persona-mauve-dust);
+  border: 1px solid var(--persona-ink);
+  box-shadow: 2px 2px 0 var(--persona-shadow-soft);
+  box-sizing: border-box;
+  max-width: 100%;
+}
+
+.persona-section-head__glyph {
+  flex-shrink: 0;
+  color: var(--persona-glyph-mauve);
+}
+
+/* 各区块铭牌底色 / 图标色相略作区分（仍保持低饱和） */
+.persona-editor > .field-section:nth-of-type(4n + 1) .persona-section-head__nameplate {
+  background: var(--persona-mauve-dust);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 1) .persona-section-head__glyph {
+  color: var(--persona-glyph-mauve);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 2) .persona-section-head__nameplate {
+  background: var(--persona-sage-dust);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 2) .persona-section-head__glyph {
+  color: var(--persona-glyph-sage);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 3) .persona-section-head__nameplate {
+  background: var(--persona-warm-dust);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 3) .persona-section-head__glyph {
+  color: var(--persona-glyph-warm);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 4) .persona-section-head__nameplate {
+  background: var(--persona-slate-dust);
+}
+
+.persona-editor > .field-section:nth-of-type(4n + 4) .persona-section-head__glyph {
+  color: var(--persona-glyph-slate);
+}
+
+.persona-preview .persona-section-head__nameplate {
+  background: var(--persona-slate-dust);
+}
+
+.persona-preview .persona-section-head__glyph {
+  color: var(--persona-glyph-slate);
+}
+
+.persona-section-head__title {
+  font-family: 'Noto Sans SC', system-ui, sans-serif;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--persona-ink);
   margin: 0;
   letter-spacing: 0.02em;
+  line-height: 1.25;
+}
+
+.persona-section-head__rule {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* 蓝图风：宽间距短划 + 末端方块 */
+.persona-section-head__rule-line {
+  flex: 1;
+  min-width: 0;
+  height: 2px;
+  border: none;
+  background: repeating-linear-gradient(
+    90deg,
+    var(--persona-rule-dash) 0,
+    var(--persona-rule-dash) 12px,
+    transparent 12px,
+    transparent 22px
+  );
+}
+
+.persona-section-head__rule-cap {
+  flex-shrink: 0;
+  font-size: 0.5rem;
+  line-height: 1;
+  color: var(--persona-ink-mid);
+  transform: translateY(1px);
+  opacity: 0.85;
+}
+
+.persona-editor > .field-section + .field-section {
+  margin-top: 4px;
+  padding-top: 18px;
+  border-top: 1px dotted rgba(61, 68, 61, 0.22);
 }
 
 /* 子章节样式 */
@@ -193,10 +392,10 @@
   flex-direction: column;
   gap: 12px;
   padding: var(--card-padding);
-  border: 1px dashed var(--industrial-border-color);
+  border: 2px dashed var(--industrial-border-color);
   border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid-sm);
   margin-bottom: 12px;
 }
 
@@ -316,7 +515,13 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   flex-shrink: 0;
+}
+
+.preview-header .persona-section-head {
+  flex: 1;
+  min-width: 0;
 }
 
 .copy-btn {
@@ -354,10 +559,10 @@
   font-size: 0.8rem;
   line-height: 1.75;
   color: var(--text-main);
-  background: #fafafa;
-  border: 1px dashed var(--industrial-border-color);
+  background: var(--surface);
+  border: 2px solid var(--industrial-border-color);
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow-solid-sm);
   padding: 16px;
   white-space: pre-wrap;
   word-break: break-word;
@@ -529,6 +734,10 @@
     flex-direction: column;
   }
 
+  .persona-body::before {
+    left: 16px;
+  }
+
   /* 左侧编辑区释放宽度 */
   .persona-editor {
     width: 100%;
@@ -555,12 +764,14 @@
     flex-shrink: 0;
   }
 
-  .persona-preview .preview-header .section-title {
-    font-size: 0.85rem;
-    margin: 0;
-    white-space: nowrap;
+  .persona-preview .preview-header .persona-section-head {
     flex: 1 1 auto;
     min-width: 0;
+  }
+
+  .persona-preview .preview-header .persona-section-head__title {
+    font-size: 0.85rem;
+    white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
   }

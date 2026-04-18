@@ -4,6 +4,9 @@
 
 /* Memory 页面容器：固定视口内高度，避免 Tab 切换时整页高度与滚动条抖动 */
 .memory-container {
+  /* 深墨绿 Tab 选中态、统一控制台按钮硬阴影 */
+  --memory-moss-deep: #1a3328;
+  --memory-console-shadow: 3px 3px 0 var(--shadow-color-deep);
   width: 100%;
   max-width: 1200px;
   margin: 0 auto;
@@ -23,16 +26,16 @@
   display: contents;
 }
 
-/* Tab 条大框变身为精美的内凹圆角容器 */
+/* Tab 条：无外框，各 Tab 为独立实体按键 */
 .memory-tabs {
   flex-shrink: 0;
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
-  padding: 6px;
-  background: var(--surface);
+  gap: 10px;
+  padding: 0;
+  background: transparent;
   border-radius: 0;
-  border: var(--border-card);
+  border: none;
   box-shadow: none;
 }
 
@@ -48,20 +51,19 @@
 }
 
 .memory-tabs.skeleton-tabs {
-  border-bottom: none;
   align-items: center;
 }
 
-/* 使用 button.memory-tab 提高优先级，覆盖 global.css 中 button 的 border:none / background:transparent，避免部分 Tab 露出浏览器默认黑框 */
+/* 使用 button.memory-tab 提高优先级，覆盖 global.css 中 button 的 border:none / background:transparent */
 .memory-tabs button.memory-tab {
   appearance: none;
   -webkit-appearance: none;
   margin: 0;
   padding: 10px 18px;
-  border: 1px solid transparent;
+  border: none;
   border-radius: 0;
   background: transparent;
-  color: var(--text-sub);
+  color: var(--text-main);
   font-size: 0.95rem;
   font-family: monospace;
   font-weight: bold;
@@ -72,22 +74,30 @@
   transition: none;
 }
 
-.memory-tabs button.memory-tab:hover {
+.memory-tabs button.memory-tab:hover:not(.active) {
   color: var(--text-main);
-  background: #eeeeee;
-  border-color: var(--industrial-border-color);
+  background: transparent;
 }
 
 .memory-tabs button.memory-tab.active {
-  color: var(--text-main);
-  background: var(--page-bg);
-  border: 1px solid var(--industrial-border-color);
-  box-shadow: none;
+  color: #ffffff;
+  background: var(--memory-moss-deep);
+  border: none;
+  box-shadow: var(--memory-console-shadow);
 }
 
-.memory-tabs button.memory-tab:active {
-  background: #dddddd;
-  box-shadow: none;
+.memory-tabs button.memory-tab.active:hover {
+  color: #ffffff;
+  background: var(--memory-moss-deep);
+}
+
+.memory-tabs button.memory-tab:active:not(.active) {
+  opacity: 0.92;
+}
+
+.memory-tabs button.memory-tab.active:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .memory-tabs button.memory-tab:focus {
@@ -95,12 +105,13 @@
 }
 
 .memory-tabs button.memory-tab:focus-visible {
-  outline: none;
-  border: 1px solid var(--accent);
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 
 .memory-tabs button.memory-tab.active:focus-visible {
-  border: 1px solid var(--accent);
+  outline-color: #ffffff;
+  outline-offset: 3px;
 }
 
 .tab-loading {
@@ -124,7 +135,7 @@ h2.memory-tab-header__title,
 .memory-tab-header__title {
   display: inline-flex;
   align-items: center;
-  gap: 0.35em;
+  gap: 0.5em;
   margin: 0;
   padding: 0;
   font-size: 1.25rem;
@@ -145,12 +156,25 @@ h2.memory-tab-header__title,
   line-height: 1.25;
 }
 
-.memory-tab-header__emoji {
-  line-height: 1;
+/* 区块标题旁：极简线条图标，深墨绿 */
+.memory-tab-header__icon {
+  line-height: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
+  color: var(--text-main);
+}
+
+.memory-tab-header__icon svg {
+  display: block;
+}
+
+.memory-tab-header__icon--skeleton {
+  width: 20px;
+  height: 20px;
+  background: #eeeeee;
+  border-radius: 0;
 }
 
 .memory-tab-header__actions {
@@ -158,6 +182,24 @@ h2.memory-tab-header__title,
   align-items: center;
   gap: 12px;
   flex-shrink: 0;
+}
+
+/*
+ * 统一控制台按钮：2px 深色实线边框 + 纯色底 + 右下 3px 硬阴影（燕麦/紫/灰等仅作区分）
+ */
+.memory-container .add-button,
+.memory-container .action-button,
+.memory-container .delete-button,
+.memory-container .card-view-full-link,
+.memory-container .pagination-button,
+.memory-container .modal-button {
+  border: 2px solid var(--industrial-border-color);
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
+}
+
+.memory-view-close {
+  border: 2px solid var(--industrial-border-color);
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
 }
 
 /* 记忆卡片网格 */
@@ -182,28 +224,31 @@ h2.memory-tab-header__title,
 
 /* 记忆卡片 */
 .memory-card {
-  border: var(--border-card);
+  border: 2px solid var(--text-main);
   border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   padding: var(--card-padding);
   transition: none;
   position: relative;
   min-height: 200px;
+  margin-top: 16px;
 }
 
 .memory-card::before {
-  content: 'MOD_MEM';
+  content: 'MEMORY';
   position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
+  top: -14px;
+  left: 16px;
+  background: var(--badge-archive);
+  color: var(--text-main);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 4px 12px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
   z-index: 10;
-  font-family: monospace;
 }
 
 .memory-card:hover {
@@ -266,9 +311,8 @@ h2.memory-tab-header__title,
 .card-view-full-link {
   display: block;
   margin: -8px 0 12px;
-  padding: 4px 8px;
-  border: 1px solid var(--industrial-border-color);
-  background: #eeeeee;
+  padding: 6px 10px;
+  background: #e8e4da;
   color: var(--text-main);
   font-size: 0.85rem;
   font-family: monospace;
@@ -281,7 +325,12 @@ h2.memory-tab-header__title,
 }
 
 .card-view-full-link:hover {
-  background: #dddddd;
+  filter: brightness(0.97);
+}
+
+.card-view-full-link:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 /* 只读全文：挂到 body，纯色遮罩 + 单层阅读面板，避免与背后卡片叠成「框套框」 */
@@ -302,28 +351,31 @@ h2.memory-tab-header__title,
   max-width: 560px;
   max-height: min(92dvh, 820px);
   background: var(--surface);
-  border: var(--border-card);
+  border: 2px solid var(--text-main);
   border-radius: 0;
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
+  overflow: visible; /* 改为 visible 允许徽章溢出 */
   box-sizing: border-box;
   position: relative;
+  margin-top: 16px;
 }
 
 .memory-view-sheet::before {
-  content: 'MOD_VIEW';
+  content: 'VIEW MEMORY';
   position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
+  top: -14px;
+  left: 16px;
+  background: var(--badge-history);
+  color: var(--text-main);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 4px 12px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
   z-index: 10;
-  font-family: monospace;
 }
 
 .memory-view-sheet-header {
@@ -361,7 +413,6 @@ h2.memory-tab-header__title,
   flex-shrink: 0;
   margin-top: 2px;
   padding: 8px 14px;
-  border: 1px solid var(--industrial-border-color);
   border-radius: 0;
   background: var(--accent);
   color: #fff;
@@ -370,15 +421,15 @@ h2.memory-tab-header__title,
   font-size: 0.9rem;
   font-weight: bold;
   cursor: pointer;
-  box-shadow: none;
 }
 
 .memory-view-close:hover {
-  background: #c9302c;
+  filter: brightness(1.06);
 }
 
 .memory-view-close:active {
-  background: #ac2925;
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .memory-view-sheet-body {
@@ -466,23 +517,22 @@ h2.memory-tab-header__title,
   padding: 12px 20px;
   background: var(--accent);
   color: white;
-  border: 1px solid var(--industrial-border-color);
   border-radius: 0;
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: none;
   transition: none;
   white-space: nowrap;
 }
 
 .add-button:hover {
-  background: #c9302c;
+  filter: brightness(1.06);
 }
 
 .add-button:active {
-  background: #ac2925;
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 /* 长期记忆列表 */
@@ -493,27 +543,30 @@ h2.memory-tab-header__title,
 }
 
 .memory-item {
-  border: var(--border-card);
+  border: 2px solid var(--text-main);
   border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   padding: var(--card-padding);
   transition: none;
   position: relative;
+  margin-top: 16px;
 }
 
 .memory-item::before {
-  content: 'MOD_LTM';
+  content: 'LONG-TERM';
   position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--accent);
-  color: #fff;
+  top: -14px;
+  left: 16px;
+  background: var(--badge-vault);
+  color: var(--text-main);
+  font-family: 'Courier New', Courier, monospace;
   font-size: 10px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 2px 8px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
   z-index: 10;
-  font-family: monospace;
 }
 
 .memory-item:hover {
@@ -596,10 +649,14 @@ h2.memory-tab-header__title,
   font-size: 0.9rem;
 }
 
+.gc-exempt-badge__icon {
+  flex-shrink: 0;
+}
+
 .gc-exempt-badge {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: 4px;
   margin-left: 8px;
   padding: 2px 8px;
   border-radius: 0;
@@ -615,27 +672,27 @@ h2.memory-tab-header__title,
 }
 
 .delete-button {
-  padding: 6px 12px;
-  background: #eeeeee;
+  padding: 8px 14px;
+  background: #e8e4da;
   color: var(--industrial-red);
-  border: 1px solid var(--industrial-border-color);
   border-radius: 0;
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
   font-size: 0.85rem;
   cursor: pointer;
-  box-shadow: none;
   transition: none;
 }
 
 .delete-button:hover {
   background: #fdd;
-  border-color: var(--industrial-red);
+  filter: none;
 }
 
 .delete-button:active {
   background: #fcc;
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 /* 分页控件（单行） */
@@ -652,10 +709,8 @@ h2.memory-tab-header__title,
 
 .pagination-button {
   padding: 8px 16px;
-  border: var(--border-card);
   border-radius: 0;
-  background: #eeeeee;
-  box-shadow: none;
+  background: #e8e4da;
   color: var(--text-main);
   font-family: monospace;
   font-weight: bold;
@@ -665,11 +720,12 @@ h2.memory-tab-header__title,
 }
 
 .pagination-button:hover:not(:disabled) {
-  background: #dddddd;
+  filter: brightness(0.97);
 }
 
 .pagination-button:active:not(:disabled) {
-  background: #cccccc;
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .pagination-button:disabled {
@@ -703,26 +759,29 @@ h2.memory-tab-header__title,
 .modal-container {
   width: 100%;
   max-width: 500px;
-  border: var(--border-card);
+  border: 2px solid var(--text-main);
   border-radius: 0;
   background: var(--surface);
-  box-shadow: none;
+  box-shadow: var(--shadow-solid);
   padding: var(--card-padding);
   position: relative;
+  margin-top: 16px;
 }
 
 .modal-container::before {
-  content: 'MOD_EDIT';
+  content: 'EDIT MEMORY';
   position: absolute;
-  top: -1px;
-  left: -1px;
-  background: var(--accent);
-  color: #fff;
-  font-size: 10px;
+  top: -14px;
+  left: 16px;
+  background: var(--badge-config);
+  color: var(--text-main);
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 4px 12px;
+  border: 2px solid var(--text-main);
+  box-shadow: 2px 2px 0px var(--text-main);
   z-index: 10;
-  font-family: monospace;
 }
 
 .modal-title {
@@ -790,43 +849,46 @@ h2.memory-tab-header__title,
 .modal-button {
   flex: 1;
   padding: 12px;
-  border: var(--border-card);
   border-radius: 0;
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
   cursor: pointer;
-  box-shadow: none;
   transition: none;
 }
 
 .modal-button.cancel {
-  background: #eeeeee;
+  background: #e8e4da;
   color: var(--text-main);
 }
 
 .modal-button.cancel:hover {
-  background: #dddddd;
+  filter: brightness(0.97);
 }
 
 .modal-button.confirm {
   background: var(--industrial-text);
   color: white;
-  border-color: var(--industrial-text);
+  border-color: var(--industrial-border-color);
 }
 
 .modal-button.confirm:hover {
-  background: #444444;
+  filter: brightness(1.08);
 }
 
 .modal-button.delete {
   background: var(--industrial-red);
   color: white;
-  border-color: var(--industrial-red);
+  border-color: var(--industrial-border-color);
 }
 
 .modal-button.delete:hover {
-  background: #c9302c;
+  filter: brightness(1.06);
+}
+
+.memory-container .modal-button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 /* 确认弹窗 */
@@ -911,8 +973,7 @@ h2.memory-tab-header__title,
 
 /* 按钮基础样式 */
 .action-button {
-  padding: 6px 12px;
-  border: 1px solid var(--industrial-border-color);
+  padding: 8px 14px;
   border-radius: 0;
   font-family: monospace;
   font-weight: bold;
@@ -926,24 +987,32 @@ h2.memory-tab-header__title,
 }
 
 .edit-button {
-  background: #eeeeee;
+  background: #e8e4da;
   color: var(--text-main);
-  box-shadow: none;
 }
 
 .edit-button:hover {
-  background: #dddddd;
+  filter: brightness(0.97);
+}
+
+.edit-button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .delete-card-button {
-  background: #eeeeee;
+  background: #e8e4da;
   color: var(--industrial-red);
-  box-shadow: none;
 }
 
 .delete-card-button:hover {
   background: #fdd;
-  border-color: var(--industrial-red);
+  filter: none;
+}
+
+.delete-card-button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 /* 骨架屏 */
@@ -996,9 +1065,16 @@ h2.memory-tab-header__title,
 }
 
 .empty-state-icon {
-  font-size: 3rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
   margin-bottom: 16px;
-  opacity: 0.5;
+  color: var(--text-main);
+  opacity: 0.42;
+}
+
+.empty-state-icon svg {
+  display: block;
 }
 
 .empty-state-text {
@@ -1023,7 +1099,7 @@ h2.memory-tab-header__title,
   color: #fff;
   font-size: 10px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 4px 10px;
   z-index: 10;
   font-family: monospace;
 }
@@ -1100,7 +1176,7 @@ h2.memory-tab-header__title,
   color: #fff;
   font-size: 10px;
   font-weight: bold;
-  padding: 2px 6px;
+  padding: 4px 10px;
   z-index: 10;
   font-family: monospace;
 }
@@ -1184,8 +1260,7 @@ h2.memory-tab-header__title,
     min-width: 0;
     flex-wrap: nowrap;
     box-sizing: border-box;
-    /* 移除掉 padding 0 和 overflow hidden 的重置，保留它圆润内凹的效果 */
-    gap: 4px; /* 减小间距 */
+    gap: 4px;
   }
 
   /* 强制每个 Tab 按钮平分宽度，并稍微缩小字体以适应屏幕 */

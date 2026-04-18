@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect } from 'react';
+import { Calendar, Database } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/dashboard.css';
 
@@ -46,28 +47,31 @@ function HealthCard({ data, loading, batchLogs }) {
   
   return (
     <div className="health-card">
-      <div className="health-item">
-        <span className="health-label">Discord</span>
-        <div className="health-value health-value--status" title={discord_online ? '活跃中' : '离线'}>
-          <span className={`status-dot ${discord_online ? 'online' : 'offline'}`} style={{ marginRight: 0 }}></span>
+      <div className="health-row">
+        <span className="health-label">ENDPOINTS</span>
+        <div className="health-value-group">
+          <div className="endpoint-item endpoint-item--discord" title={discord_online ? '活跃中' : '离线'}>
+            <span className={`status-dot ${discord_online ? 'online' : 'offline'}`}></span>
+            Discord
+          </div>
+          <div className="endpoint-item endpoint-item--telegram" title={telegram_online ? '活跃中' : '离线'}>
+            <span className={`status-dot ${telegram_online ? 'online' : 'offline'}`}></span>
+            Telegram
+          </div>
         </div>
       </div>
-      <div className="health-item">
-        <span className="health-label">Telegram</span>
-        <div className="health-value health-value--status" title={telegram_online ? '活跃中' : '离线'}>
-          <span className={`status-dot ${telegram_online ? 'online' : 'offline'}`} style={{ marginRight: 0 }}></span>
-        </div>
-      </div>
-      <div className="health-item">
+      <div className="health-row-divider"></div>
+      <div className="health-row">
         <span className="health-label">模型配置</span>
-        <div className="health-value">
-          {active_api_config || '未设置'} · {model_name || '未设置'}
+        <div className="health-value value-box value-box--neutral">
+          {model_name || active_api_config || '未设置'}
         </div>
       </div>
-      <div className="health-item">
+      <div className="health-row-divider"></div>
+      <div className="health-row">
         <span className="health-label">批处理</span>
-        <div className="health-value health-value--batch" style={{ color: batchStatus.color }}>
-          {batchStatus.text}
+        <div className={`health-value value-box value-box--${batchStatus.text === '全部成功' ? 'success' : 'error'}`}>
+          {batchStatus.text === '全部成功' && <span className="check-icon">✓</span>} {batchStatus.text}
         </div>
       </div>
     </div>
@@ -82,7 +86,10 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
     return (
       <div className="dashboard-card skeleton-card">
         <div className="card-title">
-          <span>📅 记忆跑批日历</span>
+          <span className="title-icon" aria-hidden>
+            <Calendar size={16} strokeWidth={2} />
+          </span>
+          <span>记忆跑批日历</span>
         </div>
         <div className="batch-calendar-grid">
           {[...Array(7)].map((_, i) => (
@@ -147,7 +154,10 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
   return (
     <div className="dashboard-card">
       <div className="card-title">
-        <span>📅 记忆跑批日历</span>
+        <span className="title-icon" aria-hidden>
+          <Calendar size={16} strokeWidth={2} />
+        </span>
+        <span>记忆跑批日历</span>
       </div>
       
       <div className="batch-calendar-grid">
@@ -222,7 +232,10 @@ function MemoryOverviewCard({ data, loading }) {
     return (
       <div className="dashboard-card skeleton-card">
         <div className="card-title">
-          <span>📚 记忆库概览</span>
+          <span className="title-icon" aria-hidden>
+            <Database size={16} strokeWidth={2} />
+          </span>
+          <span>记忆库概览</span>
         </div>
         <div className="memory-overview-grid">
           <div className="memory-section">
@@ -259,7 +272,10 @@ function MemoryOverviewCard({ data, loading }) {
   return (
     <div className="dashboard-card">
       <div className="card-title">
-        <span>📚 记忆库概览</span>
+        <span className="title-icon" aria-hidden>
+          <Database size={16} strokeWidth={2} />
+        </span>
+        <span>记忆库概览</span>
       </div>
       
       <div className="memory-overview-grid">
@@ -333,6 +349,7 @@ function SkeletonLoader() {
       <div className="dashboard-main-grid">
         <div className="dashboard-card skeleton-card">
           <div className="card-title">
+            <span className="title-icon"><Calendar size={18} strokeWidth={2} /></span>
             <div className="skeleton-line" style={{ width: '120px' }}></div>
           </div>
           <div className="batch-calendar-grid">
@@ -347,6 +364,7 @@ function SkeletonLoader() {
         
         <div className="dashboard-card skeleton-card">
           <div className="card-title">
+            <span className="title-icon"><Database size={18} strokeWidth={2} /></span>
             <div className="skeleton-line" style={{ width: '120px' }}></div>
           </div>
           <div className="memory-overview-grid">

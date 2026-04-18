@@ -5,8 +5,30 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+import { Sparkles, UserRound, Wrench, Settings2, FileCode } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import '../styles/persona.css';
+
+/**
+ * 左栏区块标题：等宽 slug + 线框图标 + 铭牌主标题 + 蓝图风分割线
+ */
+function SectionHead({ slug, title, icon: Icon }) {
+  return (
+    <header className="persona-section-head">
+      <span className="persona-section-head__slug">{slug}</span>
+      <div className="persona-section-head__nameplate">
+        {Icon ? (
+          <Icon className="persona-section-head__glyph" size={18} strokeWidth={1.65} aria-hidden />
+        ) : null}
+        <h2 className="persona-section-head__title">{title}</h2>
+      </div>
+      <div className="persona-section-head__rule" aria-hidden="true">
+        <span className="persona-section-head__rule-line" />
+        <span className="persona-section-head__rule-cap">■</span>
+      </div>
+    </header>
+  );
+}
 
 // 空人设模板
 const EMPTY_FORM = {
@@ -333,7 +355,7 @@ function Persona() {
 
           {/* Char 的人设 */}
           <div className="field-section">
-            <h2 className="section-title">✦ Char 的人设</h2>
+            <SectionHead slug="[ CHAR_PERSONA ]" title="Char 的人设" icon={Sparkles} />
             
             <div className="field-row">
               <label className="field-label">姓名</label>
@@ -393,7 +415,7 @@ function Persona() {
 
           {/* User 的人设 */}
           <div className="field-section">
-            <h2 className="section-title">🪐 User 的人设</h2>
+            <SectionHead slug="[ USER_PERSONA ]" title="User 的人设" icon={UserRound} />
 
             <div className="field-row">
               <label className="field-label">姓名</label>
@@ -518,7 +540,7 @@ function Persona() {
           </div>
 
           <div className="field-section">
-            <h2 className="section-title">🔧 工具</h2>
+            <SectionHead slug="[ SYS_TOOLS ]" title="工具" icon={Wrench} />
             <label className="persona-tool-toggle">
               <input
                 type="checkbox"
@@ -529,21 +551,22 @@ function Persona() {
               />
               <span>启用 Lutopia 论坛工具</span>
             </label>
-            <p className="persona-system-rules-hint" style={{ marginTop: 8 }}>
-              开启后对话可调用论坛接口；关闭则不注册。每套人设单独保存。
+            <p className="persona-field-hint">
+              开启后可调论坛；关闭不注册；随本套人设保存。
             </p>
           </div>
 
           {/* 系统规则 */}
           <div className="field-section">
-            <h2 className="section-title">⚙️ 系统规则</h2>
-            <p className="persona-system-rules-hint">
-              Telegram 回复正文使用 HTML 模式发送。可在此约定：请使用 HTML 标签进行文本格式化，例如
-              {' '}
-              <code className="persona-inline-code">&lt;b&gt;加粗&lt;/b&gt;</code>、
-              <code className="persona-inline-code">&lt;code&gt;代码&lt;/code&gt;</code>、
-              <code className="persona-inline-code">&lt;i&gt;斜体&lt;/i&gt;</code>
-              ，不要使用 Markdown 语法。
+            <SectionHead slug="[ CORE_RULES ]" title="系统规则" icon={Settings2} />
+            <p className="persona-field-hint">
+              Telegram 以 HTML 发正文；请用 HTML 标签排版（如
+              <code className="persona-inline-code">&lt;b&gt;</code>
+              、
+              <code className="persona-inline-code">&lt;code&gt;</code>
+              、
+              <code className="persona-inline-code">&lt;i&gt;</code>
+              ），勿用 Markdown。
             </p>
             <textarea
               className="field-textarea"
@@ -558,7 +581,7 @@ function Persona() {
         {/* 右栏：预览区 40% */}
         <div className="persona-preview">
           <div className="preview-header">
-            <h2 className="section-title">System Prompt 预览</h2>
+            <SectionHead slug="[ PROMPT_PREVIEW ]" title="System Prompt 预览" icon={FileCode} />
             <button className="copy-btn" onClick={handleCopy} disabled={!preview}>
               复制全文
             </button>
