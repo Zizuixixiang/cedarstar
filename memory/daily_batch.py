@@ -19,7 +19,7 @@ import subprocess
 import sys
 import os
 import re
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional, Tuple
 from uuid import uuid4
 import pytz
@@ -1206,6 +1206,9 @@ content 强制要求：
             events_tl = tl_data.get("events") if isinstance(tl_data, dict) else []
             if isinstance(events_tl, list):
                 sid = str(summary_row_id) if summary_row_id is not None else None
+                rtl_created_at = datetime.combine(
+                    date.fromisoformat(batch_date), time(23, 59, 59)
+                )
                 for ev in events_tl:
                     if not isinstance(ev, dict):
                         continue
@@ -1218,6 +1221,7 @@ content 强制要求：
                             event_type=et,
                             content=content,
                             source_summary_id=sid,
+                            created_at=rtl_created_at,
                         )
                         logger.info("relationship_timeline 已插入 type=%s", et)
                     except ValueError:

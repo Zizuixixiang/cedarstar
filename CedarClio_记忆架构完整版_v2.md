@@ -128,6 +128,8 @@ CREATE INDEX idx_relationship_timeline_created ON relationship_timeline (created
 
 > 大多数普通的一天不写入，只有真正有意义的节点才追加，宁可漏记不要滥记。
 
+> **（以代码为准）** 日终 Step 3 调用 **`insert_relationship_timeline_event(..., created_at=datetime.combine(date.fromisoformat(batch_date), time(23, 59, 59)))`**，**`created_at`** 落在 **`batch_date` 业务日** 末刻，便于按日历排序；库表 **`insert_relationship_timeline_event`** 仍允许省略 **`created_at`**（**`DEFAULT NOW()`**）。
+
 ---
 
 ### 5. temporal_states（时效状态表）
@@ -462,7 +464,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 **关系时间线追加：**
 - 由模型判断今日是否发生了关系里程碑事件（含 Step 1 刚完结的重要时效事件）
-- 有则以第一人称精简描述后 INSERT 入 `relationship_timeline`
+- 有则精简描述后 **`insert_relationship_timeline_event`**，`created_at` = **`batch_date` 日 23:59:59**（与业务日对齐）
 - 宁可漏记不要滥记，普通的一天不写入
 
 更新 `step3_status=1`。

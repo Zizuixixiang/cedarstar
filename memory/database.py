@@ -1903,21 +1903,34 @@ class MessageDatabase:
         content: str,
         source_summary_id: Optional[str] = None,
         event_id: Optional[str] = None,
+        created_at: Optional[_dt.datetime] = None,
     ) -> str:
-        """插入一条 relationship_timeline，返回主键 id（UUID 字符串）。"""
+        """插入一条 relationship_timeline，返回主键 id（UUID 字符串）。
+
+        created_at 省略时使用库默认值 NOW()；日终 Step 3 可传入 batch 业务日 23:59:59（naive）。
+        """
         if event_type not in self.RELATIONSHIP_TIMELINE_EVENT_TYPES:
             raise ValueError(
                 f"event_type 无效: {event_type}，允许: {self.RELATIONSHIP_TIMELINE_EVENT_TYPES}"
             )
         eid = event_id or uuid.uuid4().hex
         async with self.pool.acquire() as conn:
-            await conn.execute(
-                """
-                INSERT INTO relationship_timeline (id, event_type, content, source_summary_id)
-                VALUES ($1, $2, $3, $4)
-                """,
-                eid, event_type, content, source_summary_id,
-            )
+            if created_at is None:
+                await conn.execute(
+                    """
+                    INSERT INTO relationship_timeline (id, event_type, content, source_summary_id)
+                    VALUES ($1, $2, $3, $4)
+                    """,
+                    eid, event_type, content, source_summary_id,
+                )
+            else:
+                await conn.execute(
+                    """
+                    INSERT INTO relationship_timeline (id, event_type, content, source_summary_id, created_at)
+                    VALUES ($1, $2, $3, $4, $5)
+                    """,
+                    eid, event_type, content, source_summary_id, created_at,
+                )
         logger.debug(
             "relationship_timeline 插入成功 id=%s type=%s", eid, event_type
         )
@@ -3174,9 +3187,10 @@ async def insert_relationship_timeline_event(
     content: str,
     source_summary_id: Optional[str] = None,
     event_id: Optional[str] = None,
+    created_at: Optional[_dt.datetime] = None,
 ) -> str:
     return await get_database().insert_relationship_timeline_event(
-        event_type, content, source_summary_id, event_id
+        event_type, content, source_summary_id, event_id, created_at
     )
 
 
