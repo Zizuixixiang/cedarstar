@@ -134,6 +134,7 @@
   text-decoration: none;
   transition: none;
   position: relative;
+  /* 默认 hidden；选中态见 .nav-item.active，避免裁切右下硬阴影 */
   overflow: hidden;
   border: 2px solid transparent;
   background: transparent;
@@ -211,6 +212,7 @@
 
 /* 选中项：实体插片 — 粗黑框 + 右下硬阴影，从菜单中浮起 */
 .nav-item.active {
+  overflow: visible; /* 勿裁切 box-shadow */
   background: var(--page-bg);
   color: #1a1a1a;
   border: 2px solid #1a1a1a;
