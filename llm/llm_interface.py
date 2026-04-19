@@ -1433,13 +1433,19 @@ class LLMInterface:
         req_timeout = self._request_timeout_seconds(messages)
         # 流式：timeout 元组 (连接, 读) —— 读超时指「两次 SSE 片段之间」最长等待，须大于推理间隙
         stream_read = config.LLM_STREAM_READ_TIMEOUT
+        # 带 tools（尤其 Lutopia 多轮 MCP）时上下文膨胀，模型两包之间可能空闲较久
+        if tools is not None:
+            stream_read = max(
+                stream_read, config.LLM_STREAM_READ_TIMEOUT_TOOLS_FLOOR
+            )
         stream_connect = min(30, stream_read)
         logger.debug(
-            "调用 LLM API (stream): %s, 模型: %s, timeout=(connect=%ss, read=%ss)",
+            "调用 LLM API (stream): %s, 模型: %s, timeout=(connect=%ss, read=%ss)%s",
             endpoint,
             self.model_name,
             stream_connect,
             stream_read,
+            " [tools→读超时 floor]" if tools is not None else "",
         )
 
         full_content: List[str] = []

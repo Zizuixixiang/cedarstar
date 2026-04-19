@@ -107,7 +107,7 @@ class Config:
     def LLM_STREAM_READ_TIMEOUT(self) -> int:
         """
         SSE 流式 chat/completions：两次收到数据之间的读超时（秒）。
-        默认 60；可通过环境变量 LLM_STREAM_READ_TIMEOUT 覆盖。
+        默认 90；可通过环境变量 LLM_STREAM_READ_TIMEOUT 覆盖。
         """
         try:
             raw = os.getenv("LLM_STREAM_READ_TIMEOUT")
@@ -115,7 +115,26 @@ class Config:
                 return int(raw)
         except ValueError:
             pass
-        return 60
+        return 90
+
+    @property
+    def LLM_STREAM_READ_TIMEOUT_TOOLS_FLOOR(self) -> int:
+        """
+        当 ``chat/completions`` 流式请求携带 ``tools``（如 Lutopia MCP）时，
+        对「两次 SSE 数据之间」读超时的下限（秒）。
+
+        多轮工具后上下文变长，模型首包或 chunk 间隔常明显长于纯对话；
+        若仅用 LLM_STREAM_READ_TIMEOUT，易在长推理间隙误判为超时。
+
+        默认 180；可用环境变量 LLM_STREAM_READ_TIMEOUT_TOOLS_FLOOR 覆盖。
+        """
+        try:
+            raw = os.getenv("LLM_STREAM_READ_TIMEOUT_TOOLS_FLOOR")
+            if raw is not None and str(raw).strip():
+                return int(raw)
+        except ValueError:
+            pass
+        return 180
 
     @property
     def LLM_VISION_TIMEOUT(self) -> int:
