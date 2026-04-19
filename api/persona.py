@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 from datetime import datetime
 
+from memory.context_builder import build_persona_config_system_body
+
 router = APIRouter()
 
 
@@ -20,10 +22,15 @@ class PersonaCreate(BaseModel):
     """人设配置创建模型。"""
     name: str
     char_name: Optional[str] = ""
+    char_identity: Optional[str] = ""
     char_personality: Optional[str] = ""
     char_speech_style: Optional[str] = ""
+    char_redlines: Optional[str] = ""
     char_appearance: Optional[str] = ""
     char_relationships: Optional[str] = ""
+    char_nsfw: Optional[str] = ""
+    char_tools_guide: Optional[str] = ""
+    char_offline_mode: Optional[str] = ""
     user_name: Optional[str] = ""
     user_body: Optional[str] = ""
     user_work: Optional[str] = ""
@@ -42,10 +49,15 @@ class PersonaUpdate(BaseModel):
     """人设配置更新模型。"""
     name: Optional[str] = None
     char_name: Optional[str] = None
+    char_identity: Optional[str] = None
     char_personality: Optional[str] = None
     char_speech_style: Optional[str] = None
+    char_redlines: Optional[str] = None
     char_appearance: Optional[str] = None
     char_relationships: Optional[str] = None
+    char_nsfw: Optional[str] = None
+    char_tools_guide: Optional[str] = None
+    char_offline_mode: Optional[str] = None
     user_name: Optional[str] = None
     user_body: Optional[str] = None
     user_work: Optional[str] = None
@@ -58,6 +70,36 @@ class PersonaUpdate(BaseModel):
     user_other: Optional[str] = None
     system_rules: Optional[str] = None
     enable_lutopia: Optional[int] = None
+
+
+class PersonaResponse(BaseModel):
+    """人设配置详情（与 persona_configs 行一致，供 OpenAPI / 类型参考）。"""
+    id: int
+    name: Optional[str] = None
+    char_name: Optional[str] = ""
+    char_identity: Optional[str] = ""
+    char_personality: Optional[str] = ""
+    char_speech_style: Optional[str] = ""
+    char_redlines: Optional[str] = ""
+    char_appearance: Optional[str] = ""
+    char_relationships: Optional[str] = ""
+    char_nsfw: Optional[str] = ""
+    char_tools_guide: Optional[str] = ""
+    char_offline_mode: Optional[str] = ""
+    user_name: Optional[str] = ""
+    user_body: Optional[str] = ""
+    user_work: Optional[str] = ""
+    user_habits: Optional[str] = ""
+    user_likes_dislikes: Optional[str] = ""
+    user_values: Optional[str] = ""
+    user_hobbies: Optional[str] = ""
+    user_taboos: Optional[str] = ""
+    user_nsfw: Optional[str] = ""
+    user_other: Optional[str] = ""
+    system_rules: Optional[str] = ""
+    enable_lutopia: Optional[int] = 0
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
 
 
 @router.get("")
@@ -134,7 +176,7 @@ async def delete_persona(persona_id: int):
 
 @router.get("/{persona_id}/preview")
 async def preview_persona(persona_id: int):
-    """获取拼接后的完整 system prompt 预览文本。"""
+    """获取拼接后的完整 system prompt 预览文本（与 context_builder / Mini App 预览一致）。"""
     from memory.database import get_database
     
     db = get_database()
@@ -143,58 +185,6 @@ async def preview_persona(persona_id: int):
     if not persona:
         raise HTTPException(status_code=404, detail="人设配置不存在")
     
-    # 拼接完整的 system prompt
-    parts = []
-    
-    # Char 人设部分
-    if persona.get('char_name') or persona.get('char_personality') or persona.get('char_speech_style') or persona.get('char_appearance') or persona.get('char_relationships'):
-        char_parts = []
-        if persona.get('char_name'):
-            char_parts.append(f"姓名：{persona['char_name']}")
-        if persona.get('char_personality'):
-            char_parts.append(f"性格：{persona['char_personality']}")
-        if persona.get('char_speech_style'):
-            char_parts.append(f"说话方式：{persona['char_speech_style']}")
-        if persona.get('char_appearance'):
-            char_parts.append(f"形象：{persona['char_appearance']}")
-        if persona.get('char_relationships'):
-            char_parts.append(f"机际关系：{persona['char_relationships']}")
-        if char_parts:
-            parts.append("【Char 人设】\n" + "\n".join(char_parts))
-    
-    if persona.get('user_name'):
-        parts.append(f"【用户名称】\n{persona['user_name']}")
-    
-    if persona.get('user_body'):
-        parts.append(f"【用户身体特征】\n{persona['user_body']}")
-    
-    if persona.get('user_work'):
-        parts.append(f"【用户工作】\n{persona['user_work']}")
-    
-    if persona.get('user_habits'):
-        parts.append(f"【用户习惯】\n{persona['user_habits']}")
-    
-    if persona.get('user_likes_dislikes'):
-        parts.append(f"【用户喜恶】\n{persona['user_likes_dislikes']}")
-    
-    if persona.get('user_values'):
-        parts.append(f"【用户价值观】\n{persona['user_values']}")
-    
-    if persona.get('user_hobbies'):
-        parts.append(f"【用户爱好】\n{persona['user_hobbies']}")
-    
-    if persona.get('user_taboos'):
-        parts.append(f"【用户禁忌】\n{persona['user_taboos']}")
-    
-    if persona.get('user_nsfw'):
-        parts.append(f"【NSFW 设置】\n{persona['user_nsfw']}")
-    
-    if persona.get('user_other'):
-        parts.append(f"【其他信息】\n{persona['user_other']}")
-    
-    if persona.get('system_rules'):
-        parts.append(f"【系统规则】\n{persona['system_rules']}")
-    
-    preview = "\n\n".join(parts)
+    preview = build_persona_config_system_body(persona)
     
     return create_response(True, {"preview": preview})

@@ -19,7 +19,7 @@ import math
 import re
 import time
 from functools import partial
-from typing import Any, Dict, List, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
 from datetime import datetime
 
 from config import config
@@ -562,6 +562,101 @@ def fuse_rerank_with_time_decay(candidates: List[Dict[str, Any]]) -> List[Dict[s
     return scored
 
 
+def _persona_field_str(row: Mapping[str, Any], key: str) -> str:
+    v = row.get(key)
+    return (v or "").strip() if v is not None else ""
+
+
+def build_char_persona_prompt_sections(row: Mapping[str, Any]) -> List[str]:
+    """Char 段：与 miniapp Persona.jsx buildPreview 一致。"""
+    sections: List[str] = []
+    cn = _persona_field_str(row, "char_name")
+    ci = _persona_field_str(row, "char_identity")
+    ca = _persona_field_str(row, "char_appearance")
+    exist_lines: List[str] = []
+    if cn:
+        exist_lines.append(f"你的名字是 {cn}。")
+    if ci:
+        exist_lines.append(ci)
+    if ca:
+        exist_lines.append(ca)
+    if exist_lines:
+        sections.append("【存在定义】\n" + "\n".join(exist_lines))
+
+    cpers = _persona_field_str(row, "char_personality")
+    if cpers:
+        sections.append("【内在人格】\n" + cpers)
+
+    contract_parts: List[str] = []
+    cs = _persona_field_str(row, "char_speech_style")
+    cr = _persona_field_str(row, "char_redlines")
+    if cs:
+        contract_parts.append("说话风格与格式硬规范：\n" + cs)
+    if cr:
+        contract_parts.append("行为红线与绝对禁忌：\n" + cr)
+    if contract_parts:
+        sections.append("【表达契约】\n" + "\n\n".join(contract_parts))
+
+    crels = _persona_field_str(row, "char_relationships")
+    if crels:
+        sections.append("【关系与形象】\n" + crels)
+
+    cnsfw = _persona_field_str(row, "char_nsfw")
+    if cnsfw:
+        sections.append("【成人内容】\n" + cnsfw)
+
+    tools_parts: List[str] = []
+    ctg = _persona_field_str(row, "char_tools_guide")
+    com = _persona_field_str(row, "char_offline_mode")
+    if ctg:
+        tools_parts.append("工具使用守则：\n" + ctg)
+    if com:
+        tools_parts.append("线下模式：\n" + com)
+    if tools_parts:
+        sections.append("【工具与场景】\n" + "\n\n".join(tools_parts))
+
+    return sections
+
+
+def build_persona_config_system_body(row: Mapping[str, Any]) -> str:
+    """persona_configs 一行 → 基础 system 文本（Char + User + 系统规则），供预览与 _build_system_prompt。"""
+    parts: List[str] = []
+    parts.extend(build_char_persona_prompt_sections(row))
+
+    def _s(key: str) -> str:
+        return _persona_field_str(row, key)
+
+    user_lines: List[str] = []
+    if _s("user_name"):
+        user_lines.append(f"姓名：{_s('user_name')}")
+    if _s("user_body"):
+        user_lines.append(f"身体特征：{_s('user_body')}")
+    if _s("user_work"):
+        user_lines.append(f"工作：{_s('user_work')}")
+    if _s("user_habits"):
+        user_lines.append(f"生活习惯：{_s('user_habits')}")
+    if _s("user_likes_dislikes"):
+        user_lines.append(f"喜恶：{_s('user_likes_dislikes')}")
+    if _s("user_values"):
+        user_lines.append(f"价值观与世界观：{_s('user_values')}")
+    if _s("user_hobbies"):
+        user_lines.append(f"兴趣娱乐：{_s('user_hobbies')}")
+    if _s("user_taboos"):
+        user_lines.append(f"禁忌：{_s('user_taboos')}")
+    if _s("user_nsfw"):
+        user_lines.append(f"NSFW 偏好：{_s('user_nsfw')}")
+    if _s("user_other"):
+        user_lines.append(f"其他：{_s('user_other')}")
+
+    if user_lines:
+        parts.append("【User 的人设】\n" + "\n".join(user_lines))
+
+    if _s("system_rules"):
+        parts.append(f"【系统规则】\n{_s('system_rules')}")
+
+    return "\n\n".join(parts).strip()
+
+
 class ContextBuilder:
     """
     Context 构建器类。
@@ -803,61 +898,7 @@ class ContextBuilder:
             if not row:
                 return config.SYSTEM_PROMPT
 
-            def _s(key: str) -> str:
-                v = row.get(key)
-                return (v or "").strip() if v is not None else ""
-
-            # 与 miniapp Persona.jsx buildPreview 格式一致
-            parts: List[str] = []
-
-            char_name = _s("char_name")
-            char_personality = _s("char_personality")
-            char_speech_style = _s("char_speech_style")
-            char_appearance = _s("char_appearance")
-            char_relationships = _s("char_relationships")
-            if char_name or char_personality or char_speech_style or char_appearance or char_relationships:
-                char_lines: List[str] = []
-                if char_name:
-                    char_lines.append(f"姓名：{char_name}")
-                if char_personality:
-                    char_lines.append(f"性格：{char_personality}")
-                if char_speech_style:
-                    char_lines.append(f"说话方式：{char_speech_style}")
-                if char_appearance:
-                    char_lines.append(f"形象：{char_appearance}")
-                if char_relationships:
-                    char_lines.append(f"机际关系：{char_relationships}")
-                parts.append("【Char 人设】\n" + "\n".join(char_lines))
-
-            user_lines: List[str] = []
-            if _s("user_name"):
-                user_lines.append(f"姓名：{_s('user_name')}")
-            if _s("user_body"):
-                user_lines.append(f"身体特征：{_s('user_body')}")
-            if _s("user_work"):
-                user_lines.append(f"工作：{_s('user_work')}")
-            if _s("user_habits"):
-                user_lines.append(f"生活习惯：{_s('user_habits')}")
-            if _s("user_likes_dislikes"):
-                user_lines.append(f"喜恶：{_s('user_likes_dislikes')}")
-            if _s("user_values"):
-                user_lines.append(f"价值观与世界观：{_s('user_values')}")
-            if _s("user_hobbies"):
-                user_lines.append(f"兴趣娱乐：{_s('user_hobbies')}")
-            if _s("user_taboos"):
-                user_lines.append(f"禁忌：{_s('user_taboos')}")
-            if _s("user_nsfw"):
-                user_lines.append(f"NSFW 偏好：{_s('user_nsfw')}")
-            if _s("user_other"):
-                user_lines.append(f"其他：{_s('user_other')}")
-
-            if user_lines:
-                parts.append("【User 的人设】\n" + "\n".join(user_lines))
-
-            if _s("system_rules"):
-                parts.append(f"【系统规则】\n{_s('system_rules')}")
-
-            assembled = "\n\n".join(parts).strip()
+            assembled = build_persona_config_system_body(dict(row))
             return assembled if assembled else config.SYSTEM_PROMPT
 
         except Exception as e:

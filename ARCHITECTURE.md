@@ -391,7 +391,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**——**【Telegram 排版】**：HTML 白名单、自然换行多气泡、`|||` 可选强制分段、MAX_CHARS / MAX_MSG（`config` 表；**发送侧**二者仅约束**无 `|||`** 时的二级强分）、`[meme:…]` 与顺序说明；正文勿用大段 `<blockquote>` / 行首 `>`（思维链 blockquote 由系统处理）；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 - 可选 **`tool_oral_coaching=True`**：在 system 末尾追加 **`TOOL_ORAL_COACHING_BLOCK`**（调用工具前口语提示）；与 `telegram_segment_hint` 可并用；**`persona.enable_lutopia`** 且主对话走 OpenAI 兼容 **tools** 时由 **Telegram / Discord** 在 **`build_context`** 调用前置位
 
-**✅ 已改动（2026-04-05）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`** 组装 system 正文（【Char 人设】/【User 的人设】/【系统规则】等，与 Mini App `Persona.jsx` 预览格式一致）；无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**（`.env` 的 `SYSTEM_PROMPT`）。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
+**✅ 已改动（2026-04，以代码为准）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`**，正文由 **`build_persona_config_system_body(row)`** 拼装（内部 **`build_char_persona_prompt_sections`**：Char 侧为 **【存在定义】**（`char_name` 锚点句 + `char_identity` + `char_appearance`）、**【内在人格】**、**【表达契约】**、**【关系与形象】**（仅 `char_relationships`）、**【成人内容】**、**【工具与场景】** 等；再接 **【User 的人设】** 标签行块、**【系统规则】**）。与 Mini App 右侧「拼接预览」及 **`GET /api/persona/{id}/preview`** 同源；**不含** Mini App「复制」剪贴板里的 Markdown `#` 大标题（该格式仅便于人工粘贴阅读）。无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
 
 **日志（以代码为准）：** 顶层 `build_context` / `build_context_async` 捕获异常后回退最小 context，以及各 `_build_*_section` 失败返回空串/空列表等**可恢复**路径，使用 **WARNING**（与硬故障区分）。
 
@@ -532,7 +532,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 |------|------|----------|
 | **`POST` `/webhook/telegram`** | `webhook.py` | Telegram 服务器推送更新；**不经** `/api`；Secret-Token 须匹配 `TELEGRAM_WEBHOOK_SECRET` |
 | `/api/dashboard` | `dashboard.py` | Bot 在线状态、记忆概览、批处理日志 |
-| `/api/persona` | `persona.py` | 人设配置 CRUD + system prompt 预览 |
+| `/api/persona` | `persona.py` | 人设配置 CRUD；**`GET /{id}/preview`** 与 **`build_persona_config_system_body`** 一致 |
 | `/api/memory` | `memory.py` | 记忆卡片 CRUD + 长期记忆 + `temporal-states` / `relationship-timeline`（长期记忆列表合并 Chroma 元数据，见下） |
 | `/api/history` | `history.py` | **`GET ""`** 列表（平台/关键词/日期 + 分页）；**`PATCH /{message_id}`** 更新正文/思维链；**`DELETE /{message_id}`** 删除单条（均 `{success,data,message}`） |
 | `/api/logs` | `logs.py` | 系统日志查询（`platform` / `level` / `keyword` / 可选 `time_from`·`time_to` + `page` / `page_size`） |
@@ -584,9 +584,9 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Config 页（`Config.jsx` / `config.css`）：** 与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐：上方为通用运行参数（**滑块 + 数字步进**），底部 **「保存并立即生效」** 一次 `PUT /api/config/config` 写回当前页全部键。其下 **「Telegram 参数」** 包含流式思维链发送开关 `send_cot_to_telegram`（默认选 1），以及 `telegram_max_chars`（10–1000、步长 10）与 `telegram_max_msg`（1–20），控件布局与同页其它行一致；每项可点 **「保存此项」** 单独 `PUT`，请求体仅含该键（仍走同一接口）。**线下极速模式（2026-04-07 新增）：** 顶部提供一键开关（`POST /api/config/offline-mode/toggle`），后端通过 `MessageDatabase.toggle_offline_mode` 利用 `config` 表进行**影子备份**（将 `buffer_delay`、`telegram_max_chars` 等写入 `backup_*`，并覆写为极速预设，同时写 `offline_mode_active=1`），关闭时从备用键还原，前端状态直接通过加载配置项的 `offline_mode_active` 推断。`memory/database.py` 的 `migrate_database_schema` 通过 `_config_insert_defaults_if_missing` 为缺失行插入默认值（`INSERT OR IGNORE`，不覆盖已有值）。**UI：** 大卡片 **`SYSTEM CONFIG`** 骑线角标与 **`.config-container` `padding-top`** 配合，避免与 Settings 页相同的视口裁切问题。
 
-**Persona 页（`Persona.jsx` / `persona.css`）：** 左栏大区块标题由 **`SectionHead`** 组件渲染：上行 **等宽英文 slug**（如 **`[ CHAR_PERSONA ]`**、**`[ SYS_TOOLS ]`**、**`[ CORE_RULES ]`**、**`[ PROMPT_PREVIEW ]`**），下行 **铭牌**（**Lucide** 线框图标 + 中文标题；图标色 **`--accent`**；铭牌底为低饱和 dust 色 + **`border` + `box-shadow: 2px 2px 0 var(--shadow-color-deep)`**），其下为 **蓝图风** 分隔线（宽间距短划 + 行末 **`■`**）。**`.persona-page`** 上 **`PERSONA SETTINGS`** 仍为 **`::before`** 骑外框上沿；全页可在 **`--persona-*`** 变量下呈现 **低饱和** 墨绿灰与浅紫灰变体。右侧 System Prompt 预览区使用 **`position: sticky`**（配合 **`align-self: flex-start`**、**`max-height`** 与预览正文区域内部滚动），主内容区纵向滚动时预览与「复制全文」仍留在视口内，便于对照长表单编辑。「系统规则」区块下含 **Telegram HTML 格式化** 短提示（**`.persona-field-hint`**，与 `bot/telegram_bot.py` 正文 **`parse_mode=HTML`** 一致）。
+**Persona 页（`Persona.jsx` / `persona.css`，以代码为准）：** 左栏顶层 **Char / User / 工具（Lutopia）/ 系统规则** 使用 **`SectionHead`**（等宽 slug + Lucide 铭牌 + 蓝图分隔线）。**Char、User** 下再嵌 **`PersonaSubBlock`**（小号 slug + 子标题 + 虚线子卡片），分组与 **`build_char_persona_prompt_sections` / `buildUserPreviewChunks`** 语义一致。主区 **左 60% / 右 40%**（**`.persona-editor`** / **`.persona-preview`**）；右侧 **拼接预览** slug **`[ PROMPT_OUT ]`**，**`PersonaPreviewStack`** 分 **Char / User / 系统规则** 三色条区，子块用【】；**`.persona-preview .persona-section-head__nameplate`** 设 **`flex-wrap: nowrap`**，避免窄屏下预览标题区图标与文字折成两行。**「复制」** 按钮写入 **`buildClipboardText(form)`**：以 Markdown **`# Char 人设` / `# User 人设` / `# 系统规则`** 便于粘贴后区分大段，子段仍为【】；**运行时 system 正文无 `#`**，仍以 **`build_persona_config_system_body`** 为准。~~系统规则旁的 Telegram HTML 提示~~ 已移除（从不写入 `system_rules`）。
 
-**✅ 已改动（2026-04-05）：** 表单与预览增加 **用户工作**（`user_work`），与 **`persona_configs.user_work`**、后端预览及 **`context_builder._build_system_prompt`** 对齐。
+**✅ 已改动（2026-04-05）：** 表单与 **`persona_configs`** 含 **用户工作**（`user_work`），与 **`context_builder`** User 块 **「工作：…」** 对齐（仍有效）。
 
 **Memory 页（`Memory.jsx` / `memory.css`）：** 四 Tab（记忆卡片、长期记忆、时效状态、关系时间线）。**记忆卡片加载（以代码为准）：** API 可能返回同一 `dimension` 多条（不同 `user_id`）；前端 `loadMemoryCards` 合并为每维度**一条展示**，保留 **`updated_at`（无则 `created_at`）最新**的记录，避免遍历时后读到的旧行覆盖新行。**记忆卡片正文：** 列表区 `.card-content` 多行截断（**`-webkit-line-clamp`**）；是否需 **「查看全文」** 由 **`isMemoryCardContentTruncated`**（离屏同宽节点测量全文高度与可见高度）判定——**勿**仅依赖 **`scrollHeight > clientHeight`**（截断后二者常相等导致漏显）。点击后以 **`createPortal(..., document.body)`** 打开只读全屏层（**`.memory-view-overlay` / `.memory-view-sheet`**），避免与背后卡片叠层。**外壳**：`.memory-container` 为 `height: calc(100vh - 80px)`（与主内容区上下各约 `20px` 的 padding 对齐）、`overflow: hidden`；Tab 栏下方 **`.memory-content-scroll-area`** 为 `flex: 1; min-height: 0; overflow-y: auto; scrollbar-gutter: stable`，**仅该区域纵向滚动**，避免整页高度随 Tab 切换跳变。各 Tab 根为 Fragment，**首子节点**统一 **`.memory-tab-header`**（`margin-top: 24px` 与 Tab 栏留白一致），标题为 **`h2.memory-tab-header__title`**，emoji 与正文分置于 **`span.memory-tab-header__emoji` / `span.memory-tab-header__title-text`**。长期记忆条目中 Chroma 元数据用 **`.memory-meta-chip`** 胶囊展示：`hits`、`halflife_days`、`arousal`（保留两位小数，历史数据无此字段时不显示）；`hits` 达到 `gc_exempt_hits_threshold` 阈值的记忆在正文右侧显示 **`.gc-exempt-badge`**「🔒 免删」徽章（阈值从 `GET /api/config/config` 读取）。顶部 Tab（**`.memory-tabs button.memory-tab`**）采用与全站一致的新拟态凸起/选中态，外侧容器 **`.memory-tabs`** 采用了精致的 `border-radius: var(--radius-card)` 与 **`box-shadow: var(--shadow-inset)`** 内凹轨道设计（移动端亦已移除间距覆写以保留该圆润质感），使得强调色选中态的观感更贴近 §3.6「视觉」规范。**长期记忆 Tab 分页（2026-04-14）：** **`pagination.pagination--outside`** 置于 **`.memory-content-scroll-area`** 之外，与 History / Logs 同为 **首页 / 上页 / 下页 / 尾页** 与 **`pagination-info--stacked`** 两行页码。
 
@@ -953,11 +953,16 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 |------|------|------|
 | `id` | INTEGER PK | 自增主键 |
 | `name` | TEXT | 人设名称 |
-| `char_name` | TEXT | 角色姓名 |
-| `char_personality` | TEXT | 角色性格描述 |
-| `char_speech_style` | TEXT | 角色说话方式 |
-| `char_appearance` | TEXT | 角色形象（新增） |
-| `char_relationships` | TEXT | 角色机际关系（新增） |
+| `char_name` | TEXT | 角色姓名（锚点句「你的名字是 …」） |
+| `char_identity` | TEXT | 存在定义正文（迁移默认 `''`） |
+| `char_personality` | TEXT | 角色性格 / 内在人格 |
+| `char_speech_style` | TEXT | 说话风格与格式（表达契约） |
+| `char_redlines` | TEXT | 行为红线（表达契约；迁移默认 `''`） |
+| `char_appearance` | TEXT | 外在形象（并入【存在定义】输出，UI 可在「关系与形象」组编辑） |
+| `char_relationships` | TEXT | 机际关系（【关系与形象】块仅输出本列） |
+| `char_nsfw` | TEXT | Char 侧成人内容（迁移默认 `''`） |
+| `char_tools_guide` | TEXT | 工具使用守则（迁移默认 `''`） |
+| `char_offline_mode` | TEXT | 线下模式（迁移默认 `''`） |
 | `user_name` | TEXT | 用户名称 |
 | `user_body` | TEXT | 用户身体特征 |
 | `user_work` | TEXT | 用户工作 / 职业等信息（迁移默认 `''`） |
@@ -969,12 +974,15 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `user_nsfw` | TEXT | NSFW 设置 |
 | `user_other` | TEXT | 其他信息 |
 | `system_rules` | TEXT | 系统规则 |
+| `enable_lutopia` | INTEGER | 是否启用 Lutopia 论坛工具（0/1；迁移默认 0） |
 | `created_at` | TIMESTAMP | 创建时间 |
 | `updated_at` | TIMESTAMP | 更新时间 |
 
-**✅ 已改动（2026-04-05）：** 表新增列 **`user_work`**（`migrate_database_schema` 中 `ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS user_work …`）。**`api/persona.py`**（Pydantic 模型、预览拼装 **「【用户工作】」**）、**`miniapp/src/pages/Persona.jsx`**（表单字段与预览 **「工作：…」**）、**`memory/context_builder.py`** 的 **`_build_system_prompt`** 用户块（**`工作：…`**）已同步。
+**✅ 已改动（2026-04-05）：** 表新增列 **`user_work`**（`migrate_database_schema` 中 `ALTER TABLE … ADD COLUMN IF NOT EXISTS user_work …`）。**`api/persona.py`**、**`Persona.jsx`**、**`context_builder`** 用户块 **「工作：…」** 已同步。
 
-**✅ 已修复（2026-04-07）：** 补全 `persona_configs` 数据库 CRUD 操作的字段白名单（`char_appearance` 与 `char_relationships`），解决 Mini App 调整人设后无法存入数据库的 bug；并在建表语句中同步新增该两列。
+**✅ 已改动（2026-04，以代码为准）：** `migrate_database_schema` 追加 **`char_identity`、`char_redlines`、`char_nsfw`、`char_tools_guide`、`char_offline_mode`**（均为 **`TEXT DEFAULT ''`**）。**`save_persona_config` / `update_persona_config`** 白名单含上述列及 **`enable_lutopia`**。**`api/persona.py`** 的 **`PersonaCreate` / `PersonaUpdate` / `PersonaResponse`** 与之一致；Char 拼接逻辑见 **`memory/context_builder.py`** 中 **`build_char_persona_prompt_sections`** / **`build_persona_config_system_body`**。
+
+**✅ 已修复（2026-04-07）：** 补全 `persona_configs` 数据库 CRUD 的字段白名单（含 `char_appearance`、`char_relationships` 等），避免 Mini App 保存失败。
 
 ---
 
@@ -1329,7 +1337,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 | **Memory.jsx** | `GET /api/memory/cards`、`GET /api/memory/longterm`（分页 + 可选 `summary_type`）、`POST /api/memory/cards`、`PUT /api/memory/cards/{id}`、`DELETE /api/memory/cards/{id}`、`POST /api/memory/longterm`、`DELETE /api/memory/longterm/{chroma_doc_id}`（仅 `manual_`）、`PATCH /api/memory/longterm/{chroma_doc_id}/metadata`、`GET/POST /api/memory/temporal-states`、`DELETE /api/memory/temporal-states/{id}`、`GET /api/memory/relationship-timeline` |
 | **History.jsx** | `GET /api/history`（platform / keyword / date_from / date_to / page / page_size）；`PATCH /api/history/{id}`（`content` / `thinking` 可选但至少其一）；`DELETE /api/history/{id}` |
 | **Logs.jsx** | `GET /api/logs`（`platform` / `level` / `keyword` / 可选 `time_from`·`time_to` / `page` / `page_size`） |
-| **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |
+| **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`GET /api/persona/{id}/preview`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |
 | **Settings.jsx** | `GET /api/settings/api-configs?config_type=chat|summary|vision|stt|embedding`（按 Tab 过滤）、`POST` / `PUT` / `DELETE` / `PUT .../activate`、`POST .../fetch-models`、`GET /api/settings/token-usage`、`GET /api/persona`；保存配置后按返回表单中的 `config_type` 切换 Tab 或刷新当前列表（见 §3.6 Settings 页说明） |
 | **Config.jsx** | `GET /api/config/config`、`PUT /api/config/config`（`data` 含 `_meta.updated_at`；失败时顶部错误提示 + 重试，见 §5.7、§7.2） |
 

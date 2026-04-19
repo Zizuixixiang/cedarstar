@@ -258,6 +258,21 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_lutopia INTEGER NOT NULL DEFAULT 0"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_identity TEXT DEFAULT ''"
+    )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_redlines TEXT DEFAULT ''"
+    )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_nsfw TEXT DEFAULT ''"
+    )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_tools_guide TEXT DEFAULT ''"
+    )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_offline_mode TEXT DEFAULT ''"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -2429,8 +2444,9 @@ class MessageDatabase:
     async def save_persona_config(self, data: Dict[str, Any]) -> int:
         """新增人设配置，返回新插入的 id。"""
         fields = [
-            "name", "char_name", "char_personality", "char_speech_style",
-            "char_appearance", "char_relationships",
+            "name", "char_name", "char_identity", "char_personality", "char_speech_style",
+            "char_redlines", "char_appearance", "char_relationships",
+            "char_nsfw", "char_tools_guide", "char_offline_mode",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules", "enable_lutopia",
@@ -2457,8 +2473,9 @@ class MessageDatabase:
     async def update_persona_config(self, persona_id: int, data: Dict[str, Any]) -> bool:
         """更新人设配置。"""
         allowed = {
-            "name", "char_name", "char_personality", "char_speech_style",
-            "char_appearance", "char_relationships",
+            "name", "char_name", "char_identity", "char_personality", "char_speech_style",
+            "char_redlines", "char_appearance", "char_relationships",
+            "char_nsfw", "char_tools_guide", "char_offline_mode",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules", "enable_lutopia",
