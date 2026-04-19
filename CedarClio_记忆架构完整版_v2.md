@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-21；**2026-04-19** 修订：§六 **Step 3.5**、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**，以代码为准）
+> 文档版本：2026-04-19；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**，以代码为准）
 
 ---
 
@@ -306,7 +306,7 @@ def init_bm25_index():
 6. 引用指令注入（Prompt 末尾死命令，见 Citation 机制）
 ```
 
-**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system 内各区块的拼接顺序**（越靠后的块在字面上离「当前轮」越远、越像背景）。**冲突消解优先级**（时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆等）由 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 定义；在 **`_assemble_full_system_prompt` 中于 `system_prompt`（人设正文）之后、第一个记忆块（如 `temporal_states`）之前注入**，与上表拼接顺序 **并列存在**——模型在信息冲突时按该优先级消解，**不因**字面拼接顺序而自动覆盖。**引用死命令与思维链语言要求**（`MEMORY_CITATION_DIRECTIVE`、`THINKING_LANGUAGE_DIRECTIVE`）仍在 **system 块末尾**（各记忆块与桥接语之后）。
+**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system 内各区块的拼接顺序**（越靠后的块在字面上离「当前轮」越远、越像背景）。**冲突消解优先级**由 **`memory/context_builder.py`** 中 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 全文定义（**近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆**；同类型块内日期更近优先；**`action_rule`** 与近期消息对状态描述的覆盖关系见该常量）；在 **`_assemble_full_system_prompt` 中于 `system_prompt`（人设正文）之后、第一个记忆块（如 `temporal_states`）之前注入**，与上表拼接顺序 **并列存在**——模型在信息冲突时按该优先级消解，**不因**字面拼接顺序而自动覆盖。**引用死命令与思维链语言要求**（`MEMORY_CITATION_DIRECTIVE`、`THINKING_LANGUAGE_DIRECTIVE`）仍在 **system 块末尾**（各记忆块与桥接语之后）。
 
 ### 两阶段长期记忆召回
 
@@ -480,7 +480,27 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ### Step 3.5：从当日小传再提取时效状态（可选增强）
 
-在 **`step3_status=1` 且 `step4_status=0`**（Step 4 尚未完成）时执行：读取刚写入的 **`summary_type=daily`** 当日正文，由模型抽取仍具**明确终点**的短期情况，**`save_temporal_state`** 写入 `temporal_states`（与 Step 1 到期结算互补——小传比 chunk 更完整，便于补漏）。失败仅打日志，不阻断后续 Step 4。断点续跑仍以 **`daily_batch_log` 五步**为准，本步**不单独占** `stepN_status` 列。
+在 **`step3_status=1` 且 `step4_status=0`**（Step 4 尚未完成）时执行：读取刚写入的 **`summary_type=daily`** 当日正文，由模型返回**一个 JSON 对象**，描述三类操作（与 Step 1 到期结算互补——小传比 chunk 更完整，便于补漏）：
+
+```json
+{
+  "new_states": [
+    {"state_content": "...", "action_rule": "...", "expire_at": "YYYY-MM-DD HH:MM:SS"}
+  ],
+  "deactivate_ids": ["id1", "id2"],
+  "adjust_expire": [
+    {"id": "xxx", "new_expire_at": "YYYY-MM-DD HH:MM:SS"}
+  ]
+}
+```
+
+- **`new_states`**：仍具明确时效、需新入库的短期情况；逐条 **`save_temporal_state`**（与既有实现一致）。
+- **`deactivate_ids`**：**仅当**小传**明确**表明某条已有状态已结束或被否定时填入对应 id，**禁止猜测**；与当前 **`is_active=1`** 的 id 交叉校验后调用 **`deactivate_temporal_states_by_ids`**，不在库或非激活 id 静默跳过。
+- **`adjust_expire`**：**仅当**小传中有**明确**新时间信息时填入，**禁止猜测**；调用 **`update_temporal_state_expire_at`**，对无效 id 静默跳过。
+
+三个数组均可为 `[]`。后处理三支串行：**新增 → 停用 → 调整到期**；任一支内失败仅 **WARNING**，不阻断其他支、不阻断 Step 4。断点续跑仍以 **`daily_batch_log` 五步**为准，本步**不单独占** `stepN_status` 列。
+
+**重试与告警（以 `memory/daily_batch.py` 为准）：** **`_parse_step35_temporal_operations_json`** 在空响应、无法 `json.loads`、根节点非 `dict` 时返回 **`None`**；**`_step35_extract_temporal_states`** 遇 **`None`** 则 **`raise ValueError("Step 3.5 JSON 解析完全失败…")`**。**`batch_one_shot_with_async_output_guard` / `get_all_active_temporal_states`** 等未捕获异常同样外抛。**`run_daily_batch`** 在有小传正文时对 **`await _step35_extract_temporal_states(...)` 最多连续尝试 3 次**；仍失败则 **WARNING** 并 **`send_telegram_main_user_text`**（**`TELEGRAM_MAIN_USER_CHAT_ID`** 未配置则跳过；发送失败单独 **WARNING**），**不 `return False`**，**Step 4** 照常执行。**`get_daily_summary_by_date`** 失败走外层 **`except`**，**不参与**上述 3 次重试。
 
 ---
 
@@ -565,4 +585,4 @@ doc_id: daily_{batch_date}
 
 ---
 
-*文档版本：v2 · 2026-04-21（2026-04-19 修订 Step 2 / Step 3.5 / Step 5 / §一.4）· 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*
+*文档版本：v2 · 2026-04-19（Step 3.5 三操作·解析失败 raise·外层 3 重试·全败 Telegram；`MEMORY_BLOCK_PRIORITY` 与 `context_builder` 一致）· 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*

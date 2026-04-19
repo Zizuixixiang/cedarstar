@@ -1963,6 +1963,22 @@ class MessageDatabase:
             )
         return _rowcount(result)
 
+    async def update_temporal_state_expire_at(
+        self, state_id: str, new_expire_at: _dt.datetime
+    ) -> int:
+        """更新一条 temporal_states 的 expire_at；返回受影响行数。"""
+        sid = (state_id or "").strip()
+        if not sid:
+            return 0
+        exp = _pg_timestamp_naive_utc(new_expire_at)
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE temporal_states SET expire_at = $1 WHERE id = $2",
+                exp,
+                sid,
+            )
+        return _rowcount(result)
+
     async def insert_relationship_timeline_event(
         self,
         event_type: str,
@@ -3210,6 +3226,14 @@ async def list_expired_active_temporal_states(
 
 async def deactivate_temporal_states_by_ids(state_ids: List[str]) -> int:
     return await get_database().deactivate_temporal_states_by_ids(state_ids)
+
+
+async def update_temporal_state_expire_at(
+    state_id: str, new_expire_at: _dt.datetime
+) -> int:
+    return await get_database().update_temporal_state_expire_at(
+        state_id, new_expire_at
+    )
 
 
 async def get_all_active_temporal_states() -> List[Dict[str, Any]]:

@@ -42,7 +42,7 @@
 >
 > **2026-04-21（熔断告警 / 向量写入重试 / 跑批 `retry_count`，以代码为准）：** **`memory/vector_store.ZhipuEmbedding.get_embedding`**：HTTP **429/503** 最多 **3** 次尝试、间隔 **2s**；**`VectorStore.add_memory`**：embedding + **`collection.add`** 整段最多 **3** 次、间隔 **1s**。**`migrate_database_schema`**：**`daily_batch_log.retry_count`**（`NOT NULL DEFAULT 0`）；**`increment_daily_batch_retry_count`** / **`reset_daily_batch_retry_count`**。**`memory/daily_batch.schedule_daily_batch_retry_if_needed`**：**`retry_count >= 3`** 时不再启动延迟子进程，并发 **Telegram 熔断**（**`bot/telegram_notify.send_telegram_main_user_text`**）；**`< 3`** 时 **`spawn_run_daily_batch_retry_after_hours` 成功 `Popen` 后**再 **`retry_count + 1`** 并发「已安排 2 小时后重试」；**`run_daily_batch.py` / `trigger_daily_batch_manual` / `schedule_daily_batch`** 均经该入口；**五步全成功**后 **`reset_daily_batch_retry_count`**。**`config.TELEGRAM_MAIN_USER_CHAT_ID`**（**.env**）未配置则**跳过** Telegram。**`memory/micro_batch`**：chunk 摘要连续 **3** 次无法产出可落库正文则发 Telegram 后计数归零；**成功写入 chunk 并标记消息后**归零。详见 **`bot/telegram_notify.py`**、§3.4.4、§3.4.5。
 >
-> **2026-04-22（日终 Step 2 空跑 / Step 3.5，以代码为准）：** **`memory/daily_batch`**：Step 2 **不**拼接未达 **`chunk_threshold`** 的**原始 `messages`**；**既无 chunk 又无 Step 1 产出**时**不写** `summary_type=daily`、**不**调用 **`delete_today_chunk_summaries`**，仍 **`update_daily_batch_step_status(..., step=2, status=1)`**。**Step 3.5**（在 Step 3 与 Step 4 之间）：当 **`step3_status=1` 且 `step4_status=0`** 时 **`_step35_extract_temporal_states`** 读取当日已写入的 **`get_daily_summary_by_date(batch_date)`** 小传正文，模型抽取后 **`save_temporal_state`**；失败仅 **WARNING**，不阻断 Step 4；**不占** `daily_batch_log` 的 **`stepN_status`**。详见 **`CedarClio_记忆架构完整版_v2.md`** §六、§3.4.4。
+> **2026-04-22（日终 Step 2 空跑 / Step 3.5，以代码为准）：** **`memory/daily_batch`**：Step 2 **不**拼接未达 **`chunk_threshold`** 的**原始 `messages`**；**既无 chunk 又无 Step 1 产出**时**不写** `summary_type=daily`、**不**调用 **`delete_today_chunk_summaries`**，仍 **`update_daily_batch_step_status(..., step=2, status=1)`**。**Step 3.5**（在 Step 3 与 Step 4 之间）：当 **`step3_status=1` 且 `step4_status=0`** 时读当日 **`daily`** 正文，**`_step35_extract_temporal_states`** 解析模型 JSON 为 **`new_states` / `deactivate_ids` / `adjust_expire`**，串行 **`save_temporal_state`**、**`deactivate_temporal_states_by_ids`**、**`update_temporal_state_expire_at`**；三支内单条失败仅 **WARNING**。**LLM 调用失败**或 **JSON 整段无法解析**（**`_parse_step35_temporal_operations_json` → `None`**）时 **`raise ValueError`**，**`run_daily_batch`** 内对 **`_step35_extract_temporal_states` 最多重试 3 次**；仍失败则 **WARNING** + **`send_telegram_main_user_text`**（发送失败单独 **WARNING**，不阻断 Step 4）。**`get_daily_summary_by_date`** 失败走外层 **`except`**（不参与上述 3 重试）。**不占** `daily_batch_log` 的 **`stepN_status`**。**`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**（**`memory/context_builder.py`**）冲突消解优先级以代码常量为准（**近期消息 > chunk碎片摘要 > 时效状态 > …**）。详见 **`CedarClio_记忆架构完整版_v2.md`** §六、§3.4.4。
 >
 > **2026-04-20（跑批 / 微批 Prompt 记忆锚点，以代码为准）：** **`DailyBatchProcessor`**：定好 **`batch_date`** 后 **`await _resolve_batch_memory_identity`**（**`get_today_user_character_pairs`** 当日首对 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`sirius`**，无对则 **`default_user`/`sirius`**），写入 **`_batch_user_id` / `_batch_char_id`**；**`_memory_context_prefix()`** 注入关系锚点 **`【基础设定】…`** 与激活 **`get_memory_cards(..., current_status|relationships, limit=1)`**。**Step 2** 今日小传：**`_persona_dialogue_prefix()` + `_memory_context_prefix()` + 材料正文**。**Step 3** 七维 JSON：在「今日小传」前附 **7 个维度**既有记忆卡各一条（**`get_latest_memory_card_for_dimension`** ×7，拼 **`old_cards_block`**，供对比与增量提取）；输出要求含禁止跨维重复、**仅提取增量/状态变化/与旧认知冲突**等句。**`memory/micro_batch`**：**`get_unsummarized_messages_by_session`** 额外返回 **`character_id`**；**`generate_summary_for_messages`** **`await _resolve_micro_batch_memory_prefix(messages)`**（消息行取 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`_active_character_id_fallback()`** 读激活 **`chat`** **`persona_id`**）；**`SummaryLLMInterface.generate_summary(..., memory_prefix=…)`** 插在称呼行与摘要指令之间。详见 §3.4.3、§3.4.4、§6.3。
 >
@@ -138,7 +138,7 @@ cedarstar/                          # 项目根目录
 │   ├── context_builder.py          # Context 组装器（system + … + 近期消息）；近期 **`assistant`** 经 **`strip_lutopia_behavior_appendix`**；**`user`** 条经 **`inject_user_sent_at_into_llm_content`** 注入东八区 **`【当前时间：…】`**（仅 LLM，不落库）；可选 **`telegram_segment_hint`**、**`tool_oral_coaching`**（Lutopia 口播引导）
 │   ├── retrieval.py                # 长期记忆 **`summary_type`** 白名单与回溯关键词（**`is_retrospect_query`**）；供 **`context_builder`** 向量/BM25 过滤
 │   ├── micro_batch.py              # 微批处理（chunk 摘要；**`strip_lutopia_internal_memory_blocks`**；**`memory_prefix`** 注入锚点 + **`current_status`/`relationships`** 激活卡；**`get_unsummarized_messages_by_session`** 含 **`character_id`**）
-│   ├── daily_batch.py              # 日终：`daily_batch_log` **五步** + **Step 3.5**（step3=1 且 step4=0 时从当日 daily 再提 `temporal_states`；不占 log）；**`DailyBatchProcessor`**；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含 **7 维既有卡 `old_cards_block`**；失败走 **`schedule_daily_batch_retry_if_needed`**；cron 执行 `run_daily_batch.py`；`main.py` 不启动 `schedule_daily_batch`
+│   ├── daily_batch.py              # 日终：`daily_batch_log` **五步** + **Step 3.5**（step3=1 且 step4=0：`new_states`/`deactivate_ids`/`adjust_expire` JSON；LLM/整段解析失败 **raise** 外层 **3** 次重试 + 全败 **Telegram**；不占 log）；**`DailyBatchProcessor`**；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含 **7 维既有卡 `old_cards_block`**；失败走 **`schedule_daily_batch_retry_if_needed`**；cron 执行 `run_daily_batch.py`；`main.py` 不启动 `schedule_daily_batch`
 │   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding **429/503 重试** + **`add_memory` 写入重试** + 增删查）
 │   ├── meme_store.py               # 表情包专用 Chroma 集合 `meme_pack`（与主记忆隔离；写入/查询用显式向量，硅基流动 BAAI/bge-m3）
 │   ├── bm25_retriever.py           # BM25 关键词检索（jieba 分词 + rank_bm25，内存缓存索引）
@@ -398,7 +398,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - 向量路 **`search_memory(..., where=...)`** 与 BM25 路 **`search_bm25(..., allowed_summary_types=...)`** 共用 **`memory.retrieval.chroma_where_longterm_summary_types` / `longterm_allowed_summary_types`**（与上条 **`summary_type`** 白名单一致）
 - 同步版 `build_context()`：双路检索 + 父子折叠，无 Cohere；长期记忆块标题为「双路检索结果」
 - 异步版 `build_context_async()`：并行检索 + 折叠 + Cohere 全候选打分 + 上述融合公式取 top **N**（同上）；`COHERE_API_KEY` 不可用时回退为同步双路逻辑
-- **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**：在 **`system_prompt` 之后、第一个记忆相关块（如 `temporal_states`）之前**注入（多区块信息冲突时：**时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆**，以较新、较具体为准；与上文「向量块 / daily / chunk」**拼接顺序**为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）。**`MEMORY_CITATION_DIRECTIVE`** 与 **`THINKING_LANGUAGE_DIRECTIVE`** 仍在 **system 块末尾**（「历史桥接」各块之后）：引用须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应；思维链须中文
+- **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**：在 **`system_prompt` 之后、第一个记忆相关块（如 `temporal_states`）之前**注入（多区块信息冲突时：以 **`memory/context_builder.py`** 常量为准——**近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆**；**同类型块内以日期更近的条目为准**；**时效状态 `action_rule`** 与冲突消解的补充说明见代码原文；与上文「向量块 / daily / chunk」**拼接顺序**为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）。**`MEMORY_CITATION_DIRECTIVE`** 与 **`THINKING_LANGUAGE_DIRECTIVE`** 仍在 **system 块末尾**（「历史桥接」各块之后）：引用须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应；思维链须中文
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**——**【Telegram 排版】**：HTML 白名单、自然换行多气泡、`|||` 可选强制分段、MAX_CHARS / MAX_MSG（`config` 表；**发送侧**二者仅约束**无 `|||`** 时的二级强分）、`[meme:…]` 与顺序说明；正文勿用大段 `<blockquote>` / 行首 `>`（思维链 blockquote 由系统处理）；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 - 可选 **`tool_oral_coaching=True`**：在 system 末尾追加 **`TOOL_ORAL_COACHING_BLOCK`**（调用工具前口语提示）；与 `telegram_segment_hint` 可并用；**`persona.enable_lutopia`** 且主对话走 OpenAI 兼容 **tools** 时由 **Telegram / Discord** 在 **`build_context`** 调用前置位
 
@@ -455,7 +455,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | **`_resolve_batch_memory_identity`**（当日 **`get_today_user_character_pairs`** 首对）后，**`_persona_dialogue_prefix()` + `_memory_context_prefix()`**（锚点 + **`current_status`/`relationships`** 激活卡）+ Step 1 输出 + **chunk**：**`get_today_chunk_summaries(batch_date)`**（**`COALESCE(source_date::date, created_at::date) <= batch_date`**，积压内容日一并并入）；每条 **`summary_text`** 先 **`strip_lutopia_internal_memory_blocks`**。**不**拼接未达阈值的**原始 `messages`**。有材料时生成今日小传（**`save_summary(..., summary_type='daily', source_date=batch_date)`**）；**成功后** **`delete_today_chunk_summaries(batch_date)`**（**同上界 `<= batch_date`** 删除 chunk）。**若既无 chunk 又无 Step 1 产出**：**不写** `daily`、**不**删 chunk，仍标记 Step 2 完成 |
 | Step 3 | 七维 JSON：prompt 在今日小传前附 **7 维既有卡**（对每维 **`get_latest_memory_card_for_dimension`**，拼 **`old_cards_block`**）；输出要求含禁止跨维重复、**仅提取增量/变化/冲突**等。记忆卡片 Upsert：无则 `INSERT`；**有则**先 **`_merge_memory_card_contents`**；对 **`current_status` / `preferences`** 合并结果为 JSON **`merged` + `discarded`**，**仅当 `discarded` 非 null** 时经轻量 LLM 改写后 **`add_memory`**（`state_archive`，metadata 含 **`archived_at` / `original_dimension`**，改写失败则 **`rewrite_failed`**）再 `UPDATE`；其余维度仍为 **`{"content"}`** 合并。**关系时间轴**：LLM JSON → **`insert_relationship_timeline_event(..., created_at=combine(batch_date, 23:59:59))`**（**`batch_date` 业务日**；见 §5.5） |
-| Step 3.5 | **`step3_status=1` 且 `step4_status=0`**：`get_daily_summary_by_date(batch_date)` 取当日 **`daily`** 正文 → **`_step35_extract_temporal_states`** → **`save_temporal_state`** 写入新时效状态；失败仅日志，**不** `return False`；**不占** `daily_batch_log` |
+| Step 3.5 | **`step3_status=1` 且 `step4_status=0`**：`get_daily_summary_by_date` 取当日 **`daily`** 正文 → **`_step35_extract_temporal_states`**：解析 **`new_states` / `deactivate_ids` / `adjust_expire`** → **`save_temporal_state`** / **`deactivate_temporal_states_by_ids`** / **`update_temporal_state_expire_at`**；**LLM 失败或 JSON 整段 `None`** 时 **`raise`**，**`run_daily_batch`** 内对该步 **最多 3 次重试**；三次仍败 **WARNING** + **`send_telegram_main_user_text`**；**不** `return False`、**不占** `daily_batch_log` |
 | Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
@@ -469,7 +469,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - **Step 1**（时效状态 JSON 数组改写）：**前缀 + 原任务正文**，仅 **`_call_summary_llm_custom`**，避免套 chunk「为对话生成摘要」模板。
 - **Step 2**（今日小传）：**`_persona_dialogue_prefix()` + `await _memory_context_prefix()`** + 按时间顺序、话题/事件/情感、保留互动细节与羁绊、勿分点列举等指令 + **`today_content`** + **`今日小传（中文）:`**，**`_call_summary_llm_custom`**。**`today_content`** 为空时跳过 **`save_summary`** / **`delete_today_chunk_summaries`**。
 - **Step 3**（七维 JSON、**关系时间轴** JSON）：七维 prompt 前附 **`old_cards_block`**（7 维各取最近一条既有卡）；输出要求含**单条事实只归入最相关一维、禁止跨维重复**与**增量对比**句。仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
-- **Step 3.5**（时效状态补提）：见上表；**`_call_summary_llm_custom`** 抽取 JSON 后逐条 **`save_temporal_state`**。
+- **Step 3.5**（时效三操作）：见上表；**`_call_summary_llm_custom`** 产出 JSON → **`_parse_step35_temporal_operations_json`**（失败为 **`None`** → **`raise`** 触发外层 **3** 重试）→ 三支串行写库；单条坏数据仅 **WARNING**。
 - **Step 4**（小传 **score/arousal**）：主 LLM 的 user **prompt 前加 `_persona_dialogue_prefix()`**；**事件拆分**仍 **`generate_summary`** 并传 `char_name` / `user_name`。
 
 **断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤；另含 **`retry_count`**（**`migrate_database_schema`** 幂等追加），五步**全部成功**后 **`reset_daily_batch_retry_count`** 置 **0**。
@@ -695,8 +695,9 @@ cron（或同类）在运维约定时刻触发 —— 应与 `config.daily_batch
   │  Step 3：记忆卡片 Upsert + relationship_timeline      │
   │    SummaryLLMInterface（维度 JSON + 时间轴 JSON）     │
   ├─────────────────────────────────────────────────────┤
-  │  Step 3.5：从当日 daily 小传再提取 temporal_states     │
-  │    step3=1 且 step4=0；save_temporal_state；失败不阻 Step4 │
+  │  Step 3.5：daily 正文 → JSON（new/deact/adj）→ 写库      │
+  │    step3=1 且 step4=0；LLM/整段解析失败 raise→最多3重试   │
+  │    全败 Telegram；三支单条失败 WARNING；不阻 Step4      │
   ├─────────────────────────────────────────────────────┤
   │  Step 4：主 LLM 打分（`Platform.BATCH`）+ 全量 Chroma   │
   │    prompt 输出 score + arousal；metadata 含 arousal    │
@@ -904,6 +905,8 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `created_at` | DATETIME | 创建时间 |
 
 **索引：** `(expire_at, is_active)`、`(is_active)`
+
+**应用层（以代码为准）：** 日终 Step 3.5 可调 **`MessageDatabase.update_temporal_state_expire_at`**（**`UPDATE … SET expire_at`**，配合 **`adjust_expire`**）；停用仍走 **`deactivate_temporal_states_by_ids`**。
 
 ---
 

@@ -345,9 +345,9 @@ MEMORY_CITATION_DIRECTIVE = (
 
 # 主对话 system 末尾：引用指令之前的优先级说明（与 MEMORY_CITATION_DIRECTIVE / THINKING_LANGUAGE_DIRECTIVE 用 \\n\\n 分隔）
 MEMORY_BLOCK_PRIORITY_DIRECTIVE = (
-    "当不同区块的记忆信息发生冲突时，严格遵循以下优先级（从高到低）执行，不要自行判断：\n"
-    "【时效状态】>【近期消息】>【每日摘要】>【记忆卡片】>【长期记忆】\n"
-    "以较新、较具体的信息为准。"
+    "近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆\n"
+    "同类型块内以日期更近的条目为准\n"
+    "时效状态的 action_rule 与其他块通常不直接冲突，上述优先级主要作用于状态描述层面；若近期消息明确提及某时效状态描述已发生变化，以近期消息为准"
 )
 
 THINKING_LANGUAGE_DIRECTIVE = (

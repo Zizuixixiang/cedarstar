@@ -5,7 +5,7 @@
 Step 1 - 到期 temporal_states 结算并改写为客观过去时，供 Step 2 使用
 Step 2 - 生成今日小传（prompt 含 Step 1 输出）
 Step 3 - 记忆卡片 Upsert + 可选写入 relationship_timeline
-Step 3.5 - 从当日 daily 小传再提取 temporal_states（step3=1 且 step4=0 时执行；失败不阻断 Step 4）
+Step 3.5 - 从当日 daily 小传解析时效操作 JSON（新增 / 停用 / 调整到期；step3=1 且 step4=0 时执行；失败不阻断 Step 4）
 Step 4 - 今日小传全量向量化（按分映射 halflife_days），可选拆事件片段入库 + BM25 增量
 Step 5 - Chroma 长期未访问且衰减得分过低、无子节点的记忆 GC
 
@@ -25,6 +25,7 @@ from uuid import uuid4
 import pytz
 
 from bot.logutil import exc_detail
+from bot.telegram_notify import send_telegram_main_user_text
 
 # 添加项目根目录到 Python 路径
 current_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -83,6 +84,7 @@ try:
         deactivate_temporal_states_by_ids,
         get_all_active_temporal_states,
         save_temporal_state,
+        update_temporal_state_expire_at,
         insert_relationship_timeline_event,
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
@@ -114,6 +116,7 @@ except ImportError:
         deactivate_temporal_states_by_ids,
         get_all_active_temporal_states,
         save_temporal_state,
+        update_temporal_state_expire_at,
         insert_relationship_timeline_event,
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
@@ -192,8 +195,6 @@ async def schedule_daily_batch_retry_if_needed(batch_date: str) -> None:
     跑批失败后：retry_count < 3 时递增 retry_count、排队子进程重跑并发 Telegram；
     retry_count >= 3 时仅发熔断告警与日志，不再 spawn。
     """
-    from bot.telegram_notify import send_telegram_main_user_text
-
     try:
         log = await get_daily_batch_log(batch_date)
     except Exception as e:
@@ -497,10 +498,41 @@ class DailyBatchProcessor:
                         str(ds.get("summary_text") or "").strip() if ds else ""
                     )
                     if today_summary_text:
-                        await self._step35_extract_temporal_states(
-                            today_summary_text,
-                            date.fromisoformat(batch_date),
-                        )
+                        step35_success = False
+                        step35_last_exc = None
+                        for _attempt in range(3):
+                            try:
+                                await self._step35_extract_temporal_states(
+                                    today_summary_text,
+                                    date.fromisoformat(batch_date),
+                                )
+                                step35_success = True
+                                break
+                            except Exception as e:
+                                step35_last_exc = e
+                                logger.warning(
+                                    f"Step 3.5 第 {_attempt + 1}/3 次失败: {exc_detail(e)}，"
+                                    + (
+                                        "继续重试"
+                                        if _attempt < 2
+                                        else "放弃，不阻断 Step 4"
+                                    )
+                                )
+
+                        if not step35_success:
+                            logger.warning(
+                                f"Step 3.5 三次均失败，最后异常: {exc_detail(step35_last_exc)}"
+                            )
+                            try:
+                                await send_telegram_main_user_text(
+                                    f"⚠️ Step 3.5 三次均失败（{batch_date}），时效状态未更新，请手动检查。\n{exc_detail(step35_last_exc)}"
+                                )
+                            except Exception as te:
+                                logger.warning(
+                                    "Step 3.5 三次失败后 Telegram 通知发送失败: %s",
+                                    exc_detail(te),
+                                    exc_info=True,
+                                )
                 except Exception as e:
                     logger.warning(
                         "[Step 3.5] 时效状态提取失败，跳过: %s",
@@ -817,162 +849,196 @@ class DailyBatchProcessor:
         return None
 
     @staticmethod
-    def _extract_first_json_array(text: str) -> Optional[str]:
-        """
-        从可能含前置说明、markdown 代码块的文本中截取第一个平衡的 JSON 数组字符串。
-        """
-        if not text:
+    def _parse_step35_expire_at_string(s: str) -> Optional[datetime]:
+        """解析 Step 3.5 模型给出的到期时间字符串（无时区 naive 墙钟时间）。"""
+        raw = (s or "").strip()
+        if not raw:
             return None
-        t = text.strip()
-        if "```" in t:
-            m = re.search(r"```(?:json)?\s*([\s\S]*?)```", t, re.IGNORECASE)
-            if m:
-                inner = m.group(1).strip()
-                if inner.startswith("["):
-                    t = inner
-        i = t.find("[")
-        if i < 0:
-            t = t.replace("［", "[").replace("］", "]")
-            i = t.find("[")
-        if i < 0:
+        try:
+            return datetime.strptime(raw, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            pass
+        try:
+            d = datetime.strptime(raw[:10], "%Y-%m-%d").date()
+            return datetime.combine(d, time(23, 59, 59))
+        except ValueError:
             return None
-        depth = 0
-        in_str = False
-        escape = False
-        for j in range(i, len(t)):
-            ch = t[j]
-            if escape:
-                escape = False
-                continue
-            if ch == "\\" and in_str:
-                escape = True
-                continue
-            if ch == '"' and not in_str:
-                in_str = True
-                continue
-            if ch == '"' and in_str:
-                in_str = False
-                continue
-            if in_str:
-                continue
-            if ch == "[":
-                depth += 1
-            elif ch == "]":
-                depth -= 1
-                if depth == 0:
-                    return t[i : j + 1]
-        return None
 
-    def _parse_step35_temporal_states_json(self, raw: str) -> List[Dict[str, Any]]:
-        """解析时效状态 LLM 返回的 JSON 数组（整段 loads → 平衡方括号 → 贪婪正则）。"""
+    def _normalize_step35_operations(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        ns = data.get("new_states")
+        da = data.get("deactivate_ids")
+        adj = data.get("adjust_expire")
+        return {
+            "new_states": ns if isinstance(ns, list) else [],
+            "deactivate_ids": da if isinstance(da, list) else [],
+            "adjust_expire": adj if isinstance(adj, list) else [],
+        }
+
+    def _parse_step35_temporal_operations_json(self, raw: str) -> Optional[Dict[str, Any]]:
+        """解析 Step 3.5 LLM 返回的 JSON 对象（整段 loads → 平衡大括号）。
+
+        成功时返回含 new_states / deactivate_ids / adjust_expire 的归一化 dict；
+        空响应、无法解码或非 JSON 对象时返回 None（整次白跑，由调用方决定是否重试）。
+        """
         raw_s = (raw or "").strip()
         if not raw_s:
-            raise ValueError("empty response")
+            return None
+        data: Any = None
         try:
             data = json.loads(raw_s)
-            if isinstance(data, list):
-                return data
         except json.JSONDecodeError:
-            pass
-        slice_json = self._extract_first_json_array(raw_s)
-        if slice_json:
-            try:
-                data = json.loads(slice_json)
-                if isinstance(data, list):
-                    return data
-            except json.JSONDecodeError:
-                pass
-        json_match = re.search(r"\[[\s\S]*\]", raw_s)
-        if json_match:
-            try:
-                data = json.loads(json_match.group())
-                if isinstance(data, list):
-                    return data
-            except json.JSONDecodeError:
-                pass
-        raise ValueError("JSON 数组解析失败")
+            slice_json = DailyBatchProcessor._extract_first_json_object(raw_s)
+            if slice_json:
+                try:
+                    data = json.loads(slice_json)
+                except json.JSONDecodeError:
+                    data = None
+        if not isinstance(data, dict):
+            return None
+        return self._normalize_step35_operations(data)
 
     async def _step35_extract_temporal_states(
         self, today_summary_text: str, batch_date: date
     ) -> None:
-        """从今日小传提取时效状态并写入 temporal_states。"""
+        """从今日小传解析时效操作 JSON，执行新增 / 停用 / 调整到期。"""
         text = (today_summary_text or "").strip()
         if not text:
             return
 
         active_rows = await get_all_active_temporal_states()
-        existing_contents = [
-            str(r.get("state_content") or "").strip()
-            for r in active_rows
-            if (r.get("state_content") or "").strip()
-        ]
-        existing_states_text = (
-            "\n".join(f"- {c}" for c in existing_contents)
-            if existing_contents
-            else "（无）"
-        )
+        existing_lines: List[str] = []
+        for r in active_rows:
+            rid = str(r.get("id") or "").strip()
+            if not rid:
+                continue
+            sc = str(r.get("state_content") or "").strip()
+            existing_lines.append(f"- id: {rid} | state_content: {sc or '（空）'}")
+        existing_states_text = "\n".join(existing_lines) if existing_lines else "（无）"
 
         prompt = self._persona_dialogue_prefix() + f"""以下是今日小传：
 {text}
 
-已有的时效状态（请勿重复写入语义相同的条目）：
+当前激活中的时效状态（id 与正文，供 deactivate_ids / adjust_expire 引用；new_states 请勿与下列语义重复）：
 {existing_states_text}
 
-请从今日小传中提取具有明确时效性的状态信息（如生病、考试备考、临时约定、特殊情绪阶段等）。
-每条输出以下字段：
-- state_content: 状态描述（一句话，陈述句，不超过50字）
-- action_rule: AI应对策略（可选，无则输出null）
-- expire_days: 预计持续天数（整数，无法判断则输出7）
+请根据今日小传输出**一个 JSON 对象**（不要 markdown 代码块、不要任何前言后语），结构固定为三键，三个数组均可为 []：
 
-若今日小传中无时效性信息，返回空数组 []。
+{{
+  "new_states": [
+    {{"state_content": "...", "action_rule": "...", "expire_at": "YYYY-MM-DD HH:MM:SS"}}
+  ],
+  "deactivate_ids": ["id1", "id2"],
+  "adjust_expire": [
+    {{"id": "xxx", "new_expire_at": "YYYY-MM-DD HH:MM:SS"}}
+  ]
+}}
 
-只输出JSON数组，不要任何额外文字：
-[{{"state_content":"...","action_rule":"...","expire_days":7}}, ...]"""
+字段说明与约束：
+- new_states：小传中**新出现**的、具有明确时效性的状态（如生病备考、临时约定、特殊情绪阶段等）。state_content 一句话陈述句（建议不超过 50 字）；action_rule 为 AI 应对策略，无则 null 或空字符串；expire_at 为该状态预计结束的墙钟时间，格式严格 YYYY-MM-DD HH:MM:SS。
+- deactivate_ids：**仅当**小传**明确**表明某条已有状态已结束、被否定或不再适用时填入对应 id；**禁止猜测**，不确定则 []。
+- adjust_expire：**仅当**小传出现**明确**的新时间信息、需要改写某条已有状态的到期时刻时填入；**禁止猜测**，不确定则 []。
+
+若无需任何操作，输出 {{"new_states":[],"deactivate_ids":[],"adjust_expire":[]}}。"""
 
         raw_resp = self._call_summary_llm_custom(prompt)
+        ops = self._parse_step35_temporal_operations_json(raw_resp)
+        if ops is None:
+            raise ValueError("Step 3.5 JSON 解析完全失败，无法提取任何操作")
+
+        active_ids = {str(r["id"]) for r in active_rows if r.get("id")}
+        remaining_active = set(active_ids)
+
+        # 1) new_states
         try:
-            items = self._parse_step35_temporal_states_json(raw_resp)
+            n_written = 0
+            for it in ops.get("new_states") or []:
+                if not isinstance(it, dict):
+                    continue
+                state_content = str(it.get("state_content") or "").strip()
+                if not state_content:
+                    continue
+                exp_s = str(it.get("expire_at") or "").strip()
+                expire_at = self._parse_step35_expire_at_string(exp_s)
+                if expire_at is None:
+                    logger.warning(
+                        "[Step 3.5] new_states 跳过（expire_at 无法解析）: %s", exp_s
+                    )
+                    continue
+                ar = it.get("action_rule")
+                if ar is None or (
+                    isinstance(ar, str) and ar.strip().lower() in ("null", "none", "")
+                ):
+                    action_rule: Optional[str] = None
+                else:
+                    action_rule = str(ar).strip() or None
+                sid = f"auto_{batch_date.isoformat()}_{uuid4().hex[:8]}"
+                try:
+                    await save_temporal_state(
+                        id=sid,
+                        state_content=state_content,
+                        action_rule=action_rule,
+                        expire_at=expire_at,
+                        is_active=1,
+                    )
+                    n_written += 1
+                except Exception as e:
+                    logger.warning(
+                        "[Step 3.5] new_states 单条写入失败: %s", exc_detail(e)
+                    )
+            if n_written > 0:
+                logger.info("[Step 3.5] 写入 %s 条新时效状态", n_written)
         except Exception as e:
-            logger.warning("[Step 3.5] JSON 解析失败，跳过: %s", e)
-            return
+            logger.warning("[Step 3.5] new_states 分支失败: %s", exc_detail(e))
 
-        n_written = 0
-        base_dt = datetime.combine(batch_date, datetime.min.time())
+        # 2) deactivate_ids（仅当前 is_active=1 的 id）
+        try:
+            raw_deact = ops.get("deactivate_ids") or []
+            to_deact = [
+                str(x).strip()
+                for x in raw_deact
+                if str(x).strip() and str(x).strip() in active_ids
+            ]
+            if to_deact:
+                n = await deactivate_temporal_states_by_ids(to_deact)
+                remaining_active.difference_update(to_deact)
+                if n > 0:
+                    logger.info("[Step 3.5] 已停用 %s 条时效状态", n)
+        except Exception as e:
+            logger.warning("[Step 3.5] deactivate_ids 分支失败: %s", exc_detail(e))
 
-        for it in items:
-            if not isinstance(it, dict):
-                continue
-            state_content = str(it.get("state_content") or "").strip()
-            if not state_content:
-                continue
-
-            raw_ed = it.get("expire_days", 7)
-            try:
-                expire_days = int(raw_ed)
-            except (TypeError, ValueError):
-                expire_days = 7
-            expire_days = max(1, min(365, expire_days))
-
-            ar = it.get("action_rule")
-            if ar is None or (isinstance(ar, str) and ar.strip().lower() in ("null", "none", "")):
-                action_rule: Optional[str] = None
-            else:
-                action_rule = str(ar).strip() or None
-
-            expire_at = base_dt + timedelta(days=expire_days)
-            sid = f"auto_{batch_date.isoformat()}_{uuid4().hex[:8]}"
-
-            await save_temporal_state(
-                id=sid,
-                state_content=state_content,
-                action_rule=action_rule,
-                expire_at=expire_at,
-                is_active=1,
-            )
-            n_written += 1
-
-        if n_written > 0:
-            logger.info("[Step 3.5] 写入 %s 条时效状态", n_written)
+        # 3) adjust_expire
+        try:
+            raw_adj = ops.get("adjust_expire") or []
+            n_adj = 0
+            for it in raw_adj:
+                if not isinstance(it, dict):
+                    continue
+                sid = str(it.get("id") or "").strip()
+                if not sid or sid not in remaining_active:
+                    continue
+                exp_s = str(it.get("new_expire_at") or "").strip()
+                new_exp = self._parse_step35_expire_at_string(exp_s)
+                if new_exp is None:
+                    logger.warning(
+                        "[Step 3.5] adjust_expire 跳过（时间无法解析）: id=%s raw=%s",
+                        sid,
+                        exp_s,
+                    )
+                    continue
+                try:
+                    rc = await update_temporal_state_expire_at(sid, new_exp)
+                    if rc:
+                        n_adj += 1
+                except Exception as e:
+                    logger.warning(
+                        "[Step 3.5] adjust_expire 单条失败 id=%s: %s",
+                        sid,
+                        exc_detail(e),
+                    )
+            if n_adj > 0:
+                logger.info("[Step 3.5] 已调整 %s 条时效状态到期时间", n_adj)
+        except Exception as e:
+            logger.warning("[Step 3.5] adjust_expire 分支失败: %s", exc_detail(e))
 
     async def _merge_memory_card_contents(
         self,
