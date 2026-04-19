@@ -40,6 +40,8 @@
 >
 > **2026-04-21（relationship_timeline `created_at`，以代码为准）：** 日终 Step 3 **`insert_relationship_timeline_event(..., created_at=datetime.combine(date.fromisoformat(batch_date), time(23, 59, 59)))`**，**`created_at`** 对齐 **`batch_date` 业务日**（naive）；**`MessageDatabase.insert_relationship_timeline_event`** 支持可选 **`created_at`**，**省略**时列仍 **`DEFAULT NOW()`**。详见 §3.4.4、§5.5。
 >
+> **2026-04-21（熔断告警 / 向量写入重试 / 跑批 `retry_count`，以代码为准）：** **`memory/vector_store.ZhipuEmbedding.get_embedding`**：HTTP **429/503** 最多 **3** 次尝试、间隔 **2s**；**`VectorStore.add_memory`**：embedding + **`collection.add`** 整段最多 **3** 次、间隔 **1s**。**`migrate_database_schema`**：**`daily_batch_log.retry_count`**（`NOT NULL DEFAULT 0`）；**`increment_daily_batch_retry_count`** / **`reset_daily_batch_retry_count`**。**`memory/daily_batch.schedule_daily_batch_retry_if_needed`**：**`retry_count >= 3`** 时不再启动延迟子进程，并发 **Telegram 熔断**（**`bot/telegram_notify.send_telegram_main_user_text`**）；**`< 3`** 时 **`spawn_run_daily_batch_retry_after_hours` 成功 `Popen` 后**再 **`retry_count + 1`** 并发「已安排 2 小时后重试」；**`run_daily_batch.py` / `trigger_daily_batch_manual` / `schedule_daily_batch`** 均经该入口；**五步全成功**后 **`reset_daily_batch_retry_count`**。**`config.TELEGRAM_MAIN_USER_CHAT_ID`**（**.env**）未配置则**跳过** Telegram。**`memory/micro_batch`**：chunk 摘要连续 **3** 次无法产出可落库正文则发 Telegram 后计数归零；**成功写入 chunk 并标记消息后**归零。详见 **`bot/telegram_notify.py`**、§3.4.4、§3.4.5。
+>
 > **2026-04-20（跑批 / 微批 Prompt 记忆锚点，以代码为准）：** **`DailyBatchProcessor`**：定好 **`batch_date`** 后 **`await _resolve_batch_memory_identity`**（**`get_today_user_character_pairs`** 当日首对 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`sirius`**，无对则 **`default_user`/`sirius`**），写入 **`_batch_user_id` / `_batch_char_id`**；**`_memory_context_prefix()`** 注入关系锚点 **`【基础设定】…`** 与激活 **`get_memory_cards(..., current_status|relationships, limit=1)`**。**Step 2** 今日小传：**`_persona_dialogue_prefix()` + `_memory_context_prefix()` + 材料正文**。**Step 3** 七维 JSON：在「今日小传」前附 **7 个维度**既有记忆卡各一条（**`get_latest_memory_card_for_dimension`** ×7，拼 **`old_cards_block`**，供对比与增量提取）；输出要求含禁止跨维重复、**仅提取增量/状态变化/与旧认知冲突**等句。**`memory/micro_batch`**：**`get_unsummarized_messages_by_session`** 额外返回 **`character_id`**；**`generate_summary_for_messages`** **`await _resolve_micro_batch_memory_prefix(messages)`**（消息行取 **`user_id`/`character_id`**，缺 **`character_id`** 时 **`_active_character_id_fallback()`** 读激活 **`chat`** **`persona_id`**）；**`SummaryLLMInterface.generate_summary(..., memory_prefix=…)`** 插在称呼行与摘要指令之间。详见 §3.4.3、§3.4.4、§6.3。
 >
 > **2026-04-19（记忆管线 / Mini App 长期记忆，以代码为准）：** **`context_builder._assemble_full_system_prompt`**：在 **`system_prompt`（人设正文）之后、各记忆块（`temporal_states`、记忆卡片、`relationship_timeline`、向量检索、daily、chunk）之前**注入 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**；**`MEMORY_CITATION_DIRECTIVE` 与 `THINKING_LANGUAGE_DIRECTIVE` 仍在 system 块末尾**（与 v2 旧述「仅在文末」不同，以代码为准）。**`GET /api/memory/longterm`**：从 **ChromaDB** 分页列出全量向量（`page` / `page_size` / 可选 **`summary_type`** 过滤 **`metadata.summary_type`**）；**`DELETE /api/memory/longterm/{chroma_doc_id}`** 仅允许 **`manual_` 前缀**（先删 Chroma，再 **`delete_longterm_memory_by_chroma_id`** 删 **`longterm_memories`**）；**`PATCH /api/memory/longterm/{chroma_doc_id}/metadata`** 仅更新 **`halflife_days` / `arousal`**。Mini App「长期记忆」Tab 类型筛选：**`daily` / `daily_event` / `manual` / `state_archive`**（**不含 `chunk`**：微批 **`summaries.summary_type=chunk`** 不写入 Chroma）。详见 §3.4.2、§3.4.4、§5.6、§6.7、§7.3。
@@ -121,6 +123,7 @@ cedarstar/                          # 项目根目录
 │   ├── markdown_telegram_html.py   # Markdown→HTML（markdown）+ bleach；`_compact_vertical_whitespace` 换行压空格/合并 spaced ellipsis、`telegram_send_text_collapse`；bleach 后展开正文 `<blockquote>`
 │   ├── telegram_html_sanitize.py   # 封装整段净化与 split_safe_html_telegram_chunks 切 4096
 │   ├── discord_bot.py              # Discord 机器人（组合 MessageBuffer、LLM、消息存储）
+│   ├── telegram_notify.py          # 后台告警：`send_telegram_main_user_text`（读 **`TELEGRAM_MAIN_USER_CHAT_ID`**；跑批 / 微批熔断，与 webhook `Application` 生命周期无关）
 │   └── telegram_bot.py            # Telegram 机器人（组合 MessageBuffer、LLM、消息存储）；**`_telegram_stream_llm_one_sse_round`** / **`_telegram_user_visible_model_error`** / **`STREAM_READ_TIMEOUT_MAX_RETRIES`**
 │
 ├── llm/                            # LLM 接口层
@@ -131,9 +134,10 @@ cedarstar/                          # 项目根目录
 │   ├── __init__.py                 # 包初始化文件
 │   ├── database.py                 # PostgreSQL 数据库封装（asyncpg 连接池 + MessageDatabase 类 + 全局单例 + 便捷函数）
 │   ├── context_builder.py          # Context 组装器（system + … + 近期消息）；近期 **`assistant`** 经 **`strip_lutopia_behavior_appendix`**；**`user`** 条经 **`inject_user_sent_at_into_llm_content`** 注入东八区 **`【当前时间：…】`**（仅 LLM，不落库）；可选 **`telegram_segment_hint`**、**`tool_oral_coaching`**（Lutopia 口播引导）
+│   ├── retrieval.py                # 长期记忆 **`summary_type`** 白名单与回溯关键词（**`is_retrospect_query`**）；供 **`context_builder`** 向量/BM25 过滤
 │   ├── micro_batch.py              # 微批处理（chunk 摘要；**`strip_lutopia_internal_memory_blocks`**；**`memory_prefix`** 注入锚点 + **`current_status`/`relationships`** 激活卡；**`get_unsummarized_messages_by_session`** 含 **`character_id`**）
-│   ├── daily_batch.py              # 日终五步（`DailyBatchProcessor`）；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含**7 维既有卡 `old_cards_block`** 与增量/跨维去重指令；cron 执行 `run_daily_batch.py`；`schedule_daily_batch` 可选；`main.py` 不启动
-│   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding + 增删查）
+│   ├── daily_batch.py              # 日终五步（`DailyBatchProcessor`）；**`_resolve_batch_memory_identity`** + **`_memory_context_prefix`** 注入 Step 2；Step 3 七维含**7 维既有卡 `old_cards_block`** 与增量/跨维去重指令；失败走 **`schedule_daily_batch_retry_if_needed`**（`retry_count` 上限 + Telegram）；cron 执行 `run_daily_batch.py`；`schedule_daily_batch` 可选；`main.py` 不启动
+│   ├── vector_store.py             # ChromaDB 向量存储封装（智谱 Embedding **429/503 重试** + **`add_memory` 写入重试** + 增删查）
 │   ├── meme_store.py               # 表情包专用 Chroma 集合 `meme_pack`（与主记忆隔离；写入/查询用显式向量，硅基流动 BAAI/bge-m3）
 │   ├── bm25_retriever.py           # BM25 关键词检索（jieba 分词 + rank_bm25，内存缓存索引）
 │   ├── reranker.py                 # Cohere Rerank 重排器（异步，对双路检索结果重排序）
@@ -188,7 +192,7 @@ cedarstar/                          # 项目根目录
 │   ├── cedarstar.db.backup2        # 数据库备份2
 │   └── cedarstar.db.backup_dimension # 维度字段变更前的备份
 │
-├── run_daily_batch.py              # 日终跑批独立入口：`await initialize_database()` 后 `DailyBatchProcessor().run_daily_batch()`；供 cron 调用，用法见 §4.2
+├── run_daily_batch.py              # 日终跑批独立入口：`await initialize_database()` 后 `DailyBatchProcessor().run_daily_batch()`；失败时 **`await schedule_daily_batch_retry_if_needed`**；供 cron 调用，用法见 §4.2
 ├── backup.sh                       # 全量备份（Bash）：读 `.env` 的 `DATABASE_URL` → `pg_dump -F c` → 与 `chroma_db/`、`.env` 打 tar.gz → `rclone copy`；详见 §4.2.1
 ├── migrate_to_postgres.py          # SQLite → PostgreSQL：仅迁移 persona_configs / api_configs / config 三表
 ├── supervisord.conf                # Supervisor 示例：运行 `python main.py`（部署路径按需修改）
@@ -225,6 +229,7 @@ cedarstar/                          # 项目根目录
 | `TELEGRAM_BOT_TOKEN` | Telegram 机器人令牌（可选；未设置则跳过 webhook 侧 `Application` 初始化） |
 | `TELEGRAM_WEBHOOK_SECRET` | 与 Bot API 请求头 `X-Telegram-Bot-Api-Secret-Token` 一致；`api/webhook.py` 校验，不一致返回 401 |
 | `TELEGRAM_PROXY` | 可选。仅 **Telegram Bot API**（`python-telegram-bot` / httpx）访问 `api.telegram.org` 使用：在 `HTTPXRequest` 上 **显式** `proxy=`，且 `httpx_kwargs={"trust_env": False}`，**不**读取 `HTTP_PROXY`/`HTTPS_PROXY`，避免与 Discord 启动时写入的环境变量混用。留空则 **直连**（部分网络下 `initialize()` 易超时）。国内常见：Clash **SOCKS5**（如 `socks5://127.0.0.1:7897`，端口与 Clash「混合端口」或 SOCKS 配置一致）；纯 `http://` 经 CONNECT 访问 Telegram 易出现 `ConnectError`/`start_tls` 失败。需安装 `requirements.txt` 中的 `python-telegram-bot[socks]`、`httpx[socks]` |
+| `TELEGRAM_MAIN_USER_CHAT_ID` | 可选。主用户 Telegram **私聊** `chat_id`（数字字符串）。**`memory/daily_batch.schedule_daily_batch_retry_if_needed`**（跑批延迟重试 / 熔断）与 **`memory/micro_batch`**（chunk 连续失败告警）经 **`bot/telegram_notify.send_telegram_main_user_text`** 发至此；未配置则**不发** Telegram、仅日志 |
 | `LLM_API_KEY / LLM_API_BASE / LLM_MODEL_NAME` | 主 LLM 配置 |
 | `LLM_TIMEOUT` / `LLM_VISION_TIMEOUT` | `requests` 读超时（秒）：默认 **60** / **180**；`LLMInterface` 在 **messages 含多模态图片** 时取二者较大值作为单次 `chat/completions`（或等价）超时，否则仅用 `LLM_TIMEOUT`；**`config_type=vision`** 时实例 `timeout` 保底为 `max(LLM_TIMEOUT, LLM_VISION_TIMEOUT)` |
 | `LLM_STREAM_READ_TIMEOUT` | 可选。仅 **`generate_stream`（SSE）** 的 **读** 超时（两次 chunk 之间最长等待）；默认 **90** 秒。未设置时不必写 `.env` |
@@ -371,7 +376,7 @@ cedarstar/                          # 项目根目录
 2. `temporal_states`（`temporal_states` 表中 `is_active=1` 的全部记录，置于记忆卡片之前）
 3. `memory_cards`（`memory_cards` 表中 `is_active=1` 的记录，按维度分组）
 4. `relationship_timeline`（数据库倒序取最近 3 条，注入 Context 前按 `created_at` 正序排列；紧接记忆卡片之后）
-5. 长期记忆检索（ChromaDB top5 + BM25 top5，按 `doc_id` 去重后最多 10 条；**进入精排前**按 Chroma `metadata.parent_id` 做父子折叠——同一父文档（当日 `daily_*`）与下属 `*_event_*` 片段为一组，组内仅保留语义相似度最高的一条；注入 prompt 时每条正文前带 `[uid:<chroma_doc_id>]` 前缀，与回复末尾引用 `[[used:uid]]` 中的 `uid` 一致）
+5. 长期记忆检索（ChromaDB **`retrieval_top_k`** 条 + BM25 同 **`retrieval_top_k`** 条；两路均在 **`memory/retrieval.py`** 按 **`metadata.summary_type` 白名单过滤**：默认 **`daily` / `daily_event` / `manual`**，**不含** **`state_archive`**；当 **`is_retrospect_query(user_message)`**（用户消息命中回溯关键词表）时白名单追加 **`state_archive`**。过滤在 **`context_builder`** 内对本轮 **`user_message`** 计算（**非**独立 gateway 入参）。按 `doc_id` 去重后最多 **`2 × retrieval_top_k`** 条候选；**进入精排前**按 Chroma `metadata.parent_id` 做父子折叠——同一父文档（当日 `daily_*`）与下属 `*_event_*` 片段为一组，组内仅保留语义相似度最高的一条；注入 prompt 时每条正文前带 `[uid:<chroma_doc_id>]` 前缀，与回复末尾引用 `[[used:uid]]` 中的 `uid` 一致）
 6. `daily_summaries`（最近 5 条 `summary_type='daily'` 的摘要，正序）
 7. `chunk_summaries`（**`get_today_chunk_summaries()`** 无参：**`summary_type='chunk'`** 且 **内容日** `COALESCE(source_date::date, created_at::date) <=` 东八区今日，**含尚未被日终卷入的积压 chunk**；全局按 `created_at` 正序）
 8. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`；**`format_user_message_for_context`**：先输出去掉图片/贴纸/语音结构行后的**纯文字**；再按 **`media_type.split(",")` 的顺序**依次调用 `_format_image_part` / `_format_sticker_part` / `_format_voice_part`（主函数仅路由）；**`media_type='reaction'`** 时由 **`_format_reaction_part`** 原样返回 `content`（Bot 已拼好完整语义）。`image_caption` 在 `_format_image_part` 中按**单字符串**处理（未来多图可升级为 JSON 数组）。旧行若无 `media_type`，则按正文出现顺序推断 `image`/`sticker`/`voice`。**`role=assistant`** 条在上述格式化之后、注入 messages 前再经 **`strip_lutopia_behavior_appendix`**，去掉历史 **`[行为记录]`** 后缀（旧库兼容）。**`role=user`** 条在注入 messages 前再经 **`inject_user_sent_at_into_llm_content(..., msg["created_at"])`**，正文首行增加东八区 **`【当前时间：…】`**（**仅 LLM**，库内 **`content` 不变**）
@@ -388,13 +393,14 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 两路分数各自在当批候选内 min-max 归一化后按 **0.8×语义 + 0.2×衰减** 综合得分排序，取 top **N** 写入 context（N=`config.context_max_longterm`，默认 **3**）。
 
 **边界：**
+- 向量路 **`search_memory(..., where=...)`** 与 BM25 路 **`search_bm25(..., allowed_summary_types=...)`** 共用 **`memory.retrieval.chroma_where_longterm_summary_types` / `longterm_allowed_summary_types`**（与上条 **`summary_type`** 白名单一致）
 - 同步版 `build_context()`：双路检索 + 父子折叠，无 Cohere；长期记忆块标题为「双路检索结果」
 - 异步版 `build_context_async()`：并行检索 + 折叠 + Cohere 全候选打分 + 上述融合公式取 top **N**（同上）；`COHERE_API_KEY` 不可用时回退为同步双路逻辑
 - **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**：在 **`system_prompt` 之后、第一个记忆相关块（如 `temporal_states`）之前**注入（多区块信息冲突时：**时效状态 > 近期消息 > 记忆卡片 > 每日摘要 > 长期记忆**，以较新、较具体为准；与上文「向量块 / daily / chunk」**拼接顺序**为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）。**`MEMORY_CITATION_DIRECTIVE`** 与 **`THINKING_LANGUAGE_DIRECTIVE`** 仍在 **system 块末尾**（「历史桥接」各块之后）：引用须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应；思维链须中文
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**——**【Telegram 排版】**：HTML 白名单、自然换行多气泡、`|||` 可选强制分段、MAX_CHARS / MAX_MSG（`config` 表；**发送侧**二者仅约束**无 `|||`** 时的二级强分）、`[meme:…]` 与顺序说明；正文勿用大段 `<blockquote>` / 行首 `>`（思维链 blockquote 由系统处理）；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 - 可选 **`tool_oral_coaching=True`**：在 system 末尾追加 **`TOOL_ORAL_COACHING_BLOCK`**（调用工具前口语提示）；与 `telegram_segment_hint` 可并用；**`persona.enable_lutopia`** 且主对话走 OpenAI 兼容 **tools** 时由 **Telegram / Discord** 在 **`build_context`** 调用前置位
 
-**✅ 已改动（2026-04，以代码为准）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`**，正文由 **`build_persona_config_system_body(row)`** 拼装（内部 **`build_char_persona_prompt_sections`**：Char 侧为 **【存在定义】**（`char_name` 锚点句 + `char_identity` + `char_appearance`）、**【内在人格】**、**【表达契约】**、**【关系与形象】**（仅 `char_relationships`）、**【成人内容】**、**【工具与场景】** 等；再接 **【User 的人设】** 标签行块、**【系统规则】**）。与 Mini App 右侧「拼接预览」及 **`GET /api/persona/{id}/preview`** 同源；**不含** Mini App「复制」剪贴板里的 Markdown `#` 大标题（该格式仅便于人工粘贴阅读）。无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
+**✅ 已改动（2026-04，以代码为准）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`**，正文由 **`build_persona_config_system_body(row)`** 拼装：**【系统规则】**（非空则置于最前）；随后 **`build_char_persona_prompt_sections`**：Char 侧为 **【存在定义】**（`char_name` 锚点句 + `char_identity` + `char_appearance`）、**【内在人格】**、**【表达契约】**、**【关系与形象】**（仅 `char_relationships`）、**【成人内容】**、**【工具与场景】** 等；最后接 **【User 的人设】** 标签行块。与 Mini App 右侧「拼接预览」及 **`GET /api/persona/{id}/preview`** 同源；**不含** Mini App「复制」剪贴板里的 Markdown `#` 大标题（该格式仅便于人工粘贴阅读）。无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
 
 **日志（以代码为准）：** 顶层 `build_context` / `build_context_async` 捕获异常后回退最小 context，以及各 `_build_*_section` 失败返回空串/空列表等**可恢复**路径，使用 **WARNING**（与硬故障区分）。
 
@@ -430,6 +436,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **日志（以代码为准）：** Guard 用尽跳过写入、摘要未生成即返回、检查/处理/触发路径吞异常不阻断主流程等，对应 **WARNING**（非 ERROR）。
 
+**✅ 已改动（2026-04-21）：** 连续 **3** 次 chunk 摘要无法落库（空摘要 / Guard）时 **`_record_consecutive_chunk_llm_failure`** 经 **`send_telegram_main_user_text`** 告警后计数归零；**成功写入 chunk 并 `mark_messages_as_summarized_by_ids`** 后 **`_consecutive_chunk_failures = 0`**。
+
 #### 3.4.4 `daily_batch.py` — 日终跑批
 
 **职责：** 在东八区某业务日执行五步流水线（支持断点续跑）。**标准部署**下由 **cron（或同类）按 `config.daily_batch_hour` 所设整点**（默认 23:00）调用项目根目录 **`run_daily_batch.py`** 触发；`daily_batch_hour` 为业务约定，**cron 表达式须与之一致**（代码不会替运维「自动对齐」系统时钟）。
@@ -444,14 +452,14 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 |------|------|
 | Step 1 | 巡视 `temporal_states`：`expire_at` 已到期且 `is_active=1` 的记录先 `UPDATE is_active=0`，再用 SUMMARY LLM 将 `state_content` 从「进行时」改写为过去时客观事实，结果列表供 Step 2 使用 |
 | Step 2 | **`_resolve_batch_memory_identity`**（当日 **`get_today_user_character_pairs`** 首对）后，**`_persona_dialogue_prefix()` + `_memory_context_prefix()`**（锚点 + **`current_status`/`relationships`** 激活卡）+ Step 1 输出 + **chunk**：**`get_today_chunk_summaries(batch_date)`**（**`COALESCE(source_date::date, created_at::date) <= batch_date`**，积压内容日一并并入）；每条 **`summary_text`** 先 **`strip_lutopia_internal_memory_blocks`**。生成今日小传（**`save_summary(..., summary_type='daily', source_date=batch_date)`**）；**成功后** **`delete_today_chunk_summaries(batch_date)`**（**同上界 `<= batch_date`** 删除 chunk） |
-| Step 3 | 七维 JSON：prompt 在今日小传前附 **7 维既有卡**（对每维 **`get_latest_memory_card_for_dimension`**，拼 **`old_cards_block`**）；输出要求含禁止跨维重复、**仅提取增量/变化/冲突**等。记忆卡片 Upsert：无则 `INSERT`；**有则**对 `current_status` / `preferences` 先 **`vector_store.add_memory`** 归档（`state_archive`）再 **`_merge_memory_card_contents`** → `UPDATE`（失败 fallback）。**关系时间轴**：LLM JSON → **`insert_relationship_timeline_event(..., created_at=combine(batch_date, 23:59:59))`**（**`batch_date` 业务日**；见 §5.5） |
+| Step 3 | 七维 JSON：prompt 在今日小传前附 **7 维既有卡**（对每维 **`get_latest_memory_card_for_dimension`**，拼 **`old_cards_block`**）；输出要求含禁止跨维重复、**仅提取增量/变化/冲突**等。记忆卡片 Upsert：无则 `INSERT`；**有则**先 **`_merge_memory_card_contents`**；对 **`current_status` / `preferences`** 合并结果为 JSON **`merged` + `discarded`**，**仅当 `discarded` 非 null** 时经轻量 LLM 改写后 **`add_memory`**（`state_archive`，metadata 含 **`archived_at` / `original_dimension`**，改写失败则 **`rewrite_failed`**）再 `UPDATE`；其余维度仍为 **`{"content"}`** 合并。**关系时间轴**：LLM JSON → **`insert_relationship_timeline_event(..., created_at=combine(batch_date, 23:59:59))`**（**`batch_date` 业务日**；见 §5.5） |
 | Step 4 | 主 LLM 打分，prompt 同步输出 `score`（整数 1–10）与 `arousal`（浮点 0.0–1.0，情绪强度；平静约 0.1，激烈事件 0.8+）；`halflife_days`：8–10→600，4–7→200，1–3→30。**全量**向量化入库（`generate_with_context_and_tracking`，`platform=Platform.BATCH`）；metadata 新增 `arousal: float`；先存 `daily_{batch_date}`，再按需拆分事件片段 `daily_{batch_date}_event_N`（同含 `arousal`），metadata 含 `parent_id` 指向当日主文档；增量更新 BM25 |
 | Step 5 | Chroma GC：`vector_store.garbage_collect_stale_memories()` — **前置豁免**：`hits >= gc_exempt_hits_threshold`（优先 `config` 表 `gc_exempt_hits_threshold`，默认 10）则跳过不删；再依次判断：闲置天数超过 `gc_stale_days`（默认 180）、半衰期衰减得分 \<0.05、无子文档以该 `doc_id` 为 `parent_id`，三条全满足才物理删除 |
 
 **Step 3 实现要点（与代码一致）：**
 - **维度 JSON 提取与重试策略：** 对所有 SUMMARY LLM 相关 JSON 结构和主 LLM 的 `score` / `arousal` 分数结果提取，均已统一采用基于 `_retry_call_and_parse` 的重试机制，出错时最多重试 5 次，并在内部对 SUMMARY LLM 返回依次尝试整段 `json.loads`；失败则截取**首个平衡的 JSON 对象**（跳过前置说明、处理字符串内转义；支持 \`\`\`json 代码块）；再回退原贪婪 `\{...\}` 正则；如果仍失败且未达上限将触发 asyncio 等待并重新生成。
 - **Upsert 行定位：** `get_latest_memory_card_for_dimension()`（不过滤 `is_active`），保证「全表 `is_active=0` 后重跑」仍更新同一逻辑行，而非误当作无记录而堆叠 `INSERT`。
-- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 外壳）。**维度三分支：** `interaction_patterns` 单独细则；**`current_status` / `preferences`** 为覆写型（旧状态已归档向量侧，合并 prompt 不含「矛盾则双保留并标日期」句）；**其余维度**保留「矛盾则 `[YYYY-MM-DD]` 标注」句。输出严格 JSON `{"content":"…"}`。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」。`update_memory_card(..., reactivate=True)` 写库并**重新激活**。
+- **合并写回：** `_merge_memory_card_contents` → `_call_summary_llm_custom`（**不经** `SummaryLLMInterface.generate_summary` 的 chunk 外壳）。**维度三分支：** `interaction_patterns` 单独细则；**`current_status` / `preferences`** 输出 **`{"merged","discarded"}`**（`discarded` 仅在有实质覆盖时非 null，再触发 `state_archive` 改写入库）；**其余维度**保留「矛盾则 `[YYYY-MM-DD]` 标注」句，输出 **`{"content":"…"}`**。合并失败则 fallback 为「旧正文 + `[batch_date]更新` + 新摘要」且**不**写 `state_archive`。`update_memory_card(..., reactivate=True)` 写库并**重新激活**。
 
 **跑批 Prompt 与人物称呼（2026-04，与代码一致）：**
 - **`run_daily_batch`** 在 **`await LLMInterface.create()`** 之后 **`await fetch_active_persona_display_names()`**（同 §3.4.3，来自 `memory.micro_batch`），写入 **`_batch_char_name` / `_batch_user_name`**；定 **`batch_date`** 后 **`await _resolve_batch_memory_identity(batch_date)`** 写入 **`_batch_user_id` / `_batch_char_id`**；**`_persona_dialogue_prefix()`** 返回 `这是 {char} 与 {user} 的对话记录。\n`。
@@ -460,9 +468,9 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - **Step 3**（七维 JSON、**关系时间轴** JSON）：七维 prompt 前附 **`old_cards_block`**（7 维各取最近一条既有卡）；输出要求含**单条事实只归入最相关一维、禁止跨维重复**与**增量对比**句。仍 **`summary_llm.generate_summary(...)`**；关系时间轴 **`tl_prompt`** 要求 **第三人称客观**、**真实姓名**指称双方、**禁止**「我/你」及「今天/昨天」等相对时间词（与 §3.4.4 表一致）。
 - **Step 4**（小传 **score/arousal**）：主 LLM 的 user **prompt 前加 `_persona_dialogue_prefix()`**；**事件拆分**仍 **`generate_summary`** 并传 `char_name` / `user_name`。
 
-**断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤。
+**断点续跑：** `daily_batch_log` 记录 `step1_status`～`step5_status`，重启后跳过已完成步骤；另含 **`retry_count`**（**`migrate_database_schema`** 幂等追加），五步**全部成功**后 **`reset_daily_batch_retry_count`** 置 **0**。
 
-**失败后约 2 小时自动重试：** `run_daily_batch.py`、`schedule_daily_batch`、`trigger_daily_batch_manual` 在 **`run_daily_batch` 返回失败** 时调用 **`spawn_run_daily_batch_retry_after_hours`**（`memory.daily_batch`）：独立子进程等待 **7200s** 后再执行 **`run_daily_batch.py <batch_date>`**（与 cron 同源）；若仍失败会再排一次。
+**失败后延迟重试与熔断（以代码为准）：** `run_daily_batch.py`、`schedule_daily_batch`、`trigger_daily_batch_manual` 在 **`run_daily_batch` 返回失败** 时调用 **`schedule_daily_batch_retry_if_needed`**：若 **`retry_count >= 3`**，**不再** `Popen` 子进程，向 **`TELEGRAM_MAIN_USER_CHAT_ID`**（**`bot/telegram_notify.send_telegram_main_user_text`**，未配置则跳过）发送熔断文案并记 **ERROR**；若 **`< 3`**，先 **`spawn_run_daily_batch_retry_after_hours`**（**7200s** 后执行 **`run_daily_batch.py <batch_date>`**），**`Popen` 成功后再** **`increment_daily_batch_retry_count`**，并发「已安排 2 小时后重试」Telegram（发送失败仅 **WARNING**）。
 
 **系统日志保留（Mini App「系统日志」）：** 每次 **`run_daily_batch`** 在五步流水线**开始前**调用 **`purge_logs_older_than_days(7)`**（`MessageDatabase` / `memory.database` 模块便捷函数），删除 **`logs`** 表中 **`created_at` 早于当前时刻 7 天** 的行；删除数大于 0 时 INFO。清理失败仅 **WARNING**，不中断跑批（见 §5.10）。
 
@@ -473,7 +481,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **职责：** 封装 ChromaDB 操作，使用智谱 AI `embedding-3` 模型生成向量；**工程约定为 1024 维**（与占位零向量、检索逻辑一致）。
 
 **边界：**
-- 日终由 `daily_batch` 全量写入当日小传（及可选事件片段）；Step 3 可对 `state_archive` 类型写入归档片段（与 `daily` / `daily_event` / 手工长期记忆并列存在于同一 Chroma 集合）；手工长期记忆仍通过 Mini App 写入
+- 日终由 `daily_batch` 全量写入当日小传（及可选事件片段）；Step 3 在 `current_status`/`preferences` 合并产生 **`discarded`** 时写入 `state_archive`（与 `daily` / `daily_event` / 手工长期记忆并列存在于同一 Chroma 集合）；**Context 长期记忆召回**默认按 `memory/retrieval.py` 白名单排除 `state_archive`，用户消息命中回溯关键词时再纳入；手工长期记忆仍通过 Mini App 写入
+- **`ZhipuEmbedding.get_embedding`**：HTTP **429/503** 最多 **3** 次、间隔 **2s**；**`VectorStore.add_memory`**：整段写入最多 **3** 次、间隔 **1s**（仍失败则 **`False`**，由调用方处理）
 - 提供 `add_memory()` / `search_memory()` / `delete_memory()` / `update_memory_hits()` 便捷函数
 - 集合名由 **`config.CHROMA_COLLECTION_NAME`** 决定（`.env` 可选；未设置时为 **`{APP_NAME}_memories`**，`config.APP_NAME` 默认 `cedarstar`）；与 **`meme_pack`** 集合相互独立
 - **智谱 API 与维度：** `embedding-3` 在 HTTP 请求体中**若不传 `dimensions`，默认返回 2048 维**。`vector_store.ZhipuEmbedding` **必须**在调用 `/embeddings` 时显式传入 **`dimensions: 1024`**，否则首次 `collection.add` 会把 Chroma 集合固定为 2048，而查询与其它路径仍按 1024 维构造向量，会出现 `Collection expecting embedding with dimension of 2048, got 1024`（或同类维度不匹配），`get_all_memories`、BM25 `refresh_index` 也会异常。
@@ -587,7 +596,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 **Config 页（`Config.jsx` / `config.css`）：** 与 `api/config.py` 的 `DEFAULT_CONFIG` 对齐：上方为通用运行参数（**滑块 + 数字步进**），底部 **「保存并立即生效」** 一次 `PUT /api/config/config` 写回当前页全部键。其下 **「Telegram 参数」** 包含流式思维链发送开关 `send_cot_to_telegram`（默认选 1），以及 `telegram_max_chars`（10–1000、步长 10）与 `telegram_max_msg`（1–20），控件布局与同页其它行一致；每项可点 **「保存此项」** 单独 `PUT`，请求体仅含该键（仍走同一接口）。**线下极速模式（2026-04-07 新增）：** 顶部提供一键开关（`POST /api/config/offline-mode/toggle`），后端通过 `MessageDatabase.toggle_offline_mode` 利用 `config` 表进行**影子备份**（将 `buffer_delay`、`telegram_max_chars` 等写入 `backup_*`，并覆写为极速预设，同时写 `offline_mode_active=1`），关闭时从备用键还原，前端状态直接通过加载配置项的 `offline_mode_active` 推断。`memory/database.py` 的 `migrate_database_schema` 通过 `_config_insert_defaults_if_missing` 为缺失行插入默认值（`INSERT OR IGNORE`，不覆盖已有值）。**UI：** 大卡片 **`SYSTEM CONFIG`** 骑线角标与 **`.config-container` `padding-top`** 配合，避免与 Settings 页相同的视口裁切问题。
 
-**Persona 页（`Persona.jsx` / `persona.css`，以代码为准）：** 左栏顶层 **Char / User / 工具（Lutopia）/ 系统规则** 使用 **`SectionHead`**（等宽 slug + Lucide 铭牌 + 蓝图分隔线）。**Char、User** 下再嵌 **`PersonaSubBlock`**（小号 slug + 子标题 + 虚线子卡片），分组与 **`build_char_persona_prompt_sections` / `buildUserPreviewChunks`** 语义一致。主区 **左 60% / 右 40%**（**`.persona-editor`** / **`.persona-preview`**）；右侧 **拼接预览** slug **`[ PROMPT_OUT ]`**，**`PersonaPreviewStack`** 分 **Char / User / 系统规则** 三色条区，子块用【】；**`.persona-preview .persona-section-head__nameplate`** 设 **`flex-wrap: nowrap`**，避免窄屏下预览标题区图标与文字折成两行。**「复制」** 按钮写入 **`buildClipboardText(form)`**：以 Markdown **`# Char 人设` / `# User 人设` / `# 系统规则`** 便于粘贴后区分大段，子段仍为【】；**运行时 system 正文无 `#`**，仍以 **`build_persona_config_system_body`** 为准。~~系统规则旁的 Telegram HTML 提示~~ 已移除（从不写入 `system_rules`）。
+**Persona 页（`Persona.jsx` / `persona.css`，以代码为准）：** 左栏顶层 **系统规则 / Char / User / 工具（Lutopia）** 使用 **`SectionHead`**（等宽 slug + Lucide 铭牌 + 蓝图分隔线）。**Char、User** 下再嵌 **`PersonaSubBlock`**（小号 slug + 子标题 + 虚线子卡片），分组与 **`build_char_persona_prompt_sections` / `buildUserPreviewChunks`** 语义一致。主区 **左 60% / 右 40%**（**`.persona-editor`** / **`.persona-preview`**）；右侧 **拼接预览** slug **`[ PROMPT_OUT ]`**，**`PersonaPreviewStack`** 分 **系统规则 / Char / User** 三色条区，子块用【】；**`.persona-preview .persona-section-head__nameplate`** 设 **`flex-wrap: nowrap`**，避免窄屏下预览标题区图标与文字折成两行。**「复制」** 按钮写入 **`buildClipboardText(form)`**：以 Markdown **`# 系统规则` / `# Char 人设` / `# User 人设`** 便于粘贴后区分大段，子段仍为【】；**运行时 system 正文无 `#`**，仍以 **`build_persona_config_system_body`** 为准。~~系统规则旁的 Telegram HTML 提示~~ 已移除（从不写入 `system_rules`）。
 
 **✅ 已改动（2026-04-05）：** 表单与 **`persona_configs`** 含 **用户工作**（`user_work`），与 **`context_builder`** User 块 **「工作：…」** 对齐（仍有效）。
 
@@ -1125,7 +1134,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 2. 从 `messages` 表查询当批日期的 `(user_id, character_id)` 列表（无记录时兜底 `default_user/sirius`）
 3. 构建 Prompt，要求 SUMMARY LLM 按 7 个维度返回严格 JSON（`content` 或 `null`）；含 **7 维既有卡 `old_cards_block`** 与**禁止跨维度重复同一事实**、**增量对比**句（见 §3.4.4）
 4. **解析 JSON：** 整段 `json.loads` → 失败则截取首个**平衡** `{...}`（含 \`\`\`json 块）→ 再回退贪婪正则；仍失败则 Step 3 报错退出
-5. **Upsert：** `get_latest_memory_card_for_dimension`（**含 `is_active=0`**）；有旧卡时：若维度为 **`current_status` / `preferences`** 且旧正文非空，先 **`add_memory`** 归档至 Chroma（`summary_type=state_archive`，失败仅 warning），再 **`_merge_memory_card_contents`**（维度三分支合并规则，见 §3.4.4）→ `update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接
+5. **Upsert：** `get_latest_memory_card_for_dimension`（**含 `is_active=0`**）；有旧卡时：**`_merge_memory_card_contents`**（维度三分支；`current_status`/`preferences` 为 **`merged`/`discarded`** JSON）；若 **`discarded` 非 null** 则 **`_rewrite_discarded_state_for_archive`**（batch guard ≤3 次）后 **`add_memory`**（`state_archive`）并可增量 BM25 → `update_memory_card(..., reactivate=True)`；无则 `INSERT`；合并 LLM 失败时 fallback 为追加式拼接且不写归档
 6. 单维度 `try/except + continue`，互不拖累
 7. 维度分析仍走 `summary_llm.generate_summary`（chunk 式前缀 + 任务正文，并传入 `char_name`/`user_name`）；**合并**走 **`_call_summary_llm_custom`**（**不经** chunk 外壳；含人物前缀与维度三分支合并规则，见 §3.4.4）
 

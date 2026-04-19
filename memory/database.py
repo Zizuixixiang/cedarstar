@@ -94,6 +94,14 @@ async def _daily_batch_log_ensure_step45_columns(conn) -> None:
     logger.debug("daily_batch_log step4/step5 列检查完成")
 
 
+async def _daily_batch_log_ensure_retry_count_column(conn) -> None:
+    """为 daily_batch_log 补 retry_count（幂等）。"""
+    await conn.execute(
+        "ALTER TABLE daily_batch_log ADD COLUMN IF NOT EXISTS retry_count INTEGER NOT NULL DEFAULT 0"
+    )
+    logger.debug("daily_batch_log.retry_count 列检查完成")
+
+
 async def _backfill_daily_batch_step45_legacy_once(conn) -> None:
     """
     升级五步流水线前已「三步全完成」的历史行，step4/step5 为 0：按约定一次性补为 1。
@@ -223,6 +231,7 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_sticker_cache_table(conn)
     await _summaries_ensure_source_date_column(conn)
     await _daily_batch_log_ensure_step45_columns(conn)
+    await _daily_batch_log_ensure_retry_count_column(conn)
     await _backfill_daily_batch_step45_legacy_once(conn)
     await _messages_ensure_vision_columns(conn)
 
@@ -416,6 +425,7 @@ class MessageDatabase:
                         step3_status INTEGER DEFAULT 0,
                         step4_status INTEGER DEFAULT 0,
                         step5_status INTEGER DEFAULT 0,
+                        retry_count INTEGER NOT NULL DEFAULT 0,
                         error_message TEXT,
                         created_at TIMESTAMP DEFAULT NOW(),
                         updated_at TIMESTAMP DEFAULT NOW()
@@ -1699,8 +1709,8 @@ class MessageDatabase:
                 """
                 INSERT INTO daily_batch_log
                     (batch_date, step1_status, step2_status, step3_status,
-                     step4_status, step5_status, error_message, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+                     step4_status, step5_status, retry_count, error_message, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, 0, $7, NOW())
                 ON CONFLICT (batch_date) DO UPDATE SET
                     step1_status = EXCLUDED.step1_status,
                     step2_status = EXCLUDED.step2_status,
@@ -1729,7 +1739,8 @@ class MessageDatabase:
             row = await conn.fetchrow(
                 """
                 SELECT batch_date, step1_status, step2_status, step3_status,
-                       step4_status, step5_status, error_message, created_at, updated_at
+                       step4_status, step5_status, retry_count, error_message,
+                       created_at, updated_at
                 FROM daily_batch_log
                 WHERE batch_date = $1
                 """,
@@ -1745,6 +1756,7 @@ class MessageDatabase:
             "step3_status": row["step3_status"],
             "step4_status": 0 if row["step4_status"] is None else int(row["step4_status"]),
             "step5_status": 0 if row["step5_status"] is None else int(row["step5_status"]),
+            "retry_count": 0 if row.get("retry_count") is None else int(row["retry_count"]),
             "error_message": row["error_message"],
             "created_at": _norm(row["created_at"]),
             "updated_at": _norm(row["updated_at"]),
@@ -1758,7 +1770,8 @@ class MessageDatabase:
             rows = await conn.fetch(
                 """
                 SELECT batch_date, step1_status, step2_status, step3_status,
-                       step4_status, step5_status, error_message, created_at, updated_at
+                       step4_status, step5_status, retry_count, error_message,
+                       created_at, updated_at
                 FROM daily_batch_log
                 ORDER BY batch_date DESC
                 LIMIT $1
@@ -1773,6 +1786,7 @@ class MessageDatabase:
                 "step3_status": r["step3_status"],
                 "step4_status": 0 if r["step4_status"] is None else int(r["step4_status"]),
                 "step5_status": 0 if r["step5_status"] is None else int(r["step5_status"]),
+                "retry_count": 0 if r.get("retry_count") is None else int(r["retry_count"]),
                 "error_message": r["error_message"],
                 "created_at": _norm(r["created_at"]),
                 "updated_at": _norm(r["updated_at"]),
@@ -1812,6 +1826,43 @@ class MessageDatabase:
         else:
             logger.warning("更新批处理步骤状态失败: date=%s 不存在", batch_date)
         return updated
+
+    async def increment_daily_batch_retry_count(self, batch_date: str) -> int:
+        """
+        将 retry_count +1；若无该行则插入占位行（五步 0）后视为 1。
+        返回更新后的 retry_count。
+        """
+        dt_val = _dt.datetime.strptime(batch_date, "%Y-%m-%d").date()
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO daily_batch_log
+                    (batch_date, step1_status, step2_status, step3_status,
+                     step4_status, step5_status, retry_count, error_message, updated_at)
+                VALUES ($1, 0, 0, 0, 0, 0, 1, NULL, NOW())
+                ON CONFLICT (batch_date) DO UPDATE SET
+                    retry_count = daily_batch_log.retry_count + 1,
+                    updated_at = NOW()
+                RETURNING retry_count
+                """,
+                dt_val,
+            )
+        rc = int(row["retry_count"]) if row and row.get("retry_count") is not None else 1
+        logger.debug("daily_batch_log retry_count=%s date=%s", rc, batch_date)
+        return rc
+
+    async def reset_daily_batch_retry_count(self, batch_date: str) -> None:
+        """跑批全流程成功后将 retry_count 置 0。"""
+        dt_val = _dt.datetime.strptime(batch_date, "%Y-%m-%d").date()
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                UPDATE daily_batch_log
+                SET retry_count = 0, updated_at = NOW()
+                WHERE batch_date = $1
+                """,
+                dt_val,
+            )
 
     _DAILY_BATCH_INCOMPLETE_SQL = """(
             COALESCE(step1_status, 0) = 0 OR COALESCE(step2_status, 0) = 0 OR
@@ -3244,6 +3295,14 @@ async def update_daily_batch_step_status(
     return await get_database().update_daily_batch_step_status(
         batch_date, step_number, status, error_message
     )
+
+
+async def increment_daily_batch_retry_count(batch_date: str) -> int:
+    return await get_database().increment_daily_batch_retry_count(batch_date)
+
+
+async def reset_daily_batch_retry_count(batch_date: str) -> None:
+    await get_database().reset_daily_batch_retry_count(batch_date)
 
 
 async def mark_messages_as_summarized_by_ids(message_ids: List[int]) -> int:

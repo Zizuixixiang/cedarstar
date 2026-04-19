@@ -474,6 +474,15 @@ class Config:
         return v or None
 
     @property
+    def TELEGRAM_MAIN_USER_CHAT_ID(self) -> Optional[str]:
+        """
+        主用户 Telegram 私聊 chat_id（数字字符串），用于跑批 / 微批熔断告警。
+        未设置则不发送 Telegram 告警（仅日志）。
+        """
+        v = (os.getenv("TELEGRAM_MAIN_USER_CHAT_ID") or "").strip()
+        return v or None
+
+    @property
     def ENABLE_PROXY(self) -> bool:
         """
         获取是否启用代理设置。

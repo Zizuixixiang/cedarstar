@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-19（与 CedarStar 实现对齐：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**）
+> 文档版本：2026-04-21（与 CedarStar 实现对齐：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**，以代码为准）
 
 ---
 
@@ -165,9 +165,10 @@ CREATE TABLE daily_batch_log (
     step3_status    INTEGER   NOT NULL DEFAULT 0,
     step4_status    INTEGER   NOT NULL DEFAULT 0,
     step5_status    INTEGER   NOT NULL DEFAULT 0,
+    retry_count     INTEGER   NOT NULL DEFAULT 0,   -- 已排队延迟重试次数；>=3 时不再 spawn 子进程并发 Telegram 熔断
     error_message   TEXT,
-    created_at      DATETIME  NOT NULL,
-    updated_at      DATETIME  NOT NULL
+    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -212,6 +213,8 @@ metadata:
 
 > **ChromaDB 使用 doc_id 作为原生主键**，反写时直接 `collection.update(ids=[uid_list], ...)` 实现 O(1) 更新，禁止通过 metadata 字段过滤查询来定位记录。
 
+> **（以代码为准）写入韧性：** `memory/vector_store.ZhipuEmbedding.get_embedding` 对智谱 HTTP **429/503** 最多 **3** 次尝试、间隔 **2s**；`VectorStore.add_memory` 对 **embedding + `collection.add`** 整段最多 **3** 次、间隔 **1s**，仍失败则返回 **`False`**（由 `daily_batch` 等决定是否整步失败）。
+
 > **parent_id 是软引用：** 查询不到时静默降级返回 null，不抛异常，不做强外键约束。
 
 ### 半衰期映射规则（与 `memory/daily_batch.py` 一致）
@@ -228,7 +231,7 @@ metadata:
 - **ChromaDB** 每条向量另有 **`metadata.summary_type`**，由写入路径决定，常见取值：
   - **`daily`**：轨道一主文档（`doc_id=daily_{batch_date}`）
   - **`daily_event`**：轨道二事件片段（实现侧字段名；文档「轨道二」表若未列此项，以代码为准）
-  - **`state_archive`**：日终 Step 3 覆盖 `preferences` / `current_status` 前，旧正文归档量
+  - **`state_archive`**：日终 Step 3 对 **`preferences` / `current_status`** 合并时，模型输出 **`merged` + `discarded`**；**仅当 `discarded` 非 null** 时，经轻量 LLM 改写（失败则降级原文 + `rewrite_failed`）后写入向量库；metadata 含 **`archived_at`**、**`original_dimension`** 等（**不再**在合并前整卡入库）
   - **`manual`**：Mini App 手动新增长期记忆（`doc_id` 前缀 `manual_`）
 - **Mini App「长期记忆」类型筛选**按 Chroma 的 **`metadata.summary_type`** 过滤；**不提供 `chunk`**。
 
@@ -309,8 +312,9 @@ def init_bm25_index():
 
 **阶段一：粗排（向量层 + BM25 双路并行）**
 
-- 语义路：ChromaDB 向量相似度 Top K（K=`retrieval_top_k`，默认 5）
-- 关键词路：BM25 关键词匹配 Top K（同上）
+- 语义路：ChromaDB 向量相似度 Top K（K=`retrieval_top_k`，默认 5），**`collection.query` 带 `where`**：`metadata.summary_type` ∈ **`daily` / `daily_event` / `manual`**（**默认排除** **`state_archive`**）
+- 关键词路：BM25 关键词匹配 Top K（同上），对 **`metadata.summary_type`** 做**相同白名单**过滤（实现：`memory/bm25_retriever.py` 在排序后跳过非白名单文档）
+- **回溯扩展：** 当 **`memory/retrieval.is_retrospect_query(user_message)`** 为真（用户消息命中关键词表）时，白名单**追加** **`state_archive`**。检测与过滤在 **`memory/context_builder`** 内基于本轮 **`user_message`** 执行（**非** gateway 单独入参，以代码为准）
 - 两路结果合并去重后进入父子折叠（实现为去重合并 + 折叠，非严格 RRF）
 
 **阶段一·五：父子折叠（去重）**
@@ -415,11 +419,15 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 4. 批量 UPDATE 本批消息的 messages.is_summarized=1
 ```
 
+**（以代码为准）连续失败告警：** 若 chunk 摘要连续 **3** 次无法产出可落库正文（空摘要 / CedarClio Guard 跳过等），`memory/micro_batch` 经 **`bot/telegram_notify.send_telegram_main_user_text`** 向 **`TELEGRAM_MAIN_USER_CHAT_ID`** 推送告警（未配置则仅日志）；告警后模块内计数归零；任意一次**成功写入 chunk 并标记已摘要**后计数亦归零。
+
 ---
 
 ## 六、日终跑批流水线（东八区整点，默认 23:00）
 
-时区固定 `Asia/Shanghai`；**触发小时**由 PostgreSQL **`config.daily_batch_hour`** 控制（默认 **23**）；生产多为 **cron** 调用 **`run_daily_batch.py`**，与整点对齐。支持断点续跑，每步完成后更新 `daily_batch_log`。
+时区固定 `Asia/Shanghai`；**触发小时**由 PostgreSQL **`config.daily_batch_hour`** 控制（默认 **23**）；生产多为 **cron** 调用 **`run_daily_batch.py`**，与整点对齐。支持断点续跑，每步完成后更新 `daily_batch_log`（含 **`retry_count`**）。
+
+**（以代码为准）失败后延迟重试与熔断：** `run_daily_batch.py`、`schedule_daily_batch`（若启用）、`trigger_daily_batch_manual` 在 **`run_daily_batch` 返回失败** 时调用 **`schedule_daily_batch_retry_if_needed`**：若 **`retry_count >= 3`**，**不再**启动约 2 小时后的子进程重跑，并向 **`TELEGRAM_MAIN_USER_CHAT_ID`** 发送「需手动介入」类告警（未配置则仅日志）；若 **`< 3`**，则在 **`spawn_run_daily_batch_retry_after_hours` 成功 `Popen`** 后再 **`retry_count + 1`**，并发「已安排 2 小时后重试」通知。五步**全部成功**后 **`retry_count` 置 0**。
 
 ---
 
@@ -460,7 +468,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 **卡片 Upsert（以 `memory/daily_batch.py` 为准）：**
 - 七维提取 prompt 在「今日小传」前附 **7 个维度**既有记忆卡各一条（`get_latest_memory_card_for_dimension`，**不过滤 `is_active`**），供对比与**增量/冲突**判断；输出为严格 JSON。
-- 各维无新信息则为 `null`；有则对该维 Upsert：**无行 → INSERT**；**有行 →** 对 `current_status` / `preferences` 且旧正文非空时先 **`add_memory`**（`summary_type=state_archive`）再合并更新，其余维按合并规则 **UPDATE**（应用层保证不膨胀，**非**依赖 `UNIQUE(user_id, dimension)` 单表约束——实现为 **`user_id`+`character_id`+`dimension`**）。
+- 各维无新信息则为 `null`；有则对该维 Upsert：**无行 → INSERT**；**有行 →** 先 **`_merge_memory_card_contents`**：**`current_status` / `preferences`** 为 JSON **`merged` / `discarded`**；**仅当 `discarded` 非 null** 时 **`_rewrite_discarded_state_for_archive`**（`batch_one_shot_with_async_output_guard`，最多 3 次）后 **`add_memory`**（`summary_type=state_archive`，可增量 BM25），再 **`update_memory_card`**；其余维仍为 **`{"content"}`** 合并后 **UPDATE**（应用层保证不膨胀，**非**依赖 `UNIQUE(user_id, dimension)` 单表约束——实现为 **`user_id`+`character_id`+`dimension`**）。
 
 **关系时间线追加：**
 - 由模型判断今日是否发生了关系里程碑事件（含 Step 1 刚完结的重要时效事件）
@@ -552,4 +560,4 @@ doc_id: daily_{batch_date}
 
 ---
 
-*文档版本：v2 · 2026-04-12 · 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）；实现以仓库代码为准*
+*文档版本：v2 · 2026-04-21 · 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*

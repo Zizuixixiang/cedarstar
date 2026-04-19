@@ -103,6 +103,30 @@ except ImportError:
 # 设置日志
 logger = logging.getLogger(__name__)
 
+# 连续 chunk 摘要 LLM 失败次数（成功写入 chunk 后归零）
+_consecutive_chunk_failures = 0
+
+
+async def _record_consecutive_chunk_llm_failure(reason: str) -> None:
+    """LLM 未产出可落库 chunk 时累加；满 3 次发 Telegram 后归零计数。"""
+    global _consecutive_chunk_failures
+    _consecutive_chunk_failures += 1
+    if _consecutive_chunk_failures < 3:
+        return
+    from bot.telegram_notify import send_telegram_main_user_text
+
+    body = (reason or "").strip()[:800] or "（无）"
+    msg = (
+        "⚠️ 短期记忆写入连续失败 3 次\n"
+        f"错误信息：{body}\n"
+        "短期记忆暂时受阻，请检查 LLM 服务状态。"
+    )
+    try:
+        await send_telegram_main_user_text(msg)
+    except Exception:
+        logger.warning("Telegram 微批告警发送异常", exc_info=True)
+    _consecutive_chunk_failures = 0
+
 
 async def _micro_batch_threshold() -> int:
     """微批触发条数：优先 config 表 chunk_threshold，否则环境变量 MICRO_BATCH_THRESHOLD。"""
@@ -341,6 +365,7 @@ async def process_micro_batch(session_id: str) -> None:
     Args:
         session_id: 会话ID
     """
+    global _consecutive_chunk_failures
     try:
         await expire_stale_vision_pending(minutes=5)
         char_name, user_name = await fetch_active_persona_display_names()
@@ -369,6 +394,9 @@ async def process_micro_batch(session_id: str) -> None:
                 "会话 %s 摘要未生成（Guard 或异常），跳过落库与标记",
                 session_id,
             )  # 可恢复/已兜底，降为 warning
+            await _record_consecutive_chunk_llm_failure(
+                f"session={session_id} chunk 摘要未生成（Guard 或空）"
+            )
             return
         
         # 3. 保存摘要到数据库（source_date = 本批对话在东八区的内容日，便于按日期筛选）
@@ -388,6 +416,7 @@ async def process_micro_batch(session_id: str) -> None:
         updated_count = await mark_messages_as_summarized_by_ids(message_ids)
         
         logger.info(f"微批处理完成，会话: {session_id}, 摘要ID: {summary_id}, 标记消息: {updated_count} 条")
+        _consecutive_chunk_failures = 0
         
     except Exception as e:
         logger.warning(f"微批处理失败，会话: {session_id}, 错误: {e}")  # 可恢复/已兜底，降为 warning

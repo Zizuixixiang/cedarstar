@@ -130,50 +130,59 @@ class ZhipuEmbedding:
         Raises:
             Exception: 如果 API 调用失败
         """
-        try:
-            # 预处理文本：分词并限制长度
-            words = jieba.lcut(text)
-            # 限制 token 数量，避免超出 API 限制
-            if len(words) > 512:
-                words = words[:512]
-            processed_text = " ".join(words)
-            
-            headers = {
-                "Authorization": f"Bearer {self.api_key}",
-                "Content-Type": "application/json"
-            }
-            
-            # embedding-3 默认 2048 维；与 Chroma / 全库约定一致须显式指定 1024
-            data = {
-                "model": self.model,
-                "input": processed_text,
-                "dimensions": 1024,
-            }
-            
+        # 预处理文本：分词并限制长度
+        words = jieba.lcut(text)
+        if len(words) > 512:
+            words = words[:512]
+        processed_text = " ".join(words)
+
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+
+        data = {
+            "model": self.model,
+            "input": processed_text,
+            "dimensions": 1024,
+        }
+
+        max_attempts = 3
+        last_err: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
             response = requests.post(
                 self.base_url,
                 headers=headers,
                 json=data,
                 proxies=self.proxies,
-                timeout=30
+                timeout=30,
             )
-            
             if response.status_code == 200:
                 result = response.json()
                 if "data" in result and len(result["data"]) > 0:
                     embedding = result["data"][0]["embedding"]
-                    logger.debug(f"成功获取文本向量，长度: {len(embedding)}")
+                    logger.debug("成功获取文本向量，长度: %s", len(embedding))
                     return embedding
-                else:
-                    raise ValueError(f"API 响应格式错误: {result}")
-            else:
-                error_msg = f"智谱 Embedding API 调用失败: {response.status_code} - {response.text}"
-                logger.error(error_msg)
-                raise Exception(error_msg)
-                
-        except Exception as e:
-            logger.error(f"获取文本向量失败: {e}")
-            raise
+                raise ValueError(f"API 响应格式错误: {result}")
+            if response.status_code in (429, 503):
+                last_err = Exception(
+                    f"智谱 Embedding HTTP {response.status_code}: {response.text[:500]}"
+                )
+                logger.warning(
+                    "Embedding HTTP %s，第 %s/%s 次，2s 后重试",
+                    response.status_code,
+                    attempt,
+                    max_attempts,
+                )
+                if attempt < max_attempts:
+                    time.sleep(2)
+                    continue
+                raise last_err
+            error_msg = (
+                f"智谱 Embedding API 调用失败: {response.status_code} - {response.text}"
+            )
+            logger.error(error_msg)
+            raise Exception(error_msg)
     
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
         """
@@ -257,35 +266,42 @@ class VectorStore:
         Returns:
             bool: 是否添加成功
         """
-        try:
-            # 验证元数据
-            required_fields = ["date", "session_id", "summary_type"]
-            for field in required_fields:
-                if field not in metadata:
-                    raise ValueError(f"元数据缺少必要字段: {field}")
-            
-            # 获取文本向量
-            embedding = self.embedding_client.get_embedding(text)
-            
-            chroma_meta = _finalize_chroma_metadata(metadata)
-            chroma_meta["created_at"] = datetime.now().isoformat()
-            
-            # 添加到 ChromaDB
-            self.collection.add(
-                ids=[doc_id],
-                embeddings=[embedding],
-                metadatas=[chroma_meta],
-                documents=[text]
-            )
-            
-            logger.info(
-                f"记忆添加成功，ID: {doc_id}, 类型: {chroma_meta.get('summary_type')}"
-            )
-            return True
-            
-        except Exception as e:
-            logger.error(f"添加记忆失败，ID: {doc_id}, 错误: {e}")
-            return False
+        required_fields = ["date", "session_id", "summary_type"]
+        for field in required_fields:
+            if field not in metadata:
+                logger.error("添加记忆失败，ID: %s, 元数据缺少: %s", doc_id, field)
+                return False
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, 4):
+            try:
+                embedding = self.embedding_client.get_embedding(text)
+                chroma_meta = _finalize_chroma_metadata(metadata)
+                chroma_meta["created_at"] = datetime.now().isoformat()
+                self.collection.add(
+                    ids=[doc_id],
+                    embeddings=[embedding],
+                    metadatas=[chroma_meta],
+                    documents=[text],
+                )
+                logger.info(
+                    "记忆添加成功，ID: %s, 类型: %s",
+                    doc_id,
+                    chroma_meta.get("summary_type"),
+                )
+                return True
+            except Exception as e:
+                last_exc = e
+                logger.warning(
+                    "添加记忆第 %s/3 次失败，ID: %s, 错误: %s",
+                    attempt,
+                    doc_id,
+                    e,
+                )
+                if attempt < 3:
+                    time.sleep(1)
+        logger.error("添加记忆失败（已重试 3 次），ID: %s, 错误: %s", doc_id, last_exc)
+        return False
 
     def update_memory_hits(self, uid_list: List[str]) -> int:
         """
@@ -344,13 +360,19 @@ class VectorStore:
             logger.error(f"get_metadatas_by_doc_ids 失败: {e}")
             return {}
     
-    def search_memory(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_memory(
+        self,
+        query: str,
+        top_k: int = 5,
+        where: Optional[Dict[str, Any]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         搜索相似记忆。
         
         Args:
             query: 查询文本
             top_k: 返回结果数量
+            where: 可选 Chroma metadata 过滤（如 summary_type 白名单）
             
         Returns:
             List[Dict[str, Any]]: 搜索结果列表，每个结果包含 id、text、metadata、distance
@@ -360,11 +382,14 @@ class VectorStore:
             query_embedding = self.embedding_client.get_embedding(query)
             
             # 在 ChromaDB 中搜索
-            results = self.collection.query(
-                query_embeddings=[query_embedding],
-                n_results=top_k,
-                include=["metadatas", "documents", "distances"]
-            )
+            q_kw: Dict[str, Any] = {
+                "query_embeddings": [query_embedding],
+                "n_results": top_k,
+                "include": ["metadatas", "documents", "distances"],
+            }
+            if where is not None:
+                q_kw["where"] = where
+            results = self.collection.query(**q_kw)
             
             # 格式化结果
             formatted_results = []
@@ -573,19 +598,24 @@ def add_memory(doc_id: str, text: str, metadata: Dict[str, Any]) -> bool:
     return store.add_memory(doc_id, text, metadata)
 
 
-def search_memory(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+def search_memory(
+    query: str,
+    top_k: int = 5,
+    where: Optional[Dict[str, Any]] = None,
+) -> List[Dict[str, Any]]:
     """
     搜索记忆的便捷函数。
     
     Args:
         query: 查询文本
         top_k: 返回结果数量
+        where: 可选 Chroma metadata 过滤
         
     Returns:
         List[Dict[str, Any]]: 搜索结果
     """
     store = get_vector_store()
-    return store.search_memory(query, top_k)
+    return store.search_memory(query, top_k, where=where)
 
 
 def delete_memory(doc_id: str) -> bool:

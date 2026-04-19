@@ -20,7 +20,7 @@ import sys
 import os
 import re
 from datetime import datetime, date, time, timedelta
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, NamedTuple
 from uuid import uuid4
 import pytz
 
@@ -87,6 +87,8 @@ try:
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
         purge_logs_older_than_days,
+        increment_daily_batch_retry_count,
+        reset_daily_batch_retry_count,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
@@ -116,10 +118,19 @@ except ImportError:
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
         purge_logs_older_than_days,
+        increment_daily_batch_retry_count,
+        reset_daily_batch_retry_count,
     )
 
 # 设置日志
 logger = logging.getLogger(__name__)
+
+
+class _MemoryMergeResult(NamedTuple):
+    """记忆卡片合并结果：discarded 仅 current_status / preferences 可能非空。"""
+
+    merged: str
+    discarded: Optional[str] = None
 
 # 时区配置
 TIMEZONE = pytz.timezone("Asia/Shanghai")
@@ -132,12 +143,12 @@ def spawn_run_daily_batch_retry_after_hours(
     batch_date: str,
     *,
     delay_seconds: int = DAILY_BATCH_FAILURE_RETRY_SECONDS,
-) -> None:
+) -> bool:
     """
     跑批失败后：在独立后台进程中等待 ``delay_seconds``，再执行
     ``python run_daily_batch.py <batch_date>``（与 cron 同源；断点续跑仍有效）。
 
-    若再次失败，该次入口同样会再排一次延迟重试。
+    返回是否已成功启动子进程（Popen 成功）。
     """
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     script = os.path.join(root, "run_daily_batch.py")
@@ -160,8 +171,80 @@ def spawn_run_daily_batch_retry_after_hours(
             int(delay_seconds),
             batch_date,
         )
+        return True
     except Exception as e:
         logger.error("无法启动跑批延迟重试子进程: %s", e)
+        return False
+
+
+def _infer_stuck_step_from_batch_log(log: Optional[Dict[str, Any]]) -> int:
+    """从 daily_batch_log 推断当前未完成或失败步骤（首个 stepN_status==0）。"""
+    if not log:
+        return 1
+    for i in range(1, 6):
+        if int(log.get(f"step{i}_status") or 0) == 0:
+            return i
+    return 5
+
+
+async def schedule_daily_batch_retry_if_needed(batch_date: str) -> None:
+    """
+    跑批失败后：retry_count < 3 时递增 retry_count、排队子进程重跑并发 Telegram；
+    retry_count >= 3 时仅发熔断告警与日志，不再 spawn。
+    """
+    from bot.telegram_notify import send_telegram_main_user_text
+
+    try:
+        log = await get_daily_batch_log(batch_date)
+    except Exception as e:
+        logger.warning("读取 daily_batch_log 失败，仍尝试 spawn 重跑: %s", e)
+        log = None
+
+    rc = int(log.get("retry_count") or 0) if log else 0
+    step = _infer_stuck_step_from_batch_log(log)
+    err_s = str((log or {}).get("error_message") or "（无）")[:800]
+
+    if rc >= 3:
+        msg = (
+            f"🚨 日终跑批多次重试仍失败，需要手动介入\n"
+            f"批次日期：{batch_date}\n"
+            f"已重试次数：{rc}\n"
+            f"失败步骤：Step {step}\n"
+            f"错误信息：{err_s}"
+        )
+        try:
+            await send_telegram_main_user_text(msg)
+        except Exception:
+            logger.warning("Telegram 跑批熔断告警发送异常", exc_info=True)
+        logger.error(
+            "日终跑批已达 retry 上限，不再安排延迟重试 batch_date=%s retry_count=%s",
+            batch_date,
+            rc,
+        )
+        return
+
+    spawned = spawn_run_daily_batch_retry_after_hours(batch_date)
+    if not spawned:
+        logger.error("日终跑批延迟重试子进程未启动，retry_count 未递增 batch_date=%s", batch_date)
+        return
+
+    try:
+        new_rc = await increment_daily_batch_retry_count(batch_date)
+    except Exception as e:
+        logger.error("increment_daily_batch_retry_count 失败: %s", e)
+        new_rc = rc + 1
+
+    msg2 = (
+        f"⚠️ 日终跑批卡住，已安排 2 小时后重试\n"
+        f"批次日期：{batch_date}\n"
+        f"卡住步骤：Step {step}\n"
+        f"当前重试次数：{new_rc}/3\n"
+        f"错误信息：{err_s}"
+    )
+    try:
+        await send_telegram_main_user_text(msg2)
+    except Exception:
+        logger.warning("Telegram 跑批排队通知发送异常", exc_info=True)
 
 
 async def _daily_batch_trigger_hour() -> int:
@@ -454,6 +537,10 @@ class DailyBatchProcessor:
                 logger.info(f"Step 5 已跳过（已完成），日期: {batch_date}")
             
             logger.info(f"日终跑批处理完成，日期: {batch_date}")
+            try:
+                await reset_daily_batch_retry_count(batch_date)
+            except Exception as e:
+                logger.warning("重置 daily_batch_log.retry_count 失败（可忽略）: %s", e)
             return True
             
         except Exception as e:
@@ -641,6 +728,45 @@ class DailyBatchProcessor:
             except json.JSONDecodeError:
                 pass
         return None
+
+    @staticmethod
+    def _parse_state_merge_json(raw: str) -> Optional[Tuple[str, Optional[str]]]:
+        """解析 current_status / preferences 合并结果：merged + discarded（可为 null）。"""
+        raw_s = (raw or "").strip()
+        if not raw_s:
+            return None
+        data: Any = None
+        try:
+            data = json.loads(raw_s)
+        except json.JSONDecodeError:
+            slice_json = DailyBatchProcessor._extract_first_json_object(raw_s)
+            if slice_json:
+                try:
+                    data = json.loads(slice_json)
+                except json.JSONDecodeError:
+                    data = None
+        if not isinstance(data, dict):
+            return None
+        merged = data.get("merged")
+        if merged is None or not str(merged).strip():
+            c = data.get("content")
+            if c is not None and str(c).strip():
+                merged = c
+        if merged is None or not str(merged).strip():
+            return None
+        disc_raw = data.get("discarded")
+        discarded: Optional[str]
+        if disc_raw is None:
+            discarded = None
+        elif isinstance(disc_raw, str) and disc_raw.strip().lower() in (
+            "null",
+            "none",
+            "",
+        ):
+            discarded = None
+        else:
+            discarded = str(disc_raw).strip() or None
+        return str(merged).strip(), discarded
 
     @staticmethod
     def _extract_first_json_object(text: str) -> Optional[str]:
@@ -855,14 +981,52 @@ class DailyBatchProcessor:
         old_content: str,
         new_content: str,
         batch_date: str,
-    ) -> str:
+    ) -> _MemoryMergeResult:
         """
-        将既有卡片与今日提取的新文案交给模型，重写为一段连贯、去重后的中文。
-        调用失败或解析失败时回退为简单拼接（并打日志）。
+        将既有卡片与今日提取的新文案交给模型合并。
+        current_status / preferences：JSON 含 merged、discarded（覆盖片段，无则 null）。
+        其余维度：JSON 含 content；discarded 恒为 None。
+        失败时回退为简单拼接，discarded 为 None（不触发归档）。
         """
         old_trim = old_content.strip()
         if len(old_trim) > 6000:
             old_trim = "…（前文已截断）\n" + old_trim[-6000:]
+
+        fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
+
+        if dimension in ("current_status", "preferences"):
+            prompt = self._persona_dialogue_prefix() + f"""你是专业的记忆整理助手，将「既有记忆卡片」与「今日新增摘要」合并为可长期存储的记忆内容。
+该维度（{dimension_label}）记录用户当前生活状态或个人偏好。
+输出 JSON 两个字段：
+- merged：整合后的新卡片正文；单张不超过 1000 字；去重、语义连贯；全文禁止使用「今天」「最近」等模糊相对时间词；纯段落文本，无列表、无编号。
+- discarded：仅当新信息**覆盖、否定或取代**旧描述中的具体片段时，写出被新内容覆盖掉的旧描述片段（简要即可）。若为纯追加、无冲突、或仅去重润色，discarded 必须为 null。不要将可有可无的删减放入 discarded。
+维度代码：{dimension}
+今日日期：{batch_date}
+【既有记忆卡片】
+{old_trim}
+【今日新增】
+{new_content.strip()}
+输出要求：直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁 markdown 代码块、严禁前言后语。格式：{{"merged":"…","discarded":null}}；discarded 为字符串或 null。"""
+
+            def _gen():
+                return self._call_summary_llm_custom(prompt)
+
+            def _parse(raw):
+                p = self._parse_state_merge_json(raw)
+                if p:
+                    return _MemoryMergeResult(p[0], p[1])
+                raise ValueError(
+                    f"状态维度合并 JSON 解析失败; 原始片段: {raw[:200] if raw else '(空)'}"
+                )
+
+            try:
+                return await self._retry_call_and_parse("合并记忆卡片", _gen, _parse)
+            except CedarClioOutputGuardExhausted as e:
+                logger.warning(f"合并记忆卡片 Guard 用尽，使用拼接回退: {e}")
+                return _MemoryMergeResult(fallback, None)
+            except Exception as e:
+                logger.warning(f"使用拼接回退: {e}")
+                return _MemoryMergeResult(fallback, None)
 
         if dimension == "interaction_patterns":
             merge_rules = (
@@ -870,23 +1034,14 @@ class DailyBatchProcessor:
                 "合并要求：只保留结论性规律，严禁记录单次事件的详细过程、对话细节、情绪流水账；"
                 "重复内容合并为一句；若新旧观察矛盾，可并列保留并标注日期。语言简洁凝练，不做冗余描述。"
             )
-        elif dimension in ("current_status", "preferences"):
-            merge_rules = (
-                "该维度记录用户的当前生活状态与个人偏好。"
-                "合并要求：新旧信息冲突时，以今日最新信息为准直接覆盖，旧信息无需保留；"
-                "相同内容去重合并，语言自然简洁，只保留核心事实，不展开描述。"
-            )
         else:
             merge_rules = (
                 "以今日新增信息为准，补充或修正过时内容；相同事实只保留一次，自然融合成连贯文本，禁止简单拼接、禁止重复啰嗦、禁止冗余展开。"
             )
 
-        if dimension in ("current_status", "preferences"):
-            contradiction_bullet = ""
-        else:
-            contradiction_bullet = (
-                "- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；\n"
-            )
+        contradiction_bullet = (
+            "- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；\n"
+        )
 
         prompt = self._persona_dialogue_prefix() + f"""你是专业的记忆整理助手，负责将「既有记忆卡片」与「今日新增摘要」进行高质量合并，输出稳定、精炼、可长期存储的记忆内容。
 合并规则：
@@ -907,25 +1062,132 @@ class DailyBatchProcessor:
 {merge_rules}
 输出要求：直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 代码块包裹，严禁输出任何分析过程或前言后语。格式为 {{"content":"合并后的正文"}}。"""
 
-        fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
-        
         def _gen():
             return self._call_summary_llm_custom(prompt)
-            
+
         def _parse(raw):
             m = self._parse_merged_content_json(raw)
             if m:
-                return m
-            raise ValueError(f"记忆卡片合并 JSON 解析失败; 原始片段: {raw[:200] if raw else '(空)'}")
+                return _MemoryMergeResult(m, None)
+            raise ValueError(
+                f"记忆卡片合并 JSON 解析失败; 原始片段: {raw[:200] if raw else '(空)'}"
+            )
 
         try:
             return await self._retry_call_and_parse("合并记忆卡片", _gen, _parse)
         except CedarClioOutputGuardExhausted as e:
             logger.warning(f"合并记忆卡片 Guard 用尽，使用拼接回退: {e}")
-            return fallback
+            return _MemoryMergeResult(fallback, None)
         except Exception as e:
             logger.warning(f"使用拼接回退: {e}")
-            return fallback
+            return _MemoryMergeResult(fallback, None)
+
+    def _rewrite_discarded_state_for_archive(
+        self, discarded_content: str, batch_date: str
+    ) -> Tuple[str, bool]:
+        """
+        将 discarded 片段改写为历史陈述后入库；失败则降级为原文 + rewrite_failed。
+        走异步 batch guard，最多 3 次重试。
+        """
+        sl = self.summary_llm
+        base = int(getattr(sl, "max_tokens", 500) or 500)
+        mt = min(512, max(base, 256))
+        prompt = f"""将下面这段已过期的状态描述改写为历史陈述，格式固定为：
+
+[已被覆盖的旧状态 · 记录于 {batch_date}] + 过去时陈述正文
+
+要求：
+- 使用过去时
+- 保留关键事实，删除行为指令性内容（如"每天提醒"之类）
+- 控制在 80 字以内
+
+原文：
+{discarded_content}"""
+        try:
+            raw = batch_one_shot_with_async_output_guard(
+                messages=[
+                    {"role": "user", "content": self._persona_dialogue_prefix() + prompt}
+                ],
+                model_name=sl.model_name,
+                api_key=sl.api_key or "",
+                api_base=sl.api_base or "",
+                timeout=sl.timeout,
+                max_tokens=mt,
+                platform=Platform.BATCH,
+                max_retries=3,
+            )
+            text = (raw or "").strip()
+            if not text:
+                raise ValueError("empty rewrite")
+            prefix = f"[已被覆盖的旧状态 · 记录于 {batch_date}]"
+            if prefix not in text:
+                text = f"{prefix} {text}"
+            return text, False
+        except CedarClioOutputGuardExhausted:
+            logger.warning("归档改写 Guard 用尽，降级存原文")
+        except Exception as e:
+            logger.warning("归档改写失败，降级存原文: %s", e)
+        prefix = f"[已被覆盖的旧状态 · 记录于 {batch_date}]"
+        fb = f"{prefix} {discarded_content.strip()}"
+        return fb, True
+
+    async def _persist_state_archive_chunk(
+        self,
+        user_id: str,
+        character_id: str,
+        dimension: str,
+        batch_date: str,
+        discarded_content: str,
+    ) -> None:
+        """仅归档被覆盖的旧片段（经改写）；含 BM25 增量。"""
+        doc_id = f"state_{user_id}_{character_id}_{dimension}_{batch_date}"
+        body, rewrite_failed = self._rewrite_discarded_state_for_archive(
+            discarded_content, batch_date
+        )
+        archive_meta: Dict[str, Any] = {
+            "date": str(batch_date),
+            "session_id": f"{user_id}_{character_id}",
+            "summary_type": "state_archive",
+            "source": "state_archive",
+            "dimension": dimension,
+            "archived_at": str(batch_date),
+            "original_dimension": dimension,
+            "base_score": 5,
+            "halflife_days": 90,
+        }
+        if rewrite_failed:
+            archive_meta["rewrite_failed"] = True
+        try:
+            if not add_memory(doc_id, body, archive_meta):
+                logger.warning(
+                    "状态 discarded 归档向量库失败 doc_id=%s user=%s dim=%s",
+                    doc_id,
+                    user_id,
+                    dimension,
+                )
+            else:
+                try:
+                    try:
+                        from .bm25_retriever import (
+                            add_document_to_bm25,
+                            refresh_bm25_index,
+                        )
+                    except ImportError:
+                        from memory.bm25_retriever import (
+                            add_document_to_bm25,
+                            refresh_bm25_index,
+                        )
+
+                    if not add_document_to_bm25(doc_id, body, dict(archive_meta)):
+                        refresh_bm25_index()
+                except Exception as ex:
+                    logger.warning("状态归档 BM25 增量失败 doc_id=%s: %s", doc_id, ex)
+        except Exception as ex:
+            logger.warning(
+                "状态 discarded 归档向量库异常 doc_id=%s: %s",
+                doc_id,
+                ex,
+            )
     
     async def _step3_memory_cards_and_timeline(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """
@@ -1098,38 +1360,25 @@ class DailyBatchProcessor:
                             card_id = existing_card["id"]
                             old_content = existing_card["content"]
                             dim_label = dimensions_desc.get(dimension, dimension)
-                            if dimension in ("current_status", "preferences") and (old_content or "").strip():
-                                doc_id = f"state_{user_id}_{character_id}_{dimension}_{batch_date}"
-                                try:
-                                    archive_meta = {
-                                        "date": str(batch_date),
-                                        "session_id": f"{user_id}_{character_id}",
-                                        "summary_type": "state_archive",
-                                        "source": "state_archive",
-                                        "dimension": dimension,
-                                        "base_score": 5,
-                                        "halflife_days": 90,
-                                    }
-                                    if not add_memory(doc_id, old_content.strip(), archive_meta):
-                                        logger.warning(
-                                            "状态卡片旧内容归档向量库失败 doc_id=%s user=%s dim=%s",
-                                            doc_id,
-                                            user_id,
-                                            dimension,
-                                        )
-                                except Exception as ex:
-                                    logger.warning(
-                                        "状态卡片旧内容归档向量库异常 doc_id=%s: %s",
-                                        doc_id,
-                                        ex,
-                                    )
-                            merged_content = await self._merge_memory_card_contents(
+                            merge_out = await self._merge_memory_card_contents(
                                 dimension,
                                 dim_label,
                                 old_content,
                                 str(new_content),
                                 batch_date,
                             )
+                            merged_content = merge_out.merged
+                            if (
+                                dimension in ("current_status", "preferences")
+                                and merge_out.discarded
+                            ):
+                                await self._persist_state_archive_chunk(
+                                    user_id,
+                                    character_id,
+                                    dimension,
+                                    batch_date,
+                                    merge_out.discarded,
+                                )
 
                             await update_memory_card(
                                 card_id,
@@ -1459,7 +1708,7 @@ async def schedule_daily_batch():
                     ran_today = True
                 if not ok:
                     logger.error("日终跑批补跑失败 batch_date=%s", d)
-                    spawn_run_daily_batch_retry_after_hours(d)
+                    await schedule_daily_batch_retry_if_needed(d)
             if not ran_today:
                 logger.info("触发日终跑批处理（今日）")
                 success = await processor.run_daily_batch()
@@ -1467,7 +1716,7 @@ async def schedule_daily_batch():
                     logger.info("日终跑批处理（今日）执行成功")
                 else:
                     logger.error("日终跑批处理（今日）执行失败")
-                    spawn_run_daily_batch_retry_after_hours(today_s)
+                    await schedule_daily_batch_retry_if_needed(today_s)
             else:
                 logger.info("今日已在补跑队列中执行，跳过重复 run_daily_batch()")
             
@@ -1499,10 +1748,10 @@ def trigger_daily_batch_manual(batch_date: Optional[str] = None) -> bool:
         processor = DailyBatchProcessor()
         success = loop.run_until_complete(processor.run_daily_batch(batch_date))
 
-        loop.close()
-
         if not success:
-            spawn_run_daily_batch_retry_after_hours(resolved)
+            loop.run_until_complete(schedule_daily_batch_retry_if_needed(resolved))
+
+        loop.close()
 
         return success
 

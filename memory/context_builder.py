@@ -24,6 +24,10 @@ from datetime import datetime
 
 from config import config
 from tools.lutopia import strip_lutopia_behavior_appendix
+from memory.retrieval import (
+    chroma_where_longterm_summary_types,
+    longterm_allowed_summary_types,
+)
 from memory.database import (
     get_all_active_memory_cards,
     get_all_active_temporal_states,
@@ -619,12 +623,16 @@ def build_char_persona_prompt_sections(row: Mapping[str, Any]) -> List[str]:
 
 
 def build_persona_config_system_body(row: Mapping[str, Any]) -> str:
-    """persona_configs 一行 → 基础 system 文本（Char + User + 系统规则），供预览与 _build_system_prompt。"""
+    """persona_configs 一行 → 基础 system 文本（系统规则 + Char + User），供预览与 _build_system_prompt。"""
     parts: List[str] = []
-    parts.extend(build_char_persona_prompt_sections(row))
 
     def _s(key: str) -> str:
         return _persona_field_str(row, key)
+
+    if _s("system_rules"):
+        parts.append(f"【系统规则】\n{_s('system_rules')}")
+
+    parts.extend(build_char_persona_prompt_sections(row))
 
     user_lines: List[str] = []
     if _s("user_name"):
@@ -650,9 +658,6 @@ def build_persona_config_system_body(row: Mapping[str, Any]) -> str:
 
     if user_lines:
         parts.append("【User 的人设】\n" + "\n".join(user_lines))
-
-    if _s("system_rules"):
-        parts.append(f"【系统规则】\n{_s('system_rules')}")
 
     return "\n\n".join(parts).strip()
 
@@ -1141,8 +1146,16 @@ class ContextBuilder:
                 return ""
 
             tk = await _retrieval_top_k()
-            vector_results = search_memory(user_message, top_k=tk)
-            bm25_results = search_bm25(user_message, top_k=tk)
+            lt_where = chroma_where_longterm_summary_types(user_message)
+            lt_types = longterm_allowed_summary_types(user_message)
+            vector_results = search_memory(
+                user_message, top_k=tk, where=lt_where
+            )
+            bm25_results = search_bm25(
+                user_message,
+                top_k=tk,
+                allowed_summary_types=lt_types,
+            )
             all_results = _merge_vector_bm25_dedupe(
                 vector_results, bm25_results, max(1, 2 * tk)
             )
@@ -1208,11 +1221,19 @@ class ContextBuilder:
             n_long = await _context_max_longterm_count()
             logger.debug(f"开始并行检索，查询: '{user_message[:50]}...'")
             loop = asyncio.get_event_loop()
+            lt_where = chroma_where_longterm_summary_types(user_message)
+            lt_types = longterm_allowed_summary_types(user_message)
             vector_future = loop.run_in_executor(
-                None, partial(search_memory, user_message, tk)
+                None, partial(search_memory, user_message, tk, lt_where)
             )
             bm25_future = loop.run_in_executor(
-                None, partial(search_bm25, user_message, tk)
+                None,
+                partial(
+                    search_bm25,
+                    user_message,
+                    tk,
+                    lt_types,
+                ),
             )
             vector_results, bm25_results = await asyncio.gather(vector_future, bm25_future)
 

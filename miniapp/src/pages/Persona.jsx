@@ -75,11 +75,19 @@ function t(v) {
 
 /**
  * 与 memory/context_builder.build_persona_config_system_body 同序、同文案。
- * zone：右栏分层展示用；复制全文时仍拼成一段 plain text。
+ * 顺序：系统规则 → Char → User。zone：右栏分层展示用；复制全文时仍拼成一段 plain text。
  */
 function buildPreviewSections(form) {
   /** @type {{ zone: 'char' | 'user' | 'rules'; heading: string; body: string }[]} */
   const sections = [];
+
+  if (form.system_rules?.trim()) {
+    sections.push({
+      zone: 'rules',
+      heading: '【系统规则】',
+      body: form.system_rules.trim(),
+    });
+  }
 
   const existLines = [];
   const cn = t(form.char_name);
@@ -167,14 +175,6 @@ function buildPreviewSections(form) {
     });
   }
 
-  if (form.system_rules?.trim()) {
-    sections.push({
-      zone: 'rules',
-      heading: '【系统规则】',
-      body: form.system_rules.trim(),
-    });
-  }
-
   return sections;
 }
 
@@ -238,10 +238,13 @@ function buildUserPreviewChunks(form) {
 }
 
 /**
- * 复制到剪贴板：Char / User / 系统规则 用 Markdown 一级标题，子模块仍用【】。
+ * 复制到剪贴板：系统规则 / Char / User 用 Markdown 一级标题，子模块仍用【】。
  */
 function buildClipboardText(form) {
   const parts = [];
+  if (form.system_rules?.trim()) {
+    parts.push(`# 系统规则\n\n【系统规则】\n${form.system_rules.trim()}`);
+  }
   const all = buildPreviewSections(form);
   const charSec = all.filter(s => s.zone === 'char');
   if (charSec.length > 0) {
@@ -255,16 +258,24 @@ function buildClipboardText(form) {
       `# User 人设\n\n${userCh.map(c => `${c.heading}\n${c.body}`).join('\n\n')}`
     );
   }
-  if (form.system_rules?.trim()) {
-    parts.push(`# 系统规则\n\n【系统规则】\n${form.system_rules.trim()}`);
-  }
   return parts.join('\n\n');
 }
 
-/** 右栏：Char / User / 系统规则 三层分区展示；User 子块与左侧分组对齐 */
+/** 右栏：系统规则 → Char → User 分区展示；User 子块与左侧分组对齐 */
 function PersonaPreviewStack({ charSections, userChunks, rulesSection }) {
   return (
     <div className="preview-stack">
+      {rulesSection ? (
+        <section className="preview-zone preview-zone--rules" aria-label="系统规则">
+          <header className="preview-zone-bar">系统规则</header>
+          <div className="preview-zone-chunks">
+            <article className="preview-chunk">
+              <h4 className="preview-chunk-h">{rulesSection.heading}</h4>
+              <pre className="preview-chunk-body">{rulesSection.body}</pre>
+            </article>
+          </div>
+        </section>
+      ) : null}
       {charSections.length > 0 ? (
         <section className="preview-zone preview-zone--char" aria-label="Char 人设拼接">
           <header className="preview-zone-bar">Char 人设</header>
@@ -291,17 +302,6 @@ function PersonaPreviewStack({ charSections, userChunks, rulesSection }) {
           </div>
         </section>
       ) : null}
-      {rulesSection ? (
-        <section className="preview-zone preview-zone--rules" aria-label="系统规则">
-          <header className="preview-zone-bar">系统规则</header>
-          <div className="preview-zone-chunks">
-            <article className="preview-chunk">
-              <h4 className="preview-chunk-h">{rulesSection.heading}</h4>
-              <pre className="preview-chunk-body">{rulesSection.body}</pre>
-            </article>
-          </div>
-        </section>
-      ) : null}
     </div>
   );
 }
@@ -317,7 +317,7 @@ function SkeletonScreen() {
       </div>
       <div className="persona-body">
         <div className="persona-editor">
-          {/* 与正式布局同级：Char 一大块 + User + 工具 + 规则 */}
+          {/* 与正式布局同级：系统规则 + Char + User + 工具 */}
           {[1, 1, 1, 1].map((_, i) => (
             <div key={i} className="field-section">
               <div className="sk-block sk-title" />
@@ -578,6 +578,17 @@ function Persona() {
       <div className="persona-body">
         {/* 左栏：编辑区 60% */}
         <div className="persona-editor">
+          {/* 系统规则 */}
+          <div className="field-section">
+            <SectionHead slug="[ CORE_RULES ]" title="系统规则" icon={Settings2} />
+            <textarea
+              className="field-textarea"
+              rows={4}
+              value={form.system_rules}
+              onChange={e => handleChange('system_rules', e.target.value)}
+              placeholder="记忆指令、格式要求、行为约束..."
+            />
+          </div>
 
           {/* Char：顶层仅一块；子模块在 persona-sub-stack 内，不与 User 同级 */}
           <div className="field-section">
@@ -843,18 +854,6 @@ function Persona() {
               开启后可调论坛；关闭不注册；随本套人设保存。
             </p>
           </div>
-
-          {/* 系统规则 */}
-          <div className="field-section">
-            <SectionHead slug="[ CORE_RULES ]" title="系统规则" icon={Settings2} />
-            <textarea
-              className="field-textarea"
-              rows={4}
-              value={form.system_rules}
-              onChange={e => handleChange('system_rules', e.target.value)}
-              placeholder="记忆指令、格式要求、行为约束..."
-            />
-          </div>
         </div>
 
         {/* 右栏：预览区 40% */}
@@ -872,8 +871,8 @@ function Persona() {
           <div className="preview-content">
             {previewSections.length === 0 ? (
               <p className="preview-empty">
-                在左侧填写 Char / User / 系统规则后，此处按{' '}
-                <strong>Char → User → 系统规则</strong> 三层展示拼接结果；复制全文仍为一段完整
+                在左侧填写系统规则 / Char / User 后，此处按{' '}
+                <strong>系统规则 → Char → User</strong> 三层展示拼接结果；复制全文仍为一段完整
                 plain text，与后端 <code className="persona-inline-code">build_persona_config_system_body</code>{' '}
                 输出一致。
               </p>

@@ -7,7 +7,7 @@ BM25 关键词检索模块。
 
 import logging
 import jieba
-from typing import List, Dict, Any, Optional, Tuple
+from typing import List, Dict, Any, Optional, Tuple, Sequence, Set
 from rank_bm25 import BM25Okapi
 
 # 导入向量存储函数
@@ -137,7 +137,12 @@ class BM25Retriever:
         words = [word.strip() for word in words if len(word.strip()) > 1]
         return words
     
-    def search_bm25(self, query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+    def search_bm25(
+        self,
+        query: str,
+        top_k: int = 5,
+        allowed_summary_types: Optional[Sequence[str]] = None,
+    ) -> List[Dict[str, Any]]:
         """
         BM25 检索。
         
@@ -146,6 +151,7 @@ class BM25Retriever:
         Args:
             query: 查询文本
             top_k: 返回结果数量
+            allowed_summary_types: 若提供，仅保留 metadata.summary_type 在白名单内的文档（与向量路径对齐）
             
         Returns:
             List[Dict[str, Any]]: 检索结果列表，每个结果包含 id、text、metadata、score
@@ -166,24 +172,35 @@ class BM25Retriever:
             # 执行 BM25 检索
             scores = self.bm25.get_scores(tokenized_query)
             
-            # 获取 top k 个结果
-            top_indices = sorted(
+            allowed: Optional[Set[str]] = None
+            if allowed_summary_types is not None:
+                allowed = set(allowed_summary_types)
+            
+            # 按分数全局排序后依次取前 top_k 条满足白名单的结果
+            order = sorted(
                 range(len(scores)),
                 key=lambda i: scores[i],
-                reverse=True
-            )[:top_k]
-            
-            # 构建结果列表
-            results = []
-            for idx in top_indices:
-                if scores[idx] > 0:  # 只返回分数大于0的结果
-                    results.append({
+                reverse=True,
+            )
+            results: List[Dict[str, Any]] = []
+            for idx in order:
+                if scores[idx] <= 0:
+                    break
+                if allowed is not None:
+                    st = (self.doc_metadata[idx] or {}).get("summary_type")
+                    if st not in allowed:
+                        continue
+                results.append(
+                    {
                         "id": self.doc_ids[idx],
                         "text": self.documents[idx],
                         "metadata": self.doc_metadata[idx],
                         "score": float(scores[idx]),
-                        "retrieval_method": "bm25"
-                    })
+                        "retrieval_method": "bm25",
+                    }
+                )
+                if len(results) >= top_k:
+                    break
             
             logger.debug(f"BM25 检索完成，查询: '{query[:50]}...'，找到 {len(results)} 条结果")
             return results
@@ -262,19 +279,26 @@ def refresh_bm25_index() -> bool:
     return retriever.refresh_index()
 
 
-def search_bm25(query: str, top_k: int = 5) -> List[Dict[str, Any]]:
+def search_bm25(
+    query: str,
+    top_k: int = 5,
+    allowed_summary_types: Optional[Sequence[str]] = None,
+) -> List[Dict[str, Any]]:
     """
     BM25 检索的便捷函数。
     
     Args:
         query: 查询文本
         top_k: 返回结果数量
+        allowed_summary_types: 可选 summary_type 白名单
         
     Returns:
         List[Dict[str, Any]]: 检索结果
     """
     retriever = get_bm25_retriever()
-    return retriever.search_bm25(query, top_k)
+    return retriever.search_bm25(
+        query, top_k, allowed_summary_types=allowed_summary_types
+    )
 
 
 def add_document_to_bm25(doc_id: str, text: str, metadata: Dict[str, Any]) -> bool:
