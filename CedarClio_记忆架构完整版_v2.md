@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-21（与 CedarStar 实现对齐：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**，以代码为准）
+> 文档版本：2026-04-21；**2026-04-19** 修订：§六 **Step 3.5**、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**，以代码为准）
 
 ---
 
@@ -118,7 +118,7 @@ CREATE TABLE relationship_timeline (
     id                  VARCHAR   PRIMARY KEY,
     created_at          DATETIME  NOT NULL,
     event_type          VARCHAR   NOT NULL,   -- milestone / emotional_shift / conflict / daily_warmth
-    content             TEXT      NOT NULL,   -- AI 第一人称写的一句话
+    content             TEXT,                 -- 可空；与迁移一致（event_type 有 CHECK）
     source_summary_id   VARCHAR               -- 软引用，关联当天 summaries 表的 ID
 );
 
@@ -452,9 +452,8 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 将以下内容统一提交给摘要模型，生成唯一的《今日小传》（**`batch_date`** = 当日业务日 **YYYY-MM-DD**）：
 - Step 1 输出的到期事件字符串（若有）
 - **chunk 碎片摘要**：**`get_today_chunk_summaries(batch_date)`**，条件为 **内容日** `COALESCE(source_date::date, created_at::date) <= batch_date`（**此前积压、尚未卷入**的 chunk 一并并入，避免孤儿碎片）
-- （若实现侧仍拼接）当日未满阈值的原始消息等材料，以 **`memory/daily_batch.py`** 为准
 
-写入 `summaries` 表，`summary_type=daily`，**`source_date=batch_date`**（与业务日一致）。
+**（当前实现）**不拼接未达 `chunk_threshold` 的**原始会话消息**；若当日**既无 chunk、Step 1 又无产出**，则**不写** `summary_type=daily`、**不调用** `delete_today_chunk_summaries`（空跑 Step 2 并标记完成）。有材料生成小传时，写入 `summaries` 表，`summary_type=daily`，**`source_date=batch_date`**（与业务日一致）。
 
 **今日小传写入成功后，再执行 `delete_today_chunk_summaries(batch_date)`**：删除 **同上界** `COALESCE(source_date::date, created_at::date) <= batch_date` 的全部 chunk。**删除必须在 daily 写入成功之后执行，不可提前。**
 
@@ -476,6 +475,12 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 - 宁可漏记不要滥记，普通的一天不写入
 
 更新 `step3_status=1`。
+
+---
+
+### Step 3.5：从当日小传再提取时效状态（可选增强）
+
+在 **`step3_status=1` 且 `step4_status=0`**（Step 4 尚未完成）时执行：读取刚写入的 **`summary_type=daily`** 当日正文，由模型抽取仍具**明确终点**的短期情况，**`save_temporal_state`** 写入 `temporal_states`（与 Step 1 到期结算互补——小传比 chunk 更完整，便于补漏）。失败仅打日志，不阻断后续 Step 4。断点续跑仍以 **`daily_batch_log` 五步**为准，本步**不单独占** `stepN_status` 列。
 
 ---
 
@@ -509,12 +514,12 @@ doc_id: daily_{batch_date}
 
 ### Step 5：冷库垃圾回收（GC）
 
-查询 ChromaDB，提取 `last_access_ts` 距今超过 **T** 天的记录（**T=`gc_stale_days`**，默认 **180**，优先 SQLite `config`）。
+查询 ChromaDB，提取 `last_access_ts` 距今超过 **T** 天的记录（**T=`gc_stale_days`**，默认 **180**，优先 PostgreSQL **`config`** 表）。
 
 在内存中逐条判断，**前置豁免优先**，随后依次检查三条删除条件：
 
 ```
-前置豁免：hits >= gc_exempt_hits_threshold（T_hits，优先 SQLite config，默认 10）→ 跳过，不删
+前置豁免：hits >= gc_exempt_hits_threshold（T_hits，优先 PostgreSQL config 表，默认 10）→ 跳过，不删
 
 条件一：last_access_ts 距今超过 T 天（T 可配置，默认 180）
 条件二：衰减得分 < 0.05
@@ -560,4 +565,4 @@ doc_id: daily_{batch_date}
 
 ---
 
-*文档版本：v2 · 2026-04-21 · 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*
+*文档版本：v2 · 2026-04-21（2026-04-19 修订 Step 2 / Step 3.5 / Step 5 / §一.4）· 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*

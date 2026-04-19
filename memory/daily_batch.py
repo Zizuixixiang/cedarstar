@@ -5,7 +5,7 @@
 Step 1 - 到期 temporal_states 结算并改写为客观过去时，供 Step 2 使用
 Step 2 - 生成今日小传（prompt 含 Step 1 输出）
 Step 3 - 记忆卡片 Upsert + 可选写入 relationship_timeline
-Step 3.5 - 从今日小传自动提取时效状态并入库（Step 4 未完成时执行）
+Step 3.5 - 从当日 daily 小传再提取 temporal_states（step3=1 且 step4=0 时执行；失败不阻断 Step 4）
 Step 4 - 今日小传全量向量化（按分映射 halflife_days），可选拆事件片段入库 + BM25 增量
 Step 5 - Chroma 长期未访问且衰减得分过低、无子节点的记忆 GC
 
@@ -489,7 +489,7 @@ class DailyBatchProcessor:
             else:
                 logger.info(f"Step 3 已跳过（已完成），日期: {batch_date}")
 
-            # Step 3.5 — 时效状态自动提取（Step 4 未完成时执行，避免已跑完全部步骤后重复写入）
+            # Step 3.5 — 从当日 daily 小传再提取 temporal_states（step3=1 且 step4=0 时执行；失败不阻断 Step 4）
             if _s(3) == 1 and _s(4) == 0:
                 try:
                     ds = await get_daily_summary_by_date(batch_date)
