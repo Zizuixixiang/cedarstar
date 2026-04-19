@@ -86,7 +86,9 @@ from tools.lutopia import (
     strip_lutopia_user_facing_assistant_text,
 )
 from tools.prompts import (
+    OPENAI_SEARCH_TOOLS,
     OPENAI_WEATHER_TOOLS,
+    OPENAI_WEIBO_TOOLS,
     build_tool_system_suffix,
     inject_tool_suffix_into_messages,
 )
@@ -890,6 +892,10 @@ class TelegramBot:
         t = (tool_name or "").strip()
         if t == "get_weather":
             return "天气"
+        if t == "get_weibo_hot":
+            return "微博热搜"
+        if t == "web_search":
+            return "网页搜索"
         if t.startswith("lutopia_"):
             return t[8:] or t
         return t or "tool"
@@ -1522,6 +1528,12 @@ class TelegramBot:
         if getattr(llm, "enable_weather_tool", False):
             tools_list.extend(OPENAI_WEATHER_TOOLS)
             suffix_keys.append("weather")
+        if getattr(llm, "enable_weibo_tool", False):
+            tools_list.extend(OPENAI_WEIBO_TOOLS)
+            suffix_keys.append("weibo")
+        if getattr(llm, "enable_search_tool", False):
+            tools_list.extend(OPENAI_SEARCH_TOOLS)
+            suffix_keys.append("search")
         if suffix_keys:
             inject_tool_suffix_into_messages(
                 cur_messages, build_tool_system_suffix(suffix_keys)
@@ -1821,7 +1833,11 @@ class TelegramBot:
             is_anthropic = llm._use_anthropic_messages_api()
             lutopia_on = bool(getattr(llm, "enable_lutopia", False))
             weather_on = bool(getattr(llm, "enable_weather_tool", False))
-            oral = (lutopia_on or weather_on) and not is_anthropic
+            weibo_on = bool(getattr(llm, "enable_weibo_tool", False))
+            search_on = bool(getattr(llm, "enable_search_tool", False))
+            oral = (
+                lutopia_on or weather_on or weibo_on or search_on
+            ) and not is_anthropic
             context = await build_context(
                 session_id,
                 combined_content,
@@ -1837,15 +1853,15 @@ class TelegramBot:
 
             if is_anthropic:
                 llm_path = "anthropic_prefetch → generate_with_context_and_tracking（无 tools）"
-            elif lutopia_on:
+            elif lutopia_on or weather_on or weibo_on or search_on:
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply_with_lutopia "
-                    "→ generate_stream(tools=Lutopia±Weather)（persona 工具开关）"
+                    "→ generate_stream(tools=Lutopia±天气±微博±搜索)（persona 工具开关）"
                 )
             else:
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply "
-                    "→ generate_stream(tools=None)（persona.enable_lutopia=0 或未绑定人设）"
+                    "→ generate_stream(tools=None)（未启用 Lutopia/天气/微博/搜索工具）"
                 )
             logger.info(
                 "[TG路径追踪] _generate_reply_from_buffer 已建 LLM：session_id=%s model=%s "
@@ -1907,6 +1923,8 @@ class TelegramBot:
             else:
                 if getattr(llm, "enable_lutopia", False) or getattr(
                     llm, "enable_weather_tool", False
+                ) or getattr(llm, "enable_weibo_tool", False) or getattr(
+                    llm, "enable_search_tool", False
                 ):
                     outcome = await self._telegram_stream_thinking_and_reply_with_lutopia(
                         llm, messages, base_message, bot
@@ -2174,7 +2192,12 @@ class TelegramBot:
         try:
             llm = await LLMInterface.create()
             cid = int(chat_id)
-            oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
+            oral = (
+                bool(getattr(llm, "enable_lutopia", False))
+                or bool(getattr(llm, "enable_weather_tool", False))
+                or bool(getattr(llm, "enable_weibo_tool", False))
+                or bool(getattr(llm, "enable_search_tool", False))
+            ) and not llm._use_anthropic_messages_api()
             context = await build_context(
                 session_id,
                 content,

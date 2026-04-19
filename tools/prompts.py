@@ -26,7 +26,17 @@ LUTOPIA_TOOL_DIRECTIVE = (
 )
 
 WEATHER_TOOL_DIRECTIVE = (
-    "你可以调用 get_weather 工具查询当前天气。用户问天气、或你觉得天气信息有助于回答时再调用，不要每次对话都主动查。"
+    "你可以调用 get_weather 工具查询当前天气。用户问天气、或你觉得天气信息有助于回答时再调用，禁止每轮都调用。"
+)
+
+WEIBO_HOT_TOOL_DIRECTIVE = (
+    "你可以调用 get_weibo_hot 获取微博热搜摘要。当用户聊到近期事件、网络热点、吃瓜玩梗，"
+    "或判断引入热搜能让回答更生动时，可自由调用。避免在无关的严肃提问（如写代码）中强行插入。禁止每轮都调用。"
+)
+
+SEARCH_TOOL_DIRECTIVE = (
+    "你可以调用 web_search 进行联网检索。当需要最新资讯、补充细节、或避免瞎编时均可主动调用，"
+    "不必等用户明确要求；简单常识无需搜索。禁止每轮都调用。"
 )
 
 OPENAI_WEATHER_TOOLS: List[Dict[str, Any]] = [
@@ -49,9 +59,46 @@ OPENAI_WEATHER_TOOLS: List[Dict[str, Any]] = [
     }
 ]
 
+OPENAI_WEIBO_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weibo_hot",
+            "description": "获取当前微博实时热搜榜单摘要（只读）",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    }
+]
+
+OPENAI_SEARCH_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_search",
+            "description": "联网搜索并返回经压缩的网页要点摘要（只读）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词或完整问句",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    }
+]
+
 TOOL_DIRECTIVES: Dict[str, str] = {
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
     "weather": WEATHER_TOOL_DIRECTIVE,
+    "weibo": WEIBO_HOT_TOOL_DIRECTIVE,
+    "search": SEARCH_TOOL_DIRECTIVE,
 }
 
 

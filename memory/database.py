@@ -201,6 +201,28 @@ async def ensure_api_configs_schema(conn) -> None:
         )
 
 
+async def _ensure_default_search_summary_api_config_row(conn) -> None:
+    """若无任意 config_type=search_summary 行，插入占位行（未激活，供 Mini App 填写）。"""
+    await ensure_api_configs_schema(conn)
+    row = await conn.fetchrow(
+        "SELECT 1 FROM api_configs WHERE config_type = $1 LIMIT 1",
+        "search_summary",
+    )
+    if row:
+        return
+    await conn.execute(
+        """
+        INSERT INTO api_configs (name, api_key, base_url, model, persona_id, is_active, config_type)
+        VALUES ($1, $2, $3, $4, NULL, 0, $5)
+        """,
+        "搜索摘要模型",
+        "",
+        "",
+        None,
+        "search_summary",
+    )
+
+
 async def _ensure_default_embedding_api_config_row(conn) -> None:
     """若无任意 config_type=embedding 行，插入默认硅基流动 bge-m3（api_key 空，用户自填）并激活。"""
     await ensure_api_configs_schema(conn)
@@ -285,6 +307,12 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_weather_tool INTEGER DEFAULT 0"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_weibo_tool INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_search_tool INTEGER DEFAULT 0"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -334,6 +362,7 @@ async def migrate_database_schema(conn) -> None:
     )
 
     await _ensure_default_embedding_api_config_row(conn)
+    await _ensure_default_search_summary_api_config_row(conn)
 
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS sensor_events (
@@ -2547,8 +2576,8 @@ class MessageDatabase:
             "char_nsfw", "char_tools_guide", "char_offline_mode",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
-            "user_nsfw", "user_other", "system_rules", "enable_lutopia",
-            "enable_weather_tool",
+            "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
+            "enable_weather_tool", "enable_weibo_tool", "enable_search_tool",
         ]
         cols = ", ".join(fields)
         placeholders = ", ".join([f"${i + 1}" for i in range(len(fields))])
@@ -2562,6 +2591,18 @@ class MessageDatabase:
                     values.append(0)
             elif f == "enable_weather_tool":
                 raw = data.get("enable_weather_tool", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
+            elif f == "enable_weibo_tool":
+                raw = data.get("enable_weibo_tool", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
+            elif f == "enable_search_tool":
+                raw = data.get("enable_search_tool", 0)
                 try:
                     values.append(1 if int(raw) else 0)
                 except (TypeError, ValueError):
@@ -2583,8 +2624,8 @@ class MessageDatabase:
             "char_nsfw", "char_tools_guide", "char_offline_mode",
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
-            "user_nsfw", "user_other", "system_rules", "enable_lutopia",
-            "enable_weather_tool",
+            "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
+            "enable_weather_tool", "enable_weibo_tool", "enable_search_tool",
         }
         update_data = {k: v for k, v in data.items() if k in allowed}
         if "enable_lutopia" in update_data:
@@ -2601,6 +2642,20 @@ class MessageDatabase:
                 )
             except (TypeError, ValueError):
                 update_data["enable_weather_tool"] = 0
+        if "enable_weibo_tool" in update_data:
+            try:
+                update_data["enable_weibo_tool"] = (
+                    1 if int(update_data["enable_weibo_tool"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_weibo_tool"] = 0
+        if "enable_search_tool" in update_data:
+            try:
+                update_data["enable_search_tool"] = (
+                    1 if int(update_data["enable_search_tool"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_search_tool"] = 0
         if not update_data:
             return False
         set_parts = [f"{k} = ${i + 1}" for i, k in enumerate(update_data.keys())]

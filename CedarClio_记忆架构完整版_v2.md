@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-19；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`（JSON 对象字符串）** 见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
+> 文档版本：2026-04-20；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`**、**`enable_weibo_tool` / `get_weibo_hot`**、**`enable_search_tool` / `web_search`**（均为 JSON **`{"summary":…}`** 对象字符串；**`web_search`**：Tavily + **`api_configs`** 激活 **`search_summary`** 或回退 **`summary`** 压缩）见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
 
 ---
 
@@ -368,6 +368,8 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 
 - **用户原文落库时机（CedarStar）：** `bot/telegram_bot._generate_reply_from_buffer` 在 **`await LLMInterface.create()`** 之后**立即**写入合并后的用户 **`messages`** 行（**`combined_raw`**），再 **`build_context`** 与调用上游模型，避免 HTTP 4xx/5xx、超时或工具环失败时用户侧「话被吞」。  
 - **天气工具（可选）：** 人设 **`persona_configs.enable_weather_tool`** 开启时注册 **`get_weather`**；**`tools/weather.execute_weather_function_call`** 返回可解析为 **JSON object** 的字符串（如 **`{"summary":…}`**），以满足部分网关对 **`function_response` / Struct** 的要求；**`append_tool_exchange_to_messages`** 的 **`execution_log`** 不记录 **`get_weather`**（与 Lutopia 内部记忆附录分工一致）。  
+- **微博热搜工具（可选）：** 人设 **`persona_configs.enable_weibo_tool`** 开启时注册 **`get_weibo_hot`**；**`tools/weibo.execute_weibo_function_call`** 同样返回 **`{"summary":…}`** JSON 字符串；**`append_tool_exchange_to_messages`** 的 **`execution_log`** 不记录 **`get_weibo_hot`**，且 **`complete_with_lutopia_tool_loop`** 不把该工具写入 **`tool_pairs`**（无 **`[系统内部记忆：…]`** 旁白）。拉取接口为 **`weibo.com/ajax/side/hotSearch`**，需 **`.env` `WEIBO_COOKIE`**（**`config.WEIBO_COOKIE`**）。  
+- **网页搜索工具（可选）：** 人设 **`persona_configs.enable_search_tool`** 开启时注册 **`web_search`**；**`tools/search.execute_search_function_call`** 调 Tavily **`https://api.tavily.com/search`**（**`.env` `TAVILY_API_KEY`**），再用激活 **`config_type=search_summary`**（否则 **`summary`**）的 **`api_configs`** 行驱动小模型压缩，返回 **`{"summary":…}`**；失败为 **`{"summary":"暂时无法搜索"}`**。**`execution_log`** 不记录 **`web_search`**，**`tool_pairs`** 亦不记。  
 - 首轮若流式/Anthropic 路径判定需拦截，**最多静默重试 1 次**（在最后一条 user 文本末附加 `TELEGRAM_GUARD_PROMPT_APPEND`）。  
 - 仍失败或正文为空时，使用**情境兜底文案**（`_TELEGRAM_GUARD_ROLEPLAY_FALLBACK`），不向用户展示模型安全拒答原文。
 

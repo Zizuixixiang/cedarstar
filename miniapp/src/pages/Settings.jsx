@@ -22,6 +22,7 @@ const CONFIG_TYPE_LABEL = {
   vision: '视觉',
   stt: '语音转录',
   embedding: 'Embedding',
+  search_summary: '搜索摘要',
 };
 
 const CONFIG_TYPE_CLASS = {
@@ -30,6 +31,7 @@ const CONFIG_TYPE_CLASS = {
   vision: 'vision-type',
   stt: 'stt-type',
   embedding: 'embedding-type',
+  search_summary: 'search-summary-type',
 };
 
 const EMPTY_TAB_TIP = {
@@ -38,6 +40,7 @@ const EMPTY_TAB_TIP = {
   vision: '暂无视觉 API 配置，点击右上角新增',
   stt: '暂无语音转录 API 配置，点击右上角新增（模型建议 whisper-1）',
   embedding: '暂无 Embedding 配置，点击右上角新增（表情包向量用硅基流动 OpenAI 兼容 /v1/embeddings）',
+  search_summary: '暂无搜索摘要模型配置，点击右上角新增（用于压缩 Tavily 结果；未填时可回退已激活的摘要 API）',
 };
 
 /* ─── 骨架屏 ─── */
@@ -182,6 +185,12 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
                   onChange={() => set('config_type', 'embedding')} />
                 <span className="type-radio-text">Embedding</span>
               </label>
+              <label className="type-radio-label">
+                <input type="radio" name="config_type" value="search_summary"
+                  checked={form.config_type === 'search_summary'}
+                  onChange={() => set('config_type', 'search_summary')} />
+                <span className="type-radio-text">搜索摘要</span>
+              </label>
             </div>
             <div className="modal-hint">
               {form.config_type === 'chat' && '用于日常对话、短期记忆、思维链'}
@@ -189,6 +198,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               {form.config_type === 'vision' && '用于图片理解、多模态消息（与对话/摘要配置独立激活）'}
               {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字（OpenAI 兼容 /audio/transcriptions，模型填 whisper-1）'}
               {form.config_type === 'embedding' && '用于表情包 Chroma 检索（硅基流动 BAAI/bge-m3，OpenAI 兼容 /v1/embeddings）；需在列表中激活'}
+              {form.config_type === 'search_summary' && '用于 web_search：把 Tavily 多条结果压成短摘要（建议小模型）；未激活本类型时回退「摘要 API」'}
             </div>
           </div>
 
@@ -277,7 +287,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
 
 /* ─── 主页面 ─── */
 function Settings() {
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt' | 'embedding'
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt' | 'embedding' | 'search_summary'
   const activeTabRef = useRef('chat'); // 用 ref 追踪最新 activeTab，避免闭包陷阱
   const [configs, setConfigs] = useState([]);
   const [personas, setPersonas] = useState([]);
@@ -386,7 +396,7 @@ function Settings() {
   /* 弹窗保存后：按保存的配置类型刷新；若与当前 Tab 不一致则切换 Tab（避免摘要配在对话 Tab 下仍拉 chat 列表） */
   const handleSaved = (savedConfigType) => {
     setModalData(null);
-    const nextTab = ['chat', 'summary', 'vision', 'stt', 'embedding'].includes(savedConfigType)
+    const nextTab = ['chat', 'summary', 'vision', 'stt', 'embedding', 'search_summary'].includes(savedConfigType)
       ? savedConfigType
       : activeTabRef.current;
     if (nextTab !== activeTabRef.current) {
@@ -464,6 +474,12 @@ function Settings() {
               onClick={() => switchTab('embedding')}
             >
               Embedding
+            </button>
+            <button 
+              className={`config-tab ${activeTab === 'search_summary' ? 'active' : ''}`}
+              onClick={() => switchTab('search_summary')}
+            >
+              搜索摘要
             </button>
           </div>
           <button className="btn-add" onClick={() => setModalData({ config_type: activeTab })}>

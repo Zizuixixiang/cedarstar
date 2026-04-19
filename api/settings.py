@@ -21,7 +21,7 @@ def _east8_month_start_utc_naive():
 
 
 ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
-    {"chat", "summary", "vision", "stt", "embedding"}
+    {"chat", "summary", "vision", "stt", "embedding", "search_summary"}
 )
 
 

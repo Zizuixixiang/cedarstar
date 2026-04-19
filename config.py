@@ -246,6 +246,19 @@ class Config:
         """展示用城市名（与 HEFENG_LOCATION 对应，默认南京）。"""
         v = (os.getenv("HEFENG_CITY") or "").strip()
         return v or "南京"
+
+    @property
+    def TAVILY_API_KEY(self) -> str:
+        """Tavily Search API Key；未设置时 ``web_search`` 工具无法拉取结果。"""
+        return (os.getenv("TAVILY_API_KEY") or "").strip()
+
+    @property
+    def WEIBO_COOKIE(self) -> str:
+        """
+        调用 ``weibo.com/ajax/side/hotSearch`` 时使用的浏览器 Cookie 串（与登录态一致，会过期）。
+        在 ``.env`` 中设置 ``WEIBO_COOKIE``；勿写入版本库。
+        """
+        return (os.getenv("WEIBO_COOKIE") or "").strip()
     
     @property
     def MAX_HISTORY_MESSAGES(self) -> int:

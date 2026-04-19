@@ -580,6 +580,36 @@ def _persona_row_enable_weather_tool(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _persona_row_enable_weibo_tool(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用微博热搜工具（enable_weibo_tool 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_weibo_tool")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _persona_row_enable_search_tool(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用网页搜索工具（enable_search_tool 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_search_tool")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -592,6 +622,8 @@ class LLMInterface:
         enable_lutopia: 当前激活人设（persona_configs）是否开启 Lutopia Forum 工具；
             由 ``create()`` 从库内 persona 行读取；无库内人设或未设置时为 False。
         enable_weather_tool: 是否开启 get_weather 工具（同上）。
+        enable_weibo_tool: 是否开启 get_weibo_hot 工具（同上）。
+        enable_search_tool: 是否开启 web_search 工具（同上）。
     """
     
     def __init__(
@@ -601,6 +633,8 @@ class LLMInterface:
         _db_cfg: Optional[Dict[str, Any]] = None,
         _enable_lutopia: Optional[bool] = None,
         _enable_weather_tool: Optional[bool] = None,
+        _enable_weibo_tool: Optional[bool] = None,
+        _enable_search_tool: Optional[bool] = None,
     ):
         """
         初始化 LLM 接口。
@@ -646,6 +680,12 @@ class LLMInterface:
         self.enable_weather_tool = (
             bool(_enable_weather_tool) if _enable_weather_tool is not None else False
         )
+        self.enable_weibo_tool = (
+            bool(_enable_weibo_tool) if _enable_weibo_tool is not None else False
+        )
+        self.enable_search_tool = (
+            bool(_enable_search_tool) if _enable_search_tool is not None else False
+        )
 
         self.timeout = config.LLM_TIMEOUT
         # vision 专用配置：读超时至少与 LLM_VISION_TIMEOUT 对齐（贴纸识图等为同步阻塞）
@@ -690,6 +730,8 @@ class LLMInterface:
 
         enable_lutopia_flag = False
         enable_weather_tool_flag = False
+        enable_weibo_tool_flag = False
+        enable_search_tool_flag = False
         if db_cfg and config_type == "chat":
             pid = db_cfg.get("persona_id")
             if pid is not None:
@@ -710,6 +752,10 @@ class LLMInterface:
                         enable_weather_tool_flag = _persona_row_enable_weather_tool(
                             prow
                         )
+                        enable_weibo_tool_flag = _persona_row_enable_weibo_tool(prow)
+                        enable_search_tool_flag = _persona_row_enable_search_tool(
+                            prow
+                        )
 
         return cls(
             model_name=model_name,
@@ -717,6 +763,8 @@ class LLMInterface:
             _db_cfg=db_cfg,
             _enable_lutopia=enable_lutopia_flag,
             _enable_weather_tool=enable_weather_tool_flag,
+            _enable_weibo_tool=enable_weibo_tool_flag,
+            _enable_search_tool=enable_search_tool_flag,
         )
 
     @staticmethod
@@ -794,6 +842,13 @@ class LLMInterface:
                         "（400 常见：模型名与上游不符、当前模型不支持 tools/function、"
                         "max_tokens/参数超出范围、或 messages 格式被拒；可暂时关闭人设里的工具开关对照试验。）"
                     )
+                elif resp.status_code == 520:
+                    hint = (
+                        "（520 多为 CDN/网关（如 Cloudflare）：源站无有效响应、隧道/反代中断或上游崩溃；"
+                        "通常不是「密钥错误」（多为 401/403）。请查中转域名、供应商状态或换直连 base_url 对照。）"
+                    )
+                elif resp.status_code in (502, 504):
+                    hint = "（502/504：网关或上游暂时不可用或超时。）"
                 logger.error(
                     "上游 API 非 2xx: status=%s endpoint=%s body_prefix=%r %s",
                     resp.status_code,
@@ -1777,11 +1832,15 @@ async def complete_with_lutopia_tool_loop(
         execute_lutopia_function_call,
     )
     from tools.prompts import (
+        OPENAI_SEARCH_TOOLS,
         OPENAI_WEATHER_TOOLS,
+        OPENAI_WEIBO_TOOLS,
         build_tool_system_suffix,
         inject_tool_suffix_into_messages,
     )
+    from tools.search import execute_search_function_call
     from tools.weather import execute_weather_function_call
+    from tools.weibo import execute_weibo_function_call
 
     tools_list: List[Dict[str, Any]] = []
     suffix_keys: List[str] = []
@@ -1791,6 +1850,12 @@ async def complete_with_lutopia_tool_loop(
     if getattr(llm, "enable_weather_tool", False):
         tools_list.extend(OPENAI_WEATHER_TOOLS)
         suffix_keys.append("weather")
+    if getattr(llm, "enable_weibo_tool", False):
+        tools_list.extend(OPENAI_WEIBO_TOOLS)
+        suffix_keys.append("weibo")
+    if getattr(llm, "enable_search_tool", False):
+        tools_list.extend(OPENAI_SEARCH_TOOLS)
+        suffix_keys.append("search")
     tools_payload: Optional[List[Dict[str, Any]]] = (
         tools_list if tools_list else None
     )
@@ -1861,6 +1926,18 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_d = {}
                     result_str = await execute_weather_function_call(nm, args_d)
+                elif nm == "get_weibo_hot":
+                    try:
+                        args_d2: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_d2 = {}
+                    result_str = await execute_weibo_function_call(nm, args_d2)
+                elif nm == "web_search":
+                    try:
+                        args_d3: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_d3 = {}
+                    result_str = await execute_search_function_call(nm, args_d3)
                 else:
                     result_str = await execute_lutopia_function_call(
                         nm, raw_args or "{}", mcp_session=mcp_session

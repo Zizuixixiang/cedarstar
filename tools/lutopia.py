@@ -20,7 +20,9 @@ import httpx
 
 from memory.database import get_database
 
+from tools.search import execute_search_function_call
 from tools.weather import execute_weather_function_call
+from tools.weibo import execute_weibo_function_call
 
 logger = logging.getLogger(__name__)
 
@@ -564,11 +566,27 @@ async def append_tool_exchange_to_messages(
             except json.JSONDecodeError:
                 args_d = {}
             out = await execute_weather_function_call(nm, args_d)
+        elif nm == "get_weibo_hot":
+            try:
+                args_wb: Dict[str, Any] = json.loads(arg or "{}")
+            except json.JSONDecodeError:
+                args_wb = {}
+            out = await execute_weibo_function_call(nm, args_wb)
+        elif nm == "web_search":
+            try:
+                args_ws: Dict[str, Any] = json.loads(arg or "{}")
+            except json.JSONDecodeError:
+                args_ws = {}
+            out = await execute_search_function_call(nm, args_ws)
         else:
             out = await execute_lutopia_function_call(
                 nm, arg or "{}", mcp_session=mcp_session
             )
-        if execution_log is not None and nm != "get_weather":
+        if execution_log is not None and nm not in (
+            "get_weather",
+            "get_weibo_hot",
+            "web_search",
+        ):
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:
             await on_tool_done(nm, out)

@@ -68,6 +68,8 @@ const EMPTY_FORM = {
   system_rules: '',
   enable_lutopia: 0,
   enable_weather_tool: 0,
+  enable_weibo_tool: 0,
+  enable_search_tool: 0,
 };
 
 function t(v) {
@@ -409,6 +411,10 @@ function Persona() {
           d.enable_weather_tool != null && Number(d.enable_weather_tool) !== 0
             ? 1
             : 0,
+        enable_weibo_tool:
+          d.enable_weibo_tool != null && Number(d.enable_weibo_tool) !== 0 ? 1 : 0,
+        enable_search_tool:
+          d.enable_search_tool != null && Number(d.enable_search_tool) !== 0 ? 1 : 0,
       };
       setForm(f);
       setSavedForm(f);
@@ -870,6 +876,32 @@ function Persona() {
             </label>
             <p className="persona-field-hint">
               开启后模型可调用 get_weather 查询天气；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_weibo_tool === 1}
+                onChange={e =>
+                  handleChange('enable_weibo_tool', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用微博热搜</span>
+            </label>
+            <p className="persona-field-hint">
+              开启后模型可调用 get_weibo_hot 获取微博热搜摘要；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_search_tool === 1}
+                onChange={e =>
+                  handleChange('enable_search_tool', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用搜索工具</span>
+            </label>
+            <p className="persona-field-hint">
+              开启后模型可调用 web_search（Tavily + 搜索摘要模型）；关闭不注册；随本套人设保存。
             </p>
           </div>
         </div>
