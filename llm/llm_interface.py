@@ -565,6 +565,21 @@ def _persona_row_enable_lutopia(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _persona_row_enable_weather_tool(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用天气工具（enable_weather_tool 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_weather_tool")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -576,6 +591,7 @@ class LLMInterface:
             供 Bot 写入 messages.character_id；无有效 persona_id 时为 "sirius"。
         enable_lutopia: 当前激活人设（persona_configs）是否开启 Lutopia Forum 工具；
             由 ``create()`` 从库内 persona 行读取；无库内人设或未设置时为 False。
+        enable_weather_tool: 是否开启 get_weather 工具（同上）。
     """
     
     def __init__(
@@ -584,6 +600,7 @@ class LLMInterface:
         config_type: str = "chat",
         _db_cfg: Optional[Dict[str, Any]] = None,
         _enable_lutopia: Optional[bool] = None,
+        _enable_weather_tool: Optional[bool] = None,
     ):
         """
         初始化 LLM 接口。
@@ -622,9 +639,12 @@ class LLMInterface:
         # 与当前激活 api_configs 关联的人设 ID，写入消息表时作为 character_id（无则兜底 sirius）
         self.character_id = self._resolve_character_id_from_config(db_cfg)
 
-        # Lutopia 等工具开关：仅 ``await create()`` 从 persona_configs 注入；同步构造默认为 False
+        # Lutopia / 天气 等工具开关：仅 ``await create()`` 从 persona_configs 注入；同步构造默认为 False
         self.enable_lutopia = (
             bool(_enable_lutopia) if _enable_lutopia is not None else False
+        )
+        self.enable_weather_tool = (
+            bool(_enable_weather_tool) if _enable_weather_tool is not None else False
         )
 
         self.timeout = config.LLM_TIMEOUT
@@ -669,6 +689,7 @@ class LLMInterface:
             db_cfg = None
 
         enable_lutopia_flag = False
+        enable_weather_tool_flag = False
         if db_cfg and config_type == "chat":
             pid = db_cfg.get("persona_id")
             if pid is not None:
@@ -681,17 +702,21 @@ class LLMInterface:
                         prow = await get_database().get_persona_config(pi)
                     except Exception as e:
                         logger.warning(
-                            "读取 persona_configs 以解析 enable_lutopia 失败: %s", e
+                            "读取 persona_configs 以解析工具开关失败: %s", e
                         )
                         prow = None
                     if prow:
                         enable_lutopia_flag = _persona_row_enable_lutopia(prow)
+                        enable_weather_tool_flag = _persona_row_enable_weather_tool(
+                            prow
+                        )
 
         return cls(
             model_name=model_name,
             config_type=config_type,
             _db_cfg=db_cfg,
             _enable_lutopia=enable_lutopia_flag,
+            _enable_weather_tool=enable_weather_tool_flag,
         )
 
     @staticmethod
@@ -763,11 +788,18 @@ class LLMInterface:
                 continue
             if resp.status_code >= 400:
                 body_prev = (resp.text or "")[:1200]
+                hint = ""
+                if resp.status_code == 400:
+                    hint = (
+                        "（400 常见：模型名与上游不符、当前模型不支持 tools/function、"
+                        "max_tokens/参数超出范围、或 messages 格式被拒；可暂时关闭人设里的工具开关对照试验。）"
+                    )
                 logger.error(
-                    "上游 API 非 2xx: status=%s endpoint=%s body_prefix=%r",
+                    "上游 API 非 2xx: status=%s endpoint=%s body_prefix=%r %s",
                     resp.status_code,
                     url,
                     body_prev,
+                    hint,
                 )
             resp.raise_for_status()
             return resp
@@ -1744,12 +1776,30 @@ async def complete_with_lutopia_tool_loop(
         create_lutopia_mcp_session,
         execute_lutopia_function_call,
     )
-    from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
+    from tools.prompts import (
+        OPENAI_WEATHER_TOOLS,
+        build_tool_system_suffix,
+        inject_tool_suffix_into_messages,
+    )
+    from tools.weather import execute_weather_function_call
+
+    tools_list: List[Dict[str, Any]] = []
+    suffix_keys: List[str] = []
+    if llm.enable_lutopia:
+        tools_list.extend(OPENAI_LUTOPIA_TOOLS)
+        suffix_keys.append("lutopia")
+    if getattr(llm, "enable_weather_tool", False):
+        tools_list.extend(OPENAI_WEATHER_TOOLS)
+        suffix_keys.append("weather")
+    tools_payload: Optional[List[Dict[str, Any]]] = (
+        tools_list if tools_list else None
+    )
 
     work = copy.deepcopy(messages)
-    inject_tool_suffix_into_messages(
-        work, build_tool_system_suffix(["lutopia"])
-    )
+    if suffix_keys:
+        inject_tool_suffix_into_messages(
+            work, build_tool_system_suffix(suffix_keys)
+        )
     last: Optional[LLMResponse] = None
     round_texts: List[str] = []
     tool_pairs: List[Tuple[str, str, str]] = []
@@ -1759,7 +1809,7 @@ async def complete_with_lutopia_tool_loop(
                 llm.generate_with_context_and_tracking,
                 work,
                 platform,
-                OPENAI_LUTOPIA_TOOLS,
+                tools_payload,
             )
             if last is None:
                 break
@@ -1805,10 +1855,17 @@ async def complete_with_lutopia_tool_loop(
                     raw_args = json.dumps(raw_args if raw_args is not None else {}, ensure_ascii=False)
                 if on_tool_start:
                     await on_tool_start(nm)
-                result_str = await execute_lutopia_function_call(
-                    nm, raw_args or "{}", mcp_session=mcp_session
-                )
-                tool_pairs.append((nm, raw_args or "{}", result_str))
+                if nm == "get_weather":
+                    try:
+                        args_d: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_d = {}
+                    result_str = await execute_weather_function_call(nm, args_d)
+                else:
+                    result_str = await execute_lutopia_function_call(
+                        nm, raw_args or "{}", mcp_session=mcp_session
+                    )
+                    tool_pairs.append((nm, raw_args or "{}", result_str))
                 if on_tool_done:
                     await on_tool_done(nm, result_str)
                 work.append(

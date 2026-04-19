@@ -5,6 +5,7 @@ API 路由汇总模块。
 """
 from fastapi import APIRouter
 
+from api import autonomous, sensor, weather
 from api.dashboard import router as dashboard_router
 from api.persona import router as persona_router
 from api.memory import router as memory_router
@@ -24,3 +25,6 @@ api_router.include_router(history_router, prefix="/history", tags=["对话历史
 api_router.include_router(logs_router, prefix="/logs", tags=["日志"])
 api_router.include_router(config_router, prefix="/config", tags=["助手配置"])
 api_router.include_router(settings_router, prefix="/settings", tags=["设置"])
+api_router.include_router(autonomous.router, prefix="/autonomous", tags=["autonomous"])
+api_router.include_router(sensor.router, prefix="/sensor", tags=["sensor"])
+api_router.include_router(weather.router, prefix="/weather", tags=["weather"])

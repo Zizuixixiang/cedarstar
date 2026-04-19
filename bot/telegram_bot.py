@@ -85,7 +85,11 @@ from tools.lutopia import (
     create_lutopia_mcp_session,
     strip_lutopia_user_facing_assistant_text,
 )
-from tools.prompts import build_tool_system_suffix, inject_tool_suffix_into_messages
+from tools.prompts import (
+    OPENAI_WEATHER_TOOLS,
+    build_tool_system_suffix,
+    inject_tool_suffix_into_messages,
+)
 from tools.meme import search_meme_async, send_meme
 
 
@@ -884,6 +888,8 @@ class TelegramBot:
     @staticmethod
     def _telegram_lutopia_tool_display_name(tool_name: str) -> str:
         t = (tool_name or "").strip()
+        if t == "get_weather":
+            return "天气"
         if t.startswith("lutopia_"):
             return t[8:] or t
         return t or "tool"
@@ -1508,8 +1514,20 @@ class TelegramBot:
         执行后把 tool 结果追加进对话再继续 SSE，直至得到面向用户的正文。
         """
         cur_messages = copy.deepcopy(messages)
-        inject_tool_suffix_into_messages(
-            cur_messages, build_tool_system_suffix(["lutopia"])
+        tools_list: List[Dict[str, Any]] = []
+        suffix_keys: List[str] = []
+        if llm.enable_lutopia:
+            tools_list.extend(OPENAI_LUTOPIA_TOOLS)
+            suffix_keys.append("lutopia")
+        if getattr(llm, "enable_weather_tool", False):
+            tools_list.extend(OPENAI_WEATHER_TOOLS)
+            suffix_keys.append("weather")
+        if suffix_keys:
+            inject_tool_suffix_into_messages(
+                cur_messages, build_tool_system_suffix(suffix_keys)
+            )
+        tools_param: Optional[List[Dict[str, Any]]] = (
+            tools_list if tools_list else None
         )
         chat_id = base_message.chat.id
         sse: Optional[_TelegramSseRound] = None
@@ -1546,7 +1564,7 @@ class TelegramBot:
                         cur_messages,
                         base_message,
                         bot,
-                        tools=OPENAI_LUTOPIA_TOOLS,
+                        tools=tools_param,
                     )
                     fin = sse.done_payload or {}
                     if fin.get("guard_refusal_abort") and attempt == 0:
@@ -1628,7 +1646,8 @@ class TelegramBot:
                 err = parsed.get("error")
                 ok = err is None or str(err).strip() == ""
         except json.JSONDecodeError:
-            ok = False
+            # get_weather 等返回自然语言而非 JSON 时视为成功（有内容即可）
+            ok = bool((result_json or "").strip())
         text = f"✅ 已调用{disp}" if ok else f"❌ {disp}调用失败"
         if len(text) > 4096:
             suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
@@ -1761,12 +1780,48 @@ class TelegramBot:
         base_message=None,
         bot=None,
     ) -> _BufferGenResult:
-        """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条），并视结果落库用户消息。"""
+        """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条）。用户消息在调用上游模型之前落库，避免模型报错时丢失。"""
         try:
             llm = await LLMInterface.create()
+            # 在调用上游模型之前落库用户合并消息，避免 HTTP 4xx/5xx、超时等导致「用户话被吞」
+            try:
+                has_img = bool(images)
+                media_t = ordered_media_type_from_buffer(buffer_messages)
+                user_row_id = await save_message(
+                    session_id=session_id,
+                    role="user",
+                    content=combined_raw,
+                    user_id=user_id,
+                    channel_id=chat_id,
+                    message_id=message_id,
+                    character_id=llm.character_id,
+                    platform=Platform.TELEGRAM,
+                    media_type=media_t,
+                    image_caption=None,
+                    vision_processed=0 if has_img else 1,
+                    is_summarized=_telegram_user_content_error_fallback_is_summarized(
+                        combined_raw
+                    ),
+                )
+                if has_img and user_row_id:
+                    schedule_generate_image_caption(
+                        user_row_id,
+                        images or [],
+                        (text_for_llm or "").strip(),
+                        platform=Platform.TELEGRAM,
+                    )
+                asyncio.create_task(trigger_micro_batch_check(session_id))
+            except Exception as persist_u:
+                logger.exception(
+                    "缓冲路径：用户消息落库失败 session_id=%s: %s",
+                    session_id,
+                    exc_detail(persist_u),
+                )
+
             is_anthropic = llm._use_anthropic_messages_api()
             lutopia_on = bool(getattr(llm, "enable_lutopia", False))
-            oral = lutopia_on and not is_anthropic
+            weather_on = bool(getattr(llm, "enable_weather_tool", False))
+            oral = (lutopia_on or weather_on) and not is_anthropic
             context = await build_context(
                 session_id,
                 combined_content,
@@ -1785,7 +1840,7 @@ class TelegramBot:
             elif lutopia_on:
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply_with_lutopia "
-                    "→ generate_stream(tools=OPENAI_LUTOPIA_TOOLS)（persona.enable_lutopia=1）"
+                    "→ generate_stream(tools=Lutopia±Weather)（persona 工具开关）"
                 )
             else:
                 llm_path = (
@@ -1850,7 +1905,9 @@ class TelegramBot:
                     llm_resp, base_message, bot
                 )
             else:
-                if getattr(llm, "enable_lutopia", False):
+                if getattr(llm, "enable_lutopia", False) or getattr(
+                    llm, "enable_weather_tool", False
+                ):
                     outcome = await self._telegram_stream_thinking_and_reply_with_lutopia(
                         llm, messages, base_message, bot
                     )
@@ -1859,44 +1916,7 @@ class TelegramBot:
                         llm, messages, base_message, bot
                     )
 
-            # 回复已发到 Telegram；落库 / 微批失败不得再向用户发通用错误（否则会多一条「抱歉…」）
-            try:
-                has_img = bool(images)
-                media_t = ordered_media_type_from_buffer(buffer_messages)
-                user_row_id = None
-                if outcome.save_user:
-                    user_row_id = await save_message(
-                        session_id=session_id,
-                        role="user",
-                        content=combined_raw,
-                        user_id=user_id,
-                        channel_id=chat_id,
-                        message_id=message_id,
-                        character_id=llm.character_id,
-                        platform=Platform.TELEGRAM,
-                        media_type=media_t,
-                        image_caption=None,
-                        vision_processed=0 if has_img else 1,
-                        is_summarized=_telegram_user_content_error_fallback_is_summarized(
-                            combined_raw
-                        ),
-                    )
-                    if has_img and user_row_id:
-                        schedule_generate_image_caption(
-                            user_row_id,
-                            images or [],
-                            (text_for_llm or "").strip(),
-                            platform=Platform.TELEGRAM,
-                        )
-
-                asyncio.create_task(trigger_micro_batch_check(session_id))
-            except Exception as persist_e:
-                logger.exception(
-                    "缓冲回复已送达用户后落库或微批调度失败 session_id=%s: %s",
-                    session_id,
-                    exc_detail(persist_e),
-                )
-
+            # 用户消息已在上方先行落库；此处仅处理助手侧 persist 标记
             persist = bool(outcome.body_for_db.strip())
             return _BufferGenResult(
                 outcome.body_for_db,

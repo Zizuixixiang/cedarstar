@@ -231,6 +231,23 @@ class Config:
         return os.getenv("MINIAPP_TOKEN", "")
     
     @property
+    def HEFENG_API_KEY(self) -> str:
+        """和风天气开发版 API Key；未设置时 /api/weather/current 返回占位 mock。"""
+        return (os.getenv("HEFENG_API_KEY") or "").strip()
+
+    @property
+    def HEFENG_LOCATION(self) -> str:
+        """和风天气 LocationID，默认南京 101190101。"""
+        v = (os.getenv("HEFENG_LOCATION") or "").strip()
+        return v or "101190101"
+
+    @property
+    def HEFENG_CITY(self) -> str:
+        """展示用城市名（与 HEFENG_LOCATION 对应，默认南京）。"""
+        v = (os.getenv("HEFENG_CITY") or "").strip()
+        return v or "南京"
+    
+    @property
     def MAX_HISTORY_MESSAGES(self) -> int:
         """
         获取最大历史消息数量。

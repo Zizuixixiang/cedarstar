@@ -20,6 +20,8 @@ import httpx
 
 from memory.database import get_database
 
+from tools.weather import execute_weather_function_call
+
 logger = logging.getLogger(__name__)
 
 TOOL_LOG_SNIP_MAX = 200
@@ -556,10 +558,17 @@ async def append_tool_exchange_to_messages(
             arg = json.dumps(arg if arg is not None else {}, ensure_ascii=False)
         if on_tool_start:
             await on_tool_start(nm)
-        out = await execute_lutopia_function_call(
-            nm, arg or "{}", mcp_session=mcp_session
-        )
-        if execution_log is not None:
+        if nm == "get_weather":
+            try:
+                args_d: Dict[str, Any] = json.loads(arg or "{}")
+            except json.JSONDecodeError:
+                args_d = {}
+            out = await execute_weather_function_call(nm, args_d)
+        else:
+            out = await execute_lutopia_function_call(
+                nm, arg or "{}", mcp_session=mcp_session
+            )
+        if execution_log is not None and nm != "get_weather":
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:
             await on_tool_done(nm, out)

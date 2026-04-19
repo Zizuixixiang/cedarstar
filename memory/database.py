@@ -282,6 +282,9 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS char_offline_mode TEXT DEFAULT ''"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_weather_tool INTEGER DEFAULT 0"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -331,6 +334,34 @@ async def migrate_database_schema(conn) -> None:
     )
 
     await _ensure_default_embedding_api_config_row(conn)
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS sensor_events (
+            id SERIAL PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            payload JSONB NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_events_created_at "
+        "ON sensor_events(created_at)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sensor_events_type "
+        "ON sensor_events(event_type)"
+    )
+
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS autonomous_diary (
+            id SERIAL PRIMARY KEY,
+            title TEXT,
+            content TEXT NOT NULL,
+            trigger_reason TEXT,
+            tool_log JSONB,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
 
     logger.info("数据库 schema 迁移（索引/列）已执行")
 
@@ -2517,6 +2548,7 @@ class MessageDatabase:
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules", "enable_lutopia",
+            "enable_weather_tool",
         ]
         cols = ", ".join(fields)
         placeholders = ", ".join([f"${i + 1}" for i in range(len(fields))])
@@ -2524,6 +2556,12 @@ class MessageDatabase:
         for f in fields:
             if f == "enable_lutopia":
                 raw = data.get("enable_lutopia", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
+            elif f == "enable_weather_tool":
+                raw = data.get("enable_weather_tool", 0)
                 try:
                     values.append(1 if int(raw) else 0)
                 except (TypeError, ValueError):
@@ -2546,6 +2584,7 @@ class MessageDatabase:
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other", "system_rules", "enable_lutopia",
+            "enable_weather_tool",
         }
         update_data = {k: v for k, v in data.items() if k in allowed}
         if "enable_lutopia" in update_data:
@@ -2555,6 +2594,13 @@ class MessageDatabase:
                 )
             except (TypeError, ValueError):
                 update_data["enable_lutopia"] = 0
+        if "enable_weather_tool" in update_data:
+            try:
+                update_data["enable_weather_tool"] = (
+                    1 if int(update_data["enable_weather_tool"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_weather_tool"] = 0
         if not update_data:
             return False
         set_parts = [f"{k} = ${i + 1}" for i, k in enumerate(update_data.keys())]
@@ -2950,6 +2996,166 @@ class MessageDatabase:
                 )
         except Exception as e:
             logger.error("删除 sticker_cache 失败: %s", e)
+
+    # ------------------------------------------------------------------
+    # sensor_events / autonomous_diary
+    # ------------------------------------------------------------------
+
+    async def save_sensor_event(self, event_type: str, payload: Dict[str, Any]) -> int:
+        """写入一条传感器原始事件，返回新行 id。"""
+        async with self.pool.acquire() as conn:
+            row_id = await conn.fetchval(
+                """
+                INSERT INTO sensor_events (event_type, payload)
+                VALUES ($1, $2::jsonb)
+                RETURNING id
+                """,
+                event_type,
+                payload,
+            )
+        return int(row_id)
+
+    async def get_sensor_events(
+        self, event_type: Optional[str] = None, hours: int = 24
+    ) -> List[Dict[str, Any]]:
+        """取最近 N 小时内的事件，可选按类型过滤。"""
+        async with self.pool.acquire() as conn:
+            if event_type:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, payload, created_at
+                    FROM sensor_events
+                    WHERE event_type = $1
+                      AND created_at >= NOW() - ($2::integer * INTERVAL '1 hour')
+                    ORDER BY created_at DESC
+                    """,
+                    event_type,
+                    hours,
+                )
+            else:
+                rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, payload, created_at
+                    FROM sensor_events
+                    WHERE created_at >= NOW() - ($1::integer * INTERVAL '1 hour')
+                    ORDER BY created_at DESC
+                    """,
+                    hours,
+                )
+        return [_r(rec) for rec in rows]
+
+    async def get_latest_sensor_by_type(
+        self, event_type: str
+    ) -> Optional[Dict[str, Any]]:
+        """某类传感器最新一条。"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, event_type, payload, created_at
+                FROM sensor_events
+                WHERE event_type = $1
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                event_type,
+            )
+        return _r(row) if row else None
+
+    async def get_max_sensor_created_at_iso(self) -> Optional[str]:
+        """任意传感器事件的最晚时间（ISO 字符串），无数据则 None。"""
+        async with self.pool.acquire() as conn:
+            ts = await conn.fetchval("SELECT MAX(created_at) FROM sensor_events")
+        if ts is None:
+            return None
+        return str(_norm(ts))
+
+    async def has_recent_sensor_event(
+        self, event_type: str, minutes: int = 30
+    ) -> bool:
+        """最近 N 分钟内是否存在指定类型事件。"""
+        async with self.pool.acquire() as conn:
+            n = await conn.fetchval(
+                """
+                SELECT COUNT(*) FROM sensor_events
+                WHERE event_type = $1
+                  AND created_at >= NOW() - ($2::integer * INTERVAL '1 minute')
+                """,
+                event_type,
+                minutes,
+            )
+        return int(n or 0) > 0
+
+    async def save_autonomous_diary(
+        self,
+        title: Optional[str],
+        content: str,
+        trigger_reason: Optional[str],
+        tool_log: Optional[Any] = None,
+    ) -> int:
+        """写入自主活动日记，返回新行 id。"""
+        async with self.pool.acquire() as conn:
+            row_id = await conn.fetchval(
+                """
+                INSERT INTO autonomous_diary
+                    (title, content, trigger_reason, tool_log)
+                VALUES ($1, $2, $3, $4::jsonb)
+                RETURNING id
+                """,
+                title,
+                content,
+                trigger_reason,
+                tool_log,
+            )
+        return int(row_id)
+
+    async def get_autonomous_diaries(
+        self, page: int = 1, page_size: int = 20
+    ) -> Dict[str, Any]:
+        """分页日记列表，返回 {total, items}。"""
+        page = max(1, page)
+        page_size = max(1, min(100, page_size))
+        offset = (page - 1) * page_size
+        async with self.pool.acquire() as conn:
+            total = await conn.fetchval("SELECT COUNT(*) FROM autonomous_diary")
+            rows = await conn.fetch(
+                """
+                SELECT id, title, content, trigger_reason, tool_log, created_at
+                FROM autonomous_diary
+                ORDER BY created_at DESC
+                LIMIT $1 OFFSET $2
+                """,
+                page_size,
+                offset,
+            )
+        items = [_r(rec) for rec in rows]
+        return {"total": int(total or 0), "items": items}
+
+    async def get_autonomous_diary_by_id(
+        self, diary_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """按 id 取单条日记。"""
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, title, content, trigger_reason, tool_log, created_at
+                FROM autonomous_diary
+                WHERE id = $1
+                """,
+                diary_id,
+            )
+        return _r(row) if row else None
+
+    async def purge_old_sensor_events(self, hours: int = 72) -> int:
+        """删除超过 N 小时的传感器事件，返回删除行数。"""
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                """
+                DELETE FROM sensor_events
+                WHERE created_at < NOW() - ($1::integer * INTERVAL '1 hour')
+                """,
+                hours,
+            )
+        return _rowcount(status)
 
 
 # ---------------------------------------------------------------------------

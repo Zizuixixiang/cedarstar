@@ -419,7 +419,10 @@ class DiscordBot:
         try:
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = await LLMInterface.create()
-            oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
+            oral = (
+                bool(getattr(llm, "enable_lutopia", False))
+                or bool(getattr(llm, "enable_weather_tool", False))
+            ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(
                 session_id,
@@ -550,7 +553,10 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = await LLMInterface.create()
-            oral = bool(getattr(llm, "enable_lutopia", False)) and not llm._use_anthropic_messages_api()
+            oral = (
+                bool(getattr(llm, "enable_lutopia", False))
+                or bool(getattr(llm, "enable_weather_tool", False))
+            ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(session_id, content, tool_oral_coaching=oral)
             

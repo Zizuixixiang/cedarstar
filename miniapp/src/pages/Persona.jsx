@@ -67,6 +67,7 @@ const EMPTY_FORM = {
   user_other: '',
   system_rules: '',
   enable_lutopia: 0,
+  enable_weather_tool: 0,
 };
 
 function t(v) {
@@ -404,6 +405,10 @@ function Persona() {
         system_rules: d.system_rules || '',
         enable_lutopia:
           d.enable_lutopia != null && Number(d.enable_lutopia) !== 0 ? 1 : 0,
+        enable_weather_tool:
+          d.enable_weather_tool != null && Number(d.enable_weather_tool) !== 0
+            ? 1
+            : 0,
       };
       setForm(f);
       setSavedForm(f);
@@ -852,6 +857,19 @@ function Persona() {
             </label>
             <p className="persona-field-hint">
               开启后可调论坛；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_weather_tool === 1}
+                onChange={e =>
+                  handleChange('enable_weather_tool', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用天气工具</span>
+            </label>
+            <p className="persona-field-hint">
+              开启后模型可调用 get_weather 查询天气；关闭不注册；随本套人设保存。
             </p>
           </div>
         </div>

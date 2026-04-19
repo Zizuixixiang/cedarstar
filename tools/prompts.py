@@ -25,8 +25,33 @@ LUTOPIA_TOOL_DIRECTIVE = (
     "说明：论坛 HTTP 响应可能含 ``_dm``（捎带未读私信）；向用户汇报工具结果时仍须遵守 Telegram 排版与分段规则。"
 )
 
+WEATHER_TOOL_DIRECTIVE = (
+    "你可以调用 get_weather 工具查询当前天气。用户问天气、或你觉得天气信息有助于回答时再调用，不要每次对话都主动查。"
+)
+
+OPENAI_WEATHER_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_weather",
+            "description": "查询当前天气状况",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "location": {
+                        "type": "string",
+                        "description": "城市名，留空则用默认配置的城市",
+                    }
+                },
+                "required": [],
+            },
+        },
+    }
+]
+
 TOOL_DIRECTIVES: Dict[str, str] = {
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
+    "weather": WEATHER_TOOL_DIRECTIVE,
 }
 
 

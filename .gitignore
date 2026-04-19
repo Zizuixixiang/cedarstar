@@ -153,6 +153,9 @@ cython_debug/
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
+# Cursor / IDE
+.cursor/
+
 # VS Code
 .vscode/
 !.vscode/settings.json
@@ -203,10 +206,13 @@ Thumbs.db
 Desktop.ini
 chroma_db/
 miniapp/node_modules/
+portal/node_modules/
 backups/
 test/
 miniapp/.env.production
 miniapp/.env.development
+portal/.env.production
+portal/dist/
 *.gz
 ngrok.exe
 README.md

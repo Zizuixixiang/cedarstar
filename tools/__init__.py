@@ -2,7 +2,9 @@
 
 from tools.prompts import (
     LUTOPIA_TOOL_DIRECTIVE,
+    OPENAI_WEATHER_TOOLS,
     TOOL_DIRECTIVES,
+    WEATHER_TOOL_DIRECTIVE,
     build_tool_system_suffix,
     inject_tool_suffix_into_messages,
 )
@@ -16,6 +18,8 @@ from tools.lutopia import (
 
 __all__ = [
     "LUTOPIA_TOOL_DIRECTIVE",
+    "WEATHER_TOOL_DIRECTIVE",
+    "OPENAI_WEATHER_TOOLS",
     "TOOL_DIRECTIVES",
     "build_tool_system_suffix",
     "inject_tool_suffix_into_messages",

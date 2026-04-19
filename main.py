@@ -43,6 +43,8 @@ app = FastAPI(
 _CORS_ALLOW_ORIGINS = [
     "http://localhost:5173",
     "http://localhost:5174",
+    "http://cedarstar.org",
+    "https://cedarstar.org",
     "https://exercises-broadway-expenditures-bacteria.trycloudflare.com",
     "https://cedarstar.pages.dev",
 ]
@@ -65,7 +67,8 @@ API_KEY_HEADER = APIKeyHeader(name="X-Cedarstar-Token", auto_error=False)
 
 
 async def verify_token(token: str | None = Depends(API_KEY_HEADER)):
-    if token != config.MINIAPP_TOKEN:
+    # 与 .env 中值比对时 strip，避免行尾空格/换行导致与前端构建进 bundle 的 token 不一致
+    if (token or "").strip() != (config.MINIAPP_TOKEN or "").strip():
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
@@ -83,6 +86,7 @@ async def health_check():
 
 
 MINIAPP_DIST = Path("miniapp/dist")
+PORTAL_DIST = Path("portal/dist")
 
 
 @app.get("/app/{full_path:path}")
@@ -91,6 +95,17 @@ async def serve_miniapp(full_path: str):
     if candidate.is_file():
         return FileResponse(str(candidate))
     index = MINIAPP_DIST / "index.html"
+    if index.is_file():
+        return FileResponse(str(index))
+    return Response(status_code=404)
+
+
+@app.get("/daily/{full_path:path}")
+async def serve_portal(full_path: str):
+    candidate = PORTAL_DIST / full_path
+    if candidate.is_file():
+        return FileResponse(str(candidate))
+    index = PORTAL_DIST / "index.html"
     if index.is_file():
         return FileResponse(str(index))
     return Response(status_code=404)
