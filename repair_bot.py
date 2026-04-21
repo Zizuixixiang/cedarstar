@@ -22,6 +22,7 @@
                                 /var/log/supervisor/cedarstar.err.log
   REPAIR_TAIL_TIMEOUT_SEC     tail 子进程超时（秒），默认 30
 
+# repair smoke test
 用法：在项目根执行  python3 repair_bot.py
 """
 
