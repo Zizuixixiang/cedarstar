@@ -683,6 +683,7 @@ class ContextBuilder:
         llm_user_text: Optional[str] = None,
         telegram_segment_hint: bool = False,
         tool_oral_coaching: bool = False,
+        exclude_message_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         构建完整的对话上下文。
@@ -725,7 +726,7 @@ class ContextBuilder:
             chunk_summaries_section = await self._build_chunk_summaries_section()
             
             # 6. 获取最近消息
-            recent_messages_section = await self._build_recent_messages_section(session_id)
+            recent_messages_section = await self._build_recent_messages_section(session_id, exclude_message_id)
             
             # 7. 添加当前用户消息
             cut = (
@@ -786,6 +787,7 @@ class ContextBuilder:
         llm_user_text: Optional[str] = None,
         telegram_segment_hint: bool = False,
         tool_oral_coaching: bool = False,
+        exclude_message_id: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         异步构建完整的对话上下文（支持 Reranker）。
@@ -831,7 +833,7 @@ class ContextBuilder:
             chunk_summaries_section = await self._build_chunk_summaries_section()
             
             # 6. 获取最近消息
-            recent_messages_section = await self._build_recent_messages_section(session_id)
+            recent_messages_section = await self._build_recent_messages_section(session_id, exclude_message_id)
             
             # 7. 添加当前用户消息
             cut = (
@@ -1297,7 +1299,7 @@ class ContextBuilder:
             logger.warning("异步检索失败，回退到同步检索")
             return await self._build_vector_search_section(user_message)
     
-    async def _build_recent_messages_section(self, session_id: str) -> List[Dict[str, Any]]:
+    async def _build_recent_messages_section(self, session_id: str, exclude_message_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         构建最近消息部分。
         
@@ -1322,6 +1324,8 @@ class ContextBuilder:
             # 转换为 LLM 接口期望的格式
             messages = []
             for msg in recent_messages:
+                if exclude_message_id and msg.get("id") == exclude_message_id:
+                    continue
                 role = "user" if msg['role'] == "user" else "assistant"
                 text = format_user_message_for_context(
                     {
@@ -1389,6 +1393,7 @@ class ContextBuilder:
         chunk_summaries_section: str,
         *,
         tool_oral_coaching: bool = False,
+        exclude_message_id: Optional[int] = None,
     ) -> str:
         """
         组装完整的 system prompt。
@@ -1474,6 +1479,7 @@ async def build_context(
     llm_user_text: Optional[str] = None,
     telegram_segment_hint: bool = False,
     tool_oral_coaching: bool = False,
+        exclude_message_id: Optional[int] = None,
 ) -> Dict[str, Any]:
     """
     构建对话上下文的便捷函数。
@@ -1497,6 +1503,7 @@ async def build_context(
         llm_user_text=llm_user_text,
         telegram_segment_hint=telegram_segment_hint,
         tool_oral_coaching=tool_oral_coaching,
+        exclude_message_id=exclude_message_id,
     )
 
 

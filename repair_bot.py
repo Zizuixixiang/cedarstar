@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-独立「维修」Telegram 小机器人：/edit、/ask、/log。
+独立「维修」Telegram 小机器人：/edit、/ask、/log、/test。
 
 - /edit：aider 改指定文件，成功后 supervisorctl restart。
 - /ask：aider --message「问题」、无文件参数，全局排查问答，不重启。
 - /log：tail -n 50 服务 stderr 日志，回传（过长则仅保留末尾 4000 字符）。
+- /test：秒级自检（Python 子进程、aider、日志路径、supervisorctl），不调模型。
 
 与主程序 cedarstar（webhook 大机器人）分离部署：
 - 推荐使用独立 Bot：在 .env 设置 REPAIR_TELEGRAM_BOT_TOKEN；
@@ -22,7 +23,6 @@
                                 /var/log/supervisor/cedarstar.err.log
   REPAIR_TAIL_TIMEOUT_SEC     tail 子进程超时（秒），默认 30
 
-# repair smoke test
 用法：在项目根执行  python3 repair_bot.py
 """
 
@@ -31,6 +31,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import traceback
@@ -276,6 +277,83 @@ def run_tail_err_log_subprocess() -> Tuple[int, str, str, str]:
     return int(result.returncode), result.stdout or "", result.stderr or "", log_path
 
 
+def run_repair_self_check() -> str:
+    """
+    轻量同步自检（秒级）：不调用 LLM / 不跑 aider 全量任务。
+    """
+    lines: list[str] = ["【/test 自检】", ""]
+    lines.append(f"项目根: {_PROJECT_ROOT}")
+    rb = _PROJECT_ROOT / "repair_bot.py"
+    lines.append(f"repair_bot.py 存在: {rb.is_file()}")
+
+    try:
+        r = subprocess.run(
+            [sys.executable, "-c", "print('subprocess_ok')"],
+            cwd=str(_PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=10.0,
+        )
+        out = (r.stdout or "").strip()
+        lines.append(f"Python 子进程: rc={r.returncode} stdout={out or '（空）'}")
+    except subprocess.TimeoutExpired:
+        lines.append("Python 子进程: 超时")
+    except Exception as e:
+        lines.append(f"Python 子进程: {_exc_detail(e)}")
+
+    aider_bin = (os.getenv("REPAIR_AIDER_BIN") or "aider").strip() or "aider"
+    if os.path.isabs(aider_bin):
+        lines.append(f"aider 可执行文件: exists={Path(aider_bin).is_file()} path={aider_bin}")
+    else:
+        w = shutil.which(aider_bin)
+        lines.append(f"aider（PATH）: which={w!r} configured={aider_bin!r}")
+
+    try:
+        r = subprocess.run(
+            [aider_bin, "--version"],
+            cwd=str(_PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=25.0,
+        )
+        ver = ((r.stdout or "") + (r.stderr or "")).strip().replace("\n", " ")[:240]
+        lines.append(f"aider --version: rc={r.returncode} {ver or '（空）'}")
+    except subprocess.TimeoutExpired:
+        lines.append("aider --version: 超时（>25s）")
+    except FileNotFoundError:
+        lines.append("aider --version: 未找到可执行文件")
+    except Exception as e:
+        lines.append(f"aider --version: {_exc_detail(e)}")
+
+    lp = cedarstar_err_log_path()
+    lines.append(f"REPAIR 日志路径: {lp}")
+    lines.append(f"上述日志文件存在: {Path(lp).is_file()}")
+
+    try:
+        r = subprocess.run(
+            ["supervisorctl", "status"],
+            cwd=str(_PROJECT_ROOT),
+            capture_output=True,
+            text=True,
+            timeout=15.0,
+        )
+        body = (r.stdout or "").strip()
+        if len(body) > 1200:
+            body = body[:1180] + "\n…（已截断）"
+        lines.append(f"supervisorctl status: rc={r.returncode}")
+        if body:
+            lines.append("— supervisorctl status 摘录 —")
+            lines.append(body)
+    except FileNotFoundError:
+        lines.append("supervisorctl: 未安装或不在 PATH")
+    except subprocess.TimeoutExpired:
+        lines.append("supervisorctl status: 超时")
+    except Exception as e:
+        lines.append(f"supervisorctl status: {_exc_detail(e)}")
+
+    return _truncate_for_telegram("\n".join(lines), max_len=3800)
+
+
 def format_tail_log_report(rc: int, stdout: str, stderr: str, log_path: str) -> str:
     """合并输出；总长超过 4000 字符时仅保留整个字符串的最后 4000 个字符。"""
     parts = [
@@ -343,7 +421,8 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> N
         "CedarStar repair bot\n\n"
         "/edit <相对路径> <说明> — aider 改指定文件，成功后 supervisorctl restart\n"
         "/ask <问题> — aider 仅带问题、扫描/排查项目，不重启\n"
-        "/log — tail -n 50 服务 stderr 日志（路径见 REPAIR_CEDARSTAR_ERR_LOG）\n\n"
+        "/log — tail -n 50 服务 stderr 日志（路径见 REPAIR_CEDARSTAR_ERR_LOG）\n"
+        "/test — 秒级自检（子进程、aider、日志路径、supervisorctl），无需参数\n\n"
         "项目根：" + str(_PROJECT_ROOT)
     )
 
@@ -533,6 +612,53 @@ async def log_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
             logger.warning("log: 无法发送错误说明: %s", _exc_detail(e2))
 
 
+async def test_command(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """秒级自检：不跑 aider 全任务、不调 LLM。"""
+    msg = update.message
+    if not msg:
+        return
+    chat_id = msg.chat.id if msg.chat else None
+    if not _is_chat_allowed(chat_id):
+        await _reply_unauthorized(msg)
+        return
+
+    if context.args:
+        try:
+            await msg.reply_text("用法：/test（无需参数）")
+        except Exception:
+            pass
+        return
+
+    try:
+        try:
+            await context.bot.send_chat_action(
+                chat_id=msg.chat_id, action=ChatAction.TYPING
+            )
+        except Exception as e:
+            logger.warning("test: send_chat_action 失败: %s", _exc_detail(e))
+
+        try:
+            report = await asyncio.to_thread(run_repair_self_check)
+        except Exception as e:
+            logger.exception("test: run_repair_self_check 异常: %s", _exc_detail(e))
+            await msg.reply_text("❌ 自检执行失败:\n" + _exc_detail(e)[:3500])
+            return
+
+        try:
+            await msg.reply_text("✅ 自检完成\n\n" + report)
+        except Exception as e:
+            logger.warning("test: 发送报告失败: %s", _exc_detail(e))
+
+    except TelegramNetworkError as e:
+        logger.warning("test: Telegram 网络错误 chat_id=%s: %s", chat_id, _exc_detail(e))
+    except Exception as e:
+        logger.exception("test 未预期错误:\n%s", traceback.format_exc())
+        try:
+            await msg.reply_text("❌ /test 处理异常:\n" + _exc_detail(e)[:3500])
+        except Exception as e2:
+            logger.warning("test: 无法发送错误说明: %s", _exc_detail(e2))
+
+
 def main() -> None:
     load_dotenv(_PROJECT_ROOT / ".env")
     token = _repair_token()
@@ -562,6 +688,7 @@ def main() -> None:
     app.add_handler(CommandHandler("edit", edit_command))
     app.add_handler(CommandHandler("ask", ask_command))
     app.add_handler(CommandHandler("log", log_command))
+    app.add_handler(CommandHandler("test", test_command))
 
     logger.info("repair_bot 启动 polling，项目根: %s", _PROJECT_ROOT)
     app.run_polling(allowed_updates=Update.ALL_TYPES)

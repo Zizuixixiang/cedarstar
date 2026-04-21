@@ -9,6 +9,7 @@ import sys
 import asyncio
 import base64
 import logging
+import traceback
 import requests
 from typing import Any, Dict, List, Optional
 
@@ -386,9 +387,13 @@ class DiscordBot:
                 if len(reply) > 2000:
                     chunks = self._split_message(reply)
                     for chunk in chunks:
+                        stack = "".join(traceback.format_stack())
+                        logging.warning(f"send called from: {stack}")
                         await base_message.channel.send(chunk)
                         await asyncio.sleep(0.5)  # 避免速率限制
                 else:
+                    stack = "".join(traceback.format_stack())
+                    logging.warning(f"send called from: {stack}")
                     await base_message.channel.send(reply)
     
     async def _generate_reply_from_buffer(
@@ -432,6 +437,7 @@ class DiscordBot:
                 images=images or None,
                 llm_user_text=text_for_llm or None,
                 tool_oral_coaching=oral,
+                exclude_message_id=user_row_id if 'user_row_id' in locals() else None,
             )
             
             # 提取 system prompt 和 messages
@@ -562,7 +568,12 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_search_tool", False))
             ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
-            context = await build_context(session_id, content, tool_oral_coaching=oral)
+            context = await build_context(
+                session_id, 
+                content, 
+                tool_oral_coaching=oral,
+                exclude_message_id=user_row_id if 'user_row_id' in locals() else None,
+            )
             
             # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")

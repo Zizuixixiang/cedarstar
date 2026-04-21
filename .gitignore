@@ -169,6 +169,7 @@ cython_debug/
 *.sqlite3
 
 # CedarStar specific
+repair.py
 .clinerules
 cedarstar.log
 cedarstar.db
@@ -219,3 +220,4 @@ README.md
 memes.txt
 # import_memes.py 失败记录（与清单同目录 *.import_failed.txt）
 *.import_failed.txt
+.aider*

@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import traceback
 
 from config import config
 
@@ -45,6 +46,8 @@ async def send_telegram_main_user_text(text: str) -> None:
         bot = Bot(token=token, request=_req())
         await bot.initialize()
         try:
+            stack = "".join(traceback.format_stack())
+            logging.warning(f"send called from: {stack}")
             await bot.send_message(chat_id=chat_id, text=text[:4096])
         finally:
             await bot.shutdown()

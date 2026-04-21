@@ -14,6 +14,7 @@ import time
 import asyncio
 import base64
 import logging
+import traceback
 import threading
 import requests
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
@@ -912,6 +913,8 @@ class TelegramBot:
             out_chunks.extend(self._telegram_html_body_chunks(seg))
         first_mid: Optional[str] = None
         for i, chunk in enumerate(out_chunks):
+            stack = "".join(traceback.format_stack())
+            logging.warning(f"send called from: {stack}")
             sent = await base_message.reply_text(chunk, parse_mode="HTML")
             if first_mid is None:
                 first_mid = str(sent.message_id)
@@ -930,6 +933,8 @@ class TelegramBot:
             out_chunks.extend(self._telegram_html_body_chunks(seg))
         first_mid: Optional[str] = None
         for i, chunk in enumerate(out_chunks):
+            stack = "".join(traceback.format_stack())
+            logging.warning(f"send called from: {stack}")
             sent = await bot.send_message(
                 chat_id=chat_id, text=chunk, parse_mode="HTML"
             )
@@ -1044,6 +1049,8 @@ class TelegramBot:
 
         if think_plain:
             html_th = self._telegram_thinking_blockquote_html(think_plain)
+            stack = "".join(traceback.format_stack())
+            logging.warning(f"send called from: {stack}")
             await base_message.reply_text(html_th, parse_mode="HTML")
         cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
         segments, body_for_db = await parse_telegram_segments_with_memes_async(cleaned)
@@ -1221,6 +1228,8 @@ class TelegramBot:
                 thinking_parts.append(item[1])
                 cur = "".join(thinking_parts)
                 if thinking_msg_id is None:
+                    stack = "".join(traceback.format_stack())
+                    logging.warning(f"send called from: {stack}")
                     sent = await base_message.reply_text(_TELEGRAM_THINK_PLACEHOLDER)
                     thinking_msg_id = sent.message_id
                 now = time.monotonic()
@@ -1337,6 +1346,8 @@ class TelegramBot:
                     except Exception:
                         pass
                     try:
+                        stack = "".join(traceback.format_stack())
+                        logging.warning(f"send called from: {stack}")
                         sent_th = await base_message.reply_text(
                             html_th, parse_mode="HTML"
                         )
@@ -1359,6 +1370,8 @@ class TelegramBot:
         elif think_plain_show.strip():
             html_th = self._telegram_thinking_blockquote_html(think_plain_show)
             try:
+                stack = "".join(traceback.format_stack())
+                logging.warning(f"send called from: {stack}")
                 sent_th = await base_message.reply_text(html_th, parse_mode="HTML")
                 out_mid = sent_th.message_id
             except Exception as e:
@@ -1665,6 +1678,8 @@ class TelegramBot:
             suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
             text = text[: 4096 - len(suf)] + suf
         try:
+            stack = "".join(traceback.format_stack())
+            logging.warning(f"send called from: {stack}")
             await bot.send_message(
                 chat_id=chat_id, text=text, parse_mode=None
             )
@@ -1845,6 +1860,7 @@ class TelegramBot:
                 llm_user_text=text_for_llm or None,
                 telegram_segment_hint=True,
                 tool_oral_coaching=oral,
+                exclude_message_id=user_row_id if 'user_row_id' in locals() else None,
             )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
@@ -2164,6 +2180,8 @@ class TelegramBot:
             )
         if gen.reply and not gen.assistant_message_id:
             try:
+                stack = "".join(traceback.format_stack())
+                logging.warning(f"send called from: {stack}")
                 await base_message.reply_text(
                     telegram_send_text_collapse(
                         strip_lutopia_user_facing_assistant_text(gen.reply)
@@ -2203,6 +2221,7 @@ class TelegramBot:
                 content,
                 telegram_segment_hint=telegram_bot is not None,
                 tool_oral_coaching=oral,
+                exclude_message_id=user_row_id if 'user_row_id' in locals() else None,
             )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
@@ -2260,6 +2279,8 @@ class TelegramBot:
             if telegram_bot and think_plain:
                 html_th = self._telegram_thinking_blockquote_html(think_plain)
                 try:
+                    stack = "".join(traceback.format_stack())
+                    logging.warning(f"send called from: {stack}")
                     await telegram_bot.send_message(
                         chat_id=cid, text=html_th, parse_mode="HTML"
                     )
