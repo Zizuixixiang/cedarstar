@@ -298,6 +298,18 @@ async def _context_max_daily_summaries_limit() -> int:
     return max(1, min(100, config.CONTEXT_MAX_DAILY_SUMMARIES))
 
 
+async def _context_max_chunk_summaries_limit() -> int:
+    try:
+        raw = await get_database().get_config("context_max_chunk_summaries")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(100, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("璇诲彇 context_max_chunk_summaries 澶辫触锛屼娇鐢ㄧ幆澧冨彉閲? %s", e)
+    return max(1, min(100, config.CONTEXT_MAX_CHUNK_SUMMARIES))
+
+
 async def _context_max_longterm_count() -> int:
     """长期记忆注入 Top N：优先 config 表 context_max_longterm，否则默认 3。"""
     try:
@@ -724,6 +736,12 @@ class ContextBuilder:
             vector_search_section = await self._build_vector_search_section(user_message)
             daily_summaries_section = await self._build_daily_summaries_section()
             chunk_summaries_section = await self._build_chunk_summaries_section()
+            logger.info(
+                "context chunk section preview: session=%s chunk_section_len=%s tail=%r",
+                session_id,
+                len(chunk_summaries_section or ""),
+                (chunk_summaries_section or "")[-500:],
+            )
             
             # 6. 获取最近消息
             recent_messages_section = await self._build_recent_messages_section(session_id, exclude_message_id)
@@ -758,6 +776,15 @@ class ContextBuilder:
             )
             
             logger.debug(f"Context 构建完成: session={session_id}, system_prompt_length={len(full_system_prompt)}, messages_count={len(messages)}")
+            logger.info(
+                "context built: session=%s system_prompt_length=%s messages_count=%s daily_section_len=%s chunk_section_len=%s recent_messages=%s",
+                session_id,
+                len(full_system_prompt),
+                len(messages),
+                len(daily_summaries_section or ""),
+                len(chunk_summaries_section or ""),
+                len(recent_messages_section or []),
+            )
             
             return {
                 "system_prompt": full_system_prompt,
@@ -831,6 +858,12 @@ class ContextBuilder:
             vector_search_section = await self._build_vector_search_section_async(user_message)
             daily_summaries_section = await self._build_daily_summaries_section()
             chunk_summaries_section = await self._build_chunk_summaries_section()
+            logger.info(
+                "context chunk section preview async: session=%s chunk_section_len=%s tail=%r",
+                session_id,
+                len(chunk_summaries_section or ""),
+                (chunk_summaries_section or "")[-500:],
+            )
             
             # 6. 获取最近消息
             recent_messages_section = await self._build_recent_messages_section(session_id, exclude_message_id)
@@ -865,6 +898,15 @@ class ContextBuilder:
             )
             
             logger.debug(f"Context 构建完成（异步）: session={session_id}, system_prompt_length={len(full_system_prompt)}, messages_count={len(messages)}")
+            logger.info(
+                "context built async: session=%s system_prompt_length=%s messages_count=%s daily_section_len=%s chunk_section_len=%s recent_messages=%s",
+                session_id,
+                len(full_system_prompt),
+                len(messages),
+                len(daily_summaries_section or ""),
+                len(chunk_summaries_section or ""),
+                len(recent_messages_section or []),
+            )
             
             return {
                 "system_prompt": full_system_prompt,
@@ -1099,6 +1141,17 @@ class ContextBuilder:
             
             if not chunk_summaries:
                 return ""
+
+            total_chunk_summaries = len(chunk_summaries)
+            chunk_limit = await _context_max_chunk_summaries_limit()
+            if total_chunk_summaries > chunk_limit:
+                # 优先保留最新 chunk，避免较早摘要把尾部的新摘要挤出模型关注范围。
+                chunk_summaries = chunk_summaries[-chunk_limit:]
+                logger.debug(
+                    "chunk 摘要注入已截断: total=%s, keep_latest=%s",
+                    total_chunk_summaries,
+                    len(chunk_summaries),
+                )
             
             sections = []
             for summary in chunk_summaries:

@@ -35,6 +35,7 @@ DEFAULT_CONFIG = {
     "buffer_delay": 5,
     "chunk_threshold": 50,
     "context_max_daily_summaries": 5,
+    "context_max_chunk_summaries": 8,
     "context_max_longterm": 3,
     "daily_batch_hour": 23,
     "relationship_timeline_limit": 3,

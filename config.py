@@ -402,6 +402,13 @@ class Config:
     
     # 智谱 AI 配置（用于 Embedding）
     @property
+    def CONTEXT_MAX_CHUNK_SUMMARIES(self) -> int:
+        try:
+            return int(os.getenv("CONTEXT_MAX_CHUNK_SUMMARIES", "8"))
+        except ValueError:
+            return 8
+
+    @property
     def ZHIPU_API_KEY(self) -> Optional[str]:
         """
         获取智谱 AI API 密钥。
