@@ -1400,12 +1400,7 @@ class TelegramBot:
             # 保存 Token (流式在子线程丢弃了记录，这里在主 loop 补记)
             u_data = done_payload.get("usage")
             if u_data:
-                await llm._async_save_token_usage(
-                    u_data.get("prompt_tokens", 0), 
-                    u_data.get("completion_tokens", 0), 
-                    u_data.get("total_tokens", 0), 
-                    Platform.TELEGRAM
-                )
+                llm._save_token_usage_async(u_data, Platform.TELEGRAM)
 
         elif err_pack is not None:
             _ex, c_partial, t_partial = err_pack

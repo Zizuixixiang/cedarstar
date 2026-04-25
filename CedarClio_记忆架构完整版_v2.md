@@ -318,6 +318,7 @@ metadata:
 ## 三、读逻辑：Context 组装 + BM25 冷启动
 
 ### ⚠️ 补丁二：BM25 冷启动初始化（必须实现）
+CedarStar sets `jieba.dt.cache_file = "/opt/cedarstar/jieba.cache"` in `memory/bm25_retriever.py`; `/jieba.cache` is ignored by Git, so jieba never needs to overwrite `/tmp/jieba.cache` during service startup or daily batch runs.
 
 BM25 倒排索引常驻内存，服务重启后内存清空，关键词召回直接瘫痪。
 
@@ -442,7 +443,7 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 
 1. **正文相对思维链：** `body_for_output_guard(accumulated)` 自左向右剥离**完整**的思维链块；支持多种开闭标签（`COT_TAG_PAIRS`，含 `<redacted_thinking>`、`<thinking>`、`<reasoning>`、反引号 `think` 块等，按标签 open 长度优先匹配）。  
 2. **未闭合保底：** 若仅有开标签、在**开标签之后内层累计超过** `_GUARD_COT_UNCLOSED_INNER_MAX`（默认 **12000** 字符）仍无对应闭标签，则从该偏移起**强制视为正文**并启用拒答检测（避免截断或漏写 `</...>` 导致永远不检测）。  
-3. **流式：** `generate_stream` 对正文 delta 前置掐断；SSE 返回字典含 `guard_refusal_abort`。
+3. **流式：** `generate_stream` 对正文 delta 前置掐断；SSE 返回字典含 `guard_refusal_abort`。 Telegram SSE usage persistence calls `llm._save_token_usage_async(u_data, Platform.TELEGRAM)`, which normalizes usage before scheduling `_async_save_token_usage(normalized_usage, platform)`; the old three-integer call shape is invalid.
 
 ### 同步链路（实时对话，Telegram）
 

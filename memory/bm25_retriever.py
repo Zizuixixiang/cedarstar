@@ -7,6 +7,9 @@ BM25 关键词检索模块。
 
 import logging
 import jieba
+
+jieba.dt.cache_file = "/opt/cedarstar/jieba.cache"
+
 from typing import List, Dict, Any, Optional, Tuple, Sequence, Set
 from rank_bm25 import BM25Okapi
 
