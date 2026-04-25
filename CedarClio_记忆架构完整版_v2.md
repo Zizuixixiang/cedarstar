@@ -2,7 +2,7 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-20；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`**、**`enable_weibo_tool` / `get_weibo_hot`**、**`enable_search_tool` / `web_search`**（均为 JSON **`{"summary":…}`** 对象字符串；**`web_search`**：Tavily + **`api_configs`** 激活 **`search_summary`** 或回退 **`summary`** 压缩）见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
+> 文档版本：2026-04-26；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**2026-04-26** 对齐：**Anthropic 1h Prompt Cache**、**`tool_executions` 工具执行记录**、工具摘要进入 Context 与 chunk 摘要输入。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`**、**`enable_weibo_tool` / `get_weibo_hot`**、**`enable_search_tool` / `web_search`**（均为 JSON **`{"summary":…}`** 对象字符串；**`web_search`**：Tavily + **`api_configs`** 激活 **`search_summary`** 或回退 **`summary`** 压缩）见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
 
 ---
 
@@ -19,6 +19,7 @@
 |---|---|
 | Gateway（网关） | 组装上下文、拦截回复、触发后台任务、服务启动时初始化 BM25 |
 | PostgreSQL（asyncpg，`DATABASE_URL`） | 聊天原文、摘要、记忆卡片、关系时间线、时效状态、跑批日志、`config` 键值等 |
+| tool_executions | PostgreSQL 内的工具执行记录表：每次工具调用一行，保存 raw 与短摘要；Context 只注入短摘要 |
 | ChromaDB | 长期记忆向量存储（双轨：daily 小传 + event 事件片段） |
 | BM25 内存索引 | 关键词双路召回，服务启动时强制预热 |
 | daily_batch.py | 东八区整点定时跑批（`Asia/Shanghai`）；触发小时由 PostgreSQL `config.daily_batch_hour` 配置，**默认 23**，热更新 |
@@ -174,6 +175,36 @@ CREATE TABLE daily_batch_log (
 
 ---
 
+### 7. tool_executions（工具执行记录表）
+
+每次工具调用写一行；一轮对话里调用多个工具时，不塞成一个大 JSON，而是用 `turn_id + seq` 还原顺序。
+
+```sql
+CREATE TABLE tool_executions (
+    id                   SERIAL PRIMARY KEY,
+    session_id           TEXT      NOT NULL,
+    turn_id              TEXT      NOT NULL,
+    seq                  INTEGER   NOT NULL,
+    tool_name            TEXT      NOT NULL,
+    arguments_json       TEXT,
+    result_summary       TEXT,
+    result_raw           TEXT,
+    user_message_id      INTEGER,
+    assistant_message_id INTEGER,
+    platform             TEXT,
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_tool_executions_session_created ON tool_executions(session_id, created_at DESC);
+CREATE INDEX idx_tool_executions_turn_seq ON tool_executions(turn_id, seq);
+CREATE INDEX idx_tool_executions_user_message ON tool_executions(user_message_id);
+```
+
+- `result_summary`：给当前模型 Context、后续 chunk 摘要和人工排查使用的短摘要。
+- `result_raw`：原始结果，最多保留约 50000 字符；常规 Context 不直接注入 raw，避免长帖/网页吞掉 token。
+- `user_message_id`：尽力关联触发本轮的用户 `messages.id`，供微批摘要按消息范围取工具摘要。
+
+---
+
 ## 二、ChromaDB 向量库结构（双轨）
 
 ### 轨道一：今日小传（daily）
@@ -287,28 +318,49 @@ def init_bm25_index():
 
 ### Context 组装顺序（每次收到消息时）
 
-按以下优先级从上到下拼接，构成发给 LLM 的完整 Prompt：
+实现侧由 `memory/context_builder.py` 组装。Anthropic 路径会把 system 保留为 `text` block array，并在稳定块末尾放 1h `cache_control`；OpenAI 兼容路径由 `llm_interface._openai_compatible_messages` 压平成普通字符串。
 
 ```
-1. System Prompt（人工维护，不走自动流程）
-   + temporal_states 中 is_active=1 的全部记录
+Anthropic system blocks:
+1. BP1 固定块
+   System Prompt（人工维护）
+   + MEMORY_BLOCK_PRIORITY_DIRECTIVE
+   + Citation / Thinking 规则
+   + 可选工具口播说明
 
-2. 7张核心记忆卡片（memory_cards，is_active=1）
+2. BP2 慢变记忆块
+   temporal_states 中 is_active=1 的全部记录
+   + 7张核心记忆卡片（memory_cards，is_active=1）
    + relationship_timeline 最近 N 条（N=`relationship_timeline_limit`，默认 3），注入前按时间正序
+   + 今日小传若干条（`summary_type=daily`，条数=`context_max_daily_summaries`，默认 5）
 
-3. 长期记忆（两阶段召回，见下方详述）
+3. BP3 chunk 块
+   碎片摘要（`summary_type=chunk`）：实现为 `get_today_chunk_summaries()`，条件为内容日
+   `COALESCE(source_date::date, created_at::date) <=` 东八区今日
 
-4. 近期摘要：今日小传若干条（`summary_type=daily`，条数=`context_max_daily_summaries`，默认 5）
-   + 碎片摘要（`summary_type=chunk`）：实现为 **`get_today_chunk_summaries()`**，条件为 **内容日** `COALESCE(source_date::date, created_at::date) <=` 东八区今日（**含尚未被日终卷入的积压**；见「五 / 六」）
+4. 非缓存动态尾部
+   当前系统时间
+   + 最近工具执行摘要（来自 `tool_executions.result_summary`，只取短摘要）
+   + 长期记忆（两阶段召回，见下方详述）
+   + 历史桥接语 / Telegram 排版提示（如启用）
 
+messages:
 5. 最近若干条原生消息（`is_summarized=0`，条数=`short_term_limit`，默认 40，按时间正序）
+   若超过 2 条，在倒数第 3 条加 BP4，冻结更早的近期原文前缀
 
-6. 引用指令注入（Prompt 末尾死命令，见 Citation 机制）
+6. 当前用户消息
 ```
 
-**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system 内各区块的拼接顺序**（越靠后的块在字面上离「当前轮」越远、越像背景）。**冲突消解优先级**由 **`memory/context_builder.py`** 中 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 全文定义（**近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆**；同类型块内日期更近优先；**`action_rule`** 与近期消息对状态描述的覆盖关系见该常量）；在 **`_assemble_full_system_prompt` 中于 `system_prompt`（人设正文）之后、第一个记忆块（如 `temporal_states`）之前注入**，与上表拼接顺序 **并列存在**——模型在信息冲突时按该优先级消解，**不因**字面拼接顺序而自动覆盖。**引用死命令与思维链语言要求**（`MEMORY_CITATION_DIRECTIVE`、`THINKING_LANGUAGE_DIRECTIVE`）仍在 **system 块末尾**（各记忆块与桥接语之后）。
+**与 `MEMORY_BLOCK_PRIORITY_DIRECTIVE` 的关系：** 上表是 **system / messages 的缓存与拼接结构**。**冲突消解优先级**由 **`memory/context_builder.py`** 中 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 全文定义（**近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆**；同类型块内日期更近优先；**`action_rule`** 与近期消息对状态描述的覆盖关系见该常量）；该规则在 BP1 固定块里注入，和缓存块排列是两个概念。
 
 ### 两阶段长期记忆召回
+
+长期记忆注入前固定加说明，避免模型把历史召回误认作今天发生：
+
+```text
+# 本轮召回的相关长期记忆
+以下记忆可能来自过去日期，不代表今天发生；请以条目日期为准。
+```
 
 **阶段一：粗排（向量层 + BM25 双路并行）**
 
@@ -367,9 +419,10 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 ### 同步链路（实时对话，Telegram）
 
 - **用户原文落库时机（CedarStar）：** `bot/telegram_bot._generate_reply_from_buffer` 在 **`await LLMInterface.create()`** 之后**立即**写入合并后的用户 **`messages`** 行（**`combined_raw`**），再 **`build_context`** 与调用上游模型，避免 HTTP 4xx/5xx、超时或工具环失败时用户侧「话被吞」。  
-- **天气工具（可选）：** 人设 **`persona_configs.enable_weather_tool`** 开启时注册 **`get_weather`**；**`tools/weather.execute_weather_function_call`** 返回可解析为 **JSON object** 的字符串（如 **`{"summary":…}`**），以满足部分网关对 **`function_response` / Struct** 的要求；**`append_tool_exchange_to_messages`** 的 **`execution_log`** 不记录 **`get_weather`**（与 Lutopia 内部记忆附录分工一致）。  
-- **微博热搜工具（可选）：** 人设 **`persona_configs.enable_weibo_tool`** 开启时注册 **`get_weibo_hot`**；**`tools/weibo.execute_weibo_function_call`** 同样返回 **`{"summary":…}`** JSON 字符串；**`append_tool_exchange_to_messages`** 的 **`execution_log`** 不记录 **`get_weibo_hot`**，且 **`complete_with_lutopia_tool_loop`** 不把该工具写入 **`tool_pairs`**（无 **`[系统内部记忆：…]`** 旁白）。拉取接口为 **`weibo.com/ajax/side/hotSearch`**，需 **`.env` `WEIBO_COOKIE`**（**`config.WEIBO_COOKIE`**）。  
-- **网页搜索工具（可选）：** 人设 **`persona_configs.enable_search_tool`** 开启时注册 **`web_search`**；**`tools/search.execute_search_function_call`** 调 Tavily **`https://api.tavily.com/search`**（**`.env` `TAVILY_API_KEY`**），再用激活 **`config_type=search_summary`**（否则 **`summary`**）的 **`api_configs`** 行驱动小模型压缩，返回 **`{"summary":…}`**；失败为 **`{"summary":"暂时无法搜索"}`**。**`execution_log`** 不记录 **`web_search`**，**`tool_pairs`** 亦不记。  
+- **天气工具（可选）：** 人设 **`persona_configs.enable_weather_tool`** 开启时注册 **`get_weather`**；**`tools/weather.execute_weather_function_call`** 返回可解析为 **JSON object** 的字符串（如 **`{"summary":…}`**），以满足部分网关对 **`function_response` / Struct** 的要求；旧 **`execution_log`** 不记录该工具，2026-04-26 后由 **`tool_executions`** 统一记录短摘要与 raw。
+- **微博热搜工具（可选）：** 人设 **`persona_configs.enable_weibo_tool`** 开启时注册 **`get_weibo_hot`**；**`tools/weibo.execute_weibo_function_call`** 同样返回 **`{"summary":…}`** JSON 字符串；旧 **`execution_log`** 不记录该工具，且 **`complete_with_lutopia_tool_loop`** 不把该工具写入 **`tool_pairs`**（无 **`[系统内部记忆：…]`** 旁白）；2026-04-26 后由 **`tool_executions`** 统一记录。拉取接口为 **`weibo.com/ajax/side/hotSearch`**，需 **`.env` `WEIBO_COOKIE`**（**`config.WEIBO_COOKIE`**）。
+- **网页搜索工具（可选）：** 人设 **`persona_configs.enable_search_tool`** 开启时注册 **`web_search`**；**`tools/search.execute_search_function_call`** 调 Tavily **`https://api.tavily.com/search`**（**`.env` `TAVILY_API_KEY`**），再用激活 **`config_type=search_summary`**（否则 **`summary`**）的 **`api_configs`** 行驱动小模型压缩，返回 **`{"summary":…}`**；失败为 **`{"summary":"暂时无法搜索"}`**。旧 **`execution_log`** 与 **`tool_pairs`** 不记录该工具；2026-04-26 后由 **`tool_executions`** 统一记录。
+- **工具结果回传与落库（2026-04-26）：** `append_tool_exchange_to_messages` / `complete_with_lutopia_tool_loop` 为每次工具调用写入一行 **`tool_executions`**。一轮多工具时共享 `turn_id`，靠 `seq` 保序；保存 `arguments_json`、`result_summary`、`result_raw`、`user_message_id`、`platform`。当前模型收到的是工具返回或压缩后的短 JSON；若 raw 很长（例如 Lutopia 长帖、网页结果），`tool_result_for_model` 会截断并附 `summary` / `truncated` / `note`，常规 Context 之后只注入 `result_summary`。
 - 首轮若流式/Anthropic 路径判定需拦截，**最多静默重试 1 次**（在最后一条 user 文本末附加 `TELEGRAM_GUARD_PROMPT_APPEND`）。  
 - 仍失败或正文为空时，使用**情境兜底文案**（`_TELEGRAM_GUARD_ROLEPLAY_FALLBACK`），不向用户展示模型安全拒答原文。
 
@@ -418,10 +471,13 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ```
 1. 查询最早的「阈值」条未摘要消息
-2. 调用摘要模型生成《碎片摘要》
-3. 写入 summaries 表，summary_type=chunk；source_date = chunk_source_date_from_messages（本批最后一条消息的东八区日历日；与按日筛选/日终卷入一致）
-4. 批量 UPDATE 本批消息的 messages.is_summarized=1
+2. 读取本批消息 id 范围内的 `tool_executions.result_summary`，整理为【期间工具使用】
+3. 调用摘要模型生成《碎片摘要》
+4. 写入 summaries 表，summary_type=chunk；source_date = chunk_source_date_from_messages（本批最后一条消息的东八区日历日；与按日筛选/日终卷入一致）
+5. 批量 UPDATE 本批消息的 messages.is_summarized=1
 ```
+
+**工具摘要输入（2026-04-26）：** `memory/micro_batch._resolve_micro_batch_tool_context` 通过 `get_tool_executions_for_message_range(session_id, min_message_id, max_message_id)` 把同一批消息期间发生的工具调用纳入 chunk 摘要 prompt。这样 AI 使用过的外部信息能进入 chunk / daily / longterm 链路，而不要求把每次工具 raw 长期塞进近期消息。
 
 **（以代码为准）连续失败告警：** 若 chunk 摘要连续 **3** 次无法产出可落库正文（空摘要 / CedarClio Guard 跳过等），`memory/micro_batch` 经 **`bot/telegram_notify.send_telegram_main_user_text`** 向 **`TELEGRAM_MAIN_USER_CHAT_ID`** 推送告警（未配置则仅日志）；告警后模块内计数归零；任意一次**成功写入 chunk 并标记已摘要**后计数亦归零。
 
@@ -586,7 +642,9 @@ doc_id: daily_{batch_date}
 | System Prompt 人工维护 | 全自动更新导致人格悄无声息漂移 |
 | daily_batch_log 断点续跑 | 跑批崩溃不从头重跑，从断点继续 |
 | Step 1+2 合并入库防重复向量 | temporal_state 归档事件若单独入库会和 daily 语义重叠竞争名额 |
+| Anthropic 1h Prompt Cache 分块 | 固定人设、慢变记忆、chunk 与近期原文前缀分别复用，动态召回不破坏缓存前缀 |
+| tool_executions 独立表 | AI 用过哪些工具有可追溯记录；Context 与 chunk 只读短摘要，长 raw 不直接吞 token |
 
 ---
 
-*文档版本：v2 · 2026-04-19（Step 3.5 三操作·解析失败 raise·外层 3 重试·全败 Telegram；`MEMORY_BLOCK_PRIORITY` 与 `context_builder` 一致）· 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*
+*文档版本：v2 · 2026-04-26（Anthropic 1h Prompt Cache 分块、`tool_executions` 工具执行记录、工具摘要进入 Context 与 chunk 摘要输入；保留 2026-04-19 Step 3.5 三操作·解析失败 raise·外层 3 重试·全败 Telegram；`MEMORY_BLOCK_PRIORITY` 与 `context_builder` 一致）· 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*

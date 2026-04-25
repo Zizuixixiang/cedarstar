@@ -6,13 +6,15 @@
 >
 > **2026-04-20（Tavily `web_search` + `search_summary`，以代码为准）：** **`persona_configs.enable_search_tool`** → **`LLMInterface.enable_search_tool`**；**`.env` `TAVILY_API_KEY`**（**`config.TAVILY_API_KEY`**）→ **`tools/search.py`** **`httpx` POST `https://api.tavily.com/search`**（`max_results=5`，`include_raw_content=false`）；多条 **title / url / content** 拼装后经 **`LLMInterface.generate_with_context`** 使用激活 **`api_configs`**：**`config_type=search_summary`**（`api_key` 与 `base_url` 均非空）优先，否则 **`summary`**，输出 **≤ 约 800 tokens** 高密度摘要；**`execute_search_function_call`** 返回 **`{"summary":…}`** JSON 字符串，失败为 **`{"summary":"暂时无法搜索"}`**。**`memory/database.migrate_database_schema`**：列 **`enable_search_tool`**；**`_ensure_default_search_summary_api_config_row`** 插入占位 **`search_summary`** 行（**`is_active=0`**，名称「搜索摘要模型」）。**`api/settings`**：**`search_summary`** ∈ **`ALLOWED_API_CONFIG_TYPES`**。Mini App **Settings**「搜索摘要」Tab、**Persona**「启用搜索工具」。**`tools/prompts`**：**`OPENAI_SEARCH_TOOLS`**、**`SEARCH_TOOL_DIRECTIVE`**、**`TOOL_DIRECTIVES["search"]`**。**`append_tool_exchange_to_messages`** 的 **`execution_log`** **不记录** **`web_search`**（与天气/微博一致）。**`complete_with_lutopia_tool_loop`** / **Telegram** **`_telegram_stream_thinking_and_reply_with_lutopia`** 在口播条件为真时合并 **Lutopia / 天气 / 微博 / 搜索** tools（**`enable_lutopia` 或 `enable_weather_tool` 或 `enable_weibo_tool` 或 `enable_search_tool`**）。详见 §2、§3.2、§3.3、§3.7、§5.8–§5.9、配置表。
 >
+> **2026-04-26（Anthropic 1h Prompt Cache + 工具执行记录，以代码为准）：** **`memory/context_builder._assemble_full_system_prompt`** 现在返回 Anthropic `text` blocks：固定人设/规则/引用/思维链/工具口播说明、慢变记忆（`temporal_states` / `memory_cards` / `relationship_timeline` / `daily`）与 `chunk` 分别加 **`cache_control={"type":"ephemeral","ttl":"1h"}`**；当前系统时间、最近工具记录与本轮长期记忆召回置于**非缓存尾部**。长期记忆块前加提示：**“以下记忆可能来自过去日期，不代表今天发生；请以条目日期为准。”**；近期原文超过 2 条时会在倒数第 3 条加 1h cache breakpoint，形成冻结上下文前缀。**`llm/llm_interface.py`**：Anthropic 请求保留 system block array，header 使用 **`anthropic-beta: extended-cache-ttl-2025-04-11`**；OpenAI 兼容路径通过 **`_openai_compatible_messages`** 将 text blocks 压回字符串并移除 `cache_control`；Anthropic usage 透传 **`cache_creation_input_tokens`** / **`cache_read_input_tokens`**。**`memory/database`** 新增 **`tool_executions`**（每次工具调用一行，`session_id` / `turn_id` / `seq` / `tool_name` / `arguments_json` / `result_summary` / `result_raw` / `user_message_id` / `assistant_message_id` / `platform` / `created_at`），迁移与索引幂等创建。**`tools/lutopia.py`**：工具结果生成 Context 摘要并落库；超长 raw 回传模型前经 **`tool_result_for_model`** 压成短 JSON，避免长帖/网页吞掉 token。**`complete_with_lutopia_tool_loop`** 与 Telegram 流式 **`append_tool_exchange_to_messages`** 传入 `session_id` / `turn_id` / `user_message_id` 记录工具链路。**`context_builder._build_recent_tool_executions_section`** 将最近 3 个工具回合的短摘要注入非缓存尾部；**`memory/micro_batch`** 在生成 chunk 摘要时读取同一消息范围内的 `tool_executions.result_summary`，避免工具信息在 chunk/daily 记忆链中断档。详见 §3.3、§3.4.2、§3.4.3、§3.7。
+>
 > 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）；**2026-04-09（History / Mini App）**：`GET /api/history` 关键词对 **`COALESCE(content,'')` / `COALESCE(thinking,'')` 子串 `ILIKE`**（`api/history` 与 DB 层均 `strip`）；**`PATCH` / `DELETE /api/history/{message_id}`** 单条编辑删除（`MessageDatabase.update_message_by_id` / `delete_message_by_id`）；前端 History 关键词高亮用 **`split` 捕获组奇数位**（避免 `RegExp.test` + `g` 错乱）、**请求序号**丢弃过期响应；Memory 页加载卡片按 **dimension 保留 `updated_at` 最新一条**（多 `user_id` 时避免旧行覆盖）；**2026-04-10：`context_builder`** 在 `MEMORY_CITATION_DIRECTIVE` / `THINKING_LANGUAGE_DIRECTIVE` 之前注入 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**（多区块冲突时的优先级链），并在引用指令中说明 **`[uid:xxx]` 与 `[[used:xxx]]` 一一对应**；**`format_telegram_reply_segment_hint`** 区分正文 `<blockquote>` / 行首 `>` 与思维链系统占位；**`daily_batch` Step 3**：`_merge_memory_card_contents` 按维度三分支（`interaction_patterns` / `current_status`+`preferences` 覆写 / 其余），`current_status`·`preferences` 合并前将旧卡正文 **`add_memory`** 归档为 **`summary_type=state_archive`**（`doc_id` 形如 `state_{user_id}_{character_id}_{dimension}_{batch_date}`，metadata 含 `source`、`dimension`、`date`）；**关系时间轴**提取 prompt 改为**第三人称**与真实姓名、禁相对日期词
 >
 > **2026-04-11：** **`llm_interface._post_with_retry`**：上游 HTTP **429/503** 最多 **5** 次**立即**重试（共 **6** 次请求，无 sleep）；**Settings** 首次 Token 统计请求 **`period=latest`**；**Memory** 记忆卡片 **查看全文**（`createPortal` 全屏只读层）；**`context_builder` / `micro_batch`** 可恢复路径降为 **WARNING**。详见 §3.3、§3.6、§3.4.2–§3.4.3。**Lutopia（以代码为准）：** `tools/lutopia.py` 论坛/摘要/私信 HTTP 客户端（Bearer 读 `config.lutopia_uid`）；发帖/评论/私信遇 `requires_confirmation` 时自动 `POST .../posts/confirm`；`main.py` 在 `initialize_database()` 后调用 **`ensure_lutopia_dm_send_enabled_on_startup()`**（`GET .../agents/me` 的 `dm_send_enabled` 非 true 则 `POST .../agents/me/dm-settings`）；`tools/prompts.py` 的 **`LUTOPIA_TOOL_DIRECTIVE`** 与 **`OPENAI_LUTOPIA_TOOLS`** 工具名对齐（含 **`lutopia_delete_post`** / **`lutopia_delete_comment`**）；**`execute_lutopia_function_call`** 每次 **`logger.info("[tool]…")`**（args/result 截断）；**`complete_with_lutopia_tool_loop`** 返回 **`LutopiaToolLoopOutcome`**（**`behavior_appendix`** 恒为 `""`，**不**再落库 **`[行为记录]`**；工具执行摘要仅 **`[tool]`** 日志）；助手 **`messages` 落库**为各轮正文换行拼接；**`build_context(..., tool_oral_coaching=True)`** 注入 **`TOOL_ORAL_COACHING_BLOCK`**。Telegram：**`_telegram_lutopia_notify_tool_before`** 仅 **`send_chat_action(typing)`**；**`_telegram_lutopia_send_partial_user_text`** 口播为 **`parse_telegram_segments_with_memes_async` → `_telegram_deliver_ordered_segments`**（与最终正文同：先分段再每段 Markdown→HTML，**无** `reply_to`）；**`_telegram_lutopia_notify_tool_after`** 发 **`✅ 已调用{显示名}`** / **`❌ {显示名}调用失败`**（`parse_mode=None`）。人设 **`persona.enable_lutopia=1`** 时缓冲走 **`_telegram_stream_thinking_and_reply_with_lutopia`**（`generate_stream` + tools）。详见 §3.7。
 >
 > **2026-04-12：** Telegram 助手正文分段：`reply_citations.parse_telegram_segments_with_memes` 在一级 **`|||`** / **`[meme:…]`** 之后对 text 做二级：在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 **`\n`** 拆行，再对超过 **`max_chars`**（与 **`config.telegram_max_chars`** 一致）的切片按句末标点 **`。！？…～!?`** 拆分（标点留在前段末尾；**无句末标点或拆后仍超长则整段保留、不按长度硬切**），仅标点/符号的孤立切片并入前一片，过短段合并（与 **`_is_complete_sentence`** 规则一致；相邻段用**单次换行**拼接），总段数超 **`telegram_max_msg`** 时优先合并「合并后总长最短」的相邻 text 对（无相邻 text 对则回退为从后往前合并 text；**meme** 不合并、不删）；**`markdown_telegram_html.markdown_to_telegram_safe_html`** 在 Markdown / bleach 前后对**单段**字符串做 **`_compact_vertical_whitespace`**（换行与连续水平空白压为单空格等），减轻单条气泡内版式松散；**一级/二级分段**在 **`parse_telegram_segments_with_memes`** 侧先于 Markdown 完成；**`parse_telegram_segments_with_memes_async`** 读 **`config.telegram_max_chars`** 与 **`config.telegram_max_msg`**；**`format_telegram_reply_segment_hint()`** 为 **【Telegram 排版】** 短指令。**（2026-04-19 起：正文中若含 `|||` 则不再执行上述二级与条数合并，见更新条。）** 详见 §3.2、§3.4.2、§5.7。
 >
-> **2026-04-12（记忆管线）：** `context_builder` 的 `_assemble_full_system_prompt` 拼接顺序为 **长期记忆（向量块）→ daily → chunk**（与 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`** 冲突消解规则并列）；精排 **`_memory_age_days`** 以 **`last_access_ts`** 为主，**`created_at`** 仅兜底；日终 Step 2 在 **`save_summary` 写入 daily 成功后** 调用 **`delete_today_chunk_summaries(batch_date)`**（**`<= batch_date` 删 chunk** 见更新条）；仓库内 **`CedarClio_记忆架构完整版_v2.md`** 已对齐。详见 §3.4.2、§3.4.4。
+> **2026-04-12（记忆管线，2026-04-26 缓存改造后拼接顺序见 §3.4.2）：** 当时 `context_builder` 的 `_assemble_full_system_prompt` 拼接顺序为 **长期记忆（向量块）→ daily → chunk**；现已演进为 Anthropic cached text blocks（固定块 / 慢变记忆 / chunk / 动态尾部）与 BP4 近期原文前缀。精排 **`_memory_age_days`** 以 **`last_access_ts`** 为主，**`created_at`** 仅兜底；日终 Step 2 在 **`save_summary` 写入 daily 成功后** 调用 **`delete_today_chunk_summaries(batch_date)`**（**`<= batch_date` 删 chunk** 见更新条）；仓库内 **`CedarClio_记忆架构完整版_v2.md`** 已对齐。详见 §3.4.2、§3.4.4。
 >
 > **2026-04-12（Mini App）：** Dashboard「记忆库概览」内 **`.memory-section`** 在 **`var(--shadow-raised)`** 外再叠 **1px** 淡色闭合描边，与同底父卡区分；**`.memory-overview-grid`** **`overflow: visible`**。Memory 记忆卡片是否显示 **「查看全文」** 由 **`isMemoryCardContentTruncated`**（离屏同宽测高）判定，避免 **`-webkit-line-clamp`** 下 **`scrollHeight` 与 `clientHeight` 误判**漏出按钮。详见 §3.6。
 >
@@ -388,18 +390,20 @@ cedarstar/                          # 项目根目录
 
 #### 3.4.2 `context_builder.py` — Context 组装
 
-**职责：** 在每次 LLM 调用前，将多个记忆来源组装成完整的 `messages` 数组。
+**职责：** 在每次 LLM 调用前，将多个记忆来源组装成完整的 `messages` 数组；Anthropic 路径保留 `system` text block array 以使用 1h Prompt Cache，OpenAI 兼容路径会在 `llm_interface._openai_compatible_messages` 中压平为字符串并移除 `cache_control`。
 
-**组装顺序（优先级从高到低）：**
-1. 包含当前系统时区/时间的 `系统时间块` 提示 + `system_prompt`（来自 `.env` 的 `SYSTEM_PROMPT`）
-2. `temporal_states`（`temporal_states` 表中 `is_active=1` 的全部记录，置于记忆卡片之前）
-3. `memory_cards`（`memory_cards` 表中 `is_active=1` 的记录，按维度分组）
-4. `relationship_timeline`（数据库倒序取最近 3 条，注入 Context 前按 `created_at` 正序排列；紧接记忆卡片之后）
-5. 长期记忆检索（ChromaDB **`retrieval_top_k`** 条 + BM25 同 **`retrieval_top_k`** 条；两路均在 **`memory/retrieval.py`** 按 **`metadata.summary_type` 白名单过滤**：默认 **`daily` / `daily_event` / `manual`**，**不含** **`state_archive`**；当 **`is_retrospect_query(user_message)`**（用户消息命中回溯关键词表）时白名单追加 **`state_archive`**。过滤在 **`context_builder`** 内对本轮 **`user_message`** 计算（**非**独立 gateway 入参）。按 `doc_id` 去重后最多 **`2 × retrieval_top_k`** 条候选；**进入精排前**按 Chroma `metadata.parent_id` 做父子折叠——同一父文档（当日 `daily_*`）与下属 `*_event_*` 片段为一组，组内仅保留语义相似度最高的一条；注入 prompt 时每条正文前带 `[uid:<chroma_doc_id>]` 前缀，与回复末尾引用 `[[used:uid]]` 中的 `uid` 一致）
-6. `daily_summaries`（最近 5 条 `summary_type='daily'` 的摘要，正序）
-7. `chunk_summaries`（**`get_today_chunk_summaries()`** 无参：**`summary_type='chunk'`** 且 **内容日** `COALESCE(source_date::date, created_at::date) <=` 东八区今日，**含尚未被日终卷入的积压 chunk**；全局按 `created_at` 正序）
-8. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`；**`format_user_message_for_context`**：先输出去掉图片/贴纸/语音结构行后的**纯文字**；再按 **`media_type.split(",")` 的顺序**依次调用 `_format_image_part` / `_format_sticker_part` / `_format_voice_part`（主函数仅路由）；**`media_type='reaction'`** 时由 **`_format_reaction_part`** 原样返回 `content`（Bot 已拼好完整语义）。`image_caption` 在 `_format_image_part` 中按**单字符串**处理（未来多图可升级为 JSON 数组）。旧行若无 `media_type`，则按正文出现顺序推断 `image`/`sticker`/`voice`。**`role=assistant`** 条在上述格式化之后、注入 messages 前再经 **`strip_lutopia_behavior_appendix`**，去掉历史 **`[行为记录]`** 后缀（旧库兼容）。**`role=user`** 条在注入 messages 前再经 **`inject_user_sent_at_into_llm_content(..., msg["created_at"])`**，正文首行增加东八区 **`【当前时间：…】`**（**仅 LLM**，库内 **`content` 不变**）
-9. 当前用户消息（可选多模态：`build_context(session_id, user_message, images=..., llm_user_text=..., exclude_message_id=...)`，`images` 非空时由 `build_user_multimodal_content` 组装最后一轮 user content；再由 **`inject_user_sent_at_into_llm_content(..., None)`** 用**当前时刻**注入同上时间行，多模态时写入**首个 text 段**）
+**Anthropic system block 组装与缓存结构（从前到后）：**
+1. **BP1 固定块：** 人设 / 系统规则、`MEMORY_BLOCK_PRIORITY_DIRECTIVE`、引用规则、思维链语言要求，以及可选 `TOOL_ORAL_COACHING_BLOCK`。该块最稳定，末尾带 `cache_control={"type":"ephemeral","ttl":"1h"}`。
+2. **BP2 慢变记忆块：** `temporal_states`、`memory_cards`、`relationship_timeline`、`daily_summaries`。这类内容通常按天或跑批变化，单独缓存可避免本轮召回扰动固定人设块。
+3. **BP3 chunk 块：** `chunk_summaries`（**`get_today_chunk_summaries()`** 无参：**`summary_type='chunk'`** 且 **内容日** `COALESCE(source_date::date, created_at::date) <=` 东八区今日，含尚未被日终卷入的积压 chunk；全局按 `created_at` 正序）。
+4. **非缓存动态尾部：** 当前系统时间、最近工具执行摘要、长期记忆检索结果、历史桥接语。长期记忆块标题为 **`# 本轮召回的相关长期记忆`**，并显式提示 **`以下记忆可能来自过去日期，不代表今天发生；请以条目日期为准。`**
+
+**长期记忆检索：** ChromaDB **`retrieval_top_k`** 条 + BM25 同 **`retrieval_top_k`** 条；两路均在 **`memory/retrieval.py`** 按 **`metadata.summary_type` 白名单过滤**：默认 **`daily` / `daily_event` / `manual`**，**不含** **`state_archive`**；当 **`is_retrospect_query(user_message)`**（用户消息命中回溯关键词表）时白名单追加 **`state_archive`**。过滤在 **`context_builder`** 内对本轮 **`user_message`** 计算（**非**独立 gateway 入参）。按 `doc_id` 去重后最多 **`2 × retrieval_top_k`** 条候选；**进入精排前**按 Chroma `metadata.parent_id` 做父子折叠——同一父文档（当日 `daily_*`）与下属 `*_event_*` 片段为一组，组内仅保留语义相似度最高的一条；注入 prompt 时每条正文前带 `[uid:<chroma_doc_id>]` 前缀，与回复末尾引用 `[[used:uid]]` 中的 `uid` 一致。
+
+**messages 组装：**
+1. 最近消息（当前 session 中 `is_summarized=0` 的最新若干条，正序；条数优先 `config` 表 `short_term_limit`，否则环境变量 `CONTEXT_MAX_RECENT_MESSAGES`；**`format_user_message_for_context`**：先输出去掉图片/贴纸/语音结构行后的**纯文字**；再按 **`media_type.split(",")` 的顺序**依次调用 `_format_image_part` / `_format_sticker_part` / `_format_voice_part`（主函数仅路由）；**`media_type='reaction'`** 时由 **`_format_reaction_part`** 原样返回 `content`（Bot 已拼好完整语义）。`image_caption` 在 `_format_image_part` 中按**单字符串**处理（未来多图可升级为 JSON 数组）。旧行若无 `media_type`，则按正文出现顺序推断 `image`/`sticker`/`voice`。**`role=assistant`** 条在上述格式化之后、注入 messages 前再经 **`strip_lutopia_behavior_appendix`**，去掉历史 **`[行为记录]`** 后缀（旧库兼容）。**`role=user`** 条在注入 messages 前再经 **`inject_user_sent_at_into_llm_content(..., msg["created_at"])`**，正文首行增加东八区 **`【当前时间：…】`**（**仅 LLM**，库内 **`content` 不变**）。
+2. **BP4 近期原文前缀：** 最近消息超过 2 条时，在倒数第 3 条消息上加 1h cache breakpoint，让更早的近期原文形成可复用前缀；最近 2 条与当前消息保持非缓存高新鲜度。
+3. 当前用户消息（可选多模态：`build_context(session_id, user_message, images=..., llm_user_text=..., exclude_message_id=...)`，`images` 非空时由 `build_user_multimodal_content` 组装最后一轮 user content；再由 **`inject_user_sent_at_into_llm_content(..., None)`** 用**当前时刻**注入同上时间行，多模态时写入**首个 text 段**）。
 
 **精排（仅异步路径）：** 并行双路检索并折叠后，对剩余候选调用 Cohere 得到语义相关分；对每条再算时间衰减复活分（`_memory_age_days`：**优先**用 metadata `last_access_ts` 计龄；**仅当缺失或无法解析时**用 `created_at` 兜底）：
 
@@ -415,9 +419,10 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 - 向量路 **`search_memory(..., where=...)`** 与 BM25 路 **`search_bm25(..., allowed_summary_types=...)`** 共用 **`memory.retrieval.chroma_where_longterm_summary_types` / `longterm_allowed_summary_types`**（与上条 **`summary_type`** 白名单一致）
 - 同步版 `build_context()`：双路检索 + 父子折叠，无 Cohere；长期记忆块标题为「双路检索结果」
 - 异步版 `build_context_async()`：并行检索 + 折叠 + Cohere 全候选打分 + 上述融合公式取 top **N**（同上）；`COHERE_API_KEY` 不可用时回退为同步双路逻辑
-- **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**：在 **`system_prompt` 之后、第一个记忆相关块（如 `temporal_states`）之前**注入（多区块信息冲突时：以 **`memory/context_builder.py`** 常量为准——**近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆**；**同类型块内以日期更近的条目为准**；**时效状态 `action_rule`** 与冲突消解的补充说明见代码原文；与上文「向量块 / daily / chunk」**拼接顺序**为不同维度——前者为**冲突消解规则**，后者为**块拼接顺序**）。**`MEMORY_CITATION_DIRECTIVE`** 与 **`THINKING_LANGUAGE_DIRECTIVE`** 仍在 **system 块末尾**（「历史桥接」各块之后）：引用须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应；思维链须中文
+- **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**：在固定 system 缓存块内、系统人设之后注入（多区块信息冲突时：以 **`memory/context_builder.py`** 常量为准——**近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆**；**同类型块内以日期更近的条目为准**；**时效状态 `action_rule`** 与冲突消解的补充说明见代码原文）。该优先级是**冲突消解规则**，与缓存块排列不是同一概念。**`MEMORY_CITATION_DIRECTIVE`** 与 **`THINKING_LANGUAGE_DIRECTIVE`** 同属固定块：引用须文末 `[[used:uid]]`；**勿**用单括号 / 书名号形式；并说明注入块内 **`[uid:xxx]`** 与 **`[[used:xxx]]`** 一一对应；思维链须中文
 - 可选 `telegram_segment_hint=True`（`build_context` / `build_context_async`）：在 system 末尾再追加 **`format_telegram_reply_segment_hint()`**——**【Telegram 排版】**：HTML 白名单、自然换行多气泡、`|||` 可选强制分段、MAX_CHARS / MAX_MSG（`config` 表；**发送侧**二者仅约束**无 `|||`** 时的二级强分）、`[meme:…]` 与顺序说明；正文勿用大段 `<blockquote>` / 行首 `>`（思维链 blockquote 由系统处理）；`|||` 不得出现在思维链；仅 Telegram 缓冲路径启用）
 - 可选 **`tool_oral_coaching=True`**：在 system 末尾追加 **`TOOL_ORAL_COACHING_BLOCK`**（调用工具前口语提示）；与 `telegram_segment_hint` 可并用；**`persona.enable_lutopia`** 且主对话走 OpenAI 兼容 **tools** 时由 **Telegram / Discord** 在 **`build_context`** 调用前置位
+- **工具执行摘要：** `context_builder._build_recent_tool_executions_section` 读取最近 3 个工具回合的 `tool_executions.result_summary`，按 `turn_id` 分组后注入非缓存动态尾部；不会把长帖/网页 raw 直接塞入 Context。
 
 **✅ 已改动（2026-04，以代码为准）：** `_build_system_prompt` 为 **`async def`**：`await get_active_api_config('chat')` 取 **`persona_id`**，再 **`SELECT * FROM persona_configs WHERE id = …`**，正文由 **`build_persona_config_system_body(row)`** 拼装：**【系统规则】**（非空则置于最前）；随后 **`build_char_persona_prompt_sections`**：Char 侧为 **【存在定义】**（`char_name` 锚点句 + `char_identity` + `char_appearance`）、**【内在人格】**、**【表达契约】**、**【关系与形象】**（仅 `char_relationships`）、**【成人内容】**、**【工具与场景】** 等；最后接 **【User 的人设】** 标签行块。与 Mini App 右侧「拼接预览」及 **`GET /api/persona/{id}/preview`** 同源；**不含** Mini App「复制」剪贴板里的 Markdown `#` 大标题（该格式仅便于人工粘贴阅读）。无有效 `persona_id`、行不存在、拼装结果为空或异常时回退 **`config.SYSTEM_PROMPT`**。`build_context` / `build_context_async` 均 **`await self._build_system_prompt()`**。
 
@@ -436,6 +441,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
               ↓（达到阈值，且仅统计 vision_processed=1）
          取出最早的「阈值」条未摘要消息（同样要求 vision_processed=1）
               ↓
+         读取本批消息 id 范围内的 tool_executions.result_summary，整理为【期间工具使用】
+              ↓
          `SummaryLLMInterface` → `LLMInterface.generate_with_context_and_tracking`（`platform=Platform.BATCH`）生成 chunk 摘要
               ↓
          写入 summaries 表（summary_type='chunk'）
@@ -450,6 +457,8 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 **✅ 已改动（2026-04-20）：** **`process_micro_batch`** 在 **`save_summary`** 时传入 **`source_date=chunk_source_date_from_messages(messages)`**（本批最后一条消息时间的东八区日历日），供 Mini App / 日终按内容日筛选与卷入。
 
 **✅ 已改动（2026-04-20）：** **`generate_summary_for_messages`** 先 **`await _resolve_micro_batch_memory_prefix(messages)`**（**`get_memory_cards`** 读 **`current_status` / `relationships`** 各最新激活行 + 关系锚点），传入 **`SummaryLLMInterface.generate_summary(..., memory_prefix=...)`**，插在 **`这是 {char_name} 与 {user_name} 的对话记录。`** 与「请为以下对话生成…摘要」之间；**`get_unsummarized_messages_by_session`** 的 SELECT 含 **`character_id`** 以便按会话对齐记忆卡主键（缺省时 **`_active_character_id_fallback()`**）。
+
+**✅ 已改动（2026-04-26）：** **`generate_summary_for_messages`** 还会调用 **`_resolve_micro_batch_tool_context(messages)`**：按本批消息最小/最大 `messages.id` 读取 **`get_tool_executions_for_message_range`**，把 `tool_name`、`arguments_json` 与 `result_summary` 整理成 **【期间工具使用】** 注入摘要 prompt。这样工具查询结果会进入 chunk / daily 记忆链，而不依赖近期原文里残留的临时上下文。
 
 **✅ CedarClio Guard（2026-04-09）：** `SummaryLLMInterface.generate_summary` 经 **`batch_one_shot_with_async_output_guard`** 生成 chunk 摘要；若 Guard 用尽则**不落库、不标记已摘要**（与 §3.3 一致）。
 
@@ -641,7 +650,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 
 - `services/wx_read.py`：微信读书集成（仅有版本号占位，无实现）
 - `tools/prompts.py`：**`LUTOPIA_TOOL_DIRECTIVE`** / **`WEATHER_TOOL_DIRECTIVE`** / **`WEIBO_HOT_TOOL_DIRECTIVE`** / **`SEARCH_TOOL_DIRECTIVE`** 等与 **`OPENAI_LUTOPIA_TOOLS`** / **`OPENAI_WEATHER_TOOLS`** / **`OPENAI_WEIBO_TOOLS`** / **`OPENAI_SEARCH_TOOLS`** 中 function 名对齐的 system 片段；**`build_tool_system_suffix(enabled)`** 按启用工具包 key 拼接；**`inject_tool_suffix_into_messages`** 将后缀追加到首条可写 `role=system` 消息（Telegram 工具路径注入 `["lutopia"]`、`["weather"]`、`["weibo"]`、**`["search"]`** 等）
-- `tools/lutopia.py`：**Lutopia** 经站方 **MCP**（Python 包 **`mcp`**：`ClientSession` + SSE **`https://daskio.de5.net/mcp/sse`**）。**`OPENAI_LUTOPIA_TOOLS`** 仅 **`lutopia_cli`**（参数 **`command`**，由 MCP 工具 **`cli`** 执行）与 **`lutopia_get_guide`**（**`get_guide`**）。**Bearer** 与论坛一致：读 **`config` 表 `lutopia_uid`**，注入 **`cli`** 调用。**`create_lutopia_mcp_session`** / **`append_tool_exchange_to_messages`**（**`get_weather`** / **`get_weibo_hot`** / **`web_search`** 分别走 **`execute_weather_function_call`** / **`execute_weibo_function_call`** / **`execute_search_function_call`**；可选 **`execution_log`**：**`(name, arguments_json, result_text)`**，**不记录** **`get_weather`**、**`get_weibo_hot`**、**`web_search`**）/ **`execute_lutopia_function_call`**（**`[tool]`** info 日志）。落库旁白：**`lutopia_internal_memory_line`** / **`build_lutopia_internal_memory_appendix`**（**`[系统内部记忆：…]`**；CLI 读操作不生成）。**`strip_lutopia_behavior_appendix`** / **`build_lutopia_behavior_appendix`**（兼容旧 **`[行为记录]`**）；**`strip_lutopia_internal_memory_blocks`** / **`strip_lutopia_user_facing_assistant_text`**。启动时 **`ensure_lutopia_dm_send_enabled_on_startup`**（**`httpx`**：`GET/POST …/forum/api/v1/agents/me`、`dm-settings`）。站方 **`AGENT_GUIDE.md`**（**`https://daskio.de5.net/AGENT_GUIDE.md`**）
+- `tools/lutopia.py`：**Lutopia** 经站方 **MCP**（Python 包 **`mcp`**：`ClientSession` + SSE **`https://daskio.de5.net/mcp/sse`**）。**`OPENAI_LUTOPIA_TOOLS`** 仅 **`lutopia_cli`**（参数 **`command`**，由 MCP 工具 **`cli`** 执行）与 **`lutopia_get_guide`**（**`get_guide`**）。**Bearer** 与论坛一致：读 **`config` 表 `lutopia_uid`**，注入 **`cli`** 调用。**`create_lutopia_mcp_session`** / **`append_tool_exchange_to_messages`**（**`get_weather`** / **`get_weibo_hot`** / **`web_search`** 分别走 **`execute_weather_function_call`** / **`execute_weibo_function_call`** / **`execute_search_function_call`**）/ **`execute_lutopia_function_call`**（**`[tool]`** info 日志）。**工具执行记录（2026-04-26）：** `append_tool_exchange_to_messages` 与 `complete_with_lutopia_tool_loop` 传入 `session_id` / `turn_id` / `user_message_id` 后，每次工具调用通过 **`save_tool_execution_record`** 写入 **`tool_executions`**；一轮多个工具是多行、以 `turn_id + seq` 排序。**`summarize_tool_result_for_context`** 生成短摘要，**`tool_result_for_model`** 在 raw 超长（约 6000 字符以上）时回传压缩 JSON，避免长帖/网页直接进入当前模型上下文。落库旁白：**`lutopia_internal_memory_line`** / **`build_lutopia_internal_memory_appendix`**（**`[系统内部记忆：…]`**；CLI 读操作不生成）。**`strip_lutopia_behavior_appendix`** / **`build_lutopia_behavior_appendix`**（兼容旧 **`[行为记录]`**）；**`strip_lutopia_internal_memory_blocks`** / **`strip_lutopia_user_facing_assistant_text`**。启动时 **`ensure_lutopia_dm_send_enabled_on_startup`**（**`httpx`**：`GET/POST …/forum/api/v1/agents/me`、`dm-settings`）。站方 **`AGENT_GUIDE.md`**（**`https://daskio.de5.net/AGENT_GUIDE.md`**）
 - `tools/meme.py`：**`search_meme`** / **`search_meme_async`** 调 `meme_store` 向量检索（**Telegram 有序段发表情走 `search_meme_async`**，以便 `await` 读库内 embedding 配置）；**`send_meme`** 为异步，需传入 Telegram `bot` 与 `chat_id`。不在 LLM 请求中注册为 tools；Telegram 在解析助手正文中的 **`[meme:…]`** 后调用（见 `bot/telegram_bot.py`、`bot/reply_citations.py`）
 - `tools/weather.py`：**`fetch_weather`** / **`execute_weather_function_call`**（**`get_weather`**），复用 **`api.weather.fetch_weather_cached`**；**`role=tool`** 内容为 **JSON 对象字符串**（如 **`{"summary":…}`**），满足 Gemini 等网关对工具返回 **Struct** 的要求
 - `tools/weibo.py`：**`fetch_weibo_hot_summary_text`** / **`execute_weibo_function_call`**（**`get_weibo_hot`**）；**GET** **`weibo.com/ajax/side/hotSearch`**（**`httpx`**），**`Cookie`** = **`config.WEIBO_COOKIE`**（**`.env` `WEIBO_COOKIE`**）；成功结果进程内缓存；**`role=tool`** 为 **`{"summary":…}`** JSON 字符串
@@ -1086,7 +1095,30 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 ---
 
-### 5.12 `daily_batch_log` — 日终跑批日志表
+### 5.12 `tool_executions` — 工具执行记录表
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | SERIAL PK | 自增主键 |
+| `session_id` | TEXT NOT NULL | 会话 ID |
+| `turn_id` | TEXT NOT NULL | 同一轮工具链路 ID；一轮内多个工具共享同一 `turn_id` |
+| `seq` | INTEGER NOT NULL | 同一 `turn_id` 内的调用顺序，从 0 递增 |
+| `tool_name` | TEXT NOT NULL | 工具名，如 `lutopia_cli` / `get_weather` / `web_search` |
+| `arguments_json` | TEXT | 工具参数 JSON 字符串 |
+| `result_summary` | TEXT | 给模型和后续摘要使用的短摘要 |
+| `result_raw` | TEXT | 原始结果，最多保留约 50000 字符，供排查与重摘要 |
+| `user_message_id` | INTEGER | 触发本轮的用户 `messages.id`（尽力关联） |
+| `assistant_message_id` | INTEGER | 助手消息 `messages.id`（当前可为空，预留回填） |
+| `platform` | TEXT | 来源平台 |
+| `created_at` | TIMESTAMP | 写入时间 |
+
+**索引：** `(session_id, created_at DESC)`、`(turn_id, seq)`、`(user_message_id)`。
+
+**语义：** 每次工具调用写一行，而不是一轮写一条 JSON 大包；同一轮多个工具靠 `turn_id + seq` 保持顺序。`context_builder` 只注入 `result_summary`，`micro_batch` 生成 chunk 时读取同一消息范围内的工具摘要，避免模型忘记自己查过什么；`result_raw` 不直接进入常规 Context，避免长帖/网页吞掉 Prompt Cache 节省的 token。
+
+---
+
+### 5.13 `daily_batch_log` — 日终跑批日志表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -1112,7 +1144,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ---
 
-### 5.13 `sticker_cache` — Telegram 贴纸描述缓存表
+### 5.14 `sticker_cache` — Telegram 贴纸描述缓存表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -1126,7 +1158,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 
 ---
 
-### 5.14 `meme_pack` — 表情包元数据表
+### 5.15 `meme_pack` — 表情包元数据表
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
