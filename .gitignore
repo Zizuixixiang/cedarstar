@@ -225,3 +225,6 @@ memes.txt
 # Claude Code
 CLAUDE.md
 .claude/
+
+# Codex local notes
+.codex/
