@@ -18,6 +18,7 @@ import traceback
 import threading
 import requests
 import uuid
+import random
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 # 添加当前目录到 Python 路径，确保可以导入本地模块
@@ -75,6 +76,7 @@ from memory.database import (
     VISION_FAIL_CAPTION_SHORT,
     VISION_FAIL_CAPTION_TIMEOUT,
     get_assistant_content_for_platform_message_id,
+    get_recent_image_messages,
     get_database,
     save_message,
 )
@@ -111,6 +113,17 @@ _TELEGRAM_PLAIN_TRUNC_SUFFIX = "（已截断）"
 _TELEGRAM_STREAM_GENERIC_ERROR = "抱歉，生成回复时出错了，请稍后再试。"
 # Guard 用尽或仍拒答时的情境兜底（避免向用户展示模型安全拒答原文）
 _TELEGRAM_GUARD_ROLEPLAY_FALLBACK = "……刚才有点走神，我们继续吧。"
+_RECENT_IMAGE_COMPARE_KEYWORDS = (
+    "对比",
+    "比一比",
+    "上面",
+    "之前那张",
+    "刚才那张",
+    "哪个好看",
+    "和刚才",
+    "上一张",
+    "前一张",
+)
 
 
 def _telegram_user_visible_model_error(
@@ -428,6 +441,16 @@ class TelegramBot:
         pending_rescan.add(session_id)
         await _schedule_rescan_timeout(context.bot, session_id, chat_id)
 
+    async def silent_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await get_database().set_config("group_chat_silent_mode", "1")
+        if update.message:
+            await update.message.reply_text("已进入群聊静默模式")
+
+    async def wake_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        await get_database().set_config("group_chat_silent_mode", "0")
+        if update.message:
+            await update.message.reply_text("已退出群聊静默模式")
+
     MAX_IMAGE_BYTES = 10 * 1024 * 1024
     # 语音：Bot 侧拒绝下载超过 50MB（Telegram 侧上限）；下载后超过 25MB 再拦截以符合 Whisper API 限制
     MAX_VOICE_DOWNLOAD_BYTES = 50 * 1024 * 1024
@@ -450,6 +473,11 @@ class TelegramBot:
             return
         message = update.message
         session_id = f"telegram_{message.chat.id}"
+        if await self._handle_group_bot_message(update, context, message, session_id):
+            return
+        if await get_database().get_config("group_chat_silent_mode", "0") == "1":
+            if getattr(message.chat, "type", "") in ("group", "supergroup"):
+                return
         if session_id in pending_rescan and not message.sticker:
             _cancel_rescan_timeout_task(session_id)
             pending_rescan.discard(session_id)
@@ -473,6 +501,8 @@ class TelegramBot:
         content = message.text
 
         logger.info(f"收到 Telegram 消息: chat_id={chat_id}, user_id={user_id}, 内容长度={len(content)}")
+        if getattr(message.chat, "type", "") in ("group", "supergroup"):
+            await get_database().set_group_chat_round_count(str(chat_id), 0)
         logger.info(
             "[TG路径追踪] 入口 handle_message(纯文本) session_id=%s -> MessageBuffer.add_to_buffer；"
             "buffer_delay 到期后 MessageBuffer 回调 _flush_buffered_messages -> _generate_reply_from_buffer",
@@ -481,6 +511,101 @@ class TelegramBot:
 
         # 将消息添加到缓冲区
         await self._add_to_buffer(update, context, session_id, message, content, user_id, message_id)
+
+    async def _handle_group_bot_message(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        message,
+        session_id: str,
+    ) -> bool:
+        """群聊中记录另一名 bot，并按 @/概率插话触发回复。"""
+        chat_type = getattr(message.chat, "type", "")
+        sender = getattr(message, "from_user", None)
+        if chat_type not in ("group", "supergroup") or not sender or not getattr(sender, "is_bot", False):
+            return False
+        try:
+            me = await context.bot.get_me()
+            if getattr(me, "id", None) == getattr(sender, "id", None):
+                return True
+        except Exception:
+            me = None
+
+        content = (message.text or message.caption or "").strip()
+        if not content:
+            return True
+        db = get_database()
+        other_name = getattr(sender, "username", None) or getattr(sender, "first_name", None) or "other_bot"
+        await save_message(
+            session_id=session_id,
+            role="assistant_other",
+            content=content,
+            user_id=str(getattr(sender, "id", "unknown")),
+            channel_id=str(message.chat.id),
+            message_id=str(message.message_id),
+            character_id=other_name,
+            platform=Platform.TELEGRAM,
+            vision_processed=1,
+        )
+        asyncio.create_task(trigger_micro_batch_check(session_id))
+
+        if await db.get_config("group_chat_silent_mode", "0") == "1":
+            return True
+        max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
+        round_count = await db.get_group_chat_round_count(str(message.chat.id))
+        if round_count >= max_rounds:
+            return True
+
+        me_username = (getattr(me, "username", "") or "").lower() if me else ""
+        mentioned = bool(me_username and f"@{me_username}" in content.lower())
+        interject = False
+        if not mentioned and await db.get_config("group_chat_interject_enabled", "0") == "1":
+            try:
+                prob = float(await db.get_config("group_chat_interject_probability", "0.2") or 0.2)
+            except (TypeError, ValueError):
+                prob = 0.2
+            interject = random.random() < max(0.0, min(1.0, prob))
+        if not mentioned and not interject:
+            return True
+
+        delta = 1 if mentioned else 2
+        if round_count + delta > max_rounds:
+            return True
+        await db.increment_group_chat_round_count(str(message.chat.id), delta)
+        prompt = (
+            f"[另一名助手 {other_name} 的发言]：{content}\n\n"
+            "请自然接话，避免重复对方内容。"
+        )
+        gen = await self._generate_reply_from_buffer(
+            session_id=session_id,
+            combined_raw=prompt,
+            combined_content=prompt,
+            user_id=str(getattr(sender, "id", "unknown")),
+            chat_id=str(message.chat.id),
+            message_id=str(message.message_id),
+            buffer_messages=[{
+                "message": message,
+                "context": context,
+                "user_id": str(getattr(sender, "id", "unknown")),
+                "message_id": str(message.message_id),
+            }],
+            base_message=message,
+            bot=context.bot,
+            persist_user=False,
+        )
+        if gen.persist_assistant and gen.reply.strip():
+            await save_message(
+                session_id=session_id,
+                role="assistant",
+                content=gen.reply,
+                user_id=str(getattr(sender, "id", "unknown")),
+                channel_id=str(message.chat.id),
+                message_id=gen.assistant_message_id or f"ai_{message.message_id}",
+                character_id=gen.character_id,
+                platform=Platform.TELEGRAM,
+                thinking=gen.thinking,
+            )
+        return True
 
     async def _handle_photo_message(
         self,
@@ -527,6 +652,7 @@ class TelegramBot:
                     "data": b64,
                     "caption": caption,
                     "mime_type": mime,
+                    "platform_file_id": photo.file_id,
                 }
                 await self._message_buffer.add_to_buffer(
                     session_id,
@@ -536,6 +662,7 @@ class TelegramBot:
                         "message": message,
                         "content": "",
                         "image_payload": image_payload,
+                        "platform_file_id": photo.file_id,
                         "user_id": user_id,
                         "message_id": message_id,
                         "timestamp": asyncio.get_event_loop().time(),
@@ -1801,6 +1928,83 @@ class TelegramBot:
             )
         return out
 
+    async def _should_attach_recent_images(
+        self,
+        session_id: str,
+        current_text: str,
+    ) -> bool:
+        """判断当前文本是否需要临时带上近期图片历史。"""
+        rows = await get_recent_image_messages(session_id, limit=5)
+        if not rows:
+            return False
+        text = (current_text or "").strip()
+        if any(k in text for k in _RECENT_IMAGE_COMPARE_KEYWORDS):
+            return True
+        captions = []
+        for row in rows:
+            cap = (row.get("image_caption") or row.get("content") or "").strip()
+            if cap:
+                captions.append(f"- {cap[:180]}")
+        if not captions or not text:
+            return False
+        prompt = (
+            "判断当前用户消息是否需要查看近期图片才能回答。只输出 yes 或 no。\n\n"
+            f"当前用户消息：{text}\n\n近期图片说明：\n" + "\n".join(captions)
+        )
+        try:
+            llm = LLMInterface(config_type="summary")
+            ans = await asyncio.to_thread(llm.generate_simple, prompt)
+            return str(ans or "").strip().lower().startswith("yes")
+        except Exception as e:
+            logger.debug("近期图片引用判断失败，按不附加处理: %s", exc_detail(e))
+            return False
+
+    async def _load_recent_telegram_image_payloads(
+        self,
+        bot,
+        session_id: str,
+        *,
+        limit: int = 3,
+    ) -> List[Dict[str, Any]]:
+        """按 platform_file_id 临时下载近期图片并转为 LLM image payload；失败静默跳过。"""
+        if bot is None:
+            return []
+        rows = await get_recent_image_messages(session_id, limit=limit)
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            fid = row.get("platform_file_id")
+            if not fid:
+                continue
+            try:
+                tg_file = await bot.get_file(fid)
+                try:
+                    data = await tg_file.download_as_bytearray()
+                except AttributeError:
+                    bio = io.BytesIO()
+                    await tg_file.download_to_memory(bio)
+                    data = bio.getvalue()
+                path = (tg_file.file_path or "").lower()
+                mime = "image/jpeg"
+                if path.endswith(".png"):
+                    mime = "image/png"
+                elif path.endswith(".webp"):
+                    mime = "image/webp"
+                elif path.endswith(".gif"):
+                    mime = "image/gif"
+                caption = (row.get("image_caption") or "").strip()
+                out.append(
+                    {
+                        "type": "image",
+                        "data": base64.b64encode(bytes(data)).decode("ascii"),
+                        "mime_type": mime,
+                        "caption": caption,
+                        "platform_file_id": fid,
+                    }
+                )
+            except Exception as e:
+                logger.debug("近期图片下载失败，跳过 file_id=%s: %s", fid, exc_detail(e))
+        return out
+
     async def _generate_reply_from_buffer(
         self,
         session_id: str,
@@ -1814,6 +2018,7 @@ class TelegramBot:
         text_for_llm: Optional[str] = None,
         base_message=None,
         bot=None,
+        persist_user: bool = True,
     ) -> _BufferGenResult:
         """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条）。用户消息在调用上游模型之前落库，避免模型报错时丢失。"""
         try:
@@ -1822,22 +2027,34 @@ class TelegramBot:
             try:
                 has_img = bool(images)
                 media_t = ordered_media_type_from_buffer(buffer_messages)
-                user_row_id = await save_message(
-                    session_id=session_id,
-                    role="user",
-                    content=combined_raw,
-                    user_id=user_id,
-                    channel_id=chat_id,
-                    message_id=message_id,
-                    character_id=llm.character_id,
-                    platform=Platform.TELEGRAM,
-                    media_type=media_t,
-                    image_caption=None,
-                    vision_processed=0 if has_img else 1,
-                    is_summarized=_telegram_user_content_error_fallback_is_summarized(
-                        combined_raw
-                    ),
-                )
+                platform_file_id = None
+                for bm in buffer_messages:
+                    if bm.get("platform_file_id"):
+                        platform_file_id = bm.get("platform_file_id")
+                        break
+                    ip = bm.get("image_payload") or {}
+                    if isinstance(ip, dict) and ip.get("platform_file_id"):
+                        platform_file_id = ip.get("platform_file_id")
+                        break
+                user_row_id = None
+                if persist_user:
+                    user_row_id = await save_message(
+                        session_id=session_id,
+                        role="user",
+                        content=combined_raw,
+                        user_id=user_id,
+                        channel_id=chat_id,
+                        message_id=message_id,
+                        character_id=llm.character_id,
+                        platform=Platform.TELEGRAM,
+                        media_type=media_t,
+                        image_caption=None,
+                        vision_processed=0 if has_img else 1,
+                        platform_file_id=platform_file_id,
+                        is_summarized=_telegram_user_content_error_fallback_is_summarized(
+                            combined_raw
+                        ),
+                    )
                 if has_img and user_row_id:
                     schedule_generate_image_caption(
                         user_row_id,
@@ -1861,10 +2078,29 @@ class TelegramBot:
             oral = (
                 lutopia_on or weather_on or weibo_on or search_on
             ) and not is_anthropic
+            llm_images = images or None
+            if not llm_images and bot is not None:
+                need_recent_images = await self._should_attach_recent_images(
+                    session_id,
+                    text_for_llm or combined_content,
+                )
+                if need_recent_images:
+                    recent_images = await self._load_recent_telegram_image_payloads(
+                        bot,
+                        session_id,
+                        limit=3,
+                    )
+                    if recent_images:
+                        llm_images = recent_images
+                        if text_for_llm:
+                            text_for_llm = (
+                                text_for_llm
+                                + "\n\n[系统提示：已临时附上近期图片用于对比/指代理解。]"
+                            )
             context = await build_context(
                 session_id,
                 combined_content,
-                images=images or None,
+                images=llm_images,
                 llm_user_text=text_for_llm or None,
                 telegram_segment_hint=True,
                 tool_oral_coaching=oral,
@@ -2506,6 +2742,8 @@ class TelegramBot:
             self.application.add_handler(
                 CommandHandler("rescanpic", self.rescanpic_command)
             )
+            self.application.add_handler(CommandHandler("silent", self.silent_command))
+            self.application.add_handler(CommandHandler("wake", self.wake_command))
 
             # 添加消息处理器
             self.application.add_handler(
@@ -2531,6 +2769,8 @@ class TelegramBot:
                 BotCommand("model", "当前模型信息"),
                 BotCommand("clear", "清除对话历史"),
                 BotCommand("rescanpic", "重新识别贴纸图片"),
+                BotCommand("silent", "群聊静默"),
+                BotCommand("wake", "唤醒群聊回复"),
             ]
             # 多 scope 注册：仅 Default 时部分私聊/群聊里 `/` 可能不弹出补全
             for _scope in (

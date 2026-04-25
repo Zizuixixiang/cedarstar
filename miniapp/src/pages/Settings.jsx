@@ -2,7 +2,7 @@
  * 核心设置页面
  * API 配置管理 + Token 消耗统计
  */
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { apiFetch } from '../apiBase';
@@ -69,10 +69,29 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
   });
   const [showKey, setShowKey] = useState(false);
   const [modelOptions, setModelOptions] = useState(initial?.model ? [initial.model] : []);
+  const [favoriteModels, setFavoriteModels] = useState([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const fetchFavorites = useCallback(async (baseUrl = form.base_url) => {
+    if (!baseUrl.trim()) {
+      setFavoriteModels([]);
+      return;
+    }
+    try {
+      const res = await apiFetch(`/api/settings/model-favorites?base_url=${encodeURIComponent(baseUrl.trim())}`);
+      const data = await res.json();
+      if (data.success) setFavoriteModels(data.data || []);
+    } catch {
+      setFavoriteModels([]);
+    }
+  }, [form.base_url]);
+
+  useEffect(() => {
+    fetchFavorites(form.base_url);
+  }, [form.base_url, fetchFavorites]);
 
   const handleFetchModels = async () => {
     if (!form.api_key || !form.base_url) {
@@ -99,6 +118,31 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
       setFetchingModels(false);
     }
   };
+
+  const handleFavoriteModel = async () => {
+    if (!form.base_url.trim() || !form.model.trim()) {
+      toast.warning('请先填写 Base URL 和模型');
+      return;
+    }
+    const res = await apiFetch('/api/settings/model-favorites', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base_url: form.base_url.trim(), model: form.model.trim() }),
+    });
+    const data = await res.json();
+    if (data.success) {
+      toast.success('✓ 已收藏模型', { autoClose: 1600 });
+      fetchFavorites(form.base_url);
+    } else {
+      toast.error(data.message || '收藏失败');
+    }
+  };
+
+  const mergedModelOptions = Array.from(new Set([
+    ...favoriteModels.map((x) => x.model),
+    ...modelOptions,
+    ...(form.model ? [form.model] : []),
+  ].filter(Boolean)));
 
   const handleSave = async () => {
     if (!form.name.trim()) { toast.warning('请填写配置名称'); return; }
@@ -235,11 +279,11 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
           <div className="modal-field">
             <label className="modal-label">模型</label>
             <div className="modal-model-row">
-              {modelOptions.length > 0 ? (
+              {mergedModelOptions.length > 0 ? (
                 <select className="modal-select" value={form.model}
                   onChange={e => set('model', e.target.value)}>
                   <option value="">请选择模型</option>
-                  {modelOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                  {mergedModelOptions.map(m => <option key={m} value={m}>{m}</option>)}
                 </select>
               ) : (
                 <input className="modal-input" value={form.model}
@@ -252,6 +296,9 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
                 disabled={fetchingModels}
               >
                 {fetchingModels ? <span className="spin">⟳</span> : '获取模型列表'}
+              </button>
+              <button className="clear-models-btn" onClick={handleFavoriteModel}>
+                收藏
               </button>
             </div>
             {modelOptions.length > 0 && (
@@ -424,6 +471,18 @@ function Settings() {
       color: PLATFORM_COLOR[key.toLowerCase()] || '#b794f4',
     }))
     .sort((a, b) => b.value - a.value);
+  const configGroups = useMemo(() => {
+    const map = new Map();
+    for (const cfg of configs) {
+      const key = cfg.base_url || '未设置 URL';
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(cfg);
+    }
+    return Array.from(map.entries()).map(([baseUrl, items]) => ({
+      baseUrl,
+      items: items.sort((a, b) => Number(b.is_active || 0) - Number(a.is_active || 0)),
+    }));
+  }, [configs]);
 
   if (isLoading) {
     return (
@@ -493,7 +552,10 @@ function Settings() {
           </div>
         ) : (
           <div className="config-list">
-            {configs.map(cfg => (
+            {configGroups.map(group => (
+              <div key={group.baseUrl} className="provider-group">
+                <div className="provider-group-title">{group.baseUrl}</div>
+                {group.items.map(cfg => (
               <div key={cfg.id} className={`config-row ${cfg.is_active ? 'active-row' : ''}`}>
                 {/* 左：名称 + 激活标签 */}
                 <div className="cfg-left">
@@ -537,6 +599,8 @@ function Settings() {
                     </>
                   )}
                 </div>
+              </div>
+                ))}
               </div>
             ))}
           </div>

@@ -12,6 +12,7 @@ import {
   ScrollText,
   SlidersHorizontal,
   KeyRound,
+  Activity,
 } from 'lucide-react'
 import Dashboard from './pages/Dashboard.jsx'
 import Persona from './pages/Persona.jsx'
@@ -20,6 +21,7 @@ import History from './pages/History.jsx'
 import Logs from './pages/Logs.jsx'
 import Config from './pages/Config.jsx'
 import Settings from './pages/Settings.jsx'
+import Observability from './pages/Observability.jsx'
 
 /**
  * 导航菜单配置
@@ -33,6 +35,7 @@ export const navItems = [
   { Icon: ScrollText, text: '系统日志', path: '/logs' },
   { Icon: SlidersHorizontal, text: '助手配置', path: '/config', dividerBefore: true },
   { Icon: KeyRound, text: '核心设置', path: '/settings' },
+  { Icon: Activity, text: '调用观测', path: '/observability' },
 ]
 
 /**
@@ -46,5 +49,6 @@ export const routes = [
   { path: '/logs', element: <Logs /> },
   { path: '/config', element: <Config /> },
   { path: '/settings', element: <Settings /> },
+  { path: '/observability', element: <Observability /> },
   { path: '*', element: <Navigate to="/" replace /> },
 ]

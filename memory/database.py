@@ -192,6 +192,72 @@ async def _ensure_tool_executions_table(conn) -> None:
     )
 
 
+async def _ensure_token_usage_cache_columns(conn) -> None:
+    """为 token_usage 补齐多供应商缓存统计字段（幂等）。"""
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cached_tokens INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cache_write_tokens INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cache_hit_tokens INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cache_miss_tokens INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cache_creation_input_tokens INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS cache_read_input_tokens INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS raw_usage_json JSONB"
+    )
+
+
+async def _ensure_message_platform_file_id_column(conn) -> None:
+    """Telegram 图片历史重建：保存可重新下载的 file_id。"""
+    await conn.execute(
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS platform_file_id TEXT"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_messages_platform_file_id "
+        "ON messages (platform_file_id) WHERE platform_file_id IS NOT NULL"
+    )
+
+
+async def _ensure_summaries_group_column(conn) -> None:
+    await conn.execute(
+        "ALTER TABLE summaries ADD COLUMN IF NOT EXISTS is_group INTEGER DEFAULT 0"
+    )
+
+
+async def _ensure_group_chat_state_table(conn) -> None:
+    """群聊多 Bot：每个 chat 保存连续 bot 互聊轮数。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS group_chat_state (
+            chat_id TEXT PRIMARY KEY,
+            round_count INTEGER NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+
+
+async def _ensure_model_favorites_table(conn) -> None:
+    """Mini App API 配置页使用的按供应商收藏模型表。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS model_favorites (
+            id SERIAL PRIMARY KEY,
+            base_url TEXT NOT NULL,
+            model TEXT NOT NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            UNIQUE(base_url, model)
+        )
+    """)
+
+
 async def _config_insert_defaults_if_missing(
     conn, defaults: List[Tuple[str, str]]
 ) -> None:
@@ -290,6 +356,11 @@ async def migrate_database_schema(conn) -> None:
     await _backfill_daily_batch_step45_legacy_once(conn)
     await _messages_ensure_vision_columns(conn)
     await _ensure_tool_executions_table(conn)
+    await _ensure_token_usage_cache_columns(conn)
+    await _ensure_message_platform_file_id_column(conn)
+    await _ensure_summaries_group_column(conn)
+    await _ensure_group_chat_state_table(conn)
+    await _ensure_model_favorites_table(conn)
 
     await conn.execute(
         "ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT"
@@ -382,6 +453,14 @@ async def migrate_database_schema(conn) -> None:
         ),
         "CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs (created_at)",
         "CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage (created_at)",
+        (
+            "CREATE INDEX IF NOT EXISTS idx_token_usage_platform_created "
+            "ON token_usage (platform, created_at)"
+        ),
+        (
+            "CREATE INDEX IF NOT EXISTS idx_token_usage_model_created "
+            "ON token_usage (model, created_at)"
+        ),
     ]
     for sql in index_statements:
         await conn.execute(sql)
@@ -392,6 +471,10 @@ async def migrate_database_schema(conn) -> None:
             ("telegram_max_chars", "50"),
             ("telegram_max_msg", "8"),
             ("gc_exempt_hits_threshold", "10"),
+            ("group_chat_silent_mode", "0"),
+            ("group_chat_max_rounds", "3"),
+            ("group_chat_interject_enabled", "0"),
+            ("group_chat_interject_probability", "0.2"),
         ],
     )
 
@@ -478,7 +561,8 @@ class MessageDatabase:
                         thinking TEXT,
                         media_type TEXT,
                         image_caption TEXT,
-                        vision_processed INTEGER NOT NULL DEFAULT 1
+                        vision_processed INTEGER NOT NULL DEFAULT 1,
+                        platform_file_id TEXT
                     )
                 """)
 
@@ -506,7 +590,8 @@ class MessageDatabase:
                         end_message_id INTEGER NOT NULL,
                         created_at TIMESTAMP DEFAULT NOW(),
                         summary_type TEXT DEFAULT 'chunk',
-                        source_date TIMESTAMP
+                        source_date TIMESTAMP,
+                        is_group INTEGER DEFAULT 0
                     )
                 """)
 
@@ -547,7 +632,14 @@ class MessageDatabase:
                         prompt_tokens INTEGER DEFAULT 0,
                         completion_tokens INTEGER DEFAULT 0,
                         total_tokens INTEGER DEFAULT 0,
-                        model TEXT
+                        model TEXT,
+                        cached_tokens INTEGER DEFAULT 0,
+                        cache_write_tokens INTEGER DEFAULT 0,
+                        cache_hit_tokens INTEGER DEFAULT 0,
+                        cache_miss_tokens INTEGER DEFAULT 0,
+                        cache_creation_input_tokens INTEGER DEFAULT 0,
+                        cache_read_input_tokens INTEGER DEFAULT 0,
+                        raw_usage_json JSONB
                     )
                 """)
 
@@ -804,6 +896,7 @@ class MessageDatabase:
         vision_processed: Optional[int] = None,
         is_summarized: int = 0,
         thinking: Optional[str] = None,
+        platform_file_id: Optional[str] = None,
     ) -> int:
         """
         保存一条消息到数据库。
@@ -821,19 +914,20 @@ class MessageDatabase:
         plat = None if platform is None else str(platform)
         mt = None if media_type is None else str(media_type)
         tking = None if thinking is None else str(thinking)
+        pfid = None if platform_file_id is None else str(platform_file_id)
         async with self.pool.acquire() as conn:
             new_id = await conn.fetchval(
                 """
                 INSERT INTO messages (
                     role, content, session_id, user_id, channel_id, message_id,
                     character_id, platform, media_type, image_caption, vision_processed,
-                    is_summarized, thinking
+                    is_summarized, thinking, platform_file_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
                 RETURNING id
                 """,
                 role, content, session_id, uid, cid, mid,
-                chrid, plat, mt, image_caption, vp, is_sum, tking,
+                chrid, plat, mt, image_caption, vp, is_sum, tking, pfid,
             )
         logger.debug(
             "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, "
@@ -1392,6 +1486,7 @@ class MessageDatabase:
         end_message_id: int,
         summary_type: str = "chunk",
         source_date: Optional[date] = None,
+        is_group: int = 0,
     ) -> int:
         """保存对话摘要，返回插入 ID。source_date 默认当天；日终跑批传入 batch_date 以便按日历日查询。"""
         if summary_type not in {"chunk", "daily"}:
@@ -1404,13 +1499,13 @@ class MessageDatabase:
                 """
                 INSERT INTO summaries (
                     session_id, summary_text, start_message_id, end_message_id,
-                    summary_type, source_date
+                    summary_type, source_date, is_group
                 )
-                VALUES ($1, $2, $3, $4, $5, $6)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING id
                 """,
                 session_id, summary_text, start_message_id, end_message_id,
-                summary_type, sd,
+                summary_type, sd, int(is_group),
             )
         logger.debug(
             "保存摘要成功: ID=%s, session=%s, type=%s", summary_id, session_id, summary_type
@@ -1455,6 +1550,43 @@ class MessageDatabase:
             "summary_type": row["summary_type"],
             "source_date": _norm(row["source_date"]),
         }
+
+    async def get_daily_summaries_by_date(
+        self, batch_date: str
+    ) -> List[Dict[str, Any]]:
+        """按 source_date 日历日取当天所有 daily 摘要，供分会话 daily batch 后续步骤合并使用。"""
+        try:
+            d = date.fromisoformat(str(batch_date).strip())
+        except ValueError:
+            logger.warning("get_daily_summaries_by_date: 无效日期 %s", batch_date)
+            return []
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, session_id, summary_text, start_message_id, end_message_id,
+                       created_at, summary_type, source_date, is_group
+                FROM summaries
+                WHERE summary_type = 'daily'
+                  AND source_date IS NOT NULL
+                  AND source_date::date = $1::date
+                ORDER BY session_id ASC, created_at DESC
+                """,
+                d,
+            )
+        return [
+            {
+                "id": r["id"],
+                "session_id": r["session_id"],
+                "summary_text": r["summary_text"],
+                "start_message_id": r["start_message_id"],
+                "end_message_id": r["end_message_id"],
+                "created_at": _norm(r["created_at"]),
+                "summary_type": r["summary_type"],
+                "source_date": _norm(r["source_date"]),
+                "is_group": r["is_group"],
+            }
+            for r in rows
+        ]
 
     async def get_summaries_filtered(
         self,
@@ -1591,7 +1723,7 @@ class MessageDatabase:
                 rows = await conn.fetch(
                     """
                     SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                           created_at, summary_type
+                           created_at, summary_type, is_group
                     FROM summaries
                     WHERE session_id = $1 AND summary_type = $2
                     ORDER BY created_at DESC
@@ -1603,7 +1735,7 @@ class MessageDatabase:
                 rows = await conn.fetch(
                     """
                     SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                           created_at, summary_type
+                           created_at, summary_type, is_group
                     FROM summaries
                     WHERE session_id = $1
                     ORDER BY created_at DESC
@@ -1620,6 +1752,7 @@ class MessageDatabase:
                 "end_message_id": r["end_message_id"],
                 "created_at": _norm(r["created_at"]),
                 "summary_type": r["summary_type"],
+                "is_group": r["is_group"],
             }
             for r in rows
         ]
@@ -1741,19 +1874,27 @@ class MessageDatabase:
         logger.debug("获取所有激活记忆卡片: count=%s", len(cards))
         return cards
 
-    async def get_recent_daily_summaries(self, limit: int = 5) -> List[Dict[str, Any]]:
-        """获取最近的每日摘要（全局查询，按 created_at 倒序）。"""
+    async def get_recent_daily_summaries(
+        self, limit: int = 5, session_id: Optional[str] = None
+    ) -> List[Dict[str, Any]]:
+        """获取最近的每日摘要；传 session_id 时仅取当前会话。"""
+        params: List[Any] = []
+        where = "WHERE summary_type = 'daily'"
+        if session_id:
+            params.append(session_id)
+            where += f" AND session_id = ${len(params)}"
+        params.append(limit)
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type
+                       created_at, summary_type, is_group
                 FROM summaries
-                WHERE summary_type = 'daily'
+                {where}
                 ORDER BY created_at DESC
-                LIMIT $1
+                LIMIT ${len(params)}
                 """,
-                limit,
+                *params,
             )
         summaries = [
             {
@@ -1899,7 +2040,8 @@ class MessageDatabase:
             rows = await conn.fetch(
                 """
                 SELECT id, role, content, created_at, session_id, user_id, channel_id,
-                       media_type, image_caption, vision_processed
+                       media_type, image_caption, vision_processed, character_id,
+                       platform_file_id
                 FROM messages
                 WHERE session_id = $1 AND is_summarized = 0
                 ORDER BY created_at DESC
@@ -1919,6 +2061,8 @@ class MessageDatabase:
                 "media_type": r["media_type"],
                 "image_caption": r["image_caption"],
                 "vision_processed": r["vision_processed"],
+                "character_id": r["character_id"],
+                "platform_file_id": r["platform_file_id"],
             }
             for r in rows
         ]
@@ -1927,6 +2071,64 @@ class MessageDatabase:
             "获取会话 %s 的最新未摘要消息（正序）: %s 条", session_id, len(messages)
         )
         return messages
+
+    async def get_recent_image_messages(
+        self, session_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """取近期可重新下载的 Telegram 图片消息。"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, content, created_at, image_caption, platform_file_id
+                FROM messages
+                WHERE session_id = $1
+                  AND platform_file_id IS NOT NULL
+                  AND platform_file_id <> ''
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                session_id,
+                max(1, int(limit)),
+            )
+        return [_r(r) for r in rows]
+
+    async def get_group_chat_round_count(self, chat_id: str) -> int:
+        async with self.pool.acquire() as conn:
+            val = await conn.fetchval(
+                "SELECT round_count FROM group_chat_state WHERE chat_id = $1",
+                str(chat_id),
+            )
+        return int(val or 0)
+
+    async def set_group_chat_round_count(self, chat_id: str, round_count: int) -> None:
+        async with self.pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO group_chat_state (chat_id, round_count, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    round_count = EXCLUDED.round_count,
+                    updated_at = NOW()
+                """,
+                str(chat_id),
+                max(0, int(round_count)),
+            )
+
+    async def increment_group_chat_round_count(self, chat_id: str, delta: int = 1) -> int:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO group_chat_state (chat_id, round_count, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (chat_id) DO UPDATE SET
+                    round_count = group_chat_state.round_count + EXCLUDED.round_count,
+                    updated_at = NOW()
+                RETURNING round_count
+                """,
+                str(chat_id),
+                max(0, int(delta)),
+            )
+        return int(row["round_count"] if row else 0)
 
     # ------------------------------------------------------------------
     # daily_batch_log
@@ -2480,16 +2682,38 @@ class MessageDatabase:
         total_tokens: int,
         model: str,
         platform: Optional[str] = None,
+        cached_tokens: int = 0,
+        cache_write_tokens: int = 0,
+        cache_hit_tokens: int = 0,
+        cache_miss_tokens: int = 0,
+        cache_creation_input_tokens: int = 0,
+        cache_read_input_tokens: int = 0,
+        raw_usage: Optional[Dict[str, Any]] = None,
     ) -> int:
         """保存 token 使用量，返回插入 ID。"""
         async with self.pool.acquire() as conn:
             usage_id = await conn.fetchval(
                 """
-                INSERT INTO token_usage (platform, prompt_tokens, completion_tokens, total_tokens, model)
-                VALUES ($1, $2, $3, $4, $5)
+                INSERT INTO token_usage (
+                    platform, prompt_tokens, completion_tokens, total_tokens, model,
+                    cached_tokens, cache_write_tokens, cache_hit_tokens, cache_miss_tokens,
+                    cache_creation_input_tokens, cache_read_input_tokens, raw_usage_json
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
                 RETURNING id
                 """,
-                platform, prompt_tokens, completion_tokens, total_tokens, model,
+                platform,
+                prompt_tokens,
+                completion_tokens,
+                total_tokens,
+                model,
+                int(cached_tokens or 0),
+                int(cache_write_tokens or 0),
+                int(cache_hit_tokens or 0),
+                int(cache_miss_tokens or 0),
+                int(cache_creation_input_tokens or 0),
+                int(cache_read_input_tokens or 0),
+                json.dumps(raw_usage, ensure_ascii=False) if raw_usage is not None else None,
             )
         logger.debug(
             "保存 token 使用量成功: ID=%s, model=%s, total_tokens=%s",
@@ -2509,7 +2733,10 @@ class MessageDatabase:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 f"""
-                SELECT total_tokens, prompt_tokens, completion_tokens, platform
+                SELECT total_tokens, prompt_tokens, completion_tokens, platform,
+                       cached_tokens, cache_write_tokens, cache_hit_tokens,
+                       cache_miss_tokens, cache_creation_input_tokens,
+                       cache_read_input_tokens, model, created_at
                 FROM token_usage
                 {base_cond}
                 ORDER BY created_at DESC
@@ -2520,6 +2747,9 @@ class MessageDatabase:
             if not row:
                 return {
                     "total_tokens": 0, "prompt_tokens": 0, "completion_tokens": 0,
+                    "cached_tokens": 0, "cache_write_tokens": 0,
+                    "cache_hit_tokens": 0, "cache_miss_tokens": 0,
+                    "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0,
                     "call_count": 0, "by_platform": {}
                 }
             
@@ -2528,6 +2758,14 @@ class MessageDatabase:
                 "total_tokens": row[0] or 0,
                 "prompt_tokens": row[1] or 0,
                 "completion_tokens": row[2] or 0,
+                "cached_tokens": row[4] or 0,
+                "cache_write_tokens": row[5] or 0,
+                "cache_hit_tokens": row[6] or 0,
+                "cache_miss_tokens": row[7] or 0,
+                "cache_creation_input_tokens": row[8] or 0,
+                "cache_read_input_tokens": row[9] or 0,
+                "model": row[10],
+                "created_at": _norm(row[11]),
                 "call_count": 1,
                 "by_platform": {p: row[0] or 0},
             }
@@ -2552,7 +2790,11 @@ class MessageDatabase:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 f"""
-                SELECT SUM(total_tokens), SUM(prompt_tokens), SUM(completion_tokens), COUNT(*)
+                SELECT SUM(total_tokens), SUM(prompt_tokens), SUM(completion_tokens),
+                       SUM(cached_tokens), SUM(cache_write_tokens),
+                       SUM(cache_hit_tokens), SUM(cache_miss_tokens),
+                       SUM(cache_creation_input_tokens), SUM(cache_read_input_tokens),
+                       COUNT(*)
                 FROM token_usage {base_cond}
                 """,
                 *params,
@@ -2560,7 +2802,13 @@ class MessageDatabase:
             total = row[0] or 0
             prompt = row[1] or 0
             completion = row[2] or 0
-            count = row[3] or 0
+            cached = row[3] or 0
+            cache_write = row[4] or 0
+            cache_hit = row[5] or 0
+            cache_miss = row[6] or 0
+            cache_creation = row[7] or 0
+            cache_read = row[8] or 0
+            count = row[9] or 0
 
             rows_bp = await conn.fetch(
                 f"""
@@ -2579,9 +2827,212 @@ class MessageDatabase:
             "total_tokens": total,
             "prompt_tokens": prompt,
             "completion_tokens": completion,
+            "cached_tokens": cached,
+            "cache_write_tokens": cache_write,
+            "cache_hit_tokens": cache_hit,
+            "cache_miss_tokens": cache_miss,
+            "cache_creation_input_tokens": cache_creation,
+            "cache_read_input_tokens": cache_read,
             "call_count": count,
             "by_platform": by_platform,
         }
+
+    async def get_token_observability_stats(
+        self, start_date, platform: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """返回 Mini App 观测页使用的 token/cache 聚合数据。"""
+        dt_start: _dt.datetime = (
+            start_date if isinstance(start_date, _dt.datetime)
+            else _dt.datetime.fromisoformat(str(start_date))
+        )
+        idx = 2
+        base_cond = "WHERE created_at >= $1"
+        params: List[Any] = [dt_start]
+        if platform:
+            base_cond += f" AND platform = ${idx}"
+            params.append(platform)
+            idx += 1
+
+        sum_sql = f"""
+            SELECT SUM(total_tokens), SUM(prompt_tokens), SUM(completion_tokens),
+                   SUM(cached_tokens), SUM(cache_write_tokens),
+                   SUM(cache_hit_tokens), SUM(cache_miss_tokens),
+                   SUM(cache_creation_input_tokens), SUM(cache_read_input_tokens),
+                   COUNT(*)
+            FROM token_usage {base_cond}
+        """
+        by_platform_sql = f"""
+            SELECT COALESCE(platform, 'unknown') AS platform,
+                   SUM(total_tokens) AS total_tokens,
+                   SUM(prompt_tokens) AS prompt_tokens,
+                   SUM(completion_tokens) AS completion_tokens,
+                   SUM(cached_tokens) AS cached_tokens,
+                   SUM(cache_write_tokens) AS cache_write_tokens,
+                   SUM(cache_hit_tokens) AS cache_hit_tokens,
+                   SUM(cache_miss_tokens) AS cache_miss_tokens,
+                   COUNT(*) AS call_count
+            FROM token_usage {base_cond}
+            GROUP BY COALESCE(platform, 'unknown')
+            ORDER BY total_tokens DESC
+        """
+        by_model_sql = f"""
+            SELECT COALESCE(model, 'unknown') AS model,
+                   SUM(total_tokens) AS total_tokens,
+                   SUM(prompt_tokens) AS prompt_tokens,
+                   SUM(completion_tokens) AS completion_tokens,
+                   SUM(cached_tokens) AS cached_tokens,
+                   SUM(cache_write_tokens) AS cache_write_tokens,
+                   SUM(cache_hit_tokens) AS cache_hit_tokens,
+                   SUM(cache_miss_tokens) AS cache_miss_tokens,
+                   COUNT(*) AS call_count
+            FROM token_usage {base_cond}
+            GROUP BY COALESCE(model, 'unknown')
+            ORDER BY total_tokens DESC
+            LIMIT 20
+        """
+        by_day_sql = f"""
+            SELECT created_at::date AS day,
+                   SUM(total_tokens) AS total_tokens,
+                   SUM(prompt_tokens) AS prompt_tokens,
+                   SUM(completion_tokens) AS completion_tokens,
+                   SUM(cached_tokens) AS cached_tokens,
+                   SUM(cache_write_tokens) AS cache_write_tokens,
+                   SUM(cache_hit_tokens) AS cache_hit_tokens,
+                   SUM(cache_miss_tokens) AS cache_miss_tokens,
+                   COUNT(*) AS call_count
+            FROM token_usage {base_cond}
+            GROUP BY created_at::date
+            ORDER BY day DESC
+            LIMIT 31
+        """
+        recent_sql = f"""
+            SELECT id, created_at, platform, model, prompt_tokens,
+                   completion_tokens, total_tokens, cached_tokens,
+                   cache_write_tokens, cache_hit_tokens, cache_miss_tokens,
+                   cache_creation_input_tokens, cache_read_input_tokens,
+                   raw_usage_json
+            FROM token_usage {base_cond}
+            ORDER BY created_at DESC
+            LIMIT 50
+        """
+
+        async with self.pool.acquire() as conn:
+            totals = await conn.fetchrow(sum_sql, *params)
+            rows_platform = await conn.fetch(by_platform_sql, *params)
+            rows_model = await conn.fetch(by_model_sql, *params)
+            rows_day = await conn.fetch(by_day_sql, *params)
+            recent_rows = await conn.fetch(recent_sql, *params)
+
+        prompt_tokens = (totals[1] or 0) if totals else 0
+        cached_total = ((totals[3] or 0) + (totals[5] or 0) + (totals[8] or 0)) if totals else 0
+        cache_input_base = prompt_tokens + cached_total
+        cache_hit_rate = (cached_total / cache_input_base) if cache_input_base > 0 else 0
+        return {
+            "totals": {
+                "total_tokens": (totals[0] or 0) if totals else 0,
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": (totals[2] or 0) if totals else 0,
+                "cached_tokens": (totals[3] or 0) if totals else 0,
+                "cache_write_tokens": (totals[4] or 0) if totals else 0,
+                "cache_hit_tokens": (totals[5] or 0) if totals else 0,
+                "cache_miss_tokens": (totals[6] or 0) if totals else 0,
+                "cache_creation_input_tokens": (totals[7] or 0) if totals else 0,
+                "cache_read_input_tokens": (totals[8] or 0) if totals else 0,
+                "call_count": (totals[9] or 0) if totals else 0,
+                "cache_hit_rate": cache_hit_rate,
+            },
+            "by_platform": [_r(r) for r in rows_platform],
+            "by_model": [_r(r) for r in rows_model],
+            "by_day": [_r(r) for r in rows_day],
+            "recent": [_r(r) for r in recent_rows],
+        }
+
+    async def list_recent_tool_executions(
+        self,
+        *,
+        limit: int = 50,
+        platform: Optional[str] = None,
+        session_id: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
+        """按时间倒序列出最近工具调用，供 Mini App 展示。"""
+        conditions: List[str] = []
+        params: List[Any] = []
+        if platform:
+            params.append(platform)
+            conditions.append(f"platform = ${len(params)}")
+        if session_id:
+            params.append(session_id)
+            conditions.append(f"session_id = ${len(params)}")
+        where_sql = "WHERE " + " AND ".join(conditions) if conditions else ""
+        params.append(max(1, min(200, int(limit))))
+        limit_ref = f"${len(params)}"
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT id, session_id, turn_id, seq, tool_name, arguments_json,
+                       result_summary, result_raw, user_message_id,
+                       assistant_message_id, platform, created_at
+                FROM tool_executions
+                {where_sql}
+                ORDER BY created_at DESC, id DESC
+                LIMIT {limit_ref}
+                """,
+                *params,
+            )
+        out: List[Dict[str, Any]] = []
+        for row in rows:
+            item = _r(row)
+            raw = item.get("result_raw")
+            if raw is not None:
+                raw_s = str(raw)
+                item["result_raw_length"] = len(raw_s)
+                item["result_raw_preview"] = raw_s[:4000]
+                item.pop("result_raw", None)
+            else:
+                item["result_raw_length"] = 0
+                item["result_raw_preview"] = ""
+            out.append(item)
+        return out
+
+    async def list_model_favorites(self, base_url: Optional[str] = None) -> List[Dict[str, Any]]:
+        params: List[Any] = []
+        where = ""
+        if base_url:
+            params.append(str(base_url).rstrip("/"))
+            where = "WHERE base_url = $1"
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT id, base_url, model, created_at
+                FROM model_favorites
+                {where}
+                ORDER BY base_url ASC, model ASC
+                """,
+                *params,
+            )
+        return [_r(r) for r in rows]
+
+    async def add_model_favorite(self, base_url: str, model: str) -> int:
+        async with self.pool.acquire() as conn:
+            fid = await conn.fetchval(
+                """
+                INSERT INTO model_favorites (base_url, model)
+                VALUES ($1, $2)
+                ON CONFLICT (base_url, model) DO UPDATE SET model = EXCLUDED.model
+                RETURNING id
+                """,
+                str(base_url).rstrip("/"),
+                str(model).strip(),
+            )
+        return int(fid)
+
+    async def delete_model_favorite(self, favorite_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM model_favorites WHERE id = $1",
+                int(favorite_id),
+            )
+        return _rowcount(status) > 0
 
     # ------------------------------------------------------------------
     # messages: thinking
@@ -3460,6 +3911,7 @@ async def save_message(
     vision_processed: Optional[int] = None,
     is_summarized: int = 0,
     thinking: Optional[str] = None,
+    platform_file_id: Optional[str] = None,
 ) -> int:
     # 与 MessageDatabase.save_message 一致：asyncpg TEXT 绑定必须为 str
     uid = None if user_id is None else str(user_id)
@@ -3482,6 +3934,7 @@ async def save_message(
         vision_processed,
         is_summarized,
         thinking,
+        platform_file_id,
     )
 
 
@@ -3587,6 +4040,7 @@ async def save_summary(
     end_message_id: int,
     summary_type: str = "chunk",
     source_date: Optional[date] = None,
+    is_group: int = 0,
 ) -> int:
     return await get_database().save_summary(
         session_id,
@@ -3595,6 +4049,7 @@ async def save_summary(
         end_message_id,
         summary_type,
         source_date,
+        is_group,
     )
 
 
@@ -3602,6 +4057,10 @@ async def get_daily_summary_by_date(
     batch_date: str,
 ) -> Optional[Dict[str, Any]]:
     return await get_database().get_daily_summary_by_date(batch_date)
+
+
+async def get_daily_summaries_by_date(batch_date: str) -> List[Dict[str, Any]]:
+    return await get_database().get_daily_summaries_by_date(batch_date)
 
 
 async def get_summaries_filtered(
@@ -3788,8 +4247,10 @@ async def get_all_active_memory_cards(limit: int = 100) -> List[Dict[str, Any]]:
     return await get_database().get_all_active_memory_cards(limit)
 
 
-async def get_recent_daily_summaries(limit: int = 5) -> List[Dict[str, Any]]:
-    return await get_database().get_recent_daily_summaries(limit)
+async def get_recent_daily_summaries(
+    limit: int = 5, session_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    return await get_database().get_recent_daily_summaries(limit, session_id)
 
 
 async def get_today_chunk_summaries(
@@ -3832,6 +4293,24 @@ async def get_tool_executions_for_message_range(
     return await get_database().get_tool_executions_for_message_range(
         session_id, start_message_id, end_message_id
     )
+
+
+async def get_token_observability_stats(
+    start_date, platform: Optional[str] = None
+) -> Dict[str, Any]:
+    return await get_database().get_token_observability_stats(start_date, platform)
+
+
+async def list_recent_tool_executions(
+    *, limit: int = 50, platform: Optional[str] = None, session_id: Optional[str] = None
+) -> List[Dict[str, Any]]:
+    return await get_database().list_recent_tool_executions(
+        limit=limit, platform=platform, session_id=session_id
+    )
+
+
+async def get_recent_image_messages(session_id: str, limit: int = 5) -> List[Dict[str, Any]]:
+    return await get_database().get_recent_image_messages(session_id, limit)
 
 
 # ---------------------------------------------------------------------------

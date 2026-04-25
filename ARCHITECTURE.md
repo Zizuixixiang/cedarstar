@@ -8,6 +8,11 @@
 >
 > **2026-04-26（Anthropic 1h Prompt Cache + 工具执行记录，以代码为准）：** **`memory/context_builder._assemble_full_system_prompt`** 现在返回 Anthropic `text` blocks：固定人设/规则/引用/思维链/工具口播说明、慢变记忆（`temporal_states` / `memory_cards` / `relationship_timeline` / `daily`）与 `chunk` 分别加 **`cache_control={"type":"ephemeral","ttl":"1h"}`**；当前系统时间、最近工具记录与本轮长期记忆召回置于**非缓存尾部**。长期记忆块前加提示：**“以下记忆可能来自过去日期，不代表今天发生；请以条目日期为准。”**；近期原文超过 2 条时会在倒数第 3 条加 1h cache breakpoint，形成冻结上下文前缀。**`llm/llm_interface.py`**：Anthropic 请求保留 system block array，header 使用 **`anthropic-beta: extended-cache-ttl-2025-04-11`**；OpenAI 兼容路径通过 **`_openai_compatible_messages`** 将 text blocks 压回字符串并移除 `cache_control`；Anthropic usage 透传 **`cache_creation_input_tokens`** / **`cache_read_input_tokens`**。**`memory/database`** 新增 **`tool_executions`**（每次工具调用一行，`session_id` / `turn_id` / `seq` / `tool_name` / `arguments_json` / `result_summary` / `result_raw` / `user_message_id` / `assistant_message_id` / `platform` / `created_at`），迁移与索引幂等创建。**`tools/lutopia.py`**：工具结果生成 Context 摘要并落库；超长 raw 回传模型前经 **`tool_result_for_model`** 压成短 JSON，避免长帖/网页吞掉 token。**`complete_with_lutopia_tool_loop`** 与 Telegram 流式 **`append_tool_exchange_to_messages`** 传入 `session_id` / `turn_id` / `user_message_id` 记录工具链路。**`context_builder._build_recent_tool_executions_section`** 将最近 3 个工具回合的短摘要注入非缓存尾部；**`memory/micro_batch`** 在生成 chunk 摘要时读取同一消息范围内的 `tool_executions.result_summary`，避免工具信息在 chunk/daily 记忆链中断档。详见 §3.3、§3.4.2、§3.4.3、§3.7。
 >
+> **2026-04-26（多模型缓存观测 + Mini App 调用观测，以代码为准）：** **`llm/llm_interface._normalize_usage_for_storage`** 将 OpenRouter / OpenAI / Anthropic / DeepSeek / Z.AI GLM 的 usage 统一落到 **`token_usage`**：通用 **`prompt_tokens` / `completion_tokens` / `total_tokens`**，OpenRouter / OpenAI / GLM 的 **`prompt_tokens_details.cached_tokens` / `cache_write_tokens`**，DeepSeek 官方 **`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`**，Anthropic Messages **`cache_creation_input_tokens` / `cache_read_input_tokens`** 与 `cache_creation` 明细，并保存 **`raw_usage_json`** 供排查。**Claude / Anthropic-compatible** 继续使用显式 `cache_control` blocks；**DeepSeek / GLM** 不注入 Anthropic 专用 cache blocks，仅依赖供应商自动缓存并保持稳定前缀、动态尾部。新增 **`api/observability.py`**：**`GET /api/observability/usage`**（按 period/platform 聚合 token/cache、按平台/模型/日期分组、最近调用）与 **`GET /api/observability/tool-executions`**（最近工具调用，raw 只给截断预览）。Mini App 新增 **`Observability.jsx`** / **`observability.css`** 与侧栏「调用观测」页面，展示通用 token、缓存读写/命中估算、最近工具执行与摘要/raw 预览；页面不内置价格表，避免价格过期。详见 §2、§5.11、§7.4。
+>
+> **2026-04-26（多模型图片、群聊与配置交互修正，以代码为准）：** OpenRouter 上的 Claude 不再因模型名含 `claude` 强制走 Anthropic `/messages`，而走 OpenAI-compatible `/chat/completions`；仅 **OpenRouter+Claude** 在该路径保留 text block `cache_control`，其它 OpenAI 兼容模型仍 flatten 并移除 Anthropic 专用字段。思维链提取补齐 `message.reasoning_content` / `reasoning` / `thinking` / content thinking blocks，覆盖 GLM / DeepSeek / Claude / Gemini 常见网关形态。**`api/settings`** 的 `week` 改为东八区自然周；**`api/weather`** 缓存不再把展示城市写入共享缓存体。Telegram 分段在 Markdown ``` 代码围栏内不按换行或句末标点切分。**`messages.platform_file_id`** 支持 Telegram 图片历史重建；当前消息疑似引用近期图片时，临时下载最近图片并附加到本轮 LLM 请求，不落盘。新增 **`group_chat_state`**、群聊静默/互聊上限/插话概率配置与 `/silent` `/wake`；`assistant_other` 进入 Context 时包装为另一名助手发言。Mini App Config 支持半小时日终时刻（`0` 至 `23.5`），Settings 按 Base URL 分组 API 配置并支持模型收藏。详见 §3.2、§3.4.2、§5.1、§5.11、§7.4。
+> **2026-04-26（收口修订，以代码为准）：** 多模态入参在 `llm/llm_interface.build_user_multimodal_content` 统一剥离重复 `data:*;base64,` 前缀并规范 `image/jpg → image/jpeg`；Anthropic 直连仍用 `image.source`，OpenRouter Claude / GLM 等 OpenAI-compatible 网关用规范 `image_url.url`，且仅 text block 可保留 OpenRouter Claude 的 `cache_control`。`daily_batch` Step 2 现按 `summaries.session_id` 分组生成 daily 小传，群聊 session 标记 `is_group=1`；Step 3/3.5/4 通过合并同日所有 per-session daily 继续兼容现有长期记忆流水线。`config.daily_batch_hour` 是 `0.0–23.5` 的半小时粒度浮点值，Mini App 的 00:00 与 23:30 均可选择。
+>
 > 生成时间：2026-03-22（后续随代码演进修订；2026-04 起：Telegram webhook、`ENABLE_DISCORD`、日终 cron、`/webhook/telegram` 等与实现对齐；2026-04-07：Token 流式补记、daily_batch await 修复、asyncpg datetime 类型修复、Settings 平台进度条动态化、History 气泡配色、resync_meme_chroma 异步化、Telegram 思维链发送开关、每日跑批提取得分与 JSON 重试机制增强、Context 系统时间注入；Telegram 引用回复感知（`_extract_reply_prefix`）、MessageBuffer `combined_raw`/`combined_content` 分离；2026-04-08：`memory.database` 模块便捷函数 `save_message` 补齐 **`thinking`** 转发（与 `MessageDatabase.save_message` 一致，避免 Bot 传入 `thinking=` 时 `TypeError` 致助手行未入库）；Telegram `_flush_buffered_messages` 在 `persist_assistant` 时无首条正文 Telegram `message_id` 则 **`message_id` 用 `ai_{本轮用户消息 id}`**，并与「无 id 时的纯文本兜底 `reply_text`」分支配合；**表情包表与导入**：`migrate_database_schema` 对 `meme_pack` 删除历史 `idx_meme_pack_name_unique`（若存在）、按 **url** 去重（保留最小 `id`）后建 **`idx_meme_pack_url_unique`**；`insert_meme_pack` 为 **ON CONFLICT (url) DO UPDATE**；**`fetch_meme_pack_by_url`**；**`meme_store.has_meme_id`**；**`scripts/import_memes.py`**：默认并发 **5**、视觉 **429** 指数退避重试、url 已在 PG 则不调 vision（Chroma 已有同 id 则整行跳过；Chroma 缺文档则用 PG 的 `description`/`name` 调用 **`upsert_meme_async`** 补向量）；**2026-04-09：CedarClio 输出 Guard**（多标签思维链剥离、未闭合长度保底、Telegram 同步重试与情境兜底、异步摘要 `batch_one_shot_with_async_output_guard`、Step4 `coerce_score_and_arousal_defaults`；**详见 §3.3**）；**2026-04-09（History / Mini App）**：`GET /api/history` 关键词对 **`COALESCE(content,'')` / `COALESCE(thinking,'')` 子串 `ILIKE`**（`api/history` 与 DB 层均 `strip`）；**`PATCH` / `DELETE /api/history/{message_id}`** 单条编辑删除（`MessageDatabase.update_message_by_id` / `delete_message_by_id`）；前端 History 关键词高亮用 **`split` 捕获组奇数位**（避免 `RegExp.test` + `g` 错乱）、**请求序号**丢弃过期响应；Memory 页加载卡片按 **dimension 保留 `updated_at` 最新一条**（多 `user_id` 时避免旧行覆盖）；**2026-04-10：`context_builder`** 在 `MEMORY_CITATION_DIRECTIVE` / `THINKING_LANGUAGE_DIRECTIVE` 之前注入 **`MEMORY_BLOCK_PRIORITY_DIRECTIVE`**（多区块冲突时的优先级链），并在引用指令中说明 **`[uid:xxx]` 与 `[[used:xxx]]` 一一对应**；**`format_telegram_reply_segment_hint`** 区分正文 `<blockquote>` / 行首 `>` 与思维链系统占位；**`daily_batch` Step 3**：`_merge_memory_card_contents` 按维度三分支（`interaction_patterns` / `current_status`+`preferences` 覆写 / 其余），`current_status`·`preferences` 合并前将旧卡正文 **`add_memory`** 归档为 **`summary_type=state_archive`**（`doc_id` 形如 `state_{user_id}_{character_id}_{dimension}_{batch_date}`，metadata 含 `source`、`dimension`、`date`）；**关系时间轴**提取 prompt 改为**第三人称**与真实姓名、禁相对日期词
 >
 > **2026-04-11：** **`llm_interface._post_with_retry`**：上游 HTTP **429/503** 最多 **5** 次**立即**重试（共 **6** 次请求，无 sleep）；**Settings** 首次 Token 统计请求 **`period=latest`**；**Memory** 记忆卡片 **查看全文**（`createPortal` 全屏只读层）；**`context_builder` / `micro_batch`** 可恢复路径降为 **WARNING**。详见 §3.3、§3.6、§3.4.2–§3.4.3。**Lutopia（以代码为准）：** `tools/lutopia.py` 论坛/摘要/私信 HTTP 客户端（Bearer 读 `config.lutopia_uid`）；发帖/评论/私信遇 `requires_confirmation` 时自动 `POST .../posts/confirm`；`main.py` 在 `initialize_database()` 后调用 **`ensure_lutopia_dm_send_enabled_on_startup()`**（`GET .../agents/me` 的 `dm_send_enabled` 非 true 则 `POST .../agents/me/dm-settings`）；`tools/prompts.py` 的 **`LUTOPIA_TOOL_DIRECTIVE`** 与 **`OPENAI_LUTOPIA_TOOLS`** 工具名对齐（含 **`lutopia_delete_post`** / **`lutopia_delete_comment`**）；**`execute_lutopia_function_call`** 每次 **`logger.info("[tool]…")`**（args/result 截断）；**`complete_with_lutopia_tool_loop`** 返回 **`LutopiaToolLoopOutcome`**（**`behavior_appendix`** 恒为 `""`，**不**再落库 **`[行为记录]`**；工具执行摘要仅 **`[tool]`** 日志）；助手 **`messages` 落库**为各轮正文换行拼接；**`build_context(..., tool_oral_coaching=True)`** 注入 **`TOOL_ORAL_COACHING_BLOCK`**。Telegram：**`_telegram_lutopia_notify_tool_before`** 仅 **`send_chat_action(typing)`**；**`_telegram_lutopia_send_partial_user_text`** 口播为 **`parse_telegram_segments_with_memes_async` → `_telegram_deliver_ordered_segments`**（与最终正文同：先分段再每段 Markdown→HTML，**无** `reply_to`）；**`_telegram_lutopia_notify_tool_after`** 发 **`✅ 已调用{显示名}`** / **`❌ {显示名}调用失败`**（`parse_mode=None`）。人设 **`persona.enable_lutopia=1`** 时缓冲走 **`_telegram_stream_thinking_and_reply_with_lutopia`**（`generate_stream` + tools）。详见 §3.7。
@@ -124,6 +129,7 @@ cedarstar/                          # 项目根目录
 │   ├── weather.py                  # 天气：`fetch_weather_cached`（和风 `HEFENG_*`）；供 HTTP 与 `tools/weather.get_weather` 共用
 │   ├── sensor.py                   # 传感器事件写入/查询（表 `sensor_events`）
 │   ├── autonomous.py               # 自主日记 CRUD（表 `autonomous_diary`）
+│   ├── observability.py            # 调用观测：token/cache 聚合与工具执行列表（供 Mini App「调用观测」页）
 │   └── webhook.py                  # Telegram Bot API webhook：`POST /webhook/telegram`（由 main 直接挂到 app，无 /api 前缀；校验 Secret-Token 后后台 `process_update`）
 │
 ├── bot/                            # 聊天机器人层
@@ -179,7 +185,7 @@ cedarstar/                          # 项目根目录
 │       ├── apiBase.js              # `apiUrl()` / `API_BASE_URL`（`VITE_API_BASE_URL`）；`apiFetch()` 自动带 `Content-Type: application/json` 与 `X-Cedarstar-Token`（`VITE_MINIAPP_TOKEN`，须与后端 `MINIAPP_TOKEN` 一致）
 │       ├── main.jsx                # React 应用入口，挂载根组件
 │       ├── App.jsx                 # 根组件（响应式侧边栏导航 + 路由出口，支持移动端抽屉式菜单）
-│       ├── router.jsx              # 路由配置（7 个页面；`navItems` 含可选 `dividerBefore`；显式 import React）
+│       ├── router.jsx              # 路由配置（8 个页面；`navItems` 含可选 `dividerBefore`；显式 import React）
 │       ├── pages/                  # 页面组件
 │       │   ├── Dashboard.jsx       # 控制台概览页（status / memory-overview / batch-log，顶栏与日历、记忆 KPI）
 │       │   ├── Persona.jsx         # 人设配置页（角色/用户信息 CRUD；Lutopia / 天气 / 微博 / **网页搜索**工具开关）
@@ -187,7 +193,8 @@ cedarstar/                          # 项目根目录
 │       │   ├── History.jsx         # 对话历史页（聊天气泡布局 + 筛选，见 §3.6）
 │       │   ├── Logs.jsx            # 系统日志页（筛选含时间范围；消息预览+查看全文；分页在容器外）
 │       │   ├── Config.jsx          # 助手配置页（运行参数滑块 + Telegram 分段 telegram_max_chars / telegram_max_msg，见 §3.6）
-│       │   └── Settings.jsx        # 核心设置页（API 配置管理：`chat` / `summary` / `vision` / `stt` / `embedding` / **`search_summary`** + Token 统计）
+│       │   ├── Settings.jsx        # 核心设置页（API 配置管理：`chat` / `summary` / `vision` / `stt` / `embedding` / **`search_summary`** + Token 统计）
+│       │   └── Observability.jsx   # 调用观测页（token/cache 多模型统计 + `tool_executions` 最近记录与 raw 截断预览）
 │       └── styles/                 # CSS 样式文件（每个页面对应一个 CSS 文件）
 │           ├── global.css          # 全局样式
 │           ├── sidebar.css         # 侧边栏样式
@@ -197,7 +204,8 @@ cedarstar/                          # 项目根目录
 │           ├── history.css         # 历史页样式
 │           ├── logs.css            # 日志页样式
 │           ├── config.css          # 配置页样式
-│           └── settings.css        # 设置页样式
+│           ├── settings.css        # 设置页样式
+│           └── observability.css   # 调用观测页样式
 │
 ├── portal/                         # 独立前端（React + Vite），生产 base `/daily/`；`GET /daily/*` 由 main 提供 `portal/dist`
 │   ├── vite.config.js              # `base: '/daily/'`；`package.json` 等见目录
@@ -705,7 +713,7 @@ decay_score      = base_score × exp(-ln(2) / effective_hl × age_days) × (1 + 
 ### 4.2 日终跑批流程
 
 ```
-cron（或同类）在运维约定时刻触发 —— 应与 `config.daily_batch_hour`（东八区整点，默认 23）一致
+cron（或同类）在运维约定时刻触发 —— 应与 `config.daily_batch_hour`（东八区半小时粒度，默认 23.0）一致
         │
         ▼
   python run_daily_batch.py（项目根目录；内部 `initialize_database` 后 `DailyBatchProcessor().run_daily_batch()`）
@@ -985,7 +993,7 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 - `short_term_limit`：Context 中最近原文消息条数；`memory/context_builder.py` 优先读库，缺省则用环境变量 `CONTEXT_MAX_RECENT_MESSAGES`
 - `context_max_daily_summaries`：注入 `daily` 摘要条数（默认 5）；`context_builder` 优先读库，缺省则用环境变量 `CONTEXT_MAX_DAILY_SUMMARIES`
 - `context_max_longterm`：长期记忆最终注入条数（默认 3）；`context_builder` 精排/同步路径截断
-- `daily_batch_hour`：东八区日终跑批**目标整点**小时 0–23（默认 23）；供运维配置 **cron** 与业务文档对齐。**`schedule_daily_batch`** 若在进程内运行会在每次睡眠前读库刷新该值；**`run_daily_batch.py` / cron 路径不依赖进程内定时循环**，跑批本身仍读 `config` 表其它键（如 GC 阈值）
+- `daily_batch_hour`：东八区日终跑批**目标时刻**，半小时粒度浮点值 `0.0–23.5`（默认 `23.0`）；供运维配置 **cron** 与业务文档对齐。**`schedule_daily_batch`** 若在进程内运行会在每次睡眠前读库刷新该值；**`run_daily_batch.py` / cron 路径不依赖进程内定时循环**，跑批本身仍读 `config` 表其它键（如 GC 阈值）
 - `relationship_timeline_limit`：关系时间线注入条数（默认 3）
 - `gc_stale_days`：Step 5 Chroma GC 闲置天数阈值（默认 180）
 - `gc_exempt_hits_threshold`：Step 5 GC hits 豁免阈值（默认 10）；`hits` 达到此值的记忆无论衰减分多低都不会被物理删除
@@ -1090,8 +1098,17 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 | `completion_tokens` | INTEGER | 输出 Token 数 |
 | `total_tokens` | INTEGER | 总 Token 数 |
 | `model` | TEXT | 使用的模型名称 |
+| `cached_tokens` | INTEGER | OpenRouter / OpenAI / GLM 等在 `usage.prompt_tokens_details.cached_tokens` 中报告的缓存读取 Token 数 |
+| `cache_write_tokens` | INTEGER | OpenRouter 等在 `usage.prompt_tokens_details.cache_write_tokens` 中报告的缓存写入 Token 数 |
+| `cache_hit_tokens` | INTEGER | DeepSeek 官方 `usage.prompt_cache_hit_tokens` |
+| `cache_miss_tokens` | INTEGER | DeepSeek 官方 `usage.prompt_cache_miss_tokens` |
+| `cache_creation_input_tokens` | INTEGER | Anthropic Messages API 缓存写入 Token（含 `cache_creation` 明细归一化） |
+| `cache_read_input_tokens` | INTEGER | Anthropic Messages API 缓存读取 Token |
+| `raw_usage_json` | JSONB | 上游原始 `usage`，保留供应商特有字段供排查与 Mini App 细节展示 |
 
-**索引：** `(created_at)`
+**索引：** `(created_at)`、`(platform, created_at)`、`(model, created_at)`。
+
+**多模型缓存语义：** Claude / Anthropic-compatible 请求层使用显式 `cache_control` breakpoints；DeepSeek / GLM 依赖供应商自动缓存，不注入 Anthropic 专用字段。落库层不按供应商拆表，而是把各家 usage 字段归一到上述列；Mini App 可同时展示通用 token 与各家缓存命中信息。
 
 ---
 
@@ -1360,6 +1377,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 | Persona（人设配置） | `Persona.jsx` | ✅ 无 | — |
 | Config（助手配置） | `Config.jsx` | ✅ 已修复（2026-03-21，§7.2） | — |
 | Settings（核心设置） | `Settings.jsx` | ✅ 无 | — |
+| Observability（调用观测） | `Observability.jsx` | ✅ 无 | 展示 token/cache 与工具执行 |
 
 ---
 
@@ -1419,6 +1437,7 @@ WHERE step1_status = 1 AND step2_status = 1 AND step3_status = 1;
 | **Logs.jsx** | `GET /api/logs`（`platform` / `level` / `keyword` / 可选 `time_from`·`time_to` / `page` / `page_size`） |
 | **Persona.jsx** | `GET /api/persona`、`GET /api/persona/{id}`、`GET /api/persona/{id}/preview`、`POST /api/persona`、`PUT /api/persona/{id}`、`DELETE /api/persona/{id}` |
 | **Settings.jsx** | `GET /api/settings/api-configs?config_type=chat|summary|vision|stt|embedding`（按 Tab 过滤）、`POST` / `PUT` / `DELETE` / `PUT .../activate`、`POST .../fetch-models`、`GET /api/settings/token-usage`、`GET /api/persona`；保存配置后按返回表单中的 `config_type` 切换 Tab 或刷新当前列表（见 §3.6 Settings 页说明） |
+| **Observability.jsx** | `GET /api/observability/usage?period=today|week|month`（token/cache 聚合、按平台/模型/日期与最近调用）、`GET /api/observability/tool-executions?limit=...`（最近工具执行，raw 为截断预览） |
 | **Config.jsx** | `GET /api/config/config`、`PUT /api/config/config`（`data` 含 `_meta.updated_at`；失败时顶部错误提示 + 重试，见 §5.7、§7.2） |
 
 ---

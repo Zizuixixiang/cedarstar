@@ -76,6 +76,7 @@ try:
         save_memory_card,
         update_memory_card,
         get_daily_summary_by_date,
+        get_daily_summaries_by_date,
         save_daily_batch_log,
         get_daily_batch_log,
         update_daily_batch_step_status,
@@ -108,6 +109,7 @@ except ImportError:
         save_memory_card,
         update_memory_card,
         get_daily_summary_by_date,
+        get_daily_summaries_by_date,
         save_daily_batch_log,
         get_daily_batch_log,
         update_daily_batch_step_status,
@@ -248,13 +250,13 @@ async def schedule_daily_batch_retry_if_needed(batch_date: str) -> None:
         logger.warning("Telegram 跑批排队通知发送异常", exc_info=True)
 
 
-async def _daily_batch_trigger_hour() -> int:
-    """日终跑批触发小时（0–23）：优先 config 表 daily_batch_hour，否则默认 23。"""
+async def _daily_batch_trigger_hour() -> float:
+    """日终跑批触发时刻（0–23.5，支持半小时）：优先 config 表 daily_batch_hour，否则默认 23。"""
     try:
         raw = await get_database().get_config("daily_batch_hour")
         if raw is not None and str(raw).strip() != "":
-            h = int(str(raw).strip())
-            if 0 <= h <= 23:
+            h = round(float(str(raw).strip()) * 2) / 2
+            if 0 <= h <= 23.5:
                 return h
     except (ValueError, TypeError):
         pass
@@ -393,6 +395,28 @@ class DailyBatchProcessor:
         logger.error(f"[{task_name}] 重试 {max_retries} 次后仍失败")
         raise last_err
 
+    async def _combined_daily_summary_by_date(
+        self, batch_date: str
+    ) -> Optional[Dict[str, Any]]:
+        """Return a combined view of all per-session daily summaries for legacy downstream steps."""
+        rows = await get_daily_summaries_by_date(batch_date)
+        if not rows:
+            return None
+        if len(rows) == 1:
+            return rows[0]
+        text_parts: List[str] = []
+        for row in rows:
+            sid = row.get("session_id") or "unknown"
+            txt = str(row.get("summary_text") or "").strip()
+            if txt:
+                text_parts.append(f"[session:{sid}]\n{txt}")
+        first = rows[0]
+        return {
+            **first,
+            "session_id": "daily_batch",
+            "summary_text": "\n\n".join(text_parts),
+        }
+
     async def run_daily_batch(self, batch_date: Optional[str] = None) -> bool:
         """
         执行日终跑批处理。
@@ -493,7 +517,7 @@ class DailyBatchProcessor:
             # Step 3.5 — 从当日 daily 小传再提取 temporal_states（step3=1 且 step4=0 时执行；失败不阻断 Step 4）
             if _s(3) == 1 and _s(4) == 0:
                 try:
-                    ds = await get_daily_summary_by_date(batch_date)
+                    ds = await self._combined_daily_summary_by_date(batch_date)
                     today_summary_text = (
                         str(ds.get("summary_text") or "").strip() if ds else ""
                     )
@@ -636,6 +660,91 @@ class DailyBatchProcessor:
         """
         try:
             chunk_summaries = await get_today_chunk_summaries(batch_date)
+
+            if chunk_summaries:
+                grouped: Dict[str, List[Dict[str, Any]]] = {}
+                for summary in chunk_summaries:
+                    sid = str(summary.get("session_id") or "daily_batch")
+                    grouped.setdefault(sid, []).append(summary)
+
+                memory_prefix = await self._memory_context_prefix()
+
+                def _display_session(session_id: str) -> str:
+                    if "_" in session_id:
+                        parts = session_id.split("_")
+                        if len(parts) >= 2:
+                            return f"user{parts[0][:4]}...channel{parts[1][:4]}..."
+                    return session_id[:40]
+
+                saved_count = 0
+                for session_id, session_chunks in grouped.items():
+                    today_content = ""
+                    if self._settled_temporal_snippets:
+                        today_content += "# 本日已结算的时效状态（客观回顾）\n\n"
+                        for line in self._settled_temporal_snippets:
+                            today_content += f"- {line}\n"
+                        today_content += "\n"
+
+                    today_content += "# 今日对话摘要\n\n"
+                    for summary in session_chunks:
+                        summary_text = strip_lutopia_internal_memory_blocks(
+                            str(summary.get("summary_text") or "")
+                        )
+                        created_at = summary["created_at"]
+                        today_content += (
+                            f"### {created_at} [来自: {_display_session(session_id)}]\n"
+                            f"{summary_text}\n\n"
+                        )
+
+                    prompt = self._persona_dialogue_prefix() + memory_prefix + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+要求：
+- 篇幅控制在 150-600 字，内容丰富可写至上限，平淡日常满足 150 字即可。
+- 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
+- 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
+- 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
+{today_content}
+今日小传（中文）："""
+
+                    def _gen():
+                        return self._call_summary_llm_custom(prompt)
+
+                    def _parse(raw):
+                        if not str(raw).strip():
+                            raise ValueError("Empty summary")
+                        return str(raw).strip()
+
+                    try:
+                        daily_summary = await self._retry_call_and_parse(
+                            f"生成今日小传[{session_id}]", _gen, _parse
+                        )
+                    except CedarClioOutputGuardExhausted as e:
+                        logger.error("生成今日小传 Guard 用尽，session=%s: %s", session_id, e)
+                        return False, str(e)
+                    except Exception as e:
+                        logger.error("生成今日小传最终失败，session=%s: %s", session_id, e)
+                        return False, str(e)
+
+                    await save_summary(
+                        session_id=session_id,
+                        summary_text=daily_summary,
+                        start_message_id=0,
+                        end_message_id=0,
+                        summary_type="daily",
+                        source_date=date.fromisoformat(batch_date),
+                        is_group=1 if str(session_id).startswith("telegram_-") else 0,
+                    )
+                    saved_count += 1
+
+                n_chunk_del = await delete_today_chunk_summaries(batch_date)
+                if n_chunk_del:
+                    logger.info(
+                        "已删除今日 chunk 摘要 %s 条（daily 写入成功后），日期: %s",
+                        n_chunk_del,
+                        batch_date,
+                    )
+
+                logger.info("今日小传保存成功: %s 个 session，日期: %s", saved_count, batch_date)
+                return True, None
             
             today_content = ""
             if self._settled_temporal_snippets:
@@ -702,6 +811,7 @@ class DailyBatchProcessor:
                 end_message_id=0,
                 summary_type="daily",
                 source_date=date.fromisoformat(batch_date),
+                is_group=0,
             )
 
             n_chunk_del = await delete_today_chunk_summaries(batch_date)
@@ -1274,7 +1384,7 @@ class DailyBatchProcessor:
         """
         try:
             # 1. 获取本 batch_date 的 daily 摘要（按 source_date 对齐，支持补跑历史日）
-            daily_summary = await get_daily_summary_by_date(batch_date)
+            daily_summary = await self._combined_daily_summary_by_date(batch_date)
             if not daily_summary:
                 logger.info(f"今日没有 daily 摘要，跳过 Step 3，日期: {batch_date}")
                 return True, None
@@ -1556,7 +1666,7 @@ content 强制要求：
         Step 4 - 今日小传全量入库 Chroma，按分映射 halflife_days，可选事件拆分 + BM25。
         """
         try:
-            daily_summary = await get_daily_summary_by_date(batch_date)
+            daily_summary = await self._combined_daily_summary_by_date(batch_date)
             if not daily_summary:
                 logger.info(f"今日没有小传，跳过 Step 4，日期: {batch_date}")
                 return True, None
@@ -1734,9 +1844,11 @@ async def schedule_daily_batch():
             # 获取当前时间（东八区）
             now = datetime.now(TIMEZONE)
             
-            hour = await _daily_batch_trigger_hour()
-            # 计算到下一次触发整点的时间差
-            target_time = now.replace(hour=hour, minute=0, second=0, microsecond=0)
+            hour_value = await _daily_batch_trigger_hour()
+            hour = int(hour_value)
+            minute = 30 if abs(hour_value - hour - 0.5) < 0.01 else 0
+            # 计算到下一次触发时间的时间差
+            target_time = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
 
             if now >= target_time:
                 target_time += timedelta(days=1)

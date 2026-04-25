@@ -118,6 +118,27 @@
   box-shadow: 1px 1px 0 var(--shadow-color-deep);
 }
 
+.provider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 2px solid var(--text-main);
+  background: rgba(255, 255, 255, 0.38);
+}
+
+.provider-group + .provider-group {
+  margin-top: 14px;
+}
+
+.provider-group-title {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.74rem;
+  font-weight: bold;
+  color: var(--text-sub);
+  word-break: break-all;
+}
+
 .card-title {
   font-family: 'Courier New', Courier, monospace;
   font-size: 1rem;

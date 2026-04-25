@@ -20,6 +20,18 @@ def _east8_month_start_utc_naive():
     return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
 
 
+def _east8_week_start_utc_naive():
+    """东八区自然周：周一 00:00:00 起；转为 UTC naive datetime。"""
+    from datetime import datetime, timezone, timedelta
+    from zoneinfo import ZoneInfo
+
+    now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
+    start_cn = (
+        now_cn - timedelta(days=now_cn.weekday())
+    ).replace(hour=0, minute=0, second=0, microsecond=0)
+    return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
     {"chat", "summary", "vision", "stt", "embedding", "search_summary"}
 )
@@ -155,6 +167,12 @@ class FetchModelsRequest(BaseModel):
     base_url: str
 
 
+class ModelFavoriteCreate(BaseModel):
+    """模型收藏请求。"""
+    base_url: str
+    model: str
+
+
 @router.post("/api-configs/fetch-models")
 async def fetch_models(req: FetchModelsRequest):
     """调用对应 Base URL 的 /models 端点，返回模型列表。"""
@@ -180,11 +198,42 @@ async def fetch_models(req: FetchModelsRequest):
         return create_response(False, None, f"获取模型列表失败: {str(e)}")
 
 
+@router.get("/model-favorites")
+async def list_model_favorites(base_url: Optional[str] = None):
+    """按供应商 Base URL 返回收藏模型。"""
+    from memory.database import get_database
+
+    rows = await get_database().list_model_favorites(base_url)
+    return create_response(True, rows)
+
+
+@router.post("/model-favorites")
+async def add_model_favorite(req: ModelFavoriteCreate):
+    """收藏某供应商下的模型名。"""
+    from memory.database import get_database
+
+    if not req.base_url.strip() or not req.model.strip():
+        raise HTTPException(status_code=400, detail="base_url 和 model 不能为空")
+    fid = await get_database().add_model_favorite(req.base_url, req.model)
+    return create_response(True, {"id": fid})
+
+
+@router.delete("/model-favorites/{favorite_id}")
+async def delete_model_favorite(favorite_id: int):
+    """删除收藏模型。"""
+    from memory.database import get_database
+
+    ok = await get_database().delete_model_favorite(favorite_id)
+    if not ok:
+        raise HTTPException(status_code=404, detail="收藏模型不存在")
+    return create_response(True, None)
+
+
 @router.get("/token-usage")
 async def get_token_usage(
     period: str = Query(
         "today",
-        description="统计周期：today（本日0点起，服务器本地）/ week（近7日）/ month（东八区自然月月初至今）",
+        description="统计周期：today（本日0点起，服务器本地）/ week（东八区自然周）/ month（东八区自然月月初至今）",
     ),
     platform: Optional[str] = Query(None, description="平台"),
 ):
@@ -202,7 +251,7 @@ async def get_token_usage(
     elif period == "today":
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
-        start_date = now - timedelta(days=7)
+        start_date = _east8_week_start_utc_naive()
     elif period == "month":
         start_date = _east8_month_start_utc_naive()
     else:

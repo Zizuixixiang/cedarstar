@@ -455,6 +455,7 @@ async def process_micro_batch(session_id: str) -> None:
             end_message_id=end_message_id,
             summary_type="chunk",
             source_date=chunk_day,
+            is_group=1 if str(session_id).startswith("telegram_-") else 0,
         )
         
         logger.info(f"摘要保存成功，ID: {summary_id}, 会话: {session_id}")

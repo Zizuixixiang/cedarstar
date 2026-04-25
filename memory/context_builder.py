@@ -764,7 +764,7 @@ class ContextBuilder:
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
             vector_search_section = await self._build_vector_search_section(user_message)
-            daily_summaries_section = await self._build_daily_summaries_section()
+            daily_summaries_section = await self._build_daily_summaries_section(session_id)
             chunk_summaries_section = await self._build_chunk_summaries_section()
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
@@ -890,7 +890,7 @@ class ContextBuilder:
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
             vector_search_section = await self._build_vector_search_section_async(user_message)
-            daily_summaries_section = await self._build_daily_summaries_section()
+            daily_summaries_section = await self._build_daily_summaries_section(session_id)
             chunk_summaries_section = await self._build_chunk_summaries_section()
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
@@ -1118,7 +1118,7 @@ class ContextBuilder:
             logger.warning(f"构建 memory cards 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
     
-    async def _build_daily_summaries_section(self) -> str:
+    async def _build_daily_summaries_section(self, session_id: Optional[str] = None) -> str:
         """
         构建 daily summary 部分。
         
@@ -1131,6 +1131,7 @@ class ContextBuilder:
         try:
             daily_summaries = await get_recent_daily_summaries(
                 limit=await _context_max_daily_summaries_limit(),
+                session_id=session_id,
             )
             
             if not daily_summaries:
@@ -1464,7 +1465,8 @@ class ContextBuilder:
             for msg in recent_messages:
                 if exclude_message_id and msg.get("id") == exclude_message_id:
                     continue
-                role = "user" if msg['role'] == "user" else "assistant"
+                msg_role = msg.get("role")
+                role = "user" if msg_role == "user" else "assistant"
                 text = format_user_message_for_context(
                     {
                         "role": msg["role"],
@@ -1473,7 +1475,11 @@ class ContextBuilder:
                         "image_caption": msg.get("image_caption"),
                     }
                 )
-                if role == "assistant":
+                if msg_role == "assistant_other":
+                    other_name = (msg.get("character_id") or "未知助手")
+                    text = strip_lutopia_behavior_appendix(text)
+                    text = f"[另一名助手 {other_name} 的发言]：{text}"
+                elif role == "assistant":
                     text = strip_lutopia_behavior_appendix(text)
                 else:
                     text = inject_user_sent_at_into_llm_content(

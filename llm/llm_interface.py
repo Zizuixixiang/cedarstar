@@ -19,6 +19,7 @@ from typing import (
     Dict,
     Generator,
     List,
+    Mapping,
     NamedTuple,
     Optional,
     Tuple,
@@ -331,11 +332,40 @@ def use_anthropic_messages_api(
     优先看 api_base 是否含 anthropic；否则根据模型名含 claude 回退（兼容旧配置）。
     """
     b = (api_base or "").lower()
+    if "openrouter" in b:
+        return False
     if "anthropic" in b:
         return True
     if "claude" in (model_name or "").lower():
         return True
     return False
+
+
+def _is_glm_compatible_endpoint(
+    api_base: Optional[str], model_name: Optional[str]
+) -> bool:
+    s = f"{api_base or ''} {model_name or ''}".lower()
+    return any(k in s for k in ("bigmodel", "zhipu", "z.ai", "z-ai", "glm"))
+
+
+def _normalize_image_mime(mime: Optional[str]) -> str:
+    m = (mime or "image/jpeg").strip().lower()
+    if m == "image/jpg":
+        return "image/jpeg"
+    if ";" in m:
+        m = m.split(";", 1)[0].strip()
+    return m or "image/jpeg"
+
+
+def _strip_data_url_prefix(data: str) -> Tuple[str, Optional[str]]:
+    s = (data or "").strip()
+    if not s.lower().startswith("data:"):
+        return s, None
+    header, sep, payload = s.partition(",")
+    if not sep:
+        return s, None
+    mime = header[5:].split(";", 1)[0].strip() or None
+    return payload.strip(), mime
 
 
 def build_user_multimodal_content(
@@ -353,12 +383,13 @@ def build_user_multimodal_content(
         return text
     t = (text or "").strip()
     anthropic_fmt = use_anthropic_messages_api(api_base, model_name)
+    glm_fmt = _is_glm_compatible_endpoint(api_base, model_name)
     parts: List[Dict[str, Any]] = []
     if t:
         parts.append({"type": "text", "text": t})
     for img in image_payloads:
-        mime = img.get("mime_type") or "image/jpeg"
-        b64 = img.get("data") or ""
+        b64, mime_from_data = _strip_data_url_prefix(str(img.get("data") or ""))
+        mime = _normalize_image_mime(mime_from_data or img.get("mime_type"))
         if not b64:
             continue
         if anthropic_fmt:
@@ -373,10 +404,18 @@ def build_user_multimodal_content(
                 }
             )
         else:
+            data_url = f"data:{mime};base64,{b64}"
+            # GLM/Z.AI is OpenAI-compatible, but is stricter about the image_url
+            # block shape and MIME spelling; keep it to the canonical object form.
+            image_url: Union[str, Dict[str, str]]
+            if glm_fmt:
+                image_url = {"url": data_url}
+            else:
+                image_url = {"url": data_url}
             parts.append(
                 {
                     "type": "image_url",
-                    "image_url": {"url": f"data:{mime};base64,{b64}"},
+                    "image_url": image_url,
                 }
             )
     if not parts:
@@ -418,7 +457,11 @@ def _text_from_content_blocks(content: Any) -> str:
     return "" if content is None else str(content)
 
 
-def _openai_compatible_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def _openai_compatible_messages(
+    messages: List[Dict[str, Any]],
+    *,
+    preserve_cache_control: bool = False,
+) -> List[Dict[str, Any]]:
     """移除 Anthropic 专用 cache_control block 形态，避免 OpenAI 兼容网关拒绝。"""
     out: List[Dict[str, Any]] = []
     for msg in messages:
@@ -429,18 +472,95 @@ def _openai_compatible_messages(messages: List[Dict[str, Any]]) -> List[Dict[str
                 isinstance(p, dict) and p.get("type") in ("image_url", "image")
                 for p in c
             )
-            if not has_image:
+            if preserve_cache_control and not has_image:
+                m["content"] = [dict(p) if isinstance(p, dict) else p for p in c]
+            elif not has_image:
                 m["content"] = _text_from_content_blocks(c)
             else:
                 clean_parts: List[Dict[str, Any]] = []
                 for part in c:
                     if isinstance(part, dict):
                         p = dict(part)
-                        p.pop("cache_control", None)
+                        if p.get("type") != "text" or not preserve_cache_control:
+                            p.pop("cache_control", None)
                         clean_parts.append(p)
                 m["content"] = clean_parts
         out.append(m)
     return out
+
+
+def _openrouter_supports_cache_control(api_base: Optional[str], model_name: Optional[str]) -> bool:
+    s = f"{api_base or ''} {model_name or ''}".lower()
+    return "openrouter" in s and "claude" in s
+
+
+def _strip_cache_control_from_blocks(value: Any) -> Any:
+    if isinstance(value, list):
+        out: List[Any] = []
+        for item in value:
+            if isinstance(item, dict):
+                copied = dict(item)
+                copied.pop("cache_control", None)
+                out.append(copied)
+            else:
+                out.append(item)
+        return out
+    return value
+
+
+def _usage_int(usage: Mapping[str, Any], key: str, default: int = 0) -> int:
+    try:
+        return int(usage.get(key, default) or 0)
+    except (TypeError, ValueError):
+        return default
+
+
+def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
+    """把 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI 的 usage 字段归一化落库。"""
+    prompt_tokens = _usage_int(usage, "prompt_tokens", _usage_int(usage, "input_tokens"))
+    completion_tokens = _usage_int(
+        usage, "completion_tokens", _usage_int(usage, "output_tokens")
+    )
+    total_tokens = _usage_int(usage, "total_tokens", prompt_tokens + completion_tokens)
+
+    details = usage.get("prompt_tokens_details")
+    if not isinstance(details, Mapping):
+        details = {}
+
+    # OpenRouter/OpenAI/Z.AI commonly expose cached tokens here.
+    cached_tokens = _usage_int(details, "cached_tokens", _usage_int(usage, "cached_tokens"))
+    cache_write_tokens = _usage_int(
+        details, "cache_write_tokens", _usage_int(usage, "cache_write_tokens")
+    )
+
+    # DeepSeek official API exposes hit/miss tokens directly on usage.
+    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens")
+    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+
+    # Anthropic Messages API exposes explicit creation/read counters.
+    cache_creation_input_tokens = _usage_int(usage, "cache_creation_input_tokens")
+    cache_read_input_tokens = _usage_int(usage, "cache_read_input_tokens")
+
+    cache_creation = usage.get("cache_creation")
+    if isinstance(cache_creation, Mapping):
+        cache_creation_input_tokens = max(
+            cache_creation_input_tokens,
+            _usage_int(cache_creation, "ephemeral_5m_input_tokens")
+            + _usage_int(cache_creation, "ephemeral_1h_input_tokens"),
+        )
+
+    return {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": total_tokens,
+        "cached_tokens": cached_tokens,
+        "cache_write_tokens": cache_write_tokens,
+        "cache_hit_tokens": cache_hit_tokens,
+        "cache_miss_tokens": cache_miss_tokens,
+        "cache_creation_input_tokens": cache_creation_input_tokens,
+        "cache_read_input_tokens": cache_read_input_tokens,
+        "raw_usage": dict(usage),
+    }
 
 
 def _openai_tools_specs_to_anthropic(
@@ -560,7 +680,7 @@ class LLMResponse:
     model: str
     """使用的模型名称。"""
     
-    usage: Optional[Dict[str, int]] = None
+    usage: Optional[Dict[str, Any]] = None
     """token 使用情况统计。"""
     
     finish_reason: Optional[str] = None
@@ -967,7 +1087,13 @@ class LLMInterface:
         """
         payload: Dict[str, Any] = {
             "model": self.model_name,
-            "messages": _openai_compatible_messages(messages),
+            "messages": _openai_compatible_messages(
+                messages,
+                preserve_cache_control=_openrouter_supports_cache_control(
+                    self.api_base,
+                    self.model_name,
+                ) and not messages_contain_multimodal_images(messages),
+            ),
             "max_tokens": self._openai_max_tokens(),
             "temperature": self.temperature,
             "stream": False,
@@ -1013,6 +1139,7 @@ class LLMInterface:
             Dict[str, Any]: 请求负载
         """
         # 转换消息格式
+        has_images = messages_contain_multimodal_images(messages)
         system_message: Optional[Union[str, List[Dict[str, Any]]]] = None
         claude_messages = []
         
@@ -1032,7 +1159,9 @@ class LLMInterface:
             else:
                 claude_messages.append({
                     "role": msg["role"],
-                    "content": msg["content"]
+                    "content": _strip_cache_control_from_blocks(msg["content"])
+                    if has_images
+                    else msg["content"]
                 })
         
         payload = {
@@ -1043,6 +1172,8 @@ class LLMInterface:
         }
         
         if system_message:
+            if has_images:
+                system_message = _strip_cache_control_from_blocks(system_message)
             payload["system"] = system_message
         
         return payload
@@ -1105,25 +1236,40 @@ class LLMInterface:
         """
         blocks = response_data.get("content") or []
         text_parts: List[str] = []
+        thinking_parts: List[str] = []
         for block in blocks:
             if isinstance(block, dict) and block.get("type") == "text":
                 text_parts.append(block.get("text") or "")
+            elif isinstance(block, dict) and block.get("type") in (
+                "thinking",
+                "redacted_thinking",
+            ):
+                th = block.get("thinking") or block.get("text") or block.get("content")
+                if th:
+                    thinking_parts.append(th if isinstance(th, str) else str(th))
         merged = "".join(text_parts).strip()
         if not merged and blocks:
             merged = blocks[0].get("text", "") if isinstance(blocks[0], dict) else ""
         
         usage_raw = response_data.get("usage", {}) or {}
+        usage_out: Dict[str, Any] = dict(usage_raw)
+        usage_out.setdefault("input_tokens", usage_raw.get("input_tokens", 0))
+        usage_out.setdefault("output_tokens", usage_raw.get("output_tokens", 0))
+        usage_out.setdefault(
+            "cache_creation_input_tokens",
+            usage_raw.get("cache_creation_input_tokens", 0),
+        )
+        usage_out.setdefault(
+            "cache_read_input_tokens",
+            usage_raw.get("cache_read_input_tokens", 0),
+        )
         return LLMResponse(
             content=merged,
             model=response_data["model"],
-            usage={
-                "input_tokens": usage_raw.get("input_tokens", 0),
-                "output_tokens": usage_raw.get("output_tokens", 0),
-                "cache_creation_input_tokens": usage_raw.get("cache_creation_input_tokens", 0),
-                "cache_read_input_tokens": usage_raw.get("cache_read_input_tokens", 0),
-            },
+            usage=usage_out,
             finish_reason=response_data.get("stop_reason"),
             raw_response=response_data,
+            thinking="\n".join(p for p in thinking_parts if p.strip()) or None,
             tool_calls=None,
         )
     
@@ -1319,7 +1465,7 @@ class LLMInterface:
                 )
             raise
     
-    def _save_token_usage_async(self, usage: Dict[str, int], platform: Optional[str] = None):
+    def _save_token_usage_async(self, usage: Dict[str, Any], platform: Optional[str] = None):
         """
         异步保存token使用量到数据库。
         
@@ -1331,9 +1477,7 @@ class LLMInterface:
             platform: 平台标识（可选）
         """
         try:
-            prompt_tokens = usage.get("prompt_tokens", usage.get("input_tokens", 0))
-            completion_tokens = usage.get("completion_tokens", usage.get("output_tokens", 0))
-            total_tokens = usage.get("total_tokens", prompt_tokens + completion_tokens)
+            normalized = _normalize_usage_for_storage(usage)
 
             try:
                 loop = asyncio.get_running_loop()
@@ -1343,7 +1487,8 @@ class LLMInterface:
             if loop is not None and loop.is_running():
                 loop.create_task(
                     self._async_save_token_usage(
-                        prompt_tokens, completion_tokens, total_tokens, platform
+                        normalized,
+                        platform,
                     )
                 )
             else:
@@ -1354,25 +1499,33 @@ class LLMInterface:
         except Exception as e:
             logger.error("保存 token 使用量失败: %s", exc_detail(e))
     
-    async def _async_save_token_usage(self, prompt_tokens: int, completion_tokens: int, 
-                                     total_tokens: int, platform: Optional[str] = None):
+    async def _async_save_token_usage(
+        self,
+        usage: Dict[str, Any],
+        platform: Optional[str] = None,
+    ):
         """
         异步保存token使用量的实际实现。
         
         Args:
-            prompt_tokens: 提示token数
-            completion_tokens: 完成token数
-            total_tokens: 总token数
+            usage: 已归一化的 token/cache 使用量
             platform: 平台标识（可选）
         """
         try:
             db = get_database()
             await db.save_token_usage(
-                prompt_tokens=prompt_tokens,
-                completion_tokens=completion_tokens,
-                total_tokens=total_tokens,
+                prompt_tokens=usage["prompt_tokens"],
+                completion_tokens=usage["completion_tokens"],
+                total_tokens=usage["total_tokens"],
                 model=self.model_name,
-                platform=platform
+                platform=platform,
+                cached_tokens=usage["cached_tokens"],
+                cache_write_tokens=usage["cache_write_tokens"],
+                cache_hit_tokens=usage["cache_hit_tokens"],
+                cache_miss_tokens=usage["cache_miss_tokens"],
+                cache_creation_input_tokens=usage["cache_creation_input_tokens"],
+                cache_read_input_tokens=usage["cache_read_input_tokens"],
+                raw_usage=usage["raw_usage"],
             )
         except Exception as e:
             logger.error("异步保存 token 使用量失败: %s", exc_detail(e))
@@ -1405,6 +1558,34 @@ class LLMInterface:
                     return choice.get("reasoning_content")
                 if "thinking" in choice:
                     return choice.get("thinking")
+                message = choice.get("message") if isinstance(choice, dict) else None
+                if isinstance(message, dict):
+                    for key in (
+                        "reasoning_content",
+                        "reasoning",
+                        "thinking",
+                        "thoughts",
+                    ):
+                        v = message.get(key)
+                        if v:
+                            return v if isinstance(v, str) else str(v)
+                    content = message.get("content")
+                    if isinstance(content, list):
+                        parts: List[str] = []
+                        for block in content:
+                            if not isinstance(block, dict):
+                                continue
+                            if block.get("type") in ("thinking", "reasoning", "thought"):
+                                v = (
+                                    block.get("thinking")
+                                    or block.get("reasoning")
+                                    or block.get("text")
+                                    or block.get("content")
+                                )
+                                if v:
+                                    parts.append(v if isinstance(v, str) else str(v))
+                        if parts:
+                            return "\n".join(parts)
             
             # 不支持思维链
             return None
@@ -1565,7 +1746,7 @@ class LLMInterface:
             return {
                 "content": text or "",
                 "thinking": (th.strip() if isinstance(th, str) and th.strip() else None),
-                "usage": None,
+                "usage": llm_resp.usage,
                 "guard_refusal_abort": guard_abort,
             }
 

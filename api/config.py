@@ -37,7 +37,7 @@ DEFAULT_CONFIG = {
     "context_max_daily_summaries": 5,
     "context_max_chunk_summaries": 8,
     "context_max_longterm": 3,
-    "daily_batch_hour": 23,
+    "daily_batch_hour": 23.0,
     "relationship_timeline_limit": 3,
     "gc_stale_days": 180,
     "gc_exempt_hits_threshold": 10,
@@ -46,6 +46,10 @@ DEFAULT_CONFIG = {
     "telegram_max_msg": 8,
     "send_cot_to_telegram": 1,
     "offline_mode_active": 0,
+    "group_chat_silent_mode": 0,
+    "group_chat_max_rounds": 3,
+    "group_chat_interject_enabled": 0,
+    "group_chat_interject_probability": 0.2,
 }
 
 
@@ -187,7 +191,11 @@ async def update_config(new_config: Dict[str, Any]):
                     pass  # 忽略无效值
             elif isinstance(config[key], float):
                 try:
-                    config[key] = float(value)
+                    if key == "daily_batch_hour":
+                        v = round(float(value) * 2) / 2
+                        config[key] = max(0.0, min(23.5, v))
+                    else:
+                        config[key] = float(value)
                     updated = True
                 except (ValueError, TypeError):
                     pass  # 忽略无效值

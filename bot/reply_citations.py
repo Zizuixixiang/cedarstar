@@ -31,15 +31,20 @@ _HTML_BLOCK_TAG_RE = re.compile(
 
 
 def _split_by_newline_outside_html_blocks(text: str) -> List[str]:
-    """在 `<pre>` / `<code>` / `<blockquote>` 闭合块外按 ``\\n`` 拆行；块内不切。返回非空行（strip 后）。"""
+    """在 HTML 块与 Markdown ``` 代码围栏外按 ``\\n`` 拆行；块内不切。返回非空行。"""
     if not text:
         return []
     parts: List[str] = []
     buf_start = 0
     stack: List[str] = []
+    in_code_fence = False
     i = 0
     n = len(text)
     while i < n:
+        if text.startswith("```", i):
+            in_code_fence = not in_code_fence
+            i += 3
+            continue
         m = _HTML_BLOCK_TAG_RE.match(text, i)
         if m:
             is_close = m.group(1) == "/"
@@ -51,7 +56,7 @@ def _split_by_newline_outside_html_blocks(text: str) -> List[str]:
                 stack.append(tag)
             i = m.end()
             continue
-        if text[i] == "\n" and not stack:
+        if text[i] == "\n" and not stack and not in_code_fence:
             parts.append(text[buf_start:i])
             buf_start = i + 1
             i += 1
@@ -118,8 +123,16 @@ def _split_oversized_chunk(chunk: str, max_chars: int) -> List[str]:
     buf: List[str] = []
     stack: List[str] = []
     ascii_dq = 0  # ASCII " 成对内为 1，避免 `他说"一句。话"` 在内部句号处误切
+    in_code_fence = False
 
-    for c in t:
+    i = 0
+    while i < len(t):
+        if t.startswith("```", i):
+            in_code_fence = not in_code_fence
+            buf.append("```")
+            i += 3
+            continue
+        c = t[i]
         buf.append(c)
         if c == '"':
             ascii_dq ^= 1
@@ -130,11 +143,13 @@ def _split_oversized_chunk(chunk: str, max_chars: int) -> List[str]:
             c in _OVERSIZED_SENTENCE_END_CHARS
             and not stack
             and ascii_dq == 0
+            and not in_code_fence
         ):
             piece = "".join(buf).strip()
             if piece:
                 parts.append(piece)
             buf = []
+        i += 1
     tail = "".join(buf).strip()
     if tail:
         parts.append(tail)

@@ -2,7 +2,8 @@
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
-> 文档版本：2026-04-26；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**2026-04-26** 对齐：**Anthropic 1h Prompt Cache**、**`tool_executions` 工具执行记录**、工具摘要进入 Context 与 chunk 摘要输入。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`**、**`enable_weibo_tool` / `get_weibo_hot`**、**`enable_search_tool` / `web_search`**（均为 JSON **`{"summary":…}`** 对象字符串；**`web_search`**：Tavily + **`api_configs`** 激活 **`search_summary`** 或回退 **`summary`** 压缩）见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
+> 文档版本：2026-04-26；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**2026-04-26** 对齐：**Anthropic 1h Prompt Cache**、**`tool_executions` 工具执行记录**、工具摘要进入 Context 与 chunk 摘要输入；新增 **多模型 token/cache 观测**：`token_usage` 归一化 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI GLM 的 usage 字段，Mini App 新增「调用观测」页。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`**、**`enable_weibo_tool` / `get_weibo_hot`**、**`enable_search_tool` / `web_search`**（均为 JSON **`{"summary":…}`** 对象字符串；**`web_search`**：Tavily + **`api_configs`** 激活 **`search_summary`** 或回退 **`summary`** 压缩）见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
+> **2026-04-26 收口补充（以代码为准）：** `daily_batch` Step 2 已按 `summaries.session_id` 分组生成 daily 小传，群聊 session 写入 `is_group=1`；Step 3/3.5/4 暂以同日所有 per-session daily 的合并视图兼容既有长期记忆流水线。`config.daily_batch_hour` 为 `0.0–23.5` 半小时粒度浮点值。多模态图片入参统一剥离重复 data URL 前缀并规范 MIME，Anthropic 直连与 OpenAI-compatible / GLM 网关分别使用各自兼容的图片块格式。
 
 ---
 
@@ -20,9 +21,11 @@
 | Gateway（网关） | 组装上下文、拦截回复、触发后台任务、服务启动时初始化 BM25 |
 | PostgreSQL（asyncpg，`DATABASE_URL`） | 聊天原文、摘要、记忆卡片、关系时间线、时效状态、跑批日志、`config` 键值等 |
 | tool_executions | PostgreSQL 内的工具执行记录表：每次工具调用一行，保存 raw 与短摘要；Context 只注入短摘要 |
+| token_usage | LLM 调用 token/cache 观测表：归一化 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI GLM 的 usage 字段 |
+| group_chat_state | Telegram 群聊多 Bot 连续互聊轮数，配合静默与插话配置防止互相刷屏 |
 | ChromaDB | 长期记忆向量存储（双轨：daily 小传 + event 事件片段） |
 | BM25 内存索引 | 关键词双路召回，服务启动时强制预热 |
-| daily_batch.py | 东八区整点定时跑批（`Asia/Shanghai`）；触发小时由 PostgreSQL `config.daily_batch_hour` 配置，**默认 23**，热更新 |
+| daily_batch.py | 东八区半小时粒度定时跑批（`Asia/Shanghai`）；触发时刻由 PostgreSQL `config.daily_batch_hour` 配置，**默认 23.0**，热更新；Step 2 按 `session_id` 分组生成 daily 小传 |
 
 ---
 
@@ -205,6 +208,31 @@ CREATE INDEX idx_tool_executions_user_message ON tool_executions(user_message_id
 
 ---
 
+### 8. token_usage（多模型 token/cache 观测表）
+
+`token_usage` 仍保存通用 `prompt_tokens` / `completion_tokens` / `total_tokens` / `model` / `platform`，并补充缓存相关归一化字段：
+
+| 字段 | 说明 |
+|---|---|
+| `cached_tokens` | OpenRouter / OpenAI / GLM 等 `prompt_tokens_details.cached_tokens` |
+| `cache_write_tokens` | OpenRouter 等 `prompt_tokens_details.cache_write_tokens` |
+| `cache_hit_tokens` / `cache_miss_tokens` | DeepSeek 官方 `prompt_cache_hit_tokens` / `prompt_cache_miss_tokens` |
+| `cache_creation_input_tokens` / `cache_read_input_tokens` | Anthropic Messages API 缓存写入/读取 |
+| `raw_usage_json` | 上游原始 usage，保留供应商特有字段 |
+
+Claude / Anthropic-compatible 请求使用显式 `cache_control` blocks；DeepSeek / GLM 不注入 Anthropic 专用字段，依赖供应商自动缓存。Mini App「调用观测」通过 `/api/observability/usage` 展示 token/cache 聚合，不内置价格表。
+
+---
+
+### 9. group_chat_state 与 Telegram 图片历史
+
+- `messages.platform_file_id`：Telegram 图片消息保存 `message.photo[-1].file_id`，用于后续“上面那张/对比/哪个好看”等语境下临时下载近期图片重建多模态输入；下载失败静默跳过，不落盘。
+- `group_chat_state(chat_id, round_count, updated_at)`：群聊多 Bot 连续互聊轮数；普通用户发言清零，bot @ 回复消耗 1 轮，随机插话消耗 2 轮。
+- `config` 新增 `group_chat_silent_mode`、`group_chat_max_rounds`、`group_chat_interject_enabled`、`group_chat_interject_probability`，Mini App「助手配置」可调整；Telegram `/silent` / `/wake` 直接写静默开关。
+- `messages.role='assistant_other'` 表示另一名 bot 的消息；Context 注入时包装为 `[另一名助手 {character_id} 的发言]：...` 并同样清洗旧 Lutopia 行为附录。
+
+---
+
 ## 二、ChromaDB 向量库结构（双轨）
 
 ### 轨道一：今日小传（daily）
@@ -279,7 +307,7 @@ metadata:
 | `chunk_threshold` | 50 | 微批触发未摘要消息条数 |
 | `context_max_daily_summaries` | 5 | 注入 `daily` 小传条数 |
 | `context_max_longterm` | 3 | 双路召回+精排后注入长期记忆条数 |
-| `daily_batch_hour` | 23 | 东八区日终跑批整点（0–23） |
+| `daily_batch_hour` | 23.0 | 东八区日终跑批时刻（0.0–23.5，半小时粒度） |
 | `relationship_timeline_limit` | 3 | 关系时间线注入条数 |
 | `gc_stale_days` | 180 | Step 5 GC：`last_access_ts` 闲置天数阈值 |
 | `gc_exempt_hits_threshold` | 10 | Step 5 GC：hits 豁免阈值；达到此值的记忆跳过所有删除条件 |
@@ -485,7 +513,7 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ## 六、日终跑批流水线（东八区整点，默认 23:00）
 
-时区固定 `Asia/Shanghai`；**触发小时**由 PostgreSQL **`config.daily_batch_hour`** 控制（默认 **23**）；生产多为 **cron** 调用 **`run_daily_batch.py`**，与整点对齐。支持断点续跑，每步完成后更新 `daily_batch_log`（含 **`retry_count`**）。
+时区固定 `Asia/Shanghai`；**触发时刻**由 PostgreSQL **`config.daily_batch_hour`** 控制（默认 **23.0**，半小时粒度）；生产多为 **cron** 调用 **`run_daily_batch.py`**，与该配置对齐。支持断点续跑，每步完成后更新 `daily_batch_log`（含 **`retry_count`**）。Step 2 会按 `session_id` 分组写入 daily 小传，Context 读取 daily 时按当前 `session_id` 过滤。
 
 **（以代码为准）失败后延迟重试与熔断：** `run_daily_batch.py`、`schedule_daily_batch`（若启用）、`trigger_daily_batch_manual` 在 **`run_daily_batch` 返回失败** 时调用 **`schedule_daily_batch_retry_if_needed`**：若 **`retry_count >= 3`**，**不再**启动约 2 小时后的子进程重跑，并向 **`TELEGRAM_MAIN_USER_CHAT_ID`** 发送「需手动介入」类告警（未配置则仅日志）；若 **`< 3`**，则在 **`spawn_run_daily_batch_retry_after_hours` 成功 `Popen`** 后再 **`retry_count + 1`**，并发「已安排 2 小时后重试」通知。五步**全部成功**后 **`retry_count` 置 0**。
 

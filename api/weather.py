@@ -155,21 +155,26 @@ async def fetch_weather_cached(location_name: Optional[str] = None) -> Dict[str,
         return body
 
     if not config.HEFENG_API_KEY:
-        body = _mock_payload(display or None)
+        body = _mock_payload(None)
         _WEATHER_BY_LOC[loc_id] = {"ts": now_ts, "body": dict(body)}
+        if display:
+            body = dict(body)
+            body["city"] = display
         return body
 
     fresh = await _fetch_hefeng_for_location_id(loc_id)
     if fresh is None:
-        body = _mock_payload(display or None)
+        body = _mock_payload(None)
     else:
         body = fresh
-        if display:
-            body["city"] = display
-        elif name:
-            body["city"] = name
 
     _WEATHER_BY_LOC[loc_id] = {"ts": now_ts, "body": dict(body)}
+    if display:
+        body = dict(body)
+        body["city"] = display
+    elif name:
+        body = dict(body)
+        body["city"] = name
     return body
 
 

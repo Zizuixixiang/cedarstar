@@ -22,6 +22,10 @@ const DEFAULT_CONFIG = {
   telegram_max_msg: 8,
   send_cot_to_telegram: 1,
   offline_mode_active: 0,
+  group_chat_silent_mode: 0,
+  group_chat_max_rounds: 3,
+  group_chat_interject_enabled: 0,
+  group_chat_interject_probability: 0.2,
 };
 
 /** Telegram 分段参数：单独 PUT 保存，与 api/config.py 一致 */
@@ -122,10 +126,28 @@ const CONFIG_METADATA = [
   {
     key: 'daily_batch_hour',
     name: '日终跑批时刻',
-    description: '东八区每天触发的小时（0–23）',
+    description: '东八区每天触发的时刻（支持半小时）',
     hint: '每天几点触发日终跑批（24小时制，东八区）',
     min: 0,
-    max: 23,
+    max: 23.5,
+    step: 0.5,
+  },
+  {
+    key: 'group_chat_max_rounds',
+    name: '群聊互聊上限',
+    description: '两个 Bot 连续互相回应的最大轮数',
+    hint: '超过后自动静默，用户发言会清零',
+    min: 1,
+    max: 12,
+  },
+  {
+    key: 'group_chat_interject_probability',
+    name: '群聊插话概率',
+    description: '另一 Bot 发言后主动插话概率',
+    hint: '0 表示不随机插话，1 表示总是插话',
+    min: 0,
+    max: 1,
+    step: 0.05,
   },
   {
     key: 'relationship_timeline_limit',
@@ -309,7 +331,9 @@ function Config() {
     const meta = CONFIG_METADATA.find(item => item.key === key);
     const num = Number(rawValue);
     if (isNaN(num)) return;
-    const clamped = Math.max(meta.min, Math.min(meta.max, Math.round(num)));
+    const step = meta.step || 1;
+    const rounded = Math.round(num / step) * step;
+    const clamped = Math.max(meta.min, Math.min(meta.max, rounded));
     setConfig(prev => ({ ...prev, [key]: clamped }));
     setHasUnsavedChanges(true);
   };
@@ -318,9 +342,10 @@ function Config() {
   const handleNumberBlur = (key, rawValue) => {
     const meta = CONFIG_METADATA.find(item => item.key === key);
     const num = Number(rawValue);
+    const step = meta.step || 1;
     const clamped = isNaN(num)
       ? DEFAULT_CONFIG[key]
-      : Math.max(meta.min, Math.min(meta.max, Math.round(num)));
+      : Math.max(meta.min, Math.min(meta.max, Math.round(num / step) * step));
     setConfig(prev => ({ ...prev, [key]: clamped }));
   };
 
@@ -556,6 +581,50 @@ function Config() {
         </div>
         <hr className="config-divider" />
 
+        <div className="config-item">
+          <div className="config-info">
+            <div className="config-name">群聊静默模式</div>
+            <div className="config-desc">开启后群聊消息一律不回复，/wake 指令除外。</div>
+          </div>
+          <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+              <input
+                type="checkbox"
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                checked={config.group_chat_silent_mode === 1}
+                onChange={(e) => {
+                  setConfig((prev) => ({ ...prev, group_chat_silent_mode: e.target.checked ? 1 : 0 }));
+                  setHasUnsavedChanges(true);
+                }}
+              />
+              <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>静默</span>
+            </label>
+          </div>
+        </div>
+        <hr className="config-divider" />
+
+        <div className="config-item">
+          <div className="config-info">
+            <div className="config-name">群聊随机插话</div>
+            <div className="config-desc">另一 Bot 发言后按概率插话；每次插话消耗 2 轮额度。</div>
+          </div>
+          <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+              <input
+                type="checkbox"
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                checked={config.group_chat_interject_enabled === 1}
+                onChange={(e) => {
+                  setConfig((prev) => ({ ...prev, group_chat_interject_enabled: e.target.checked ? 1 : 0 }));
+                  setHasUnsavedChanges(true);
+                }}
+              />
+              <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>允许插话</span>
+            </label>
+          </div>
+        </div>
+        <hr className="config-divider" />
+
         {CONFIG_METADATA.map((item, index) => (
           <div key={item.key}>
             <div className="config-item">
@@ -575,13 +644,14 @@ function Config() {
                   className="config-slider"
                   min={item.min}
                   max={item.max}
+                  step={item.step || 1}
                   value={config[item.key]}
                   onChange={e => handleConfigChange(item.key, e.target.value)}
                 />
                 <div className="config-number-wrapper">
                   <button 
                     className="config-stepper-btn" 
-                    onClick={() => handleConfigChange(item.key, config[item.key] - 1)}
+                    onClick={() => handleConfigChange(item.key, Number(config[item.key]) - (item.step || 1))}
                     disabled={config[item.key] <= item.min}
                     aria-label="减少"
                   >
@@ -593,13 +663,14 @@ function Config() {
                     className="config-number-input"
                     min={item.min}
                     max={item.max}
+                    step={item.step || 1}
                     value={config[item.key]}
                     onChange={e => handleConfigChange(item.key, e.target.value)}
                     onBlur={e => handleNumberBlur(item.key, e.target.value)}
                   />
                   <button 
                     className="config-stepper-btn" 
-                    onClick={() => handleConfigChange(item.key, config[item.key] + 1)}
+                    onClick={() => handleConfigChange(item.key, Number(config[item.key]) + (item.step || 1))}
                     disabled={config[item.key] >= item.max}
                     aria-label="增加"
                   >
