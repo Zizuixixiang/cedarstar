@@ -232,8 +232,15 @@ class Config:
     
     @property
     def HEFENG_API_KEY(self) -> str:
-        """和风天气开发版 API Key；未设置时 /api/weather/current 返回占位 mock。"""
+        """QWeather API key. Weather returns unavailable when missing."""
         return (os.getenv("HEFENG_API_KEY") or "").strip()
+
+    @property
+    def HEFENG_API_HOST(self) -> str:
+        """Dedicated QWeather API Host, e.g. abc123.qweatherapi.com."""
+        v = (os.getenv("HEFENG_API_HOST") or os.getenv("QWEATHER_API_HOST") or "").strip()
+        v = v.removeprefix("https://").removeprefix("http://").rstrip("/")
+        return v or "devapi.qweather.com"
 
     @property
     def HEFENG_LOCATION(self) -> str:

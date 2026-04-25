@@ -21,18 +21,24 @@ async def fetch_weather(location: Optional[str] = None) -> str:
 
     name = (location or "").strip() or None
     d = await fetch_weather_cached(name)
-    city = str(d.get("city", ""))
-    cond = str(d.get("condition", ""))
-    temp = str(d.get("temp", ""))
-    feels = str(d.get("feels_like", ""))
-    hum = str(d.get("humidity", ""))
-    wdir = str(d.get("wind_dir", ""))
-    wscale = str(d.get("wind_scale", ""))
-    hi = str(d.get("high", ""))
-    lo = str(d.get("low", ""))
+    city = str(d.get("city") or name or "\u9ed8\u8ba4\u57ce\u5e02")
+    err = d.get("error")
+    if err:
+        summary = f"{city}\u5929\u6c14\u6682\u65f6\u65e0\u6cd5\u83b7\u53d6\uff1a{err}"
+        return json.dumps({"summary": summary, "error": str(err)}, ensure_ascii=False)
+
+    cond = str(d.get("condition") or "\u672a\u77e5")
+    temp = str(d.get("temp") or "--")
+    feels = str(d.get("feels_like") or "--")
+    hum = str(d.get("humidity") or "--")
+    wdir = str(d.get("wind_dir") or "")
+    wscale = str(d.get("wind_scale") or "")
+    hi = str(d.get("high") or "--")
+    lo = str(d.get("low") or "--")
+    wind = f"{wdir}{wscale}\u7ea7" if (wdir or wscale) else "\u98ce\u529b\u672a\u77e5"
     summary = (
-        f"{city}当前天气：{cond}，{temp}°C，体感{feels}°C，湿度{hum}%，"
-        f"{wdir}{wscale}级。今日高温{hi}°C，低温{lo}°C。"
+        f"{city}\u5f53\u524d\u5929\u6c14\uff1a{cond}\uff0c{temp}\u00b0C\uff0c\u4f53\u611f{feels}\u00b0C\uff0c\u6e7f\u5ea6{hum}%\uff0c"
+        f"{wind}\u3002\u4eca\u65e5\u9ad8\u6e29{hi}\u00b0C\uff0c\u4f4e\u6e29{lo}\u00b0C\u3002"
     )
     return json.dumps({"summary": summary}, ensure_ascii=False)
 
