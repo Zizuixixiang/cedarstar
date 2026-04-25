@@ -84,6 +84,7 @@ try:
         get_memory_cards,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
+        get_tool_executions_for_message_range,
         save_summary,
         mark_messages_as_summarized_by_ids,
         expire_stale_vision_pending,
@@ -95,6 +96,7 @@ except ImportError:
         get_memory_cards,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
+        get_tool_executions_for_message_range,
         save_summary,
         mark_messages_as_summarized_by_ids,
         expire_stale_vision_pending,
@@ -223,6 +225,42 @@ async def _resolve_micro_batch_memory_prefix(
     return await _get_micro_batch_memory_prefix(uid, cid)
 
 
+async def _resolve_micro_batch_tool_context(
+    session_id: str,
+    start_message_id: int,
+    end_message_id: int,
+) -> str:
+    """把同一批消息关联的工具记录加入 chunk 摘要输入，避免工具信息断档。"""
+    try:
+        rows = await get_tool_executions_for_message_range(
+            session_id, start_message_id, end_message_id
+        )
+    except Exception as e:
+        logger.warning("读取微批工具记录失败: %s", e)
+        return ""
+    if not rows:
+        return ""
+    lines: List[str] = []
+    for row in rows[:20]:
+        nm = row.get("tool_name") or "tool"
+        summary = (row.get("result_summary") or "").strip()
+        args = row.get("arguments_json") or {}
+        if isinstance(args, dict):
+            arg_text = "；".join(
+                f"{k}={str(v).replace(chr(10), ' ')[:60]}"
+                for k, v in list(args.items())[:3]
+                if not str(k).startswith("_")
+            )
+        else:
+            arg_text = str(args).replace("\n", " ")[:160]
+        line = f"- {nm}"
+        if arg_text:
+            line += f"（{arg_text}）"
+        line += f"：{summary[:700]}"
+        lines.append(line)
+    return "\n".join(lines)
+
+
 class SummaryLLMInterface:
     """
     摘要专用的 LLM 接口类。
@@ -262,6 +300,7 @@ class SummaryLLMInterface:
         char_name: str = DEFAULT_BATCH_CHAR_NAME,
         user_name: str = DEFAULT_BATCH_USER_NAME,
         memory_prefix: str = "",
+        tool_context: str = "",
     ) -> str:
         """
         生成消息摘要。
@@ -288,11 +327,19 @@ class SummaryLLMInterface:
         for msg in messages:
             role_label = user_name if msg["role"] == "user" else char_name
             conversation_text += f"{role_label}: {msg['content']}\n\n"
+
+        tool_block = ""
+        if (tool_context or "").strip():
+            tool_block = (
+                "\n【期间工具使用】\n"
+                + tool_context.strip()
+                + "\n\n"
+            )
         
         prompt = f"""{prefix}{mp}请为以下对话生成150-200字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。
 输出客观凝练，无主观修饰，严格符合字数要求。
 【对话记录】
-{conversation_text}
+{conversation_text}{tool_block}
 摘要（中文）:"""
         
         try:
@@ -456,6 +503,13 @@ async def generate_summary_for_messages(
             )
         
         memory_prefix = await _resolve_micro_batch_memory_prefix(messages)
+        ids = [int(m["id"]) for m in messages if m.get("id") is not None]
+        tool_context = ""
+        if ids:
+            sid = str(messages[0].get("session_id") or "")
+            tool_context = await _resolve_micro_batch_tool_context(
+                sid, min(ids), max(ids)
+            )
 
         # 生成摘要（Guard 用尽时不写入占位摘要，由上层跳过落库）
         summary = summary_llm.generate_summary(
@@ -463,6 +517,7 @@ async def generate_summary_for_messages(
             char_name=char_name,
             user_name=user_name,
             memory_prefix=memory_prefix,
+            tool_context=tool_context,
         )
         
         return summary

@@ -451,7 +451,11 @@ class DiscordBot:
             lutopia_appendix = ""
             if oral:
                 outcome = await complete_with_lutopia_tool_loop(
-                    llm, messages, platform=Platform.DISCORD
+                    llm,
+                    messages,
+                    platform=Platform.DISCORD,
+                    session_id=session_id,
+                    user_message_id=user_row_id if 'user_row_id' in locals() else None,
                 )
                 llm_resp = outcome.response
                 reply_display = schedule_update_memory_hits_and_clean_reply(
@@ -586,7 +590,11 @@ class DiscordBot:
             lutopia_appendix = ""
             if oral:
                 outcome = await complete_with_lutopia_tool_loop(
-                    llm, messages, platform=Platform.DISCORD
+                    llm,
+                    messages,
+                    platform=Platform.DISCORD,
+                    session_id=session_id,
+                    user_message_id=user_row_id if 'user_row_id' in locals() else None,
                 )
                 llm_resp = outcome.response
                 reply_display = schedule_update_memory_hits_and_clean_reply(

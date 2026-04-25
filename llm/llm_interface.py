@@ -11,6 +11,7 @@ import asyncio
 import copy
 import time
 import re
+import uuid
 from typing import (
     Any,
     Awaitable,
@@ -398,6 +399,48 @@ def messages_contain_multimodal_images(messages: List[Dict[str, Any]]) -> bool:
             if t in ("image_url", "image"):
                 return True
     return False
+
+
+def _text_from_content_blocks(content: Any) -> str:
+    """OpenAI 兼容路径兜底：将 Anthropic text blocks 压成纯文本。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                t = block.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n\n".join(p for p in parts if p.strip())
+    return "" if content is None else str(content)
+
+
+def _openai_compatible_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """移除 Anthropic 专用 cache_control block 形态，避免 OpenAI 兼容网关拒绝。"""
+    out: List[Dict[str, Any]] = []
+    for msg in messages:
+        m = dict(msg)
+        c = m.get("content")
+        if isinstance(c, list):
+            has_image = any(
+                isinstance(p, dict) and p.get("type") in ("image_url", "image")
+                for p in c
+            )
+            if not has_image:
+                m["content"] = _text_from_content_blocks(c)
+            else:
+                clean_parts: List[Dict[str, Any]] = []
+                for part in c:
+                    if isinstance(part, dict):
+                        p = dict(part)
+                        p.pop("cache_control", None)
+                        clean_parts.append(p)
+                m["content"] = clean_parts
+        out.append(m)
+    return out
 
 
 def _openai_tools_specs_to_anthropic(
@@ -872,11 +915,12 @@ class LLMInterface:
         }
         
         # 添加认证头
-        if "gpt-3.5" in self.model_name or "gpt-4" in self.model_name:
-            headers["Authorization"] = f"Bearer {self.api_key}"
-        elif "claude" in self.model_name.lower():
+        if self._use_anthropic_messages_api():
             headers["x-api-key"] = self.api_key
             headers["anthropic-version"] = "2023-06-01"
+            headers["anthropic-beta"] = "extended-cache-ttl-2025-04-11"
+        elif "gpt-3.5" in self.model_name or "gpt-4" in self.model_name:
+            headers["Authorization"] = f"Bearer {self.api_key}"
         else:
             headers["Authorization"] = f"Bearer {self.api_key}"
         
@@ -923,7 +967,7 @@ class LLMInterface:
         """
         payload: Dict[str, Any] = {
             "model": self.model_name,
-            "messages": messages,
+            "messages": _openai_compatible_messages(messages),
             "max_tokens": self._openai_max_tokens(),
             "temperature": self.temperature,
             "stream": False,
@@ -969,13 +1013,22 @@ class LLMInterface:
             Dict[str, Any]: 请求负载
         """
         # 转换消息格式
-        system_message = None
+        system_message: Optional[Union[str, List[Dict[str, Any]]]] = None
         claude_messages = []
         
         for msg in messages:
             if msg["role"] == "system":
                 c = msg["content"]
-                system_message = c if isinstance(c, str) else str(c)
+                if isinstance(c, list):
+                    blocks: List[Dict[str, Any]] = []
+                    for block in c:
+                        if isinstance(block, dict) and block.get("type") == "text":
+                            blocks.append(dict(block))
+                        elif isinstance(block, str):
+                            blocks.append({"type": "text", "text": block})
+                    system_message = blocks if blocks else _text_from_content_blocks(c)
+                else:
+                    system_message = c if isinstance(c, str) else str(c)
             else:
                 claude_messages.append({
                     "role": msg["role"],
@@ -1059,12 +1112,15 @@ class LLMInterface:
         if not merged and blocks:
             merged = blocks[0].get("text", "") if isinstance(blocks[0], dict) else ""
         
+        usage_raw = response_data.get("usage", {}) or {}
         return LLMResponse(
             content=merged,
             model=response_data["model"],
             usage={
-                "input_tokens": response_data.get("usage", {}).get("input_tokens", 0),
-                "output_tokens": response_data.get("usage", {}).get("output_tokens", 0)
+                "input_tokens": usage_raw.get("input_tokens", 0),
+                "output_tokens": usage_raw.get("output_tokens", 0),
+                "cache_creation_input_tokens": usage_raw.get("cache_creation_input_tokens", 0),
+                "cache_read_input_tokens": usage_raw.get("cache_read_input_tokens", 0),
             },
             finish_reason=response_data.get("stop_reason"),
             raw_response=response_data,
@@ -1816,6 +1872,8 @@ async def complete_with_lutopia_tool_loop(
     on_tool_start: Optional[Callable[[str], Awaitable[None]]] = None,
     on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
     on_assistant_partial_text: Optional[Callable[[str], Awaitable[None]]] = None,
+    session_id: Optional[str] = None,
+    user_message_id: Optional[int] = None,
 ) -> LutopiaToolLoopOutcome:
     """
     OpenAI 兼容路径：附带 Lutopia Forum tools，循环执行 function call 直至模型不再请求工具。
@@ -1830,6 +1888,8 @@ async def complete_with_lutopia_tool_loop(
         build_lutopia_internal_memory_appendix,
         create_lutopia_mcp_session,
         execute_lutopia_function_call,
+        save_tool_execution_record,
+        tool_result_for_model,
     )
     from tools.prompts import (
         OPENAI_SEARCH_TOOLS,
@@ -1868,6 +1928,8 @@ async def complete_with_lutopia_tool_loop(
     last: Optional[LLMResponse] = None
     round_texts: List[str] = []
     tool_pairs: List[Tuple[str, str, str]] = []
+    tool_turn_id = uuid.uuid4().hex
+    tool_seq = 0
     async with create_lutopia_mcp_session() as mcp_session:
         for _ in range(max_tool_rounds):
             last = await asyncio.to_thread(
@@ -1945,11 +2007,22 @@ async def complete_with_lutopia_tool_loop(
                     tool_pairs.append((nm, raw_args or "{}", result_str))
                 if on_tool_done:
                     await on_tool_done(nm, result_str)
+                tool_seq += 1
+                await save_tool_execution_record(
+                    session_id=session_id,
+                    turn_id=tool_turn_id,
+                    seq=tool_seq,
+                    tool_name=nm,
+                    arguments_json=raw_args or "{}",
+                    result_text=result_str,
+                    platform=platform,
+                    user_message_id=user_message_id,
+                )
                 work.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id") or "",
-                        "content": result_str,
+                        "content": tool_result_for_model(nm, raw_args or "{}", result_str),
                     }
                 )
     fin = last or LLMResponse(content="", model=llm.model_name)

@@ -8,6 +8,7 @@ await initialize_database()。
 """
 
 import asyncpg
+import json
 import logging
 import datetime as _dt
 import uuid
@@ -159,6 +160,38 @@ async def _ensure_sticker_cache_table(conn) -> None:
     """)
 
 
+async def _ensure_tool_executions_table(conn) -> None:
+    """工具执行记录表：每次 tool call 一行，Context 注入时再按 turn 聚合。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS tool_executions (
+            id SERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            turn_id TEXT NOT NULL,
+            seq INTEGER NOT NULL DEFAULT 1,
+            tool_name TEXT NOT NULL,
+            arguments_json JSONB,
+            result_summary TEXT NOT NULL DEFAULT '',
+            result_raw TEXT,
+            user_message_id INTEGER,
+            assistant_message_id INTEGER,
+            platform TEXT,
+            created_at TIMESTAMP DEFAULT NOW()
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_executions_session_created "
+        "ON tool_executions (session_id, created_at DESC)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_executions_turn_seq "
+        "ON tool_executions (turn_id, seq)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_tool_executions_user_message "
+        "ON tool_executions (user_message_id)"
+    )
+
+
 async def _config_insert_defaults_if_missing(
     conn, defaults: List[Tuple[str, str]]
 ) -> None:
@@ -256,6 +289,7 @@ async def migrate_database_schema(conn) -> None:
     await _daily_batch_log_ensure_retry_count_column(conn)
     await _backfill_daily_batch_step45_legacy_once(conn)
     await _messages_ensure_vision_columns(conn)
+    await _ensure_tool_executions_table(conn)
 
     await conn.execute(
         "ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT"
@@ -517,6 +551,24 @@ class MessageDatabase:
                     )
                 """)
 
+                # tool_executions
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS tool_executions (
+                        id SERIAL PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        turn_id TEXT NOT NULL,
+                        seq INTEGER NOT NULL DEFAULT 1,
+                        tool_name TEXT NOT NULL,
+                        arguments_json JSONB,
+                        result_summary TEXT NOT NULL DEFAULT '',
+                        result_raw TEXT,
+                        user_message_id INTEGER,
+                        assistant_message_id INTEGER,
+                        platform TEXT,
+                        created_at TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+
                 # config
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS config (
@@ -604,6 +656,134 @@ class MessageDatabase:
                 await migrate_database_schema(conn)
 
         logger.debug("数据库表初始化完成")
+
+    # ------------------------------------------------------------------
+    # tool_executions
+    # ------------------------------------------------------------------
+
+    async def save_tool_execution(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        seq: int,
+        tool_name: str,
+        arguments_json: Optional[str] = None,
+        result_summary: str = "",
+        result_raw: Optional[str] = None,
+        user_message_id: Optional[int] = None,
+        assistant_message_id: Optional[int] = None,
+        platform: Optional[str] = None,
+    ) -> int:
+        """保存一次工具调用记录。raw 只供排查；Context 注入使用 summary。"""
+        args_obj: Any = None
+        if arguments_json is not None and str(arguments_json).strip():
+            try:
+                args_obj = json.loads(str(arguments_json))
+            except Exception:
+                args_obj = {"_raw": str(arguments_json)}
+        raw = None if result_raw is None else str(result_raw)
+        if raw is not None and len(raw) > 50000:
+            raw = raw[:50000] + "\n...(truncated)"
+        summary = (result_summary or "").strip()
+        if len(summary) > 2400:
+            summary = summary[:2400] + "..."
+        async with self.pool.acquire() as conn:
+            eid = await conn.fetchval(
+                """
+                INSERT INTO tool_executions (
+                    session_id, turn_id, seq, tool_name, arguments_json,
+                    result_summary, result_raw, user_message_id,
+                    assistant_message_id, platform
+                )
+                VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
+                RETURNING id
+                """,
+                str(session_id),
+                str(turn_id),
+                int(seq),
+                str(tool_name),
+                json.dumps(args_obj, ensure_ascii=False) if args_obj is not None else None,
+                summary,
+                raw,
+                user_message_id,
+                assistant_message_id,
+                None if platform is None else str(platform),
+            )
+        logger.debug(
+            "保存工具执行记录成功: id=%s session=%s tool=%s",
+            eid,
+            session_id,
+            tool_name,
+        )
+        return int(eid)
+
+    async def get_recent_tool_executions(
+        self,
+        session_id: str,
+        *,
+        limit_turns: int = 3,
+        max_rows: int = 20,
+    ) -> List[Dict[str, Any]]:
+        """取最近若干工具回合的执行记录，按时间/序号正序返回。"""
+        async with self.pool.acquire() as conn:
+            turn_rows = await conn.fetch(
+                """
+                SELECT turn_id, MAX(created_at) AS last_at
+                FROM tool_executions
+                WHERE session_id = $1
+                GROUP BY turn_id
+                ORDER BY last_at DESC
+                LIMIT $2
+                """,
+                session_id,
+                max(1, int(limit_turns)),
+            )
+            turn_ids = [r["turn_id"] for r in turn_rows]
+            if not turn_ids:
+                return []
+            rows = await conn.fetch(
+                """
+                SELECT id, session_id, turn_id, seq, tool_name, arguments_json,
+                       result_summary, user_message_id, assistant_message_id,
+                       platform, created_at
+                FROM tool_executions
+                WHERE session_id = $1 AND turn_id = ANY($2::text[])
+                ORDER BY created_at ASC, turn_id ASC, seq ASC
+                LIMIT $3
+                """,
+                session_id,
+                turn_ids,
+                max(1, int(max_rows)),
+            )
+        return [_r(r) for r in rows]
+
+    async def get_tool_executions_for_message_range(
+        self,
+        session_id: str,
+        start_message_id: int,
+        end_message_id: int,
+    ) -> List[Dict[str, Any]]:
+        """取与一段待摘要消息相关的工具记录。"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, session_id, turn_id, seq, tool_name, arguments_json,
+                       result_summary, user_message_id, assistant_message_id,
+                       platform, created_at
+                FROM tool_executions
+                WHERE session_id = $1
+                  AND (
+                    user_message_id BETWEEN $2 AND $3
+                    OR assistant_message_id BETWEEN $2 AND $3
+                  )
+                ORDER BY created_at ASC, turn_id ASC, seq ASC
+                """,
+                session_id,
+                int(start_message_id),
+                int(end_message_id),
+            )
+        return [_r(r) for r in rows]
 
     # ------------------------------------------------------------------
     # messages
@@ -3632,6 +3812,26 @@ async def get_unsummarized_messages_desc(
     session_id: str, limit: int = 40
 ) -> List[Dict[str, Any]]:
     return await get_database().get_unsummarized_messages_desc(session_id, limit)
+
+
+async def save_tool_execution(**kwargs) -> int:
+    return await get_database().save_tool_execution(**kwargs)
+
+
+async def get_recent_tool_executions(
+    session_id: str, *, limit_turns: int = 3, max_rows: int = 20
+) -> List[Dict[str, Any]]:
+    return await get_database().get_recent_tool_executions(
+        session_id, limit_turns=limit_turns, max_rows=max_rows
+    )
+
+
+async def get_tool_executions_for_message_range(
+    session_id: str, start_message_id: int, end_message_id: int
+) -> List[Dict[str, Any]]:
+    return await get_database().get_tool_executions_for_message_range(
+        session_id, start_message_id, end_message_id
+    )
 
 
 # ---------------------------------------------------------------------------

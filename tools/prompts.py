@@ -140,4 +140,6 @@ def inject_tool_suffix_into_messages(
         c = m.get("content")
         if isinstance(c, str):
             m["content"] = c.rstrip() + "\n\n" + s
+        elif isinstance(c, list):
+            c.append({"type": "text", "text": s})
         return

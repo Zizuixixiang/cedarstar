@@ -17,6 +17,7 @@ import logging
 import traceback
 import threading
 import requests
+import uuid
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 # 添加当前目录到 Python 路径，确保可以导入本地模块
@@ -1527,6 +1528,8 @@ class TelegramBot:
         messages: List[Dict[str, Any]],
         base_message,
         bot,
+        session_id: Optional[str] = None,
+        user_message_id: Optional[int] = None,
     ) -> _TelegramStreamOutcome:
         """
         Sirius + OpenAI 兼容路径：首轮起携带 Lutopia tools；若模型发起 function call，
@@ -1560,6 +1563,7 @@ class TelegramBot:
         # 跨每一轮 SSE（含多轮工具调用）共用同一列表：每轮 append_tool_exchange 按 tool_calls 顺序追加，
         # 全局顺序 = 第 1 轮工具… → 第 2 轮工具…，收尾时一次性 build_lutopia_internal_memory_appendix，不会丢中间轮。
         lutopia_stream_exec_log: List[Tuple[str, str, str]] = []
+        lutopia_stream_turn_id = uuid.uuid4().hex
 
         def _merge_stream_outcome(outcome: _TelegramStreamOutcome) -> _TelegramStreamOutcome:
             merged_parts = [p for p in pre_tool_segments if p.strip()]
@@ -1632,6 +1636,10 @@ class TelegramBot:
                         on_tool_done=_lutopia_on_done,
                         execution_log=lutopia_stream_exec_log,
                         mcp_session=lutopia_mcp_session,
+                        session_id=session_id,
+                        turn_id=lutopia_stream_turn_id,
+                        platform=Platform.TELEGRAM,
+                        user_message_id=user_message_id,
                     )
                     continue
                 outcome = await self._telegram_finalize_sse_round_outcome(
@@ -1943,7 +1951,12 @@ class TelegramBot:
                     llm, "enable_search_tool", False
                 ):
                     outcome = await self._telegram_stream_thinking_and_reply_with_lutopia(
-                        llm, messages, base_message, bot
+                        llm,
+                        messages,
+                        base_message,
+                        bot,
+                        session_id=session_id,
+                        user_message_id=user_row_id if 'user_row_id' in locals() else None,
                     )
                 else:
                     outcome = await self._telegram_stream_thinking_and_reply(
@@ -2254,10 +2267,16 @@ class TelegramBot:
                         on_tool_start=_lutopia_on_start,
                         on_tool_done=_lutopia_on_done,
                         on_assistant_partial_text=_partial,
+                        session_id=session_id,
+                        user_message_id=user_row_id if 'user_row_id' in locals() else None,
                     )
                 else:
                     outcome = await complete_with_lutopia_tool_loop(
-                        llm, messages, platform=Platform.TELEGRAM
+                        llm,
+                        messages,
+                        platform=Platform.TELEGRAM,
+                        session_id=session_id,
+                        user_message_id=user_row_id if 'user_row_id' in locals() else None,
                     )
                 llm_resp = outcome.response
                 lutopia_appendix = outcome.behavior_appendix or ""

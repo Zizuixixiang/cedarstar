@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 
 TOOL_LOG_SNIP_MAX = 200
 BEHAVIOR_DESC_MAX = 80
+TOOL_CONTEXT_SUMMARY_MAX = 1200
 
 
 def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
@@ -35,6 +36,89 @@ def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
     if len(s) <= max_len:
         return s
     return s[: max_len - 1] + "…"
+
+
+def summarize_tool_result_for_context(tool_name: str, arguments_json: str, result_text: str) -> str:
+    """生成下一轮 Context 用的短摘要；不把长 raw 直接塞给模型。"""
+    raw = (result_text or "").strip()
+    summary = ""
+    try:
+        parsed = json.loads(raw)
+    except json.JSONDecodeError:
+        parsed = None
+    if isinstance(parsed, dict):
+        err = parsed.get("error")
+        if err is not None and str(err).strip():
+            summary = f"执行失败：{str(err).strip()}"
+        else:
+            for key in ("summary", "message", "title", "content", "text", "output", "result"):
+                v = parsed.get(key)
+                if isinstance(v, str) and v.strip():
+                    summary = v.strip()
+                    break
+            if not summary:
+                compact = json.dumps(parsed, ensure_ascii=False)
+                summary = compact
+    else:
+        summary = raw
+    summary = summary.replace("\r\n", "\n").strip()
+    if len(summary) > TOOL_CONTEXT_SUMMARY_MAX:
+        summary = summary[:TOOL_CONTEXT_SUMMARY_MAX] + "..."
+    if not summary:
+        summary = "已执行，但没有返回可读结果。"
+    return summary
+
+
+def tool_result_for_model(tool_name: str, arguments_json: str, result_text: str) -> str:
+    """本轮回传给聊天模型的工具结果；长结果先压成短 JSON，防止一次工具吞掉大量 token。"""
+    raw = result_text or ""
+    if len(raw) <= 6000:
+        return raw
+    summary = summarize_tool_result_for_context(tool_name, arguments_json, raw)
+    return json.dumps(
+        {
+            "summary": summary,
+            "truncated": True,
+            "note": "工具原始结果较长，已压缩为摘要供本轮继续对话。",
+        },
+        ensure_ascii=False,
+    )
+
+
+async def save_tool_execution_record(
+    *,
+    session_id: Optional[str],
+    turn_id: Optional[str],
+    seq: int,
+    tool_name: str,
+    arguments_json: str,
+    result_text: str,
+    platform: Optional[str] = None,
+    user_message_id: Optional[int] = None,
+    assistant_message_id: Optional[int] = None,
+) -> None:
+    """尽力落库工具执行记录；失败只记日志，不影响对话。"""
+    if not session_id or not turn_id:
+        return
+    try:
+        from memory.database import save_tool_execution
+
+        await save_tool_execution(
+            session_id=session_id,
+            turn_id=turn_id,
+            seq=seq,
+            tool_name=tool_name,
+            arguments_json=arguments_json or "{}",
+            result_summary=summarize_tool_result_for_context(
+                tool_name, arguments_json or "{}", result_text
+            ),
+            result_raw=result_text,
+            user_message_id=user_message_id,
+            assistant_message_id=assistant_message_id,
+            platform=platform,
+        )
+    except Exception as e:
+        logger.warning("保存工具执行记录失败: %s", e)
 
 
 def lutopia_tool_display_name(name: str) -> str:
@@ -518,6 +602,10 @@ async def append_tool_exchange_to_messages(
     on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
     execution_log: Optional[List[Tuple[str, str, str]]] = None,
     mcp_session: Optional[Any] = None,
+    session_id: Optional[str] = None,
+    turn_id: Optional[str] = None,
+    platform: Optional[str] = None,
+    user_message_id: Optional[int] = None,
 ) -> None:
     """
     将一轮 assistant.tool_calls 及对应 tool 结果追加到 messages（原地修改）。
@@ -528,7 +616,7 @@ async def append_tool_exchange_to_messages(
     ``mcp_session``：由 ``create_lutopia_mcp_session()`` 提供时复用 MCP 连接；未传则每次工具调用单独建连。
     """
     wrapped: List[Dict[str, Any]] = []
-    for tc in tool_calls:
+    for seq, tc in enumerate(tool_calls, start=1):
         if not isinstance(tc, dict):
             continue
         tid = tc.get("id") or ""
@@ -590,8 +678,19 @@ async def append_tool_exchange_to_messages(
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:
             await on_tool_done(nm, out)
+        await save_tool_execution_record(
+            session_id=session_id,
+            turn_id=turn_id,
+            seq=seq,
+            tool_name=nm,
+            arguments_json=arg or "{}",
+            result_text=out,
+            platform=platform,
+            user_message_id=user_message_id,
+        )
+        model_out = tool_result_for_model(nm, arg or "{}", out)
         messages.append(
-            {"role": "tool", "tool_call_id": tc.get("id") or "", "content": out}
+            {"role": "tool", "tool_call_id": tc.get("id") or "", "content": model_out}
         )
 
 

@@ -34,6 +34,7 @@ from memory.database import (
     get_database,
     get_recent_relationship_timeline,
     get_recent_daily_summaries,
+    get_recent_tool_executions,
     get_today_chunk_summaries,
     get_unsummarized_messages_desc,
 )
@@ -365,6 +366,35 @@ MEMORY_BLOCK_PRIORITY_DIRECTIVE = (
 THINKING_LANGUAGE_DIRECTIVE = (
     "所有思维链、推理过程必须使用中文；思考时统一称呼我为南杉，严禁出现用户、user 字样。"
 )
+
+ANTHROPIC_CACHE_CONTROL_1H = {
+    "type": "ephemeral",
+    "ttl": "1h",
+}
+
+
+def _cache_text_block(text: str, *, cache: bool = False) -> Dict[str, Any]:
+    block: Dict[str, Any] = {"type": "text", "text": text}
+    if cache:
+        block["cache_control"] = dict(ANTHROPIC_CACHE_CONTROL_1H)
+    return block
+
+
+def flatten_text_content(content: Any) -> str:
+    """将 Anthropic text blocks / 普通字符串统一压成 OpenAI 兼容字符串。"""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: List[str] = []
+        for block in content:
+            if isinstance(block, dict):
+                t = block.get("text")
+                if isinstance(t, str):
+                    parts.append(t)
+            elif isinstance(block, str):
+                parts.append(block)
+        return "\n\n".join(p for p in parts if p.strip())
+    return str(content) if content is not None else ""
 
 async def _telegram_segment_limits_from_db() -> Tuple[int, int]:
     """读取 config 表中的 Telegram 分段参数（与 api.config DEFAULT 及校验范围一致）。"""
@@ -736,6 +766,7 @@ class ContextBuilder:
             vector_search_section = await self._build_vector_search_section(user_message)
             daily_summaries_section = await self._build_daily_summaries_section()
             chunk_summaries_section = await self._build_chunk_summaries_section()
+            recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
                 "context chunk section preview: session=%s chunk_section_len=%s tail=%r",
                 session_id,
@@ -763,10 +794,13 @@ class ContextBuilder:
                 vector_search_section,
                 daily_summaries_section,
                 chunk_summaries_section,
+                recent_tool_section,
                 tool_oral_coaching=tool_oral_coaching,
             )
             if telegram_segment_hint:
-                full_system_prompt = full_system_prompt + await format_telegram_reply_segment_hint()
+                full_system_prompt.append(
+                    _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
+                )
             
             # 组装 messages 数组
             messages = self._assemble_messages(
@@ -858,6 +892,7 @@ class ContextBuilder:
             vector_search_section = await self._build_vector_search_section_async(user_message)
             daily_summaries_section = await self._build_daily_summaries_section()
             chunk_summaries_section = await self._build_chunk_summaries_section()
+            recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
                 "context chunk section preview async: session=%s chunk_section_len=%s tail=%r",
                 session_id,
@@ -885,10 +920,13 @@ class ContextBuilder:
                 vector_search_section,
                 daily_summaries_section,
                 chunk_summaries_section,
+                recent_tool_section,
                 tool_oral_coaching=tool_oral_coaching,
             )
             if telegram_segment_hint:
-                full_system_prompt = full_system_prompt + await format_telegram_reply_segment_hint()
+                full_system_prompt.append(
+                    _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
+                )
             
             # 组装 messages 数组
             messages = self._assemble_messages(
@@ -1188,6 +1226,53 @@ class ContextBuilder:
         except Exception as e:
             logger.warning(f"构建 chunk summary 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
+
+    async def _build_recent_tool_executions_section(self, session_id: str) -> str:
+        """最近工具使用记录：动态信息，放在缓存断点之后。"""
+        try:
+            rows = await get_recent_tool_executions(
+                session_id,
+                limit_turns=3,
+                max_rows=12,
+            )
+            if not rows:
+                return ""
+            lines = ["# 最近工具使用记录", ""]
+            lines.append(
+                "以下是最近几轮对话中已经执行过的工具结果摘要；它们用于保持连续性，不表示本轮刚刚调用。"
+            )
+            current_turn = None
+            for row in rows:
+                turn_id = str(row.get("turn_id") or "")
+                if turn_id != current_turn:
+                    current_turn = turn_id
+                    created = row.get("created_at") or ""
+                    lines.append("")
+                    lines.append(f"## 工具回合 {turn_id[:8] or 'unknown'}（{created}）")
+                nm = row.get("tool_name") or "tool"
+                args = row.get("arguments_json") or {}
+                if isinstance(args, dict):
+                    arg_bits = []
+                    for k, v in list(args.items())[:3]:
+                        if k.startswith("_"):
+                            continue
+                        sv = str(v).replace("\n", " ").strip()
+                        if sv:
+                            arg_bits.append(f"{k}={sv[:80]}")
+                    arg_text = "；".join(arg_bits)
+                else:
+                    arg_text = str(args).replace("\n", " ").strip()[:160]
+                summary = (row.get("result_summary") or "").strip()
+                if len(summary) > 700:
+                    summary = summary[:700] + "..."
+                prefix = f"- {nm}"
+                if arg_text:
+                    prefix += f"（{arg_text}）"
+                lines.append(f"{prefix}：{summary or '已执行，但没有可用摘要'}")
+            return "\n".join(lines).strip()
+        except Exception as e:
+            logger.warning("构建最近工具使用记录失败: %s", e)
+            return ""
     
     async def _build_vector_search_section(self, user_message: str) -> str:
         """
@@ -1444,55 +1529,68 @@ class ContextBuilder:
         vector_search_section: str,
         daily_summaries_section: str,
         chunk_summaries_section: str,
+        recent_tool_section: str,
         *,
         tool_oral_coaching: bool = False,
         exclude_message_id: Optional[int] = None,
-    ) -> str:
+    ) -> List[Dict[str, Any]]:
         """
         组装完整的 system prompt。
 
-        顺序：系统时间 → system → **记忆块冲突消解优先级** → temporal_states → memory_cards
-        → relationship_timeline → 长期记忆检索 → daily → chunk；末尾注入引用死命令与思维链语言要求。
+        Anthropic 路径使用 text blocks + 1h cache_control；OpenAI 路径在 LLM 层压回字符串。
+        易变的当前时间、长期检索和工具记录放在缓存块之后，避免破坏稳定前缀。
         """
         from datetime import datetime, timezone, timedelta
         tz_utc_8 = timezone(timedelta(hours=8))
         now_str = datetime.now(tz_utc_8).strftime("%Y年%m月%d日 %H:%M")
         time_section = f"【当前系统时间（东八区）：{now_str}】\n(提示：在对话中若关注时间信息，请以此时间为基准！)"
 
-        sections = [time_section, system_prompt]
-        sections.append(MEMORY_BLOCK_PRIORITY_DIRECTIVE)
+        fixed_sections = [system_prompt, MEMORY_BLOCK_PRIORITY_DIRECTIVE]
+        fixed_sections.append(MEMORY_CITATION_DIRECTIVE)
+        fixed_sections.append(THINKING_LANGUAGE_DIRECTIVE)
+        if tool_oral_coaching:
+            fixed_sections.append(TOOL_ORAL_COACHING_BLOCK)
 
+        blocks: List[Dict[str, Any]] = [
+            _cache_text_block("\n\n".join(s for s in fixed_sections if s.strip()), cache=True)
+        ]
+
+        slow_sections: List[str] = []
         if temporal_states_section:
-            sections.append(temporal_states_section)
+            slow_sections.append(temporal_states_section)
 
         if memory_cards_section:
-            sections.append(memory_cards_section)
+            slow_sections.append(memory_cards_section)
 
         if relationship_timeline_section:
-            sections.append(relationship_timeline_section)
-
-        if vector_search_section:
-            sections.append(vector_search_section)
+            slow_sections.append(relationship_timeline_section)
 
         if daily_summaries_section:
-            sections.append(daily_summaries_section)
+            slow_sections.append(daily_summaries_section)
+
+        if slow_sections:
+            blocks.append(_cache_text_block("\n\n".join(slow_sections), cache=True))
 
         if chunk_summaries_section:
-            sections.append(chunk_summaries_section)
+            blocks.append(_cache_text_block(chunk_summaries_section, cache=True))
 
-        if len(sections) > 1:
-            sections.append("---")
-            sections.append("以上是历史信息和用户记忆，请基于这些信息进行对话。")
+        dynamic_sections = [time_section]
+        if recent_tool_section:
+            dynamic_sections.append(recent_tool_section)
 
-        sections.append(MEMORY_CITATION_DIRECTIVE)
-        sections.append(THINKING_LANGUAGE_DIRECTIVE)
+        if vector_search_section:
+            dynamic_sections.append(
+                "# 本轮召回的相关长期记忆\n"
+                "以下记忆可能来自过去日期，不代表今天发生；请以条目日期为准。\n\n"
+                + vector_search_section
+            )
 
-        if tool_oral_coaching:
-            sections.append(TOOL_ORAL_COACHING_BLOCK)
+        dynamic_sections.append("---\n以上是历史信息和用户记忆，请基于这些信息进行对话。")
 
-        return "\n\n".join(sections)
+        blocks.append(_cache_text_block("\n\n".join(dynamic_sections), cache=False))
+        return blocks
     
-    def _assemble_messages(self, full_system_prompt: str,
+    def _assemble_messages(self, full_system_prompt: Any,
                           recent_messages: List[Dict[str, Any]],
                           current_user_message: Dict[str, Any]) -> List[Dict[str, Any]]:
         """
@@ -1516,7 +1614,13 @@ class ContextBuilder:
             })
         
         # 添加历史消息
-        messages.extend(recent_messages)
+        recent_out = [dict(m) for m in recent_messages]
+        if len(recent_out) > 2:
+            idx = len(recent_out) - 3
+            c = recent_out[idx].get("content")
+            if isinstance(c, str) and c.strip():
+                recent_out[idx]["content"] = [_cache_text_block(c, cache=True)]
+        messages.extend(recent_out)
         
         # 添加当前用户消息
         messages.append(current_user_message)
