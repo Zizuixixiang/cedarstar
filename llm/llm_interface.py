@@ -2336,7 +2336,30 @@ async def complete_with_lutopia_tool_loop(
     tool_turn_id = uuid.uuid4().hex
     tool_seq = 0
     async with create_lutopia_mcp_session() as mcp_session:
-        for _ in range(max_tool_rounds):
+        for round_idx in range(max_tool_rounds):
+            tool_round_prompt = (
+                f"\n\n【工具轮次状态】当前是第 {round_idx + 1}/{max_tool_rounds} 轮工具调用。"
+                "你已经看到了本轮之前所有工具结果；如信息足够，请尽快收束并直接给出最终答复，"
+                "避免为了继续调用工具而重复调用。"
+            )
+            injected = False
+            for msg in work:
+                if msg.get("role") == "system":
+                    c = msg.get("content")
+                    if isinstance(c, str):
+                        if "【工具轮次状态】" in c:
+                            msg["content"] = re.sub(
+                                r"\n\n【工具轮次状态】.*$",
+                                "",
+                                c,
+                                flags=re.S,
+                            ) + tool_round_prompt
+                        else:
+                            msg["content"] = c.rstrip() + tool_round_prompt
+                        injected = True
+                    break
+            if not injected:
+                work.insert(0, {"role": "system", "content": tool_round_prompt.strip()})
             last = await asyncio.to_thread(
                 llm.generate_with_context_and_tracking,
                 work,
