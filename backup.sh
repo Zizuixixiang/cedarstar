@@ -1,114 +1,150 @@
 #!/usr/bin/env bash
-# CedarStar: PostgreSQL + chroma_db + .env backup, upload to R2, prune old local archives.
+# CedarStar/CedarClio backup: PostgreSQL + ChromaDB + .env, upload to R2, prune local archives.
 
 set -uo pipefail
 shopt -s extglob
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ENV_FILE="$SCRIPT_DIR/.env"
-DUMP_PATH="/tmp/cedarstar_db.dump"
-BACKUP_ROOT="/home/backups/cedarstar"
-RCLONE_REMOTE="cloudflare_r2:cedarstar-backup"
 
 log() {
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
 }
 
-log "开始备份流程"
+read_env_value() {
+  local key="$1"
+  local line val first last
 
-# --- 1. 从 .env 读取 DATABASE_URL ---
-log "步骤 1: 从 $ENV_FILE 读取 DATABASE_URL"
+  while IFS= read -r line || [[ -n "$line" ]]; do
+    [[ "$line" =~ ^[[:space:]]*# ]] && continue
+    line="${line##+([[:space:]])}"
+    [[ -z "$line" ]] && continue
+
+    if [[ "$line" == "$key="* ]]; then
+      val="${line#*=}"
+      if [[ ${#val} -ge 2 ]]; then
+        first="${val:0:1}"
+        last="${val: -1}"
+        if { [[ "$first" == '"' ]] && [[ "$last" == '"' ]]; } || { [[ "$first" == "'" ]] && [[ "$last" == "'" ]]; }; then
+          val="${val:1:${#val}-2}"
+        fi
+      fi
+      printf '%s' "$val"
+      return 0
+    fi
+  done < "$ENV_FILE"
+
+  return 1
+}
+
+log "Starting backup"
+
+# --- 1. Read backup config from .env ---
+log "Step 1: reading backup config from $ENV_FILE"
 if [[ ! -f "$ENV_FILE" ]]; then
-  log "失败: 未找到 $ENV_FILE"
+  log "Failed: missing $ENV_FILE"
   exit 1
 fi
 
-DATABASE_URL=""
-while IFS= read -r line || [[ -n "$line" ]]; do
-  [[ "$line" =~ ^[[:space:]]*# ]] && continue
-  line="${line##+([[:space:]])}"
-  [[ -z "$line" ]] && continue
-  if [[ "$line" == DATABASE_URL=* ]]; then
-    val="${line#DATABASE_URL=}"
-    if [[ "$val" == \"*\" ]]; then
-      val="${val:1:-1}"
-    elif [[ "$val" == \'*\' ]]; then
-      val="${val:1:-1}"
-    fi
-    DATABASE_URL="$val"
-    break
-  fi
-done < "$ENV_FILE"
+APP_NAME="$(read_env_value APP_NAME || true)"
+APP_NAME="${APP_NAME:-cedarstar}"
+DATABASE_URL="$(read_env_value DATABASE_URL || true)"
+CHROMADB_PERSIST_DIR="$(read_env_value CHROMADB_PERSIST_DIR || true)"
+CHROMADB_PERSIST_DIR="${CHROMADB_PERSIST_DIR:-chroma_db}"
+
+BACKUP_DUMP_PATH="$(read_env_value BACKUP_DUMP_PATH || true)"
+BACKUP_ROOT="$(read_env_value BACKUP_ROOT || true)"
+BACKUP_RCLONE_REMOTE="$(read_env_value BACKUP_RCLONE_REMOTE || true)"
+BACKUP_ARCHIVE_PREFIX="$(read_env_value BACKUP_ARCHIVE_PREFIX || true)"
+BACKUP_RETENTION_DAYS="$(read_env_value BACKUP_RETENTION_DAYS || true)"
+
+DUMP_PATH="${BACKUP_DUMP_PATH:-/tmp/${APP_NAME}_db.dump}"
+BACKUP_ROOT="${BACKUP_ROOT:-/home/backups/${APP_NAME}}"
+RCLONE_REMOTE="${BACKUP_RCLONE_REMOTE:-cloudflare_r2:${APP_NAME}-backup}"
+ARCHIVE_PREFIX="${BACKUP_ARCHIVE_PREFIX:-${APP_NAME}_backup}"
+RETENTION_DAYS="${BACKUP_RETENTION_DAYS:-7}"
 
 if [[ -z "${DATABASE_URL:-}" ]]; then
-  log "失败: .env 中未找到有效的 DATABASE_URL"
+  log "Failed: DATABASE_URL is missing in .env"
   exit 1
 fi
-log "步骤 1: 成功"
+if ! [[ "$RETENTION_DAYS" =~ ^[0-9]+$ ]]; then
+  log "Failed: BACKUP_RETENTION_DAYS must be a non-negative integer, got $RETENTION_DAYS"
+  exit 1
+fi
+log "Step 1: ok (APP_NAME=$APP_NAME)"
 
 # --- 2. pg_dump ---
-log "步骤 2: pg_dump 导出到 $DUMP_PATH"
+log "Step 2: dumping PostgreSQL to $DUMP_PATH"
 if ! pg_dump -F c -f "$DUMP_PATH" "$DATABASE_URL"; then
-  log "失败: pg_dump 执行失败"
+  log "Failed: pg_dump failed"
   exit 1
 fi
-log "步骤 2: 成功"
+log "Step 2: ok"
 
-# --- 3. tar 打包 ---
+# --- 3. tar archive ---
 DATE_STR="$(date '+%Y%m%d')"
-ARCHIVE_NAME="cedarstar_backup_${DATE_STR}.tar.gz"
+ARCHIVE_NAME="${ARCHIVE_PREFIX}_${DATE_STR}.tar.gz"
 ARCHIVE_PATH="${BACKUP_ROOT}/${ARCHIVE_NAME}"
+DUMP_DIR="$(dirname "$DUMP_PATH")"
+DUMP_FILE="$(basename "$DUMP_PATH")"
 
-log "步骤 3: 打包为 $ARCHIVE_PATH"
+log "Step 3: creating archive $ARCHIVE_PATH"
 if ! mkdir -p "$BACKUP_ROOT"; then
-  log "失败: 无法创建目录 $BACKUP_ROOT"
+  log "Failed: cannot create $BACKUP_ROOT"
   exit 1
 fi
 
-if [[ ! -d "$SCRIPT_DIR/chroma_db" ]]; then
-  log "失败: 目录不存在 $SCRIPT_DIR/chroma_db"
+if [[ ! -d "$SCRIPT_DIR/$CHROMADB_PERSIST_DIR" ]]; then
+  log "Failed: missing $SCRIPT_DIR/$CHROMADB_PERSIST_DIR"
   exit 1
 fi
 
-if ! tar -czf "$ARCHIVE_PATH" -C /tmp "cedarstar_db.dump" -C "$SCRIPT_DIR" chroma_db .env; then
-  log "失败: tar 打包失败"
+if ! tar -czf "$ARCHIVE_PATH" -C "$DUMP_DIR" "$DUMP_FILE" -C "$SCRIPT_DIR" "$CHROMADB_PERSIST_DIR" .env; then
+  log "Failed: tar failed"
   exit 1
 fi
-log "步骤 3: 成功"
+log "Step 3: ok"
 
 # --- 4. rclone copy ---
-log "步骤 4: rclone copy 推送到 $RCLONE_REMOTE"
+log "Step 4: copying archive to $RCLONE_REMOTE"
 if ! rclone copy "$ARCHIVE_PATH" "$RCLONE_REMOTE"; then
-  log "失败: rclone copy 失败"
+  log "Failed: rclone copy failed"
   exit 1
 fi
-log "步骤 4: 成功"
+log "Step 4: ok"
 
-# --- 5. 删除临时 dump ---
-log "步骤 5: 删除临时文件 $DUMP_PATH"
+# --- 5. Remove temporary dump ---
+log "Step 5: removing temporary dump $DUMP_PATH"
 if ! rm -f "$DUMP_PATH"; then
-  log "失败: 无法删除 $DUMP_PATH"
+  log "Failed: cannot remove $DUMP_PATH"
   exit 1
 fi
-log "步骤 5: 成功"
+log "Step 5: ok"
 
-# --- 6. 清理超过 7 天的本地备份 ---
-log "步骤 6: 删除 $BACKUP_ROOT 中超过 7 天的 .tar.gz"
-if ! find "$BACKUP_ROOT" -maxdepth 1 -type f -name 'cedarstar_backup_*.tar.gz' -mtime +7 -delete; then
-  log "失败: find 清理失败"
+# --- 6. Prune old local archives ---
+log "Step 6: pruning .tar.gz files older than $RETENTION_DAYS days in $BACKUP_ROOT"
+if ! find "$BACKUP_ROOT" -maxdepth 1 -type f -name "${ARCHIVE_PREFIX}_*.tar.gz" -mtime "+$RETENTION_DAYS" -delete; then
+  log "Failed: find prune failed"
   exit 1
 fi
-log "步骤 6: 成功"
+log "Step 6: ok"
 
-log "备份流程全部完成"
+log "Backup complete"
 exit 0
 
 # -----------------------------------------------------------------------------
-# crontab（每天东八区 UTC+8 凌晨 5:00，stdout/stderr 追加到日志）:
+# Optional .env overrides:
 #
-#   crontab -e
+#   APP_NAME=cedarstar
+#   CHROMADB_PERSIST_DIR=chroma_db
+#   BACKUP_DUMP_PATH=/tmp/cedarstar_db.dump
+#   BACKUP_ROOT=/home/backups/cedarstar
+#   BACKUP_RCLONE_REMOTE=cloudflare_r2:cedarstar-backup
+#   BACKUP_ARCHIVE_PREFIX=cedarstar_backup
+#   BACKUP_RETENTION_DAYS=7
 #
-# 添加一行（请按实际项目根路径修改；TZ 保证按 Asia/Shanghai 的 5 点触发）:
+# Crontab example, 05:00 Asia/Shanghai every day:
 #
 #   0 5 * * * TZ=Asia/Shanghai /opt/cedarstar/backup.sh >> /var/log/cedarstar_backup.log 2>&1
 #

@@ -193,6 +193,11 @@ async def run_discord_bot():
         raise
 
 
+def _listen_port() -> int:
+    """HTTP 监听端口：环境变量 PORT，未设置时默认 8000。"""
+    return int(os.environ.get("PORT", "8000"))
+
+
 async def run_fastapi_server():
     """
     运行 FastAPI 服务器。
@@ -204,11 +209,12 @@ async def run_fastapi_server():
     logger.info("启动 FastAPI 服务器...")
     
     try:
-        config = uvicorn.Config(app, host="0.0.0.0", port=8000, log_level="info")
-        server = uvicorn.Server(config)
+        port = _listen_port()
+        uvicorn_config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+        server = uvicorn.Server(uvicorn_config)
         
-        logger.info("FastAPI 服务器已启动，端口 8000")
-        logger.info("API 文档地址: http://localhost:8000/docs")
+        logger.info(f"FastAPI 服务器已启动，端口 {port}")
+        logger.info(f"API 文档地址: http://localhost:{port}/docs")
         
         # 运行服务器
         await server.serve()
@@ -278,7 +284,7 @@ async def main_async():
 
             logger.info("所有组件启动完成")
             logger.info(f"当前时区: {pytz.timezone('Asia/Shanghai')}")
-            logger.info(f"API 文档地址: http://localhost:8000/docs")
+            logger.info(f"API 文档地址: http://localhost:{_listen_port()}/docs")
 
             # 等待所有任务完成（实际上会一直运行）
             await asyncio.gather(*tasks)
