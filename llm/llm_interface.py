@@ -702,8 +702,11 @@ def _usage_int(usage: Mapping[str, Any], key: str, default: int = 0) -> int:
         return default
 
 
-def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
-    """把 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI/GLM 的 usage 字段归一化落库。"""
+def _normalize_usage_for_storage(
+    usage: Mapping[str, Any],
+    base_url: Optional[str] = None,
+) -> Dict[str, Any]:
+    """按供应商约定归一化 usage，并写入缓存命中统计。"""
     prompt_tokens = _usage_int(usage, "prompt_tokens", _usage_int(usage, "input_tokens"))
     completion_tokens = _usage_int(
         usage, "completion_tokens", _usage_int(usage, "output_tokens")
@@ -714,20 +717,12 @@ def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
     if not isinstance(details, Mapping):
         details = {}
 
-    # OpenRouter/OpenAI/Z.AI commonly expose cached tokens here.
     cached_tokens = _usage_int(details, "cached_tokens", _usage_int(usage, "cached_tokens"))
     cache_write_tokens = _usage_int(
         details, "cache_write_tokens", _usage_int(usage, "cache_write_tokens")
     )
-
-    # DeepSeek / some gateways expose cache hit/miss directly.
-    prompt_cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens")
-    prompt_cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
-
-    # Anthropic Messages API exposes explicit creation/read counters.
     cache_creation_input_tokens = _usage_int(usage, "cache_creation_input_tokens")
     cache_read_input_tokens = _usage_int(usage, "cache_read_input_tokens")
-
     cache_creation = usage.get("cache_creation")
     if isinstance(cache_creation, Mapping):
         cache_creation_input_tokens = max(
@@ -736,13 +731,21 @@ def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
             + _usage_int(cache_creation, "ephemeral_1h_input_tokens"),
         )
 
-    # GLM / 硅基流动部分网关更可能把命中记在 cached_tokens / cache_read_input_tokens。
-    cache_hit_tokens = max(
-        prompt_cache_hit_tokens,
-        cached_tokens,
-        cache_read_input_tokens,
-    )
-    cache_miss_tokens = prompt_cache_miss_tokens
+    base = (base_url or "").lower()
+    if "api.deepseek.com" in base:
+        cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens")
+    elif "openrouter.ai" in base:
+        cache_hit_tokens = _usage_int(details, "cached_tokens")
+    elif "siliconflow.cn" in base:
+        cache_hit_tokens = _usage_int(
+            usage,
+            "prompt_cache_hit_tokens",
+            _usage_int(details, "cached_tokens"),
+        )
+    else:
+        cache_hit_tokens = 0
+
+    cache_miss_tokens = 0
 
     return {
         "prompt_tokens": prompt_tokens,
@@ -1701,7 +1704,7 @@ class LLMInterface:
             platform: 平台标识（可选）
         """
         try:
-            normalized = _normalize_usage_for_storage(usage)
+            normalized = _normalize_usage_for_storage(usage, self.api_base)
 
             try:
                 loop = asyncio.get_running_loop()
