@@ -38,6 +38,46 @@ def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
     return s[: max_len - 1] + "…"
 
 
+def _tool_result_text_candidates(value: Any) -> List[str]:
+    """Extract human-readable text from common MCP / OpenAI-compatible result shapes."""
+    out: List[str] = []
+    if isinstance(value, str):
+        s = value.strip()
+        if s:
+            out.append(s)
+        return out
+    if isinstance(value, list):
+        for item in value:
+            out.extend(_tool_result_text_candidates(item))
+        return out
+    if not isinstance(value, dict):
+        return out
+
+    for key in (
+        "summary",
+        "message",
+        "title",
+        "stdout",
+        "stderr",
+        "content",
+        "text",
+        "output",
+        "result",
+        "data",
+    ):
+        v = value.get(key)
+        if isinstance(v, str) and v.strip():
+            out.append(v.strip())
+        elif isinstance(v, (dict, list)):
+            out.extend(_tool_result_text_candidates(v))
+
+    if value.get("type") == "text":
+        block_text = value.get("text")
+        if isinstance(block_text, str) and block_text.strip():
+            out.append(block_text.strip())
+    return out
+
+
 def summarize_tool_result_for_context(tool_name: str, arguments_json: str, result_text: str) -> str:
     """生成下一轮 Context 用的短摘要；不把长 raw 直接塞给模型。"""
     raw = (result_text or "").strip()
@@ -51,11 +91,17 @@ def summarize_tool_result_for_context(tool_name: str, arguments_json: str, resul
         if err is not None and str(err).strip():
             summary = f"执行失败：{str(err).strip()}"
         else:
-            for key in ("summary", "message", "title", "content", "text", "output", "result"):
-                v = parsed.get(key)
-                if isinstance(v, str) and v.strip():
-                    summary = v.strip()
-                    break
+            candidates = _tool_result_text_candidates(parsed)
+            if candidates:
+                seen = set()
+                deduped: List[str] = []
+                for item in candidates:
+                    compact_item = item.strip()
+                    if not compact_item or compact_item in seen:
+                        continue
+                    seen.add(compact_item)
+                    deduped.append(compact_item)
+                summary = "\n\n".join(deduped)
             if not summary:
                 compact = json.dumps(parsed, ensure_ascii=False)
                 summary = compact

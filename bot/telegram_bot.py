@@ -124,6 +124,29 @@ _RECENT_IMAGE_COMPARE_KEYWORDS = (
     "上一张",
     "前一张",
 )
+_RECENT_IMAGE_REFERENCE_KEYWORDS = (
+    "图片",
+    "照片",
+    "图里",
+    "图上",
+    "这张",
+    "那张",
+    "上一张",
+    "刚才那张",
+    "刚发的",
+    "上面那个",
+    "这个",
+    "那个",
+    "它",
+    "这是什么",
+    "是什么",
+    "像不像",
+    "好看吗",
+    "怎么样",
+    "哪里",
+    "哪儿",
+    "看起来",
+)
 
 
 def _telegram_user_visible_model_error(
@@ -1933,7 +1956,7 @@ class TelegramBot:
         if not rows:
             return False
         text = (current_text or "").strip()
-        if any(k in text for k in _RECENT_IMAGE_COMPARE_KEYWORDS):
+        if self._recent_image_rule_matches(text):
             return True
         captions = []
         for row in rows:
@@ -1953,6 +1976,58 @@ class TelegramBot:
         except Exception as e:
             logger.debug("近期图片引用判断失败，按不附加处理: %s", exc_detail(e))
             return False
+
+    def _recent_image_rule_matches(self, text: str) -> bool:
+        """Cheap local guard for image follow-ups that do not literally say "image"."""
+        t = (text or "").strip()
+        if not t:
+            return False
+        if any(k in t for k in _RECENT_IMAGE_COMPARE_KEYWORDS):
+            return True
+        if any(k in t for k in _RECENT_IMAGE_REFERENCE_KEYWORDS):
+            return True
+        if len(t) <= 40 and any(
+            k in t
+            for k in (
+                "像",
+                "好看",
+                "怪",
+                "哪里",
+                "哪儿",
+                "什么",
+                "咋样",
+                "如何",
+                "评价",
+            )
+        ):
+            return True
+        return False
+
+    async def _recent_image_caption_hint(
+        self,
+        session_id: str,
+        current_text: str,
+        *,
+        limit: int = 3,
+    ) -> str:
+        if not self._recent_image_rule_matches(current_text):
+            return ""
+        rows = await get_recent_image_messages(session_id, limit=limit)
+        lines: List[str] = []
+        for idx, row in enumerate(rows, start=1):
+            cap = (row.get("image_caption") or row.get("content") or "").strip()
+            if not cap or cap in (VISION_FAIL_CAPTION_SHORT, VISION_FAIL_CAPTION_TIMEOUT):
+                continue
+            created = str(row.get("created_at") or "").strip()
+            lines.append(f"{idx}. {created} {cap[:260]}")
+        if not lines:
+            return ""
+        return (
+            "\n\n[系统提示：用户这轮可能在追问近期图片。以下为近期图片摘要，"
+            "顺序从近到远，1 是最近一张：\n"
+            + "\n".join(lines)
+            + "]"
+        )
 
     async def _load_recent_telegram_image_payloads(
         self,
@@ -2081,6 +2156,14 @@ class TelegramBot:
             ) and not is_anthropic
             llm_images = images or None
             if bot is not None:
+                image_hint = await self._recent_image_caption_hint(
+                    session_id,
+                    text_for_llm or combined_content,
+                )
+                if image_hint:
+                    text_for_llm = (
+                        (text_for_llm or combined_content or "").strip() + image_hint
+                    ).strip()
                 need_recent_images = await self._should_attach_recent_images(
                     session_id,
                     text_for_llm or combined_content,
