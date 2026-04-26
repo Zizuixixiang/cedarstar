@@ -4368,6 +4368,12 @@ async def get_unsummarized_messages_desc(
     return await get_database().get_unsummarized_messages_desc(session_id, limit)
 
 
+async def get_recent_summarized_messages_desc(
+    session_id: str, limit: int = 5
+) -> List[Dict[str, Any]]:
+    return await get_database().get_recent_summarized_messages_desc(session_id, limit)
+
+
 async def save_tool_execution(**kwargs) -> int:
     return await get_database().save_tool_execution(**kwargs)
 
