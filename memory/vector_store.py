@@ -359,6 +359,29 @@ class VectorStore:
         except Exception as e:
             logger.error(f"get_metadatas_by_doc_ids 失败: {e}")
             return {}
+
+    def get_embeddings_by_doc_ids(self, doc_ids: List[str]) -> Dict[str, List[float]]:
+        """按 doc_id 批量读取 Chroma 已存 embedding，不重新调用 embedding API。"""
+        if not doc_ids:
+            return {}
+        unique_ids = list(dict.fromkeys(doc_ids))
+        try:
+            got = self.collection.get(ids=unique_ids, include=["embeddings"])
+            ids_out = got.get("ids") or []
+            embeddings = got.get("embeddings")
+            if embeddings is None:
+                embeddings = []
+            out: Dict[str, List[float]] = {}
+            for i, uid in enumerate(ids_out):
+                emb = embeddings[i] if i < len(embeddings) else None
+                if hasattr(emb, "tolist"):
+                    emb = emb.tolist()
+                if emb is not None:
+                    out[uid] = [float(x) for x in emb]
+            return out
+        except Exception as e:
+            logger.error(f"get_embeddings_by_doc_ids 失败: {e}")
+            return {}
     
     def search_memory(
         self,
@@ -385,7 +408,7 @@ class VectorStore:
             q_kw: Dict[str, Any] = {
                 "query_embeddings": [query_embedding],
                 "n_results": top_k,
-                "include": ["metadatas", "documents", "distances"],
+                "include": ["metadatas", "documents", "distances", "embeddings"],
             }
             if where is not None:
                 q_kw["where"] = where
@@ -399,13 +422,21 @@ class VectorStore:
                     text = results["documents"][0][i]
                     metadata = results["metadatas"][0][i]
                     distance = results["distances"][0][i]
+                    embedding = None
+                    embeddings = results.get("embeddings")
+                    if embeddings is not None and len(embeddings) > 0 and i < len(embeddings[0]):
+                        embedding = embeddings[0][i]
+                        if hasattr(embedding, "tolist"):
+                            embedding = embedding.tolist()
                     
                     formatted_results.append({
                         "id": doc_id,
                         "text": text,
                         "metadata": metadata,
                         "distance": distance,
-                        "score": 1.0 - distance  # 将距离转换为相似度分数
+                        "score": 1.0 - distance,  # 将距离转换为相似度分数
+                        "embedding": embedding,
+                        "retrieval_method": "vector",
                     })
             
             logger.debug(f"记忆搜索完成，查询: {query[:50]}..., 结果数量: {len(formatted_results)}")
@@ -616,6 +647,14 @@ def search_memory(
     """
     store = get_vector_store()
     return store.search_memory(query, top_k, where=where)
+
+
+def get_embeddings_by_doc_ids(doc_ids: List[str]) -> Dict[str, List[float]]:
+    """
+    按 doc_id 批量读取 Chroma 已存 embedding。
+    """
+    store = get_vector_store()
+    return store.get_embeddings_by_doc_ids(doc_ids)
 
 
 def delete_memory(doc_id: str) -> bool:

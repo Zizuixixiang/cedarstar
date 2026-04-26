@@ -6,7 +6,7 @@ Context 构建模块。
 2. temporal_states：is_active=1 的全部记录（在记忆卡片之前）
 3. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
 4. relationship_timeline：条数见 `relationship_timeline_limit`（库内选取），注入 Context 时按 created_at 正序排列
-5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，父子折叠后注入 `context_max_longterm` 条（异步路径经精排后再截断）
+5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，经精排、MMR 多样性筛选后注入 `context_max_longterm` 条
 6. daily summary：`context_max_daily_summaries`（优先）或环境变量决定条数，倒序取后翻为正序拼入
 7. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
 8. 最近消息：`short_term_limit`（优先）或环境变量决定条数，再正序排列后拼入
@@ -41,9 +41,9 @@ from memory.database import (
 
 # 导入向量存储函数
 try:
-    from .vector_store import search_memory
+    from .vector_store import search_memory, get_embeddings_by_doc_ids
 except ImportError:
-    from memory.vector_store import search_memory
+    from memory.vector_store import search_memory, get_embeddings_by_doc_ids
 
 # 导入 BM25 检索函数
 try:
@@ -350,6 +350,19 @@ async def _retrieval_top_k() -> int:
     return 5
 
 
+async def _mmr_lambda_value() -> float:
+    """MMR 相关性权重：优先 config 表 mmr_lambda，否则默认 0.75。"""
+    try:
+        raw = await get_database().get_config("mmr_lambda")
+        if raw is not None and str(raw).strip() != "":
+            return max(0.5, min(1.0, float(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 mmr_lambda 失败，使用默认 0.75: %s", e)
+    return 0.75
+
+
 MEMORY_CITATION_DIRECTIVE = (
     "注入的历史记忆块格式为 [uid:xxx]，其中 xxx 即为你引用时需填入的标识。"
     "若生成回复时参考了上述历史记忆，必须在文本末尾标注引用，格式为 [[used:uid]]（半角方括号、双括号），可同时标注多个。"
@@ -444,56 +457,96 @@ def _created_at_timestamp_for_sort(created_at: Any) -> float:
         return 0.0
 
 
-def _parent_group_key(result: Dict[str, Any]) -> str:
-    md = result.get("metadata") or {}
-    pid = md.get("parent_id")
-    if pid is not None and str(pid).strip():
-        return str(pid).strip()
-    rid = result.get("id")
-    return str(rid) if rid is not None else ""
+def _coerce_embedding_vector(value: Any) -> Optional[List[float]]:
+    """把 Chroma 返回的 list / tuple / ndarray embedding 规范成 float list。"""
+    if value is None:
+        return None
+    if hasattr(value, "tolist"):
+        value = value.tolist()
+    if not isinstance(value, (list, tuple)):
+        return None
+    try:
+        return [float(x) for x in value]
+    except (TypeError, ValueError):
+        return None
 
 
-def _semantic_similarity_for_collapse(result: Dict[str, Any], bm25_max: float) -> float:
-    """组内比较用：向量用 score；BM25 分数按批次最大值缩放到约 [0,1]。"""
-    if result.get("retrieval_method") == "vector":
-        return float(result.get("score") or 0.0)
-    bm = float(result.get("score") or 0.0)
-    denom = bm25_max if bm25_max > 0 else 1.0
-    return min(1.0, bm / denom)
+def _cosine_similarity(a: Any, b: Any) -> float:
+    va = _coerce_embedding_vector(a)
+    vb = _coerce_embedding_vector(b)
+    if not va or not vb:
+        return 0.0
+    n = min(len(va), len(vb))
+    if n <= 0:
+        return 0.0
+    dot = sum(va[i] * vb[i] for i in range(n))
+    na = math.sqrt(sum(va[i] * va[i] for i in range(n)))
+    nb = math.sqrt(sum(vb[i] * vb[i] for i in range(n)))
+    if na <= 0.0 or nb <= 0.0:
+        return 0.0
+    return dot / (na * nb)
 
 
-def collapse_longterm_by_parent_id(all_results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """
-    按 parent_id 分组：事件片段与父 daily 同组；组内仅保留语义相似度（向量 score 或归一化 BM25）最高的一条。
-    输出顺序与首次出现的组顺序一致。
-    """
-    if not all_results:
+def _hydrate_candidate_embeddings(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """为 BM25 等缺失向量的候选按 doc_id 补取 Chroma 已存 embedding。"""
+    if not candidates:
         return []
-    bm25_scores = [
-        float(r.get("score") or 0.0)
-        for r in all_results
-        if r.get("retrieval_method") == "bm25"
+    missing_ids = [
+        str(c.get("id"))
+        for c in candidates
+        if c.get("id") is not None and _coerce_embedding_vector(c.get("embedding")) is None
     ]
-    bm25_max = max(bm25_scores) if bm25_scores else 1.0
+    emb_map = get_embeddings_by_doc_ids(missing_ids) if missing_ids else {}
+    hydrated: List[Dict[str, Any]] = []
+    for c in candidates:
+        cp = dict(c)
+        doc_id = str(cp.get("id")) if cp.get("id") is not None else ""
+        if _coerce_embedding_vector(cp.get("embedding")) is None and doc_id in emb_map:
+            cp["embedding"] = emb_map[doc_id]
+        hydrated.append(cp)
+    return hydrated
 
-    groups: Dict[str, List[Dict[str, Any]]] = {}
-    order: List[str] = []
-    for r in all_results:
-        key = _parent_group_key(r)
-        if key not in groups:
-            groups[key] = []
-            order.append(key)
-        groups[key].append(r)
 
-    collapsed: List[Dict[str, Any]] = []
-    for key in order:
-        items = groups[key]
-        best = max(
-            items,
-            key=lambda x: _semantic_similarity_for_collapse(x, bm25_max),
-        )
-        collapsed.append(best)
-    return collapsed
+def apply_mmr(
+    candidates: List[Dict[str, Any]],
+    lambda_param: float,
+    top_n: int,
+) -> List[Dict[str, Any]]:
+    """
+    Maximal Marginal Relevance：在融合得分后加入多样性惩罚。
+
+    candidates 已按 fusion_score 降序；第一轮直接选择最高分，其后按
+    λ × normalized(fusion_score) - (1-λ) × max(cos_sim(d, selected)) 选择。
+    """
+    if not candidates:
+        return []
+    top_n = max(1, int(top_n))
+    if len(candidates) <= top_n:
+        return list(candidates)
+
+    lambda_param = max(0.5, min(1.0, float(lambda_param)))
+    max_score = max(float(c.get("fusion_score", 0.0) or 0.0) for c in candidates)
+    denom = max_score if max_score > 0.0 else 1.0
+
+    selected: List[Dict[str, Any]] = [candidates[0]]
+    remaining: List[Dict[str, Any]] = list(candidates[1:])
+
+    while remaining and len(selected) < top_n:
+        best_idx = 0
+        best_score = float("-inf")
+        for idx, cand in enumerate(remaining):
+            relevance = float(cand.get("fusion_score", 0.0) or 0.0) / denom
+            diversity_penalty = max(
+                _cosine_similarity(cand.get("embedding"), item.get("embedding"))
+                for item in selected
+            )
+            mmr_score = lambda_param * relevance - (1.0 - lambda_param) * diversity_penalty
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+        selected.append(remaining.pop(best_idx))
+
+    return selected
 
 
 def _merge_vector_bm25_dedupe(
@@ -735,7 +788,7 @@ class ContextBuilder:
         2. temporal_states（is_active=1）
         3. memory_cards
         4. relationship_timeline（条数见库内配置，created_at 正序注入）
-        5. 向量检索（折叠 + [uid:doc_id]）
+        5. 向量检索（融合打分 + MMR + [uid:doc_id]）
         6. daily summary
         7. chunk summary
         8. 最近消息
@@ -858,13 +911,13 @@ class ContextBuilder:
         2. temporal_states（is_active=1）
         3. memory_cards
         4. relationship_timeline（条数见库内配置，created_at 正序注入）
-        5. 向量检索（折叠 → Cohere 全候选打分 → 语义×0.8+衰减×0.2 → top N，[uid:doc_id]）
+        5. 向量检索（Cohere 全候选打分 → 语义×0.8+衰减×0.2 → MMR → top N，[uid:doc_id]）
         6. daily summary
         7. chunk summary
         8. 最近消息
         
         使用 asyncio.gather 并行执行向量检索和 BM25 检索，
-        合并去重并父子折叠后，对全量候选 await rerank()，再按融合分排序取 top N。
+        合并去重后，对全量候选 await rerank()，再按融合分排序并经 MMR 取 top N。
         
         Args:
             session_id: 会话ID
@@ -1280,7 +1333,7 @@ class ContextBuilder:
         """
         构建向量检索部分（同步，无 Cohere 精排）。
         
-        双路融合后按 parent_id 父子折叠，注入时每条正文前带 [uid:doc_id]。
+        双路融合后经时间衰减融合与 MMR 多样性筛选，注入时每条正文前带 [uid:doc_id]。
         """
         try:
             if not config.ZHIPU_API_KEY or config.ZHIPU_API_KEY == "your_zhipu_api_key_here":
@@ -1301,9 +1354,10 @@ class ContextBuilder:
             all_results = _merge_vector_bm25_dedupe(
                 vector_results, bm25_results, max(1, 2 * tk)
             )
-            all_results = collapse_longterm_by_parent_id(all_results)
             n_long = await _context_max_longterm_count()
-            all_results = all_results[:n_long]
+            fused = fuse_rerank_with_time_decay(all_results)
+            fused = _hydrate_candidate_embeddings(fused)
+            all_results = apply_mmr(fused, await _mmr_lambda_value(), n_long)
 
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
@@ -1335,7 +1389,7 @@ class ContextBuilder:
                 )
 
             vector_section = "\n\n".join(sections)
-            vector_section += "\n\n<!-- 以上是双路检索结果（已父子折叠）；异步路径下由 Reranker 精排 -->"
+            vector_section += "\n\n<!-- 以上是双路检索结果（融合时间衰减并经 MMR 多样性筛选）；异步路径下由 Reranker 提供语义分 -->"
             return f"# 相关长期记忆（双路检索结果）\n\n{vector_section}"
 
         except Exception as e:
@@ -1344,8 +1398,8 @@ class ContextBuilder:
     
     async def _build_vector_search_section_async(self, user_message: str) -> str:
         """
-        异步构建向量检索部分：并行双路检索 → 父子折叠 → Cohere 打分 →
-        语义归一化×0.8 + 时间衰减复活分归一化×0.2 综合排序 → 取 top N（见 _context_max_longterm_count）；
+        异步构建向量检索部分：并行双路检索 → Cohere 打分 →
+        语义归一化×0.8 + 时间衰减复活分归一化×0.2 综合排序 → MMR → 取 top N（见 _context_max_longterm_count）；
         每条正文前带 [uid:doc_id]。
         """
         try:
@@ -1386,7 +1440,6 @@ class ContextBuilder:
             all_results = _merge_vector_bm25_dedupe(
                 vector_results, bm25_results, max(1, 2 * tk)
             )
-            all_results = collapse_longterm_by_parent_id(all_results)
 
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
@@ -1397,11 +1450,12 @@ class ContextBuilder:
                 user_message, all_results, top_n=len(all_results)
             )
             if not reranked_results:
-                logger.debug("Reranker 未返回结果，使用折叠后候选前 %s 条", n_long)
-                reranked_results = all_results[:n_long]
+                logger.debug("Reranker 未返回结果，使用双路候选进入融合与 MMR")
+                reranked_results = all_results
 
             fused = fuse_rerank_with_time_decay(reranked_results)
-            top_results = fused[:n_long]
+            fused = _hydrate_candidate_embeddings(fused)
+            top_results = apply_mmr(fused, await _mmr_lambda_value(), n_long)
 
             sections = []
             for i, result in enumerate(top_results):
@@ -1430,7 +1484,7 @@ class ContextBuilder:
 
             vector_section = "\n\n".join(sections)
             vector_section += (
-                f"\n\n<!-- 精排：语义×0.8+时间衰减×0.2，自 {len(all_results)} 条折叠后候选取 {len(top_results)} 条 -->"
+                f"\n\n<!-- 精排：语义×0.8+时间衰减×0.2 后经 MMR，自 {len(all_results)} 条候选取 {len(top_results)} 条 -->"
             )
             return f"# 相关长期记忆（精排结果）\n\n{vector_section}"
 

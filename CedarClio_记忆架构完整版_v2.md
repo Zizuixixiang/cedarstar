@@ -1,10 +1,11 @@
-# CedarClio 记忆系统架构完整版 v2
+# CedarClio 记忆系统架构完整版 v3
 
 > 本文档整理自设计讨论全程，已合并 GPT System Design Review 的两项基础设施补丁。
 > 可直接作为交给 Cline 的施工需求文档。
 > 文档版本：2026-04-26；**2026-04-19** 修订：§六 **Step 3.5**（三操作 JSON、**`update_temporal_state_expire_at`**、整段解析失败 **raise** 与 **3** 次重试、全败 **Telegram**）、Step 2 原文拼接说明、Step 5 / §一.4 DDL 与 PostgreSQL 一致。**2026-04-26** 对齐：**Anthropic 1h Prompt Cache**、**`tool_executions` 工具执行记录**、工具摘要进入 Context 与 chunk 摘要输入；新增 **多模型 token/cache 观测**：`token_usage` 归一化 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI GLM 的 usage 字段，Mini App 新增「调用观测」页。**与 CedarStar 实现对齐**：主库为 **PostgreSQL（asyncpg）**；可配置跑批时刻 / 半衰期 / GC 闲置天 / Context 条数等，见 §2.1、§3.1；**CedarClio 输出 Guard** 见 **§三（补丁）**，以 `llm/llm_interface.py` 为准；**Chroma `metadata.summary_type`、Mini App 长期记忆列表** 见 **§二.1**；**`state_archive` 写入与 Context 召回白名单** 见 **§二.1**、**§三「两阶段长期记忆召回」**、**§六 Step 3**；**`daily_batch_log.retry_count`、跑批/微批 Telegram 熔断与智谱 embedding / `add_memory` 写入重试** 见 **§六**、**§五**、**§二**；**Telegram 缓冲用户原文在调用上游模型之前落库**、**`enable_weather_tool` / `get_weather`**、**`enable_weibo_tool` / `get_weibo_hot`**、**`enable_search_tool` / `web_search`**（均为 JSON **`{"summary":…}`** 对象字符串；**`web_search`**：Tavily + **`api_configs`** 激活 **`search_summary`** 或回退 **`summary`** 压缩）见 **§三（补丁）同步链路** 与仓库 **`ARCHITECTURE.md`**，以代码为准）
 > **2026-04-26 收口补充（以代码为准）：** `daily_batch` Step 2 已按 `summaries.session_id` 分组生成 daily 小传，群聊 session 写入 `is_group=1`；Step 3/3.5/4 暂以同日所有 per-session daily 的合并视图兼容既有长期记忆流水线。`config.daily_batch_hour` 为 `0.0–23.5` 半小时粒度浮点值。多模态图片入参统一剥离重复 data URL 前缀并规范 MIME，Anthropic 直连与 OpenAI-compatible / GLM 网关分别使用各自兼容的图片块格式。
 > **2026-04-26 追补（工具与图片上下文，以代码为准）：** 工具执行结果摘要会递归抽取 MCP / OpenAI-compatible 返回中的 `stdout`、`content[].text`、`data/result/output` 等正文写入 `tool_executions.result_summary`，Context 与 chunk 摘要继续只读短摘要；Telegram 图片追问规则扩展到“这张/那个/它/像不像/好看吗/哪里/这是什么”等短追问，并在本轮提示中注入最近图片摘要。图片 HTTP 400 兼容重试由 `llm/llm_interface._post_with_retry` 统一处理：GLM/Z.AI 流式请求也可重试裸 base64，OpenAI-compatible 流式图片可去掉 `stream_options`，必要时再尝试字符串 `image_url` 形态。
+> **2026-04-26 v3 改造（以代码为准）：** 新增 `api_configs.config_type='analysis'`，供日终 Step 4 结构化提取与打分使用；未激活或加载失败时 Step 4 回退 `chat`。ChromaDB 新写入仅保留事件片段（`daily_event`）、`state_archive`、`manual`，daily 小传只写 PostgreSQL `summaries`；历史 `daily` 向量不迁移、不删除。长期记忆召回移除父子折叠，流程改为双路召回 → `fuse_rerank_with_time_decay` → MMR（`config.mmr_lambda`）→ Top N。Step 4 事件拆分强制至少 1 条、最多 `config.event_split_max` 条，analysis 连续 3 次失败后使用 `score=5` / `arousal=0.1` 并 Telegram 告警后继续入库。
 
 ---
 
@@ -24,7 +25,7 @@
 | tool_executions | PostgreSQL 内的工具执行记录表：每次工具调用一行，保存 raw 与短摘要；Context 只注入短摘要 |
 | token_usage | LLM 调用 token/cache 观测表：归一化 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI GLM 的 usage 字段 |
 | group_chat_state | Telegram 群聊多 Bot 连续互聊轮数，配合静默与插话配置防止互相刷屏 |
-| ChromaDB | 长期记忆向量存储（双轨：daily 小传 + event 事件片段） |
+| ChromaDB | 长期记忆向量存储（v3 新写入为 event 事件片段、state_archive、manual；daily 小传只保留在 PostgreSQL） |
 | BM25 内存索引 | 关键词双路召回，服务启动时强制预热 |
 | daily_batch.py | 东八区半小时粒度定时跑批（`Asia/Shanghai`）；触发时刻由 PostgreSQL `config.daily_batch_hour` 配置，**默认 23.0**，热更新；Step 2 按 `session_id` 分组生成 daily 小传 |
 
@@ -234,39 +235,23 @@ Claude / Anthropic-compatible 请求使用显式 `cache_control` blocks；DeepSe
 
 ---
 
-## 二、ChromaDB 向量库结构（双轨）
+## 二、ChromaDB 向量库结构（v3 单轨）
 
-### 轨道一：今日小传（daily）
+### 独立事件片段（event）
 
-```
-doc_id:    daily_{batch_date}，如 daily_2026-03-16
-text:      今日小传正文
-metadata:
-  date             归档日期
-  session_id       来源 session
-  summary_type     固定为 "daily"
-  base_score       大模型原始打分（1-10）
-  halflife_days    映射出的初始半衰期（1–3 分→30 天，4–7 分→200 天，8–10 分→600 天）
-  arousal          情绪强度（float，0.0–1.0；平静约 0.1，情绪激烈事件约 0.8+）
-  hits             初始值 0
-  last_access_ts   初始值为入库时间戳（float）
-```
-
-### 轨道二：独立事件片段（event）
-
-从今日小传里拆分出语义独立、值得单独检索的事件。若当天主题单一，模型可判断"无需拆分"。
+从今日小传里拆分出语义独立、可独立检索的事件。v3 起 daily 小传不再新写入 ChromaDB，只保留在 PostgreSQL `summaries` 表；历史 `metadata.summary_type='daily'` 向量不迁移、不删除，让时间衰减自然降低影响。
 
 ```
 doc_id:    daily_{batch_date}_event_0、_event_1...
 text:      单条事件正文
 metadata:
   date
-  session_id       来源 session（与轨道一一致）
-  summary_type     实现为 **"daily_event"**（与轨道一 **"daily"** 区分）
+  session_id       来源 session
+  summary_type     固定为 **"daily_event"**
   parent_id        关联回当天 daily 的 doc_id（软引用，非硬外键）
   base_score       按单条事件独立打分（与当日 daily 同批打分策略）
   halflife_days
-  arousal          继承自当日 daily 的 arousal 值（float，0.0–1.0）
+  arousal          单条事件情绪强度（float，0.0–1.0）
   hits             初始值 0
   last_access_ts   初始值为入库时间戳（float）
 ```
@@ -289,10 +274,10 @@ metadata:
 
 - **PostgreSQL `summaries` 表**的 **`summary_type`** 只有 **`chunk`（微批）** 与 **`daily`（今日小传文本）**，供 Context 注入与跑批衔接；**`chunk` 不落 Chroma**。
 - **ChromaDB** 每条向量另有 **`metadata.summary_type`**，由写入路径决定，常见取值：
-  - **`daily`**：轨道一主文档（`doc_id=daily_{batch_date}`）
-  - **`daily_event`**：轨道二事件片段（实现侧字段名；文档「轨道二」表若未列此项，以代码为准）
+  - **`daily_event`**：事件片段（v3 Step 4 新写入）
   - **`state_archive`**：日终 Step 3 对 **`preferences` / `current_status`** 合并时，模型输出 **`merged` + `discarded`**；**仅当 `discarded` 非 null** 时，经轻量 LLM 改写（失败则降级原文 + `rewrite_failed`）后写入向量库；metadata 含 **`archived_at`**、**`original_dimension`** 等（**不再**在合并前整卡入库）
   - **`manual`**：Mini App 手动新增长期记忆（`doc_id` 前缀 `manual_`）
+- 历史库中可能仍存在旧 **`daily`** 向量；v3 不迁移、不删除，也不再新写入。
 - **Mini App「长期记忆」类型筛选**按 Chroma 的 **`metadata.summary_type`** 过滤；**不提供 `chunk`**。
 
 ---
@@ -308,6 +293,8 @@ metadata:
 | `chunk_threshold` | 50 | 微批触发未摘要消息条数 |
 | `context_max_daily_summaries` | 5 | 注入 `daily` 小传条数 |
 | `context_max_longterm` | 3 | 双路召回+精排后注入长期记忆条数 |
+| `event_split_max` | 8 | Step 4 单日事件拆分软上限（1–15） |
+| `mmr_lambda` | 0.75 | MMR 相关性权重（0.5–1.0，越高越偏相关性） |
 | `daily_batch_hour` | 23.0 | 东八区日终跑批时刻（0.0–23.5，半小时粒度） |
 | `relationship_timeline_limit` | 3 | 关系时间线注入条数 |
 | `gc_stale_days` | 180 | Step 5 GC：`last_access_ts` 闲置天数阈值 |
@@ -397,15 +384,11 @@ messages:
 - 语义路：ChromaDB 向量相似度 Top K（K=`retrieval_top_k`，默认 5），**`collection.query` 带 `where`**：`metadata.summary_type` ∈ **`daily` / `daily_event` / `manual`**（**默认排除** **`state_archive`**）
 - 关键词路：BM25 关键词匹配 Top K（同上），对 **`metadata.summary_type`** 做**相同白名单**过滤（实现：`memory/bm25_retriever.py` 在排序后跳过非白名单文档）
 - **回溯扩展：** 当 **`memory/retrieval.is_retrospect_query(user_message)`** 为真（用户消息命中关键词表）时，白名单**追加** **`state_archive`**。检测与过滤在 **`memory/context_builder`** 内基于本轮 **`user_message`** 执行（**非** gateway 单独入参，以代码为准）
-- 两路结果合并去重后进入父子折叠（实现为去重合并 + 折叠，非严格 RRF）
-
-**阶段一·五：父子折叠（去重）**
-
-合并结果按 parent_id 分组，同一天的 daily 和其 event 片段为一组，只保留组内综合得分最高的一条。防止同源内容同时进入后续排序抢占名额，citation 混淆问题同时消除。
+- 两路结果按 `doc_id` 合并去重后直接进入融合得分（不再父子折叠）
 
 **阶段二：精排（内存层）**
 
-Python 后端在内存中对折叠后的候选套用综合权重公式重排：
+Python 后端在内存中对合并后的候选套用综合权重公式重排：
 
 ```
 最终得分 = (语义相似度归一化 × 0.8) + (时间衰减复活得分 × 0.2)
@@ -420,7 +403,18 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
   → 归一化后参与融合
 ```
 
-**截断输出：** 取重排后前 Top N 条（N=`context_max_longterm`，默认 3，Mini App「助手配置」+ PostgreSQL `config`）；**同步路径**（无 Cohere）在折叠后直接截断为 N 条。注入 Prompt 时每条必须带 uid 前缀：
+**阶段三：MMR 多样性筛选**
+
+在 `fuse_rerank_with_time_decay` 输出后执行 MMR（`config.mmr_lambda`，默认 0.75），以融合分作为相关性、Chroma 已存 embedding 的 cosine similarity 作为相似度惩罚：
+
+```
+MMR(d) = λ × normalized(fusion_score(d))
+         - (1-λ) × max(cos_sim(d, s) for s in selected)
+```
+
+第一轮直接选择融合分最高候选；之后重复选择 MMR 最高候选，直到达到 Top N 或候选耗尽。向量路直接复用 `collection.query(include=["embeddings"])` 返回的 embedding；BM25 路按 doc_id 从 Chroma 读取已存 embedding，不重新调用 embedding API。
+
+**截断输出：** MMR 取 Top N 条（N=`context_max_longterm`，默认 3，Mini App「助手配置」+ PostgreSQL `config`）。注入 Prompt 时每条必须带 uid 前缀：
 
 ```
 [uid:daily_2026-03-16] 今天下班后去看了电影……
@@ -463,7 +457,8 @@ Python 后端在内存中对折叠后的候选套用综合权重公式重排：
 
 ### Step 4 结构化数值（score / arousal）
 
-- **不走** Guard 文本重试；`coerce_score_and_arousal_defaults` 尽力解析 JSON/正则，失败则 **score=5、arousal=0.1**，继续向量归档。
+- 使用激活的 **`api_configs.config_type='analysis'`** 配置承载结构化提取与打分；未激活或加载失败时回退本轮已创建的 `chat` LLM。
+- Step 4 analysis 调用最多 **3 次**；连续失败后使用 **`score=5`、`arousal=0.1`**，发送 Telegram 告警，并继续写入 event 向量，不阻断跑批。
 
 ---
 
@@ -594,25 +589,21 @@ LLM 生成回复后，网关在存库和下发前执行以下拦截流程：
 
 ---
 
-### Step 4：长期记忆全量入库（ChromaDB Insert）
+### Step 4：事件向量归档（ChromaDB Insert）
 
-对今日小传进行价值打分，prompt 要求模型同时输出两个字段：
-- `score`（整数 1–10）：长期保留价值
-- `arousal`（浮点 0.0–1.0）：情绪强度，不分正负；平静普通的一天约 0.1，情绪激烈的事件约 0.8+；**必须为 float，不可输出字符串**
+Step 4 先读取 PostgreSQL `summaries` 表中的当日 daily 小传；daily 小传本身不再写入 ChromaDB。结构化提取与打分使用激活的 `analysis` 配置；若无激活配置或加载失败，回退 `chat` 模型。analysis 调用连续 3 次失败时使用默认 **`score=5`、`arousal=0.1`**，记录 WARNING、发送 Telegram 告警，并继续执行入库。
 
-`halflife_days` 由 `score` 映射；`arousal` 直接写入 metadata（`float(arousal)` 确保类型正确）。
+**daily 价值打分**
+- 对今日小传进行整体打分，得到默认 `score` / `arousal`，供事件缺失字段时兜底。
+- `score` 为整数 1–10；`arousal` 为 float 0.0–1.0。
 
-**轨道一：daily 入库**
-```
-doc_id: daily_{batch_date}
-写入今日小传全文 + 完整 metadata（含 hits=0，last_access_ts=当前时间戳，arousal=float）
-```
-
-**轨道二：event 片段拆分入库**
-- 让模型判断今日小传中是否有语义独立、值得单独检索的事件
-- 若当天主题单一可判断"无需拆分"
-- 每个独立事件单独打分、单独 embed，doc_id 按顺序命名
-- metadata 中带 `parent_id` 指向当天 daily（软引用）
+**event 片段拆分入库**
+- 取消"无需拆分"分支，强制至少产出 1 个 event。
+- 事件数受 `config.event_split_max` 控制，默认 8，范围 1–15。
+- 每个 event 输出 `summary` / `score` / `arousal`；后端做类型转换与范围 clamp。
+- 每个独立事件单独 embed，doc_id 按 `daily_{batch_date}_event_N` 顺序命名。
+- metadata 中保留 `parent_id` 字段，值为 `daily_{batch_date}`，作为反查 PostgreSQL daily 小传的软引用；不重命名、不迁移历史数据。
+- `halflife_days` 由单条 event 的 `score` 映射；`arousal` 直接写入 metadata（float）。
 
 **注意：** Step 1 中到期归档的时效事件已合并进今日小传统一处理，不单独再入库，避免重复向量。
 
@@ -659,8 +650,8 @@ doc_id: daily_{batch_date}
 |---|---|
 | 高频字段强制建索引 | 数据积累后全表扫描拖慢跑批和 Context 组装 |
 | BM25 冷启动预热钩子 | 服务重启后内存清空，关键词召回直接瘫痪 |
-| 双轨 ChromaDB | 一天多件事语义稀释，粒度太粗导致检索不准 |
-| 父子折叠去重 | daily 和 event 片段语义重叠，同时进 Top N 浪费 token |
+| event-only ChromaDB | daily 留在 PostgreSQL，向量库只承载可独立检索的长期记忆片段 |
+| MMR 多样性 | 相关性排序后减少同主题候选扎堆，提高 Top N 覆盖面 |
 | Citation 精准反写 | "进了 Top N"≠"真的被用上"，hits 失真导致正反馈偏差 |
 | doc_id 作为 ChromaDB 主键 | 反写时 O(1) 直接更新，禁止 metadata 过滤查询 |
 | parent_id 软引用 | 父节点被 GC 删除后静默降级，不产生孤儿报错 |
@@ -677,4 +668,4 @@ doc_id: daily_{batch_date}
 
 ---
 
-*文档版本：v2 · 2026-04-26（Anthropic 1h Prompt Cache 分块、`tool_executions` 工具执行记录、工具摘要进入 Context 与 chunk 摘要输入；保留 2026-04-19 Step 3.5 三操作·解析失败 raise·外层 3 重试·全败 Telegram；`MEMORY_BLOCK_PRIORITY` 与 `context_builder` 一致）· 主库 PostgreSQL；已对齐 CedarClio 输出 Guard（多标签 CoT、未闭合保底、同步/异步重试、Step4 数值兜底）、日终 `retry_count` / Telegram 熔断、向量写入重试与微批连续失败告警；实现以仓库代码为准*
+*文档版本：v3 · 2026-04-26（analysis 配置类型、event-only ChromaDB 新写入、MMR 多样性、Step 4 强制事件拆分与三次失败默认兜底；保留 Anthropic 1h Prompt Cache 分块、`tool_executions` 工具执行记录、Step 3.5 三操作与 Telegram 告警等 v2 行为）· 主库 PostgreSQL；实现以仓库代码为准*

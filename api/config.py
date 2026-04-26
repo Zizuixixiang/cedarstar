@@ -37,6 +37,8 @@ DEFAULT_CONFIG = {
     "context_max_daily_summaries": 5,
     "context_max_chunk_summaries": 8,
     "context_max_longterm": 3,
+    "event_split_max": 8,
+    "mmr_lambda": 0.75,
     "daily_batch_hour": 23.0,
     "relationship_timeline_limit": 3,
     "gc_stale_days": 180,
@@ -90,12 +92,18 @@ async def _load_config_from_db() -> Dict[str, Any]:
             # 根据默认值的类型进行转换
             if isinstance(config[key], int):
                 try:
-                    config[key] = int(value)
+                    if key == "event_split_max":
+                        config[key] = max(1, min(15, int(value)))
+                    else:
+                        config[key] = int(value)
                 except (ValueError, TypeError):
                     pass  # 保持默认值
             elif isinstance(config[key], float):
                 try:
-                    config[key] = float(value)
+                    if key == "mmr_lambda":
+                        config[key] = max(0.5, min(1.0, float(value)))
+                    else:
+                        config[key] = float(value)
                 except (ValueError, TypeError):
                     pass  # 保持默认值
     
@@ -185,7 +193,10 @@ async def update_config(new_config: Dict[str, Any]):
             # 根据默认值的类型进行转换
             if isinstance(config[key], int):
                 try:
-                    config[key] = int(value)
+                    if key == "event_split_max":
+                        config[key] = max(1, min(15, int(value)))
+                    else:
+                        config[key] = int(value)
                     updated = True
                 except (ValueError, TypeError):
                     pass  # 忽略无效值
@@ -194,6 +205,8 @@ async def update_config(new_config: Dict[str, Any]):
                     if key == "daily_batch_hour":
                         v = round(float(value) * 2) / 2
                         config[key] = max(0.0, min(23.5, v))
+                    elif key == "mmr_lambda":
+                        config[key] = max(0.5, min(1.0, float(value)))
                     else:
                         config[key] = float(value)
                     updated = True

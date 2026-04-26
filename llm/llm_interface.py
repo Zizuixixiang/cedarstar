@@ -37,6 +37,14 @@ from memory.database import get_database
 logger = logging.getLogger(__name__)
 
 
+class NoActiveAPIConfigError(RuntimeError):
+    """指定 config_type 没有激活的数据库配置。"""
+
+
+class APIConfigLoadError(RuntimeError):
+    """读取指定 config_type 的数据库配置失败。"""
+
+
 # ---------------------------------------------------------------------------
 # CedarClio 输出 Guard：CoT 静默区 + 正文拒绝声明拦截（流式 / 全文）
 # ---------------------------------------------------------------------------
@@ -892,7 +900,7 @@ class LLMInterface:
         
         Args:
             model_name: 模型名称，覆盖自动检测（可选）
-            config_type: 配置类型，`chat` / `summary` / `vision`（视觉/多模态等，库内独立激活行）
+            config_type: 配置类型，`chat` / `summary` / `vision` / `analysis`（库内独立激活行）
             _db_cfg: 调用方预取的激活配置字典（可选）；
                      async 上下文中请用 ``await LLMInterface.create()`` 代替直接构造。
         """
@@ -912,7 +920,7 @@ class LLMInterface:
                 self.api_key = config.SUMMARY_API_KEY or config.LLM_API_KEY
                 self.api_base = config.SUMMARY_API_BASE or config.LLM_API_BASE
             else:
-                # chat、vision：无库内激活行时共用主对话环境变量（vision 建议在 Settings 单独配置）
+                # chat、vision、analysis：无库内激活行时共用主对话环境变量（analysis 的 async create 会先显式失败）
                 self.model_name = model_name or config.LLM_MODEL_NAME
                 self.api_key = config.LLM_API_KEY
                 self.api_base = config.LLM_API_BASE
@@ -973,8 +981,15 @@ class LLMInterface:
         try:
             db_cfg = await get_database().get_active_api_config(config_type)
         except Exception as e:
+            if config_type == "analysis":
+                raise APIConfigLoadError(
+                    f"读取 analysis 激活 API 配置失败: {e}"
+                ) from e
             logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
             db_cfg = None
+
+        if config_type == "analysis" and not db_cfg:
+            raise NoActiveAPIConfigError("analysis 配置未激活")
 
         enable_lutopia_flag = False
         enable_weather_tool_flag = False

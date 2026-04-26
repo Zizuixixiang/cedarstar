@@ -541,7 +541,8 @@
 }
 
 .cfg-type-tag.summary-type,
-.cfg-type-tag.search-summary-type {
+.cfg-type-tag.search-summary-type,
+.cfg-type-tag.analysis-type {
   /* color: #6d597a; */
   /* background: rgba(109, 89, 122, 0.12); */
 }

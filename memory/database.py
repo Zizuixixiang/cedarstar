@@ -471,6 +471,8 @@ async def migrate_database_schema(conn) -> None:
             ("telegram_max_chars", "50"),
             ("telegram_max_msg", "8"),
             ("gc_exempt_hits_threshold", "10"),
+            ("event_split_max", "8"),
+            ("mmr_lambda", "0.75"),
             ("group_chat_silent_mode", "0"),
             ("group_chat_max_rounds", "3"),
             ("group_chat_interject_enabled", "0"),
