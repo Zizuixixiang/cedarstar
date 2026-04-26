@@ -71,6 +71,7 @@ from llm.llm_interface import (
     build_user_multimodal_content,
     complete_with_lutopia_tool_loop,
     output_guard_blocks_model_text,
+    split_thinking_and_content,
     truncate_accumulator_at_first_refusal,
 )
 from memory.database import (
