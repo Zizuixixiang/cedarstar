@@ -2341,6 +2341,8 @@ async def complete_with_lutopia_tool_loop(
                 f"\n\n【工具轮次状态】当前是第 {round_idx + 1}/{max_tool_rounds} 轮工具调用。"
                 "你已经看到了本轮之前所有工具结果；如信息足够，请尽快收束并直接给出最终答复，"
                 "避免为了继续调用工具而重复调用。"
+                f"如果当前已经是第 {max_tool_rounds} 轮，则必须停止继续调用工具，"
+                "直接输出最终答复，不要再发起任何新的工具请求。"
             )
             injected = False
             for msg in work:
