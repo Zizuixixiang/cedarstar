@@ -78,6 +78,35 @@ COT_TAG_PAIRS: Tuple[Tuple[str, str], ...] = tuple(
     sorted(_tmp_cot, key=lambda x: len(x[0]), reverse=True)
 )
 
+_COT_TAG_CONTENT_RE = re.compile(
+    r"(?is)\s*(?:<redacted_thinking>|<chain_of_thought>|<reasoning>|<thinking>|<thought>|``think\n)(.*?)"
+    r"(?:</redacted_thinking>|</chain_of_thought>|</reasoning>|</thinking>|</thought>|\n``)\s*"
+)
+
+
+def split_thinking_and_content(text: Any) -> Tuple[str, str]:
+    """从常见思维链包裹中拆出 (thinking, content)。"""
+    if text is None:
+        return "", ""
+    if not isinstance(text, str):
+        text = str(text)
+    raw = text.strip()
+    if not raw:
+        return "", ""
+    m = _COT_TAG_CONTENT_RE.match(raw)
+    if m:
+        thinking = (m.group(1) or "").strip()
+        if thinking:
+            return thinking, ""
+    for open_t, close_t in COT_TAG_PAIRS:
+        if raw.startswith(open_t) and close_t in raw[len(open_t):]:
+            inner = raw[len(open_t):]
+            close_idx = inner.find(close_t)
+            thinking = inner[:close_idx].strip()
+            content = inner[close_idx + len(close_t):].strip()
+            return thinking, content
+    return "", raw
+
 # 同步链路（实时对话）重试时附加在 user 文本末尾
 TELEGRAM_GUARD_PROMPT_APPEND = (
     "\n\n【场景指令】当前为角色扮演与沉浸式对话场景。请直接依据上文继续输出，"
@@ -1429,6 +1458,11 @@ class LLMInterface:
                 th = block.get("thinking") or block.get("text") or block.get("content")
                 if th:
                     thinking_parts.append(th if isinstance(th, str) else str(th))
+            elif isinstance(block, dict):
+                for key in ("thinking", "reasoning", "reasoning_content", "thoughts"):
+                    v = block.get(key)
+                    if v:
+                        thinking_parts.append(v if isinstance(v, str) else str(v))
         merged = "".join(text_parts).strip()
         if not merged and blocks:
             merged = blocks[0].get("text", "") if isinstance(blocks[0], dict) else ""
@@ -1725,15 +1759,6 @@ class LLMInterface:
             Optional[str]: 思维链内容，如果不支持则返回 None
         """
         try:
-            # 检查是否是 DeepSeek R1 模型
-            if "reasoning_content" in response_data:
-                return response_data.get("reasoning_content")
-            
-            # 检查是否是 Gemini 模型
-            if "thinking" in response_data:
-                return response_data.get("thinking")
-            
-            # 检查 OpenAI 格式的响应中是否有思维链
             if "choices" in response_data and len(response_data["choices"]) > 0:
                 choice = response_data["choices"][0]
                 if "reasoning_content" in choice:
@@ -1768,6 +1793,23 @@ class LLMInterface:
                                     parts.append(v if isinstance(v, str) else str(v))
                         if parts:
                             return "\n".join(parts)
+
+            for key in (
+                "reasoning_content",
+                "reasoning",
+                "thinking",
+                "thoughts",
+                "content",
+                "text",
+            ):
+                if key in response_data:
+                    thinking, content = split_thinking_and_content(response_data.get(key))
+                    if thinking:
+                        return thinking
+                    if key == "thinking":
+                        return response_data.get(key)
+                    if content and content != response_data.get(key):
+                        return content
             
             # 不支持思维链
             return None
@@ -2315,8 +2357,12 @@ async def complete_with_lutopia_tool_loop(
             piece = (last.content or "").strip()
             if piece:
                 round_texts.append(piece)
-                if on_assistant_partial_text:
-                    await on_assistant_partial_text(piece)
+                _, body_piece = split_thinking_and_content(piece)
+                # 一些网关（尤其 GLM 类 OpenAI-compatible 接口）会在 tool_calls 轮次先吐出极短前缀，
+                # 看起来像思维链残片。过短片段不适合直接口播给用户。
+                emit_piece = body_piece or piece
+                if emit_piece and on_assistant_partial_text and len(emit_piece.strip()) >= 4:
+                    await on_assistant_partial_text(emit_piece)
             assistant_message: Dict[str, Any] = {
                 "role": "assistant",
                 "content": piece or None,

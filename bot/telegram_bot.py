@@ -1313,7 +1313,12 @@ class TelegramBot:
             )
 
     def _telegram_thinking_blockquote_html(self, think_plain: str) -> str:
-        """思维链定稿：可折叠 blockquote（仅流式结束后的最后一次编辑使用）。"""
+        """思维链定稿：优先使用 Telegram 可折叠 blockquote；内容按模型标签拆包。"""
+        thinking, content = split_thinking_and_content(think_plain or "")
+        if content:
+            think_plain = content
+        elif thinking:
+            think_plain = thinking
         think_plain = telegram_send_text_collapse((think_plain or "").replace("\x00", ""))
         esc = self._escape_telegram_html(think_plain)
         head = "<blockquote expandable>🧠 思维链\n"
@@ -1507,9 +1512,15 @@ class TelegramBot:
         """非流式 LLM 结果：思维链 blockquote + 正文分段（与流式结束态一致）。"""
         send_cot = await self._telegram_should_send_cot(base_message)
 
-        think_plain = (llm_resp.thinking or "").strip() or None
+        think_plain_raw = (llm_resp.thinking or "").strip() or None
         if not send_cot:
             think_plain = None
+        else:
+            th_part, body_part = split_thinking_and_content(think_plain_raw or "")
+            think_plain = th_part or think_plain_raw
+            if body_part and not (llm_resp.content or "").strip():
+                llm_resp = copy.copy(llm_resp)
+                llm_resp.content = body_part
 
         if think_plain:
             html_th = self._telegram_thinking_blockquote_html(think_plain)
@@ -1858,6 +1869,11 @@ class TelegramBot:
         err_pack = sse.err_pack
         think_plain = sse.think_plain
         raw_content = sse.raw_content
+        th_part, body_part = split_thinking_and_content(think_plain or "")
+        if th_part:
+            think_plain = th_part
+        if body_part and not (raw_content or "").strip():
+            raw_content = body_part
         if done_payload is not None:
             if done_payload.get("guard_refusal_abort") and not (raw_content or "").strip():
                 raw_content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
@@ -1890,6 +1906,11 @@ class TelegramBot:
             )
         else:
             thinking_stored = sse.think_from_delta or None
+        if thinking_stored:
+            th_part2, body_part2 = split_thinking_and_content(thinking_stored)
+            thinking_stored = th_part2 or thinking_stored
+            if body_part2 and not raw_content.strip():
+                raw_content = body_part2
 
         await self._telegram_finalize_thinking_blockquote(
             base_message,
