@@ -37,6 +37,7 @@ from memory.database import (
     get_recent_tool_executions,
     get_today_chunk_summaries,
     get_unsummarized_messages_desc,
+    get_recent_summarized_messages_desc,
 )
 
 # 导入向量存储函数
@@ -284,6 +285,19 @@ async def _short_term_recent_message_limit() -> int:
     except Exception as e:
         logger.debug("读取 short_term_limit 失败，使用环境变量: %s", e)
     return config.CONTEXT_MAX_RECENT_MESSAGES
+
+
+async def _summarized_overlap_limit() -> int:
+    """已摘要消息重叠条数：优先 config 表 summarized_overlap_limit，否则默认 5。"""
+    try:
+        raw = await get_database().get_config("summarized_overlap_limit")
+        if raw is not None and str(raw).strip() != "":
+            return max(0, min(20, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 summarized_overlap_limit 失败，使用默认 5: %s", e)
+    return 5
 
 
 async def _context_max_daily_summaries_limit() -> int:
@@ -1511,13 +1525,26 @@ class ContextBuilder:
                 session_id,
                 limit=await _short_term_recent_message_limit(),
             )
-            
-            if not recent_messages:
+            summarized_overlap = await get_recent_summarized_messages_desc(
+                session_id,
+                limit=await _summarized_overlap_limit(),
+            )
+
+            merged: List[Dict[str, Any]] = []
+            seen_ids = set()
+            for msg in summarized_overlap + recent_messages:
+                mid = msg.get("id")
+                if mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                merged.append(msg)
+
+            if not merged:
                 return []
-            
+
             # 转换为 LLM 接口期望的格式
             messages = []
-            for msg in recent_messages:
+            for msg in merged:
                 if exclude_message_id and msg.get("id") == exclude_message_id:
                     continue
                 msg_role = msg.get("role")
@@ -1544,10 +1571,12 @@ class ContextBuilder:
                     "role": role,
                     "content": text
                 })
-            
-            logger.debug(f"获取最近消息: session={session_id}, count={len(messages)}")
+
+            logger.debug(
+                f"获取最近消息（含已摘要重叠）: session={session_id}, count={len(messages)}"
+            )
             return messages
-            
+
         except Exception as e:
             logger.warning(f"构建最近消息部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return []

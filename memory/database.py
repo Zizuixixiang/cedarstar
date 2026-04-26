@@ -2104,6 +2104,46 @@ class MessageDatabase:
         )
         return messages
 
+    async def get_recent_summarized_messages_desc(
+        self, session_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """获取指定会话中最新的已摘要消息列表，用于 chunk→正常对话衔接。"""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, role, content, created_at, session_id, user_id, channel_id,
+                       media_type, image_caption, vision_processed, character_id,
+                       platform_file_id
+                FROM messages
+                WHERE session_id = $1 AND is_summarized = 1
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                session_id, max(1, int(limit)),
+            )
+        messages = [
+            {
+                "id": r["id"],
+                "role": r["role"],
+                "content": r["content"],
+                "created_at": _norm(r["created_at"]),
+                "session_id": r["session_id"],
+                "user_id": r["user_id"],
+                "channel_id": r["channel_id"],
+                "media_type": r["media_type"],
+                "image_caption": r["image_caption"],
+                "vision_processed": r["vision_processed"],
+                "character_id": r["character_id"],
+                "platform_file_id": r["platform_file_id"],
+            }
+            for r in rows
+        ]
+        messages.reverse()
+        logger.debug(
+            "获取会话 %s 的最新已摘要消息（正序）: %s 条", session_id, len(messages)
+        )
+        return messages
+
     async def get_recent_image_messages(
         self, session_id: str, limit: int = 5
     ) -> List[Dict[str, Any]]:

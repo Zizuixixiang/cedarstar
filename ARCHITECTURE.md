@@ -96,6 +96,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 6. daily summaries
 7. chunk summaries
 8. 最近消息
+   - 其中会额外带入最近几条已摘要消息，作为 chunk→正常对话的衔接窗口，避免摘要边界过于突兀
 9. 当前用户消息
 
 ### 3.2 长期记忆召回
@@ -112,7 +113,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。
+`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。`llm_interface.py` 的 usage 归一化会按 `base_url` 区分 DeepSeek / OpenRouter / SiliconFlow 的缓存命中口径。
 
 ## 4. 对话与工具
 
@@ -145,7 +146,7 @@ LLM 响应中的思维链字段会统一归一到 `thinking`，并兼容 `reason
 
 ### 5.1 微批摘要
 
-未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点与期间工具摘要。
+未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点与期间工具摘要；上下文侧会额外保留少量已摘要消息作为过渡窗口。
 
 ### 5.2 日终跑批流程
 
