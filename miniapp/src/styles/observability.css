@@ -130,6 +130,10 @@
   gap: 18px;
 }
 
+.obs-panel.two-col > div {
+  min-width: 0;
+}
+
 .obs-panel-title,
 .obs-panel-toolbar {
   display: flex;
@@ -154,6 +158,8 @@
 }
 
 .obs-table-wrap {
+  width: 100%;
+  max-width: 100%;
   min-width: 0;
   overflow-x: auto;
 }
@@ -161,7 +167,8 @@
 .obs-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 560px;
+  min-width: 520px;
+  table-layout: fixed;
   font-size: 0.84rem;
 }
 
@@ -171,6 +178,9 @@
   border-bottom: 1px solid rgba(44, 54, 40, 0.18);
   text-align: right;
   vertical-align: middle;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .obs-table th:first-child,
@@ -185,8 +195,23 @@
   text-transform: uppercase;
 }
 
+.obs-table th:nth-child(1),
+.obs-table td:nth-child(1) {
+  width: 34%;
+}
+
+.obs-table th:nth-child(2),
+.obs-table td:nth-child(2) {
+  width: 10%;
+}
+
+.obs-table th:nth-child(n + 3),
+.obs-table td:nth-child(n + 3) {
+  width: 14%;
+}
+
 .obs-table-primary {
-  max-width: 260px;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;

@@ -368,6 +368,36 @@ def _strip_data_url_prefix(data: str) -> Tuple[str, Optional[str]]:
     return payload.strip(), mime
 
 
+def _payload_with_glm_bare_base64_images(
+    payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Return a GLM/Z.AI fallback payload with data URLs rewritten to bare base64."""
+    if not payload:
+        return None
+    out = copy.deepcopy(payload)
+    changed = False
+
+    def walk(value: Any) -> None:
+        nonlocal changed
+        if isinstance(value, dict):
+            image_url = value.get("image_url")
+            if isinstance(image_url, dict):
+                url = image_url.get("url")
+                if isinstance(url, str) and url.lower().startswith("data:image/"):
+                    _, sep, b64 = url.partition(",")
+                    if sep and b64.strip():
+                        image_url["url"] = b64.strip()
+                        changed = True
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(out)
+    return out if changed else None
+
+
 def build_user_multimodal_content(
     api_base: Optional[str],
     model_name: Optional[str],
@@ -392,6 +422,13 @@ def build_user_multimodal_content(
         mime = _normalize_image_mime(mime_from_data or img.get("mime_type"))
         if not b64:
             continue
+        label = str(img.get("label") or "").strip()
+        caption = str(img.get("caption") or "").strip()
+        if label or caption:
+            label_text = label or "图片说明"
+            if caption:
+                label_text = f"{label_text}：{caption[:700]}"
+            parts.append({"type": "text", "text": label_text})
         if anthropic_fmt:
             parts.append(
                 {
@@ -980,11 +1017,13 @@ class LLMInterface:
         """
         headers = self._prepare_headers()
         max_attempts = 6  # 首次 1 次 + 重试 5 次
+        active_payload = payload
+        glm_bare_image_retry_done = False
         for attempt in range(max_attempts):
             resp = requests.post(
                 url,
                 headers=headers,
-                json=payload,
+                json=active_payload,
                 timeout=timeout,
                 stream=stream,
             )
@@ -997,6 +1036,22 @@ class LLMInterface:
                 resp.close()
                 time.sleep(2)
                 continue
+            if (
+                resp.status_code == 400
+                and not stream
+                and not glm_bare_image_retry_done
+                and _is_glm_compatible_endpoint(self.api_base, self.model_name)
+            ):
+                alt_payload = _payload_with_glm_bare_base64_images(active_payload)
+                if alt_payload is not None:
+                    logger.warning(
+                        "GLM/Z.AI 图片请求 HTTP 400，改用裸 base64 image_url 重试一次；body_prefix=%r",
+                        (resp.text or "")[:600],
+                    )
+                    resp.close()
+                    active_payload = alt_payload
+                    glm_bare_image_retry_done = True
+                    continue
             if resp.status_code >= 400:
                 body_prev = (resp.text or "")[:1200]
                 hint = ""

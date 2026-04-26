@@ -836,13 +836,20 @@ class MessageDatabase:
                 return []
             rows = await conn.fetch(
                 """
+                WITH recent_rows AS (
+                    SELECT id, session_id, turn_id, seq, tool_name, arguments_json,
+                           result_summary, user_message_id, assistant_message_id,
+                           platform, created_at
+                    FROM tool_executions
+                    WHERE session_id = $1 AND turn_id = ANY($2::text[])
+                    ORDER BY created_at DESC, id DESC
+                    LIMIT $3
+                )
                 SELECT id, session_id, turn_id, seq, tool_name, arguments_json,
                        result_summary, user_message_id, assistant_message_id,
                        platform, created_at
-                FROM tool_executions
-                WHERE session_id = $1 AND turn_id = ANY($2::text[])
-                ORDER BY created_at ASC, turn_id ASC, seq ASC
-                LIMIT $3
+                FROM recent_rows
+                ORDER BY created_at ASC, turn_id ASC, seq ASC, id ASC
                 """,
                 session_id,
                 turn_ids,

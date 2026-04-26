@@ -1233,14 +1233,15 @@ class ContextBuilder:
         try:
             rows = await get_recent_tool_executions(
                 session_id,
-                limit_turns=3,
-                max_rows=12,
+                limit_turns=5,
+                max_rows=24,
             )
             if not rows:
                 return ""
             lines = ["# 最近工具使用记录", ""]
             lines.append(
                 "以下是最近几轮对话中已经执行过的工具结果摘要；它们用于保持连续性，不表示本轮刚刚调用。"
+                "如果用户追问刚才查看的帖子、评论、私信或搜索结果，优先使用本节内容回答。"
             )
             current_turn = None
             for row in rows:
@@ -1264,8 +1265,8 @@ class ContextBuilder:
                 else:
                     arg_text = str(args).replace("\n", " ").strip()[:160]
                 summary = (row.get("result_summary") or "").strip()
-                if len(summary) > 700:
-                    summary = summary[:700] + "..."
+                if len(summary) > 1800:
+                    summary = summary[:1800] + "..."
                 prefix = f"- {nm}"
                 if arg_text:
                     prefix += f"（{arg_text}）"

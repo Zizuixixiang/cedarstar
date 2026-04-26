@@ -1960,15 +1960,17 @@ class TelegramBot:
         session_id: str,
         *,
         limit: int = 3,
+        exclude_file_ids: Optional[Set[str]] = None,
     ) -> List[Dict[str, Any]]:
         """按 platform_file_id 临时下载近期图片并转为 LLM image payload；失败静默跳过。"""
         if bot is None:
             return []
+        excluded = {str(x) for x in (exclude_file_ids or set()) if x}
         rows = await get_recent_image_messages(session_id, limit=limit)
         out: List[Dict[str, Any]] = []
         for row in rows:
             fid = row.get("platform_file_id")
-            if not fid:
+            if not fid or str(fid) in excluded:
                 continue
             try:
                 tg_file = await bot.get_file(fid)
@@ -1987,12 +1989,16 @@ class TelegramBot:
                 elif path.endswith(".gif"):
                     mime = "image/gif"
                 caption = (row.get("image_caption") or "").strip()
+                if caption in (VISION_FAIL_CAPTION_SHORT, VISION_FAIL_CAPTION_TIMEOUT):
+                    caption = (row.get("content") or "").strip()
+                idx = len(out) + 1
                 out.append(
                     {
                         "type": "image",
                         "data": base64.b64encode(bytes(data)).decode("ascii"),
                         "mime_type": mime,
                         "caption": caption,
+                        "label": f"历史图片{idx}（从近到远，1 是上一张可用图片）",
                         "platform_file_id": fid,
                     }
                 )
@@ -2074,24 +2080,31 @@ class TelegramBot:
                 lutopia_on or weather_on or weibo_on or search_on
             ) and not is_anthropic
             llm_images = images or None
-            if not llm_images and bot is not None:
+            if bot is not None:
                 need_recent_images = await self._should_attach_recent_images(
                     session_id,
                     text_for_llm or combined_content,
                 )
                 if need_recent_images:
+                    current_file_ids: Set[str] = set()
+                    for ip in images or []:
+                        if isinstance(ip, dict) and ip.get("platform_file_id"):
+                            current_file_ids.add(str(ip.get("platform_file_id")))
                     recent_images = await self._load_recent_telegram_image_payloads(
                         bot,
                         session_id,
                         limit=3,
+                        exclude_file_ids=current_file_ids,
                     )
                     if recent_images:
-                        llm_images = recent_images
-                        if text_for_llm:
-                            text_for_llm = (
-                                text_for_llm
-                                + "\n\n[系统提示：已临时附上近期图片用于对比/指代理解。]"
-                            )
+                        llm_images = [*recent_images, *(images or [])]
+                        current_count = len(images or [])
+                        history_hint = (
+                            "\n\n[系统提示：已临时附上近期图片历史。图片顺序："
+                            f"前 {len(recent_images)} 张为历史图片（从近到远，第一张就是“上一张/刚才那张”），"
+                            f"后 {current_count} 张为用户本轮刚发的图片。]"
+                        )
+                        text_for_llm = ((text_for_llm or combined_content or "").strip() + history_hint).strip()
             context = await build_context(
                 session_id,
                 combined_content,

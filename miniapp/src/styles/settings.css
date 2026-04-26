@@ -121,22 +121,75 @@
 .provider-group {
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  padding: 10px;
+  gap: 12px;
+  padding: 14px;
   border: 2px solid var(--text-main);
   background: rgba(255, 255, 255, 0.38);
+}
+
+.provider-group.active-provider {
+  border-color: var(--status-green);
 }
 
 .provider-group + .provider-group {
   margin-top: 14px;
 }
 
+.provider-group-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .provider-group-title {
+  flex: 1;
+  min-width: 0;
   font-family: 'Courier New', Courier, monospace;
   font-size: 0.74rem;
   font-weight: bold;
   color: var(--text-sub);
-  word-break: break-all;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.provider-model-row {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+}
+
+.provider-model-label {
+  font-family: monospace;
+  font-weight: bold;
+  font-size: 0.72rem;
+  color: var(--text-sub);
+  text-transform: uppercase;
+}
+
+.provider-model-select {
+  width: 100%;
+  min-width: 0;
+  padding: 9px 12px;
+  border: 2px solid var(--text-main);
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text-main);
+  font-family: monospace;
+  font-size: 0.86rem;
+  outline: none;
+}
+
+.provider-selected-config {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.95fr) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 12px;
+  border: 1px dashed rgba(26, 26, 26, 0.32);
+  background: var(--surface);
 }
 
 .card-title {
@@ -527,7 +580,8 @@
 }
 
 .cfg-persona,
-.cfg-model {
+.cfg-model,
+.cfg-key {
   font-family: monospace;
   font-size: 0.76rem;
   color: var(--text-sub);
@@ -1113,6 +1167,29 @@
     margin-left: 0;
     width: 100%;
     justify-content: space-between;
+  }
+
+  .provider-group {
+    padding: 12px 10px;
+  }
+
+  .provider-group-head {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .provider-group-title {
+    flex-basis: 100%;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    word-break: break-all;
+    line-height: 1.4;
+  }
+
+  .provider-model-row,
+  .provider-selected-config {
+    grid-template-columns: 1fr;
   }
 
   .config-row {

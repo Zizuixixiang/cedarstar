@@ -343,6 +343,7 @@ function Settings() {
   const [isLoading, setIsLoading] = useState(true);
   const [modalData, setModalData] = useState(null); // null=关闭, {}=新增, {...}=编辑
   const [confirmDeleteId, setConfirmDeleteId] = useState(null); // 待确认删除的 cfg.id
+  const [selectedConfigIds, setSelectedConfigIds] = useState({});
 
   /* 切换 tab 时同步更新 ref */
   const switchTab = (tab) => {
@@ -484,6 +485,15 @@ function Settings() {
     }));
   }, [configs]);
 
+  const selectedConfigForGroup = useCallback((group) => {
+    const wanted = selectedConfigIds[group.baseUrl];
+    return (
+      group.items.find((cfg) => String(cfg.id) === String(wanted)) ||
+      group.items.find((cfg) => cfg.is_active) ||
+      group.items[0]
+    );
+  }, [selectedConfigIds]);
+
   if (isLoading) {
     return (
       <div className="settings-page">
@@ -552,57 +562,84 @@ function Settings() {
           </div>
         ) : (
           <div className="config-list">
-            {configGroups.map(group => (
-              <div key={group.baseUrl} className="provider-group">
-                <div className="provider-group-title">{group.baseUrl}</div>
-                {group.items.map(cfg => (
-              <div key={cfg.id} className={`config-row ${cfg.is_active ? 'active-row' : ''}`}>
-                {/* 左：名称 + 激活标签 */}
-                <div className="cfg-left">
-                  <span className="cfg-name">{cfg.name}</span>
-                  <span
-                    className={['cfg-type-tag', CONFIG_TYPE_CLASS[cfg.config_type]]
-                      .filter(Boolean)
-                      .join(' ')}
-                  >
-                    {CONFIG_TYPE_LABEL[cfg.config_type] || cfg.config_type}
-                  </span>
-                  {cfg.is_active && <span className="tag-active">激活中</span>}
-                </div>
-                {/* 中：URL + 人设 */}
-                <div className="cfg-mid">
-                  <span className="cfg-url" title={cfg.base_url}>{cfg.base_url}</span>
-                  {cfg.persona_name && (
-                    <span className="cfg-persona">人设：{cfg.persona_name}</span>
-                  )}
-                  {cfg.model && (
-                    <span className="cfg-model">模型：{cfg.model}</span>
-                  )}
-                </div>
-                {/* 右：操作 */}
-                <div className="cfg-actions">
-                  {confirmDeleteId === cfg.id ? (
-                    <>
-                      <span className="cfg-del-confirm-text">确认删除？</span>
-                      <button className="btn-del-confirm" onClick={() => handleDeleteConfirm(cfg)}>确认</button>
-                      <button className="btn-del-cancel" onClick={() => setConfirmDeleteId(null)}>取消</button>
-                    </>
-                  ) : (
-                    <>
-                      {!cfg.is_active && (
-                        <button className="btn-activate" onClick={() => handleActivate(cfg.id)}>
-                          设为激活
-                        </button>
+            {configGroups.map((group) => {
+              const cfg = selectedConfigForGroup(group);
+              if (!cfg) return null;
+              return (
+                <div
+                  key={group.baseUrl}
+                  className={`provider-group ${cfg.is_active ? 'active-provider' : ''}`}
+                >
+                  <div className="provider-group-head">
+                    <div className="provider-group-title" title={group.baseUrl}>{group.baseUrl}</div>
+                    <span
+                      className={['cfg-type-tag', CONFIG_TYPE_CLASS[cfg.config_type]]
+                        .filter(Boolean)
+                        .join(' ')}
+                    >
+                      {CONFIG_TYPE_LABEL[cfg.config_type] || cfg.config_type}
+                    </span>
+                    {cfg.is_active && <span className="tag-active">激活中</span>}
+                  </div>
+
+                  <div className="provider-model-row">
+                    <label className="provider-model-label" htmlFor={`provider-model-${group.baseUrl}`}>
+                      模型
+                    </label>
+                    <select
+                      id={`provider-model-${group.baseUrl}`}
+                      className="provider-model-select"
+                      value={cfg.id}
+                      onChange={(e) => {
+                        setConfirmDeleteId(null);
+                        setSelectedConfigIds((prev) => ({
+                          ...prev,
+                          [group.baseUrl]: Number(e.target.value),
+                        }));
+                      }}
+                    >
+                      {group.items.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.model || item.name || `配置 ${item.id}`}{item.is_active ? '（激活）' : ''}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="provider-selected-config">
+                    <div className="cfg-left">
+                      <span className="cfg-name">{cfg.name}</span>
+                      <span className="cfg-key">Key：{maskKey(cfg.api_key)}</span>
+                    </div>
+                    <div className="cfg-mid">
+                      {cfg.persona_name && (
+                        <span className="cfg-persona">人设：{cfg.persona_name}</span>
                       )}
-                      <button className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
-                      <button className="btn-del" onClick={() => handleDeleteClick(cfg)}>删除</button>
-                    </>
-                  )}
+                      <span className="cfg-model">模型：{cfg.model || '未设置'}</span>
+                    </div>
+                    <div className="cfg-actions">
+                      {confirmDeleteId === cfg.id ? (
+                        <>
+                          <span className="cfg-del-confirm-text">确认删除？</span>
+                          <button className="btn-del-confirm" onClick={() => handleDeleteConfirm(cfg)}>确认</button>
+                          <button className="btn-del-cancel" onClick={() => setConfirmDeleteId(null)}>取消</button>
+                        </>
+                      ) : (
+                        <>
+                          {!cfg.is_active && (
+                            <button className="btn-activate" onClick={() => handleActivate(cfg.id)}>
+                              设为激活
+                            </button>
+                          )}
+                          <button className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
+                          <button className="btn-del" onClick={() => handleDeleteClick(cfg)}>删除</button>
+                        </>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-                ))}
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
       </div>

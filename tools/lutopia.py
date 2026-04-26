@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 TOOL_LOG_SNIP_MAX = 200
 BEHAVIOR_DESC_MAX = 80
-TOOL_CONTEXT_SUMMARY_MAX = 1200
+TOOL_CONTEXT_SUMMARY_MAX = 2400
 
 
 def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
