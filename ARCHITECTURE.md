@@ -789,20 +789,22 @@ python -c "import sys; sys.path.insert(0, '.'); from memory.vector_store import 
 
 #### 4.2.1 全量备份 `backup.sh`（可选，与日终跑批独立）
 
-**职责（以项目根 `backup.sh` 为准）：** 将 **PostgreSQL**（`pg_dump -F c`）、**Chroma 数据目录** `chroma_db/`、**环境文件** `.env` 打成单份归档，上传对象存储，并清理临时文件与过期本地归档。
+**职责（以项目根 `backup.sh` 为准）：** 将 **PostgreSQL**（`pg_dump -F c`）、**Chroma 数据目录**（默认 `chroma_db/`）、**环境文件** `.env` 打成单份归档，上传对象存储，并清理临时文件与过期本地归档。脚本支持同一代码部署多个实例：默认从 `.env` 的 **`APP_NAME`** 推导 dump 文件、备份目录、归档前缀与 R2 目标。
 
 **流程概要：**
 
-1. 从项目根 `.env` 解析 **`DATABASE_URL`**（失败则退出）。
-2. **`pg_dump -F c`** 导出到 **`/tmp/cedarstar_db.dump`**。
-3. **`tar -czf`** 生成 **`/home/backups/cedarstar/cedarstar_backup_YYYYMMDD.tar.gz`**（目录不存在则创建），内含上一步 dump、`chroma_db/`、`.env`。
-4. **`rclone copy`** 将该 `.tar.gz` 推送到远程 **`cloudflare_r2:cedarstar-backup`**（远程名与 bucket 以脚本内常量为准；须本机已配置 `rclone` 且 R2 侧 bucket/权限就绪）。
-5. 删除 **`/tmp/cedarstar_db.dump`**。
-6. **`find`** 删除 **`/home/backups/cedarstar/`** 下超过 **7** 天的 **`cedarstar_backup_*.tar.gz`**。
+1. 从项目根 `.env` 解析 **`DATABASE_URL`**、**`APP_NAME`**、**`CHROMADB_PERSIST_DIR`** 与可选 **`BACKUP_*`** 覆盖项（失败则退出）。
+2. **`pg_dump -F c`** 默认导出到 **`/tmp/{APP_NAME}_db.dump`**；可用 **`BACKUP_DUMP_PATH`** 覆盖。
+3. **`tar -czf`** 默认生成 **`/home/backups/{APP_NAME}/{APP_NAME}_backup_YYYYMMDD.tar.gz`**（目录不存在则创建），内含上一步 dump、`CHROMADB_PERSIST_DIR` 指向的目录、`.env`；可用 **`BACKUP_ROOT`** 与 **`BACKUP_ARCHIVE_PREFIX`** 覆盖。
+4. **`rclone copy`** 默认推送到远程 **`cloudflare_r2:{APP_NAME}-backup`**；可用 **`BACKUP_RCLONE_REMOTE`** 覆盖（须本机已配置 `rclone` 且 R2 侧 bucket/权限就绪）。
+5. 删除临时 dump 文件。
+6. **`find`** 删除本地备份目录下超过 **7** 天的 **`{ARCHIVE_PREFIX}_*.tar.gz`**；可用 **`BACKUP_RETENTION_DAYS`** 覆盖保留天数。
 
 任一步失败 **`exit 1`**，不继续后续步骤；各步 **`echo`** 带时间戳日志。**cron** 示例（东八区凌晨 5:00、日志追加）见脚本末尾注释；典型写法：`0 5 * * * TZ=Asia/Shanghai /opt/cedarstar/backup.sh >> /var/log/cedarstar_backup.log 2>&1`（项目路径按部署机调整）。
 
-**说明：** 仓库内 **`backups/`** 目录为历史 SQLite 等文件用途（见 §2 目录树）；**生产全量 tarball** 默认落在 **`/home/backups/cedarstar/`**，与前者路径不同。
+**HTTP 端口（2026-04-26）：** `main.py` 的 FastAPI 监听端口读取 `.env` / 环境变量 **`PORT`**，未设置时默认 **`8000`**。部署机上 `cedarstar` 可显式写 `PORT=8000`，`cedarclio` 写 `PORT=8001`，避免多实例共存时端口冲突。
+
+**说明：** 仓库内 **`backups/`** 目录为历史 SQLite 等文件用途（见 §2 目录树）；**生产全量 tarball** 默认落在 **`/home/backups/{APP_NAME}/`**，与前者路径不同。
 
 ### 4.3 Mini App 数据流
 
