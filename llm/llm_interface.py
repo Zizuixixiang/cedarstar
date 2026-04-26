@@ -398,6 +398,54 @@ def _payload_with_glm_bare_base64_images(
     return out if changed else None
 
 
+def _payload_messages_contain_images(payload: Optional[Dict[str, Any]]) -> bool:
+    if not payload:
+        return False
+    messages = payload.get("messages")
+    if not isinstance(messages, list):
+        return False
+    return messages_contain_multimodal_images(messages)
+
+
+def _payload_without_stream_options(
+    payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    if not payload or "stream_options" not in payload:
+        return None
+    out = copy.deepcopy(payload)
+    out.pop("stream_options", None)
+    return out
+
+
+def _payload_with_string_image_urls(
+    payload: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Fallback for OpenAI-compatible gateways that reject object-form image_url."""
+    if not payload:
+        return None
+    out = copy.deepcopy(payload)
+    changed = False
+
+    def walk(value: Any) -> None:
+        nonlocal changed
+        if isinstance(value, dict):
+            if value.get("type") == "image_url" and isinstance(
+                value.get("image_url"), dict
+            ):
+                url = value["image_url"].get("url")
+                if isinstance(url, str) and url.strip():
+                    value["image_url"] = url.strip()
+                    changed = True
+            for child in value.values():
+                walk(child)
+        elif isinstance(value, list):
+            for child in value:
+                walk(child)
+
+    walk(out)
+    return out if changed else None
+
+
 def build_user_multimodal_content(
     api_base: Optional[str],
     model_name: Optional[str],
@@ -1019,6 +1067,8 @@ class LLMInterface:
         max_attempts = 6  # 首次 1 次 + 重试 5 次
         active_payload = payload
         glm_bare_image_retry_done = False
+        image_stream_options_retry_done = False
+        image_url_string_retry_done = False
         for attempt in range(max_attempts):
             resp = requests.post(
                 url,
@@ -1038,7 +1088,6 @@ class LLMInterface:
                 continue
             if (
                 resp.status_code == 400
-                and not stream
                 and not glm_bare_image_retry_done
                 and _is_glm_compatible_endpoint(self.api_base, self.model_name)
             ):
@@ -1051,6 +1100,37 @@ class LLMInterface:
                     resp.close()
                     active_payload = alt_payload
                     glm_bare_image_retry_done = True
+                    continue
+            if (
+                resp.status_code == 400
+                and stream
+                and not image_stream_options_retry_done
+                and _payload_messages_contain_images(active_payload)
+            ):
+                alt_payload = _payload_without_stream_options(active_payload)
+                if alt_payload is not None:
+                    logger.warning(
+                        "图片流式请求 HTTP 400，移除 stream_options 后重试一次；body_prefix=%r",
+                        (resp.text or "")[:600],
+                    )
+                    resp.close()
+                    active_payload = alt_payload
+                    image_stream_options_retry_done = True
+                    continue
+            if (
+                resp.status_code == 400
+                and not image_url_string_retry_done
+                and _payload_messages_contain_images(active_payload)
+            ):
+                alt_payload = _payload_with_string_image_urls(active_payload)
+                if alt_payload is not None:
+                    logger.warning(
+                        "图片请求 HTTP 400，改用字符串 image_url 兼容格式重试一次；body_prefix=%r",
+                        (resp.text or "")[:600],
+                    )
+                    resp.close()
+                    active_payload = alt_payload
+                    image_url_string_retry_done = True
                     continue
             if resp.status_code >= 400:
                 body_prev = (resp.text or "")[:1200]
