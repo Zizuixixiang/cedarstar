@@ -47,6 +47,8 @@ DEFAULT_CONFIG = {
     "telegram_max_chars": 50,
     "telegram_max_msg": 8,
     "send_cot_to_telegram": 1,
+    "send_cot_in_group_chat": 0,
+    "telegram_force_recent_images": 0,
     "offline_mode_active": 0,
     "group_chat_silent_mode": 0,
     "group_chat_max_rounds": 3,

@@ -23,6 +23,8 @@ const DEFAULT_CONFIG = {
   telegram_max_chars: 50,
   telegram_max_msg: 8,
   send_cot_to_telegram: 1,
+  send_cot_in_group_chat: 0,
+  telegram_force_recent_images: 0,
   offline_mode_active: 0,
   group_chat_silent_mode: 0,
   group_chat_max_rounds: 3,
@@ -407,6 +409,30 @@ function Config() {
   };
 
   /** 单行 PUT /api/config/config，仅提交一个 key */
+  const saveConfigKey = async (key, value) => {
+    setSavingTelegramKey(key);
+    try {
+      const response = await apiFetch('/api/config/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ [key]: value }),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast('✓ 已保存', 'success');
+        setHasUnsavedChanges(false);
+        await fetchConfig();
+      } else {
+        showToast(data.message || '保存失败', 'error');
+      }
+    } catch (error) {
+      console.error('配置项保存失败:', error);
+      showToast('网络错误', 'error');
+    } finally {
+      setSavingTelegramKey(null);
+    }
+  };
+
   const saveTelegramRow = async (key) => {
     if (!config) return;
     const v =
@@ -757,6 +783,68 @@ function Config() {
                 disabled={savingTelegramKey === 'send_cot_to_telegram'}
               >
                 {savingTelegramKey === 'send_cot_to_telegram' ? '保存中…' : '保存此项'}
+              </button>
+            </div>
+          </div>
+          <hr className="config-divider" />
+
+          <div className="config-item">
+            <div className="config-info">
+              <div className="config-name">群聊思维链</div>
+              <div className="config-desc">默认关闭；仅在群聊也需要展示思维链时打开。</div>
+            </div>
+            <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  checked={config.send_cot_in_group_chat === 1}
+                  onChange={(e) => {
+                    const val = e.target.checked ? 1 : 0;
+                    setConfig((prev) => ({ ...prev, send_cot_in_group_chat: val }));
+                    setHasUnsavedChanges(true);
+                  }}
+                />
+                <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>群聊展示思维链</span>
+              </label>
+              <button
+                type="button"
+                className="config-btn-secondary config-btn-telegram-inline-save"
+                onClick={() => saveConfigKey('send_cot_in_group_chat', config.send_cot_in_group_chat)}
+                disabled={savingTelegramKey === 'send_cot_in_group_chat'}
+              >
+                {savingTelegramKey === 'send_cot_in_group_chat' ? '保存中…' : '保存此项'}
+              </button>
+            </div>
+          </div>
+          <hr className="config-divider" />
+
+          <div className="config-item">
+            <div className="config-info">
+              <div className="config-name">近期图片原图直传</div>
+              <div className="config-desc">打开后跳过相关性判断，每轮直接附上近期原图。</div>
+            </div>
+            <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  checked={config.telegram_force_recent_images === 1}
+                  onChange={(e) => {
+                    const val = e.target.checked ? 1 : 0;
+                    setConfig((prev) => ({ ...prev, telegram_force_recent_images: val }));
+                    setHasUnsavedChanges(true);
+                  }}
+                />
+                <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>强制传近期原图</span>
+              </label>
+              <button
+                type="button"
+                className="config-btn-secondary config-btn-telegram-inline-save"
+                onClick={() => saveConfigKey('telegram_force_recent_images', config.telegram_force_recent_images)}
+                disabled={savingTelegramKey === 'telegram_force_recent_images'}
+              >
+                {savingTelegramKey === 'telegram_force_recent_images' ? '保存中…' : '保存此项'}
               </button>
             </div>
           </div>

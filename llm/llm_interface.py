@@ -337,14 +337,11 @@ def use_anthropic_messages_api(
 ) -> bool:
     """
     是否走 Anthropic Messages API（/messages）。
-    优先看 api_base 是否含 anthropic；否则根据模型名含 claude 回退（兼容旧配置）。
+    只由 api_base 判定。OpenAI-compatible 网关也常提供 Claude 模型，
+    不能仅因模型名含 claude 就改走 Anthropic `/messages`。
     """
     b = (api_base or "").lower()
-    if "openrouter" in b:
-        return False
     if "anthropic" in b:
-        return True
-    if "claude" in (model_name or "").lower():
         return True
     return False
 
@@ -452,6 +449,74 @@ def _payload_with_string_image_urls(
 
     walk(out)
     return out if changed else None
+
+
+def _payload_image_400_fallbacks(
+    payload: Optional[Dict[str, Any]],
+    *,
+    api_base: Optional[str],
+    model_name: Optional[str],
+    stream: bool,
+) -> List[Tuple[str, Dict[str, Any]]]:
+    """Build image payload variants from the original payload for strict gateways."""
+    if not payload or not _payload_messages_contain_images(payload):
+        return []
+
+    candidates: List[Tuple[str, Optional[Dict[str, Any]]]] = []
+    glm = _is_glm_compatible_endpoint(api_base, model_name)
+
+    # Some gateways reject stream_options on multimodal SSE even though text SSE accepts it.
+    if stream:
+        candidates.append(("remove stream_options", _payload_without_stream_options(payload)))
+
+    # Some OpenAI-compatible gateways expect image_url as a raw string instead of {url: ...}.
+    candidates.append(("string image_url", _payload_with_string_image_urls(payload)))
+
+    if glm:
+        bare = _payload_with_glm_bare_base64_images(payload)
+        candidates.append(("GLM bare base64 image_url.url", bare))
+        if bare is not None:
+            candidates.append(
+                (
+                    "GLM bare base64 string image_url",
+                    _payload_with_string_image_urls(bare),
+                )
+            )
+            if stream:
+                candidates.append(
+                    (
+                        "GLM bare base64 without stream_options",
+                        _payload_without_stream_options(bare),
+                    )
+                )
+                bare_string = _payload_with_string_image_urls(bare)
+                if bare_string is not None:
+                    candidates.append(
+                        (
+                            "GLM bare base64 string without stream_options",
+                            _payload_without_stream_options(bare_string),
+                        )
+                    )
+
+    out: List[Tuple[str, Dict[str, Any]]] = []
+    seen: set[str] = set()
+    try:
+        original_key = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        seen.add(original_key)
+    except (TypeError, ValueError):
+        pass
+    for label, candidate in candidates:
+        if candidate is None:
+            continue
+        try:
+            key = json.dumps(candidate, sort_keys=True, ensure_ascii=False)
+        except (TypeError, ValueError):
+            key = repr(candidate)
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append((label, candidate))
+    return out
 
 
 def build_user_multimodal_content(
@@ -1081,9 +1146,12 @@ class LLMInterface:
         headers = self._prepare_headers()
         max_attempts = 6  # 首次 1 次 + 重试 5 次
         active_payload = payload
-        glm_bare_image_retry_done = False
-        image_stream_options_retry_done = False
-        image_url_string_retry_done = False
+        image_400_fallbacks = _payload_image_400_fallbacks(
+            payload,
+            api_base=self.api_base,
+            model_name=self.model_name,
+            stream=stream,
+        )
         for attempt in range(max_attempts):
             resp = requests.post(
                 url,
@@ -1101,52 +1169,16 @@ class LLMInterface:
                 resp.close()
                 time.sleep(2)
                 continue
-            if (
-                resp.status_code == 400
-                and not glm_bare_image_retry_done
-                and _is_glm_compatible_endpoint(self.api_base, self.model_name)
-            ):
-                alt_payload = _payload_with_glm_bare_base64_images(active_payload)
-                if alt_payload is not None:
-                    logger.warning(
-                        "GLM/Z.AI 图片请求 HTTP 400，改用裸 base64 image_url 重试一次；body_prefix=%r",
-                        (resp.text or "")[:600],
-                    )
-                    resp.close()
-                    active_payload = alt_payload
-                    glm_bare_image_retry_done = True
-                    continue
-            if (
-                resp.status_code == 400
-                and stream
-                and not image_stream_options_retry_done
-                and _payload_messages_contain_images(active_payload)
-            ):
-                alt_payload = _payload_without_stream_options(active_payload)
-                if alt_payload is not None:
-                    logger.warning(
-                        "图片流式请求 HTTP 400，移除 stream_options 后重试一次；body_prefix=%r",
-                        (resp.text or "")[:600],
-                    )
-                    resp.close()
-                    active_payload = alt_payload
-                    image_stream_options_retry_done = True
-                    continue
-            if (
-                resp.status_code == 400
-                and not image_url_string_retry_done
-                and _payload_messages_contain_images(active_payload)
-            ):
-                alt_payload = _payload_with_string_image_urls(active_payload)
-                if alt_payload is not None:
-                    logger.warning(
-                        "图片请求 HTTP 400，改用字符串 image_url 兼容格式重试一次；body_prefix=%r",
-                        (resp.text or "")[:600],
-                    )
-                    resp.close()
-                    active_payload = alt_payload
-                    image_url_string_retry_done = True
-                    continue
+            if resp.status_code == 400 and image_400_fallbacks:
+                label, alt_payload = image_400_fallbacks.pop(0)
+                logger.warning(
+                    "图片请求 HTTP 400，改用兼容格式重试：%s；body_prefix=%r",
+                    label,
+                    (resp.text or "")[:600],
+                )
+                resp.close()
+                active_payload = alt_payload
+                continue
             if resp.status_code >= 400:
                 body_prev = (resp.text or "")[:1200]
                 hint = ""

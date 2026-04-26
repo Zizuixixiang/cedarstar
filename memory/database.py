@@ -470,6 +470,9 @@ async def migrate_database_schema(conn) -> None:
         [
             ("telegram_max_chars", "50"),
             ("telegram_max_msg", "8"),
+            ("send_cot_to_telegram", "1"),
+            ("send_cot_in_group_chat", "0"),
+            ("telegram_force_recent_images", "0"),
             ("gc_exempt_hits_threshold", "10"),
             ("event_split_max", "8"),
             ("mmr_lambda", "0.75"),
@@ -944,6 +947,22 @@ class MessageDatabase:
             new_id, role, session_id, platform, vp, is_sum, bool(tking),
         )
         return new_id
+
+    async def message_exists(
+        self, session_id: str, platform_message_id: str
+    ) -> bool:
+        """按会话 + 平台消息 ID 判断消息是否已入库，用于 peer relay 幂等。"""
+        async with self.pool.acquire() as conn:
+            val = await conn.fetchval(
+                """
+                SELECT 1 FROM messages
+                WHERE session_id = $1 AND message_id = $2
+                LIMIT 1
+                """,
+                session_id,
+                str(platform_message_id),
+            )
+        return bool(val)
 
     async def get_assistant_content_for_platform_message_id(
         self, session_id: str, platform_message_id: str
@@ -3945,6 +3964,10 @@ async def save_message(
         thinking,
         platform_file_id,
     )
+
+
+async def message_exists(session_id: str, platform_message_id: str) -> bool:
+    return await get_database().message_exists(session_id, platform_message_id)
 
 
 async def get_assistant_content_for_platform_message_id(

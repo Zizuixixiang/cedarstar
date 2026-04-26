@@ -6,6 +6,7 @@
 """
 
 import os
+import re
 from typing import Optional
 from dotenv import load_dotenv
 
@@ -229,6 +230,32 @@ class Config:
     def MINIAPP_TOKEN(self) -> str:
         """Mini App /api 鉴权：请求头 X-Cedarstar-Token 须与本值一致；在 .env 中设置 MINIAPP_TOKEN。"""
         return os.getenv("MINIAPP_TOKEN", "")
+
+    @property
+    def TELEGRAM_GROUP_PEER_RELAY_URLS(self) -> list[str]:
+        """群聊 Bot 互传接口列表，逗号/分号分隔，指向对端 /api/peer/group-message。"""
+        raw = (os.getenv("TELEGRAM_GROUP_PEER_RELAY_URLS") or "").strip()
+        if not raw:
+            return []
+        parts = re.split(r"[;,]", raw)
+        return [p.strip() for p in parts if p.strip()]
+
+    @property
+    def TELEGRAM_GROUP_PEER_RELAY_TOKEN(self) -> str:
+        """群聊 Bot 互传鉴权 token；未设置时复用 MINIAPP_TOKEN。"""
+        return (os.getenv("TELEGRAM_GROUP_PEER_RELAY_TOKEN") or self.MINIAPP_TOKEN or "").strip()
+
+    @property
+    def TELEGRAM_GROUP_PEER_RELAY_APP_ID(self) -> str:
+        """群聊 Bot 互传源实例标识，默认 APP_NAME。"""
+        return (os.getenv("TELEGRAM_GROUP_PEER_RELAY_APP_ID") or self.APP_NAME or "").strip()
+
+    @property
+    def TELEGRAM_GROUP_PEER_RELAY_TIMEOUT(self) -> int:
+        try:
+            return max(1, min(30, int(os.getenv("TELEGRAM_GROUP_PEER_RELAY_TIMEOUT", "8"))))
+        except ValueError:
+            return 8
     
     @property
     def HEFENG_API_KEY(self) -> str:
