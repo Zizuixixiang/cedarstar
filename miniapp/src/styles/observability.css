@@ -43,7 +43,7 @@
 
 .obs-period,
 .obs-refresh {
-  height: 34px;
+  height: 40px;
   border: 2px solid var(--text-main);
   background: #fff;
   color: var(--text-main);
@@ -55,6 +55,7 @@
 
 .obs-period {
   padding: 0 12px;
+  line-height: 1;
 }
 
 .obs-period.active {
@@ -164,10 +165,20 @@
   overflow-x: auto;
 }
 
+
+.obs-table-wrap {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.obs-table-wrap::-webkit-scrollbar {
+  display: none;
+}
+
 .obs-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 520px;
+  min-width: 620px;
   table-layout: fixed;
   font-size: 0.84rem;
 }
@@ -189,10 +200,9 @@
 }
 
 .obs-table th {
-  font-family: monospace;
   font-size: 0.72rem;
   color: var(--text-sub);
-  text-transform: uppercase;
+  text-transform: none;
 }
 
 .obs-table th:nth-child(1),
@@ -208,6 +218,13 @@
 .obs-table th:nth-child(n + 3),
 .obs-table td:nth-child(n + 3) {
   width: 14%;
+}
+
+.obs-field-note {
+  margin: -4px 0 10px;
+  color: var(--text-sub);
+  font-size: 0.76rem;
+  line-height: 1.55;
 }
 
 .obs-table-primary {
@@ -239,20 +256,72 @@
   gap: 9px;
 }
 
-.recent-call {
-  display: grid;
-  grid-template-columns: 1.2fr 1.8fr 0.9fr 0.8fr 0.8fr;
-  gap: 10px;
-  align-items: center;
-  padding: 10px;
+.recent-call-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px 12px;
   border: 1px solid rgba(44, 54, 40, 0.25);
   background: #fff;
   font-size: 0.82rem;
   min-width: 0;
 }
 
-.recent-call strong,
-.recent-call span {
+.tool-more-btn {
+  align-self: flex-start;
+  border: 0;
+  background: transparent;
+  color: var(--text-sub);
+  font: inherit;
+  cursor: pointer;
+  padding: 0;
+  margin-top: -2px;
+}
+
+.recent-call-main,
+.recent-call-mini {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+}
+
+.recent-call-main {
+  grid-template-columns: 1.1fr 1.6fr 0.8fr 0.9fr 0.9fr 0.9fr;
+  align-items: center;
+}
+
+.recent-call-mini {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  color: var(--text-sub);
+  font-size: 0.75rem;
+}
+
+
+.recent-call-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.recent-call-metric > span {
+  flex: 0 0 auto;
+  color: var(--text-sub);
+}
+
+.recent-call-metric > strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-align: right;
+  color: var(--text-main);
+  font-weight: 600;
+}
+
+.recent-call-main strong,
+.recent-call-main span,
+.recent-call-mini span {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -331,6 +400,35 @@
   margin-top: 10px;
 }
 
+.tool-more-btn {
+  margin-top: 6px;
+  border: 1px solid var(--text-main);
+  background: #fff;
+  padding: 4px 8px;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.obs-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 10px;
+}
+
+.obs-pagination button {
+  border: 1px solid var(--text-main);
+  background: #fff;
+  padding: 6px 10px;
+  cursor: pointer;
+}
+
+.obs-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 .tool-detail pre {
   max-height: 260px;
   overflow: auto;
@@ -354,8 +452,17 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .recent-call {
+  .obs-period,
+  .obs-refresh {
+    height: 38px;
+  }
+
+  .recent-call-main {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .recent-call-mini {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -365,6 +472,11 @@
   .obs-periods {
     align-items: stretch;
     width: 100%;
+  }
+
+  .obs-period,
+  .obs-refresh {
+    height: 42px;
   }
 
   .obs-grid,
@@ -381,6 +493,48 @@
     max-width: none;
   }
 
+  .obs-table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  
+.obs-table-wrap {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.obs-table-wrap::-webkit-scrollbar {
+  display: none;
+}
+
+.obs-table {
+    min-width: 620px;
+    font-size: 0.78rem;
+  }
+
+  .obs-table th,
+  .obs-table td {
+    padding: 8px 7px;
+  }
+
+  .obs-table th:nth-child(1),
+  .obs-table td:nth-child(1) {
+    width: 30%;
+  }
+
+  .obs-table th:nth-child(2),
+  .obs-table td:nth-child(2) {
+    width: 9%;
+  }
+
+  .obs-table th:nth-child(n + 3),
+  .obs-table td:nth-child(n + 3) {
+    width: 12%;
+  }
+
+  .recent-call-main,
+  .recent-call-mini,
   .tool-row-main {
     grid-template-columns: 1fr;
     gap: 3px;

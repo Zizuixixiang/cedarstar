@@ -36,6 +36,12 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `telegram_max_chars` | Telegram 分段最大字数 |
 | `telegram_max_msg` | Telegram 分段最大条数 |
 
+### 2.2 token_usage / tool_executions
+
+- `token_usage` 现在除 `raw_usage_json` 外，还会持久化 `base_url`，用于按模型提供方与网关来源追踪 token 使用。
+- `tool_executions` 的 Mini App 观测接口改为分页返回，包含 `items / total / limit / offset`，并压缩 `result_raw_preview` 以降低前端渲染成本。
+- Observability 页面支持“本次”视图，直接展示最新一条 token usage，并在历史周期中按供应商返回的 usage 字段计算缓存命中与理论上限。
+
 ### 2.2 `api_configs`
 
 `api_configs.config_type` 允许：`chat`、`summary`、`vision`、`stt`、`embedding`、`search_summary`、`analysis`。
@@ -106,7 +112,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。
+`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。
 
 ## 4. 对话与工具
 
@@ -132,6 +138,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 ### 4.4 思维链展示
 
 LLM 响应中的思维链字段会统一归一到 `thinking`，并兼容 `reasoning_content`、`reasoning`、`thoughts`、`<thinking>...</thinking>` 等格式。Telegram 端在支持时使用可折叠 `blockquote expandable` 展示思维链；若模型或网关返回了混合包裹内容，则会先拆分思维链与正文，再分别渲染。
+
+同时，`llm_interface.py` 的 usage 归一化会把 DeepSeek / 部分网关的 `prompt_cache_hit_tokens`、`prompt_cache_miss_tokens`、`cached_tokens`、`cache_read_input_tokens` 合并成更稳定的缓存命中统计，并且不再因为多模态图片消息而强制关闭 OpenRouter cache control。
 
 ## 5. 微批与日终跑批
 

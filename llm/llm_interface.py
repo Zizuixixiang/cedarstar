@@ -703,7 +703,7 @@ def _usage_int(usage: Mapping[str, Any], key: str, default: int = 0) -> int:
 
 
 def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
-    """把 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI 的 usage 字段归一化落库。"""
+    """把 OpenRouter/OpenAI/Anthropic/DeepSeek/Z.AI/GLM 的 usage 字段归一化落库。"""
     prompt_tokens = _usage_int(usage, "prompt_tokens", _usage_int(usage, "input_tokens"))
     completion_tokens = _usage_int(
         usage, "completion_tokens", _usage_int(usage, "output_tokens")
@@ -720,9 +720,9 @@ def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
         details, "cache_write_tokens", _usage_int(usage, "cache_write_tokens")
     )
 
-    # DeepSeek official API exposes hit/miss tokens directly on usage.
-    cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens")
-    cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
+    # DeepSeek / some gateways expose cache hit/miss directly.
+    prompt_cache_hit_tokens = _usage_int(usage, "prompt_cache_hit_tokens")
+    prompt_cache_miss_tokens = _usage_int(usage, "prompt_cache_miss_tokens")
 
     # Anthropic Messages API exposes explicit creation/read counters.
     cache_creation_input_tokens = _usage_int(usage, "cache_creation_input_tokens")
@@ -735,6 +735,14 @@ def _normalize_usage_for_storage(usage: Mapping[str, Any]) -> Dict[str, Any]:
             _usage_int(cache_creation, "ephemeral_5m_input_tokens")
             + _usage_int(cache_creation, "ephemeral_1h_input_tokens"),
         )
+
+    # GLM / 硅基流动部分网关更可能把命中记在 cached_tokens / cache_read_input_tokens。
+    cache_hit_tokens = max(
+        prompt_cache_hit_tokens,
+        cached_tokens,
+        cache_read_input_tokens,
+    )
+    cache_miss_tokens = prompt_cache_miss_tokens
 
     return {
         "prompt_tokens": prompt_tokens,
@@ -1303,7 +1311,7 @@ class LLMInterface:
                 preserve_cache_control=_openrouter_supports_cache_control(
                     self.api_base,
                     self.model_name,
-                ) and not messages_contain_multimodal_images(messages),
+                ),
             ),
             "max_tokens": self._openai_max_tokens(),
             "temperature": self.temperature,

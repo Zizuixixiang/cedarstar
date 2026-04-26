@@ -215,6 +215,9 @@ async def _ensure_token_usage_cache_columns(conn) -> None:
     await conn.execute(
         "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS raw_usage_json JSONB"
     )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS base_url TEXT"
+    )
 
 
 async def _ensure_message_platform_file_id_column(conn) -> None:
@@ -644,7 +647,8 @@ class MessageDatabase:
                         cache_miss_tokens INTEGER DEFAULT 0,
                         cache_creation_input_tokens INTEGER DEFAULT 0,
                         cache_read_input_tokens INTEGER DEFAULT 0,
-                        raw_usage_json JSONB
+                        raw_usage_json JSONB,
+                        base_url TEXT
                     )
                 """)
 
@@ -2717,6 +2721,7 @@ class MessageDatabase:
         cache_creation_input_tokens: int = 0,
         cache_read_input_tokens: int = 0,
         raw_usage: Optional[Dict[str, Any]] = None,
+        base_url: Optional[str] = None,
     ) -> int:
         """保存 token 使用量，返回插入 ID。"""
         async with self.pool.acquire() as conn:
@@ -2725,9 +2730,9 @@ class MessageDatabase:
                 INSERT INTO token_usage (
                     platform, prompt_tokens, completion_tokens, total_tokens, model,
                     cached_tokens, cache_write_tokens, cache_hit_tokens, cache_miss_tokens,
-                    cache_creation_input_tokens, cache_read_input_tokens, raw_usage_json
+                    cache_creation_input_tokens, cache_read_input_tokens, raw_usage_json, base_url
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
                 RETURNING id
                 """,
                 platform,
@@ -2742,6 +2747,7 @@ class MessageDatabase:
                 int(cache_creation_input_tokens or 0),
                 int(cache_read_input_tokens or 0),
                 json.dumps(raw_usage, ensure_ascii=False) if raw_usage is not None else None,
+                None if base_url is None else str(base_url),
             )
         logger.debug(
             "保存 token 使用量成功: ID=%s, model=%s, total_tokens=%s",
@@ -2952,20 +2958,27 @@ class MessageDatabase:
             recent_rows = await conn.fetch(recent_sql, *params)
 
         prompt_tokens = (totals[1] or 0) if totals else 0
-        cached_total = ((totals[3] or 0) + (totals[5] or 0) + (totals[8] or 0)) if totals else 0
-        cache_input_base = prompt_tokens + cached_total
-        cache_hit_rate = (cached_total / cache_input_base) if cache_input_base > 0 else 0
+        cache_write_tokens = (totals[4] or 0) if totals else 0
+        cache_hit_tokens = (totals[5] or 0) if totals else 0
+        cache_miss_tokens = (totals[6] or 0) if totals else 0
+        cache_create_tokens = (totals[7] or 0) if totals else 0
+        cache_read_tokens = (totals[8] or 0) if totals else 0
+        hit_tokens = max(cache_hit_tokens, cache_read_tokens)
+        cache_hit_rate = (
+            hit_tokens / prompt_tokens
+            if prompt_tokens > 0
+            else 0
+        )
         return {
             "totals": {
                 "total_tokens": (totals[0] or 0) if totals else 0,
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": (totals[2] or 0) if totals else 0,
-                "cached_tokens": (totals[3] or 0) if totals else 0,
-                "cache_write_tokens": (totals[4] or 0) if totals else 0,
-                "cache_hit_tokens": (totals[5] or 0) if totals else 0,
-                "cache_miss_tokens": (totals[6] or 0) if totals else 0,
-                "cache_creation_input_tokens": (totals[7] or 0) if totals else 0,
-                "cache_read_input_tokens": (totals[8] or 0) if totals else 0,
+                "cache_write_tokens": cache_write_tokens,
+                "cache_hit_tokens": cache_hit_tokens,
+                "cache_miss_tokens": cache_miss_tokens,
+                "cache_creation_input_tokens": cache_create_tokens,
+                "cache_read_input_tokens": cache_read_tokens,
                 "call_count": (totals[9] or 0) if totals else 0,
                 "cache_hit_rate": cache_hit_rate,
             },
@@ -2979,9 +2992,10 @@ class MessageDatabase:
         self,
         *,
         limit: int = 50,
+        offset: int = 0,
         platform: Optional[str] = None,
         session_id: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
+    ) -> Dict[str, Any]:
         """按时间倒序列出最近工具调用，供 Mini App 展示。"""
         conditions: List[str] = []
         params: List[Any] = []
@@ -2992,9 +3006,16 @@ class MessageDatabase:
             params.append(session_id)
             conditions.append(f"session_id = ${len(params)}")
         where_sql = "WHERE " + " AND ".join(conditions) if conditions else ""
-        params.append(max(1, min(200, int(limit))))
-        limit_ref = f"${len(params)}"
+        limit_v = max(1, min(200, int(limit)))
+        offset_v = max(0, int(offset))
+        count_sql = f"SELECT COUNT(*) FROM tool_executions {where_sql}"
+        params_count = list(params)
+        params_page = list(params)
+        params_page.extend([limit_v, offset_v])
+        limit_ref = f"${len(params_page) - 1}"
+        offset_ref = f"${len(params_page)}"
         async with self.pool.acquire() as conn:
+            total = await conn.fetchval(count_sql, *params_count)
             rows = await conn.fetch(
                 f"""
                 SELECT id, session_id, turn_id, seq, tool_name, arguments_json,
@@ -3003,9 +3024,9 @@ class MessageDatabase:
                 FROM tool_executions
                 {where_sql}
                 ORDER BY created_at DESC, id DESC
-                LIMIT {limit_ref}
+                LIMIT {limit_ref} OFFSET {offset_ref}
                 """,
-                *params,
+                *params_page,
             )
         out: List[Dict[str, Any]] = []
         for row in rows:
@@ -3014,13 +3035,13 @@ class MessageDatabase:
             if raw is not None:
                 raw_s = str(raw)
                 item["result_raw_length"] = len(raw_s)
-                item["result_raw_preview"] = raw_s[:4000]
+                item["result_raw_preview"] = raw_s[:1200]
                 item.pop("result_raw", None)
             else:
                 item["result_raw_length"] = 0
                 item["result_raw_preview"] = ""
             out.append(item)
-        return out
+        return {"items": out, "total": int(total or 0), "limit": limit_v, "offset": offset_v}
 
     async def list_model_favorites(self, base_url: Optional[str] = None) -> List[Dict[str, Any]]:
         params: List[Any] = []

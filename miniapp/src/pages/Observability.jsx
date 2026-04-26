@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Activity,
   BarChart3,
@@ -14,6 +14,7 @@ import { apiFetch } from '../apiBase'
 import './../styles/observability.css'
 
 const PERIODS = [
+  { key: 'current', label: '本次' },
   { key: 'today', label: '今日' },
   { key: 'week', label: '本周' },
   { key: 'month', label: '本月' },
@@ -29,11 +30,147 @@ function pct(n) {
   return `${(Number(n) * 100).toFixed(1)}%`
 }
 
+function numberOrNull(value) {
+  if (value === undefined || value === null || value === '') return null
+  const n = Number(value)
+  return Number.isNaN(n) ? null : n
+}
+
+function providerCacheHitTokens(row) {
+  const explicit = numberOrNull(row?.provider_cache_hit_tokens)
+  if (explicit !== null) return explicit
+  return Math.max(
+    Number(row?.cache_hit_tokens || 0),
+    Number(row?.cache_read_input_tokens || 0),
+    Number(row?.cached_tokens || 0),
+  )
+}
+
+function providerCacheHitRate(row) {
+  const explicit = numberOrNull(row?.cache_hit_rate)
+  if (explicit !== null) return explicit
+  const prompt = Number(row?.prompt_tokens || 0)
+  if (prompt <= 0) return null
+  return providerCacheHitTokens(row) / prompt
+}
+
+function theoreticalCacheHitRate(row) {
+  const explicit = numberOrNull(row?.theoretical_cache_hit_rate)
+  return explicit === null ? providerCacheHitRate(row) : explicit
+}
+
+function theoreticalCachedTokens(row) {
+  const explicit = numberOrNull(row?.theoretical_cached_tokens)
+  return explicit === null ? providerCacheHitTokens(row) : explicit
+}
+
+function normalizeUsageStats(data) {
+  if (!data) return data
+  const recent = Array.isArray(data.recent) ? data.recent : []
+  const firstRow = recent[0]
+  if (!firstRow) {
+    return {
+      ...data,
+      totals: data.totals || {
+        total_tokens: 0,
+        prompt_tokens: 0,
+        completion_tokens: 0,
+        cached_tokens: 0,
+        cache_write_tokens: 0,
+        cache_hit_tokens: 0,
+        cache_miss_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+        provider_cache_hit_tokens: 0,
+        theoretical_cached_tokens: 0,
+        call_count: 0,
+        cache_hit_rate: 0,
+        theoretical_cache_hit_rate: 0,
+      },
+      by_platform: Array.isArray(data.by_platform) ? data.by_platform : [],
+      by_model: Array.isArray(data.by_model) ? data.by_model : [],
+      by_day: Array.isArray(data.by_day) ? data.by_day : [],
+      recent,
+    }
+  }
+  const prompt = Number(firstRow.prompt_tokens || 0)
+  const safeTotals = data.totals || {}
+  const fallbackHitTokens = providerCacheHitTokens(firstRow)
+  const hasTotalCacheFields = [
+    'provider_cache_hit_tokens',
+    'cache_hit_tokens',
+    'cache_read_input_tokens',
+    'cached_tokens',
+  ].some((key) => safeTotals[key] !== undefined && safeTotals[key] !== null)
+  const hitTokens = hasTotalCacheFields ? providerCacheHitTokens(safeTotals) : fallbackHitTokens
+  const totals = {
+    total_tokens: Number(safeTotals.total_tokens ?? firstRow.total_tokens ?? 0),
+    prompt_tokens: Number(safeTotals.prompt_tokens ?? prompt),
+    completion_tokens: Number(safeTotals.completion_tokens ?? firstRow.completion_tokens ?? 0),
+    cached_tokens: Number(safeTotals.cached_tokens ?? firstRow.cached_tokens ?? 0),
+    cache_write_tokens: Number(safeTotals.cache_write_tokens ?? firstRow.cache_write_tokens ?? 0),
+    cache_hit_tokens: Number(safeTotals.cache_hit_tokens ?? firstRow.cache_hit_tokens ?? 0),
+    cache_miss_tokens: Number(safeTotals.cache_miss_tokens ?? firstRow.cache_miss_tokens ?? 0),
+    cache_creation_input_tokens: Number(safeTotals.cache_creation_input_tokens ?? firstRow.cache_creation_input_tokens ?? 0),
+    cache_read_input_tokens: Number(safeTotals.cache_read_input_tokens ?? firstRow.cache_read_input_tokens ?? 0),
+    provider_cache_hit_tokens: Number(safeTotals.provider_cache_hit_tokens ?? firstRow.provider_cache_hit_tokens ?? hitTokens),
+    theoretical_cached_tokens: Number(safeTotals.theoretical_cached_tokens ?? firstRow.theoretical_cached_tokens ?? hitTokens),
+    call_count: Number(safeTotals.call_count ?? recent.length ?? 0),
+    cache_hit_rate: Number(safeTotals.cache_hit_rate ?? (prompt > 0 ? hitTokens / prompt : 0)),
+    theoretical_cache_hit_rate: Number(safeTotals.theoretical_cache_hit_rate ?? firstRow.theoretical_cache_hit_rate ?? (prompt > 0 ? hitTokens / prompt : 0)),
+  }
+  const platformRows = Array.isArray(data.by_platform) && data.by_platform.length > 0 ? data.by_platform : [{ ...totals, platform: firstRow.platform || 'unknown' }]
+  const modelRows = Array.isArray(data.by_model) && data.by_model.length > 0 ? data.by_model : [{ ...totals, model: firstRow.model || 'unknown' }]
+  return {
+    ...data,
+    totals,
+    by_platform: platformRows,
+    by_model: modelRows,
+    by_day: Array.isArray(data.by_day) ? data.by_day : [],
+    recent,
+  }
+}
+
+function oneCallUsageView(data) {
+  const row = data?.recent?.[0]
+  if (!row) return data
+  const hitTokens = providerCacheHitTokens(row)
+  const prompt = Number(row.prompt_tokens || 0)
+  const totals = {
+    total_tokens: Number(row.total_tokens || 0),
+    prompt_tokens: prompt,
+    completion_tokens: Number(row.completion_tokens || 0),
+    cached_tokens: Number(row.cached_tokens || 0),
+    cache_write_tokens: Number(row.cache_write_tokens || 0),
+    cache_hit_tokens: Number(row.cache_hit_tokens || 0),
+    cache_miss_tokens: Number(row.cache_miss_tokens || 0),
+    cache_creation_input_tokens: Number(row.cache_creation_input_tokens || 0),
+    cache_read_input_tokens: Number(row.cache_read_input_tokens || 0),
+    provider_cache_hit_tokens: Number(row.provider_cache_hit_tokens ?? hitTokens),
+    theoretical_cached_tokens: Number(row.theoretical_cached_tokens ?? 0),
+    call_count: 1,
+    cache_hit_rate: Number(row.cache_hit_rate ?? (prompt > 0 ? hitTokens / prompt : 0)),
+    theoretical_cache_hit_rate: Number(row.theoretical_cache_hit_rate ?? 0),
+  }
+  const platformRow = { ...totals, platform: row.platform || 'unknown' }
+  const modelRow = { ...totals, model: row.model || 'unknown' }
+  return {
+    ...data,
+    totals,
+    by_platform: [platformRow],
+    by_model: [modelRow],
+    by_day: [],
+    recent: [row],
+  }
+}
+
 function shortDate(value) {
   if (!value) return '-'
-  const d = new Date(value)
-  if (Number.isNaN(d.getTime())) return String(value)
-  return d.toLocaleString('zh-CN', { hour12: false })
+  const text = String(value)
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(text) ? text : `${text}Z`
+  const d = new Date(normalized)
+  if (Number.isNaN(d.getTime())) return text
+  return d.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
 }
 
 function MetricCard({ icon: Icon, label, value, hint }) {
@@ -70,27 +207,29 @@ function UsageTable({ rows, labelKey }) {
             <th>{labelKey === 'model' ? '模型' : '平台'}</th>
             <th>调用</th>
             <th>Prompt</th>
-            <th>缓存读</th>
-            <th>缓存写</th>
+            <th>读缓存</th>
+            <th>写缓存</th>
+            <th>命中</th>
             <th>Total</th>
           </tr>
         </thead>
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan="6" className="obs-empty">暂无记录</td>
+              <td colSpan="7" className="obs-empty">暂无记录</td>
             </tr>
           ) : rows.map((row) => (
             <tr key={row[labelKey]}>
-              <td>
+              <td data-label={labelKey === 'model' ? 'Model' : 'Platform'}>
                 <div className="obs-table-primary">{row[labelKey] || 'unknown'}</div>
                 <TinyBar value={row.total_tokens} max={max} />
               </td>
-              <td>{fmt(row.call_count)}</td>
-              <td>{fmt(row.prompt_tokens)}</td>
-              <td>{fmt((row.cached_tokens || 0) + (row.cache_hit_tokens || 0))}</td>
-              <td>{fmt(row.cache_write_tokens)}</td>
-              <td>{fmt(row.total_tokens)}</td>
+              <td data-label="Calls">{fmt(row.call_count)}</td>
+              <td data-label="Prompt">{fmt(row.prompt_tokens)}</td>
+              <td data-label="读缓存">{fmt(row.cache_read_input_tokens)}</td>
+              <td data-label="写缓存">{fmt(row.cache_creation_input_tokens || row.cache_write_tokens)}</td>
+              <td data-label="命中">{fmt(providerCacheHitTokens(row))}</td>
+              <td data-label="Total">{fmt(row.total_tokens)}</td>
             </tr>
           ))}
         </tbody>
@@ -103,6 +242,9 @@ function ToolRow({ row }) {
   const [open, setOpen] = useState(false)
   const raw = row.result_raw_preview || ''
   const args = row.arguments_json ? JSON.stringify(row.arguments_json, null, 2) : ''
+  const limit = 160
+  const summary = row.result_summary || ''
+  const clipped = summary.length > limit ? `${summary.slice(0, limit)}…` : summary
   return (
     <article className="tool-row">
       <button type="button" className="tool-row-main" onClick={() => setOpen((v) => !v)}>
@@ -110,7 +252,12 @@ function ToolRow({ row }) {
         <span className="tool-meta">{row.platform || 'unknown'} · turn {row.turn_id} · #{row.seq}</span>
         <span className="tool-time">{shortDate(row.created_at)}</span>
       </button>
-      <p className="tool-summary">{row.result_summary || '无摘要'}</p>
+      <p className="tool-summary">{clipped || '无摘要'}{summary.length > limit && !open ? ' ' : ''}</p>
+      {summary.length > limit && (
+        <button type="button" className="tool-more-btn" onClick={() => setOpen((v) => !v)}>
+          {open ? '收起' : '显示全文'}
+        </button>
+      )}
       {open && (
         <div className="tool-detail">
           {args && (
@@ -131,15 +278,47 @@ function ToolRow({ row }) {
   )
 }
 
+function RecentUsageRow({ row }) {
+  const cacheHit = providerCacheHitTokens(row)
+  const cacheRead = Number(row.cache_read_input_tokens || 0)
+  const cacheCreate = Number(row.cache_creation_input_tokens || row.cache_write_tokens || 0)
+  const hitRate = providerCacheHitRate(row)
+  return (
+    <article className="recent-call-row">
+      <div className="recent-call-main">
+        <span>{shortDate(row.created_at)}</span>
+        <strong>{row.model || 'unknown'}</strong>
+        <span>{row.platform || 'unknown'}</span>
+        <span className="recent-call-metric"><span>Total</span><strong>{fmt(row.total_tokens)}</strong></span>
+        <span className="recent-call-metric"><span>读缓存</span><strong>{fmt(cacheRead)}</strong></span>
+        <span className="recent-call-metric"><span>写缓存</span><strong>{fmt(cacheCreate)}</strong></span>
+        <span className="recent-call-metric"><span>命中</span><strong>{fmt(cacheHit)}</strong></span>
+        <span className="recent-call-metric"><span>命中率</span><strong>{hitRate == null ? '-' : pct(hitRate)}</strong></span>
+        <span className="recent-call-metric"><span>理论上限</span><strong>{pct(theoreticalCacheHitRate(row))}</strong></span>
+      </div>
+      <div className="recent-call-mini">
+        <span className="recent-call-metric"><span>Prompt</span><strong>{fmt(row.prompt_tokens)}</strong></span>
+        <span className="recent-call-metric"><span>理论可命中</span><strong>{fmt(theoreticalCachedTokens(row))}</strong></span>
+        <span className="recent-call-metric"><span>原始 usage</span><strong>{row.raw_usage_json ? 'yes' : 'no'}</strong></span>
+      </div>
+    </article>
+  )
+}
+
 export default function Observability() {
-  const [period, setPeriod] = useState('today')
+  const [period, setPeriod] = useState('current')
   const [usage, setUsage] = useState(null)
   const [tools, setTools] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
+  const [toolPage, setToolPage] = useState(1)
+  const toolPageSize = 10
+  const loadSeqRef = useRef(0)
 
   const load = useCallback(async () => {
+    const seq = ++loadSeqRef.current
     setLoading(true)
+    setUsage(null)
     try {
       const [usageRes, toolsRes] = await Promise.all([
         apiFetch(`/api/observability/usage?period=${period}`),
@@ -147,10 +326,17 @@ export default function Observability() {
       ])
       const usageData = await usageRes.json()
       const toolsData = await toolsRes.json()
-      setUsage(usageData.success ? usageData.data : null)
-      setTools(toolsData.success ? (toolsData.data || []) : [])
+      const toolPayload = toolsData.success ? toolsData.data : []
+      const usagePayload = usageData.success ? usageData.data : null
+      const normalizedTools = Array.isArray(toolPayload) ? toolPayload : (toolPayload?.items || [])
+      const normalizedUsage = period === 'current' ? oneCallUsageView(usagePayload) : normalizeUsageStats(usagePayload)
+      if (loadSeqRef.current === seq) {
+        setUsage(normalizedUsage)
+        setTools(normalizedTools)
+        setToolPage(1)
+      }
     } finally {
-      setLoading(false)
+      if (loadSeqRef.current === seq) setLoading(false)
     }
   }, [period])
 
@@ -159,6 +345,7 @@ export default function Observability() {
   }, [load])
 
   const totals = usage?.totals || {}
+  const periodLabel = PERIODS.find((item) => item.key === period)?.label || period
   const visibleTools = useMemo(() => {
     const q = filter.trim().toLowerCase()
     if (!q) return tools
@@ -167,6 +354,10 @@ export default function Observability() {
       return hay.includes(q)
     })
   }, [tools, filter])
+
+  const toolTotalPages = Math.max(1, Math.ceil(visibleTools.length / toolPageSize))
+  const currentToolPage = Math.min(toolPage, toolTotalPages)
+  const pagedTools = visibleTools.slice((currentToolPage - 1) * toolPageSize, currentToolPage * toolPageSize)
 
   return (
     <div className="observability-page">
@@ -195,10 +386,10 @@ export default function Observability() {
       </header>
 
       <section className="obs-grid">
-        <MetricCard icon={Activity} label="调用次数" value={fmt(totals.call_count)} hint={loading ? '加载中' : period} />
+        <MetricCard icon={Activity} label="调用次数" value={fmt(totals.call_count)} hint={loading ? '加载中' : periodLabel} />
         <MetricCard icon={BarChart3} label="总 tokens" value={fmt(totals.total_tokens)} hint={`Prompt ${fmt(totals.prompt_tokens)} / Completion ${fmt(totals.completion_tokens)}`} />
-        <MetricCard icon={DatabaseZap} label="缓存读取 tokens" value={fmt((totals.cached_tokens || 0) + (totals.cache_hit_tokens || 0) + (totals.cache_read_input_tokens || 0))} hint={`估算命中率 ${pct(totals.cache_hit_rate)}`} />
-        <MetricCard icon={LineChart} label="缓存写入 tokens" value={fmt((totals.cache_write_tokens || 0) + (totals.cache_creation_input_tokens || 0))} hint="不内置价格表" />
+        <MetricCard icon={DatabaseZap} label="缓存命中 tokens" value={fmt(totals.provider_cache_hit_tokens || providerCacheHitTokens(totals))} hint={`实际 ${pct(totals.cache_hit_rate)} / 理论 ${totals.theoretical_cache_hit_rate == null ? '-' : pct(totals.theoretical_cache_hit_rate)}`} />
+        <MetricCard icon={LineChart} label="缓存写入 tokens" value={fmt(totals.cache_creation_input_tokens || totals.cache_write_tokens || 0)} hint={`理论可命中 ${totals.theoretical_cached_tokens == null ? '-' : fmt(totals.theoretical_cached_tokens)} tokens`} />
       </section>
 
       <section className="obs-panel two-col">
@@ -207,6 +398,7 @@ export default function Observability() {
             <BarChart3 size={16} strokeWidth={1.8} aria-hidden />
             <h2>按平台</h2>
           </div>
+          <p className="obs-field-note">使用供应商返回的 usage 字段。</p>
           <UsageTable rows={usage?.by_platform || []} labelKey="platform" />
         </div>
         <div>
@@ -227,13 +419,7 @@ export default function Observability() {
           {(usage?.recent || []).length === 0 ? (
             <div className="obs-empty">暂无 token usage 记录</div>
           ) : (usage?.recent || []).slice(0, 12).map((row) => (
-            <div className="recent-call" key={row.id}>
-              <span>{shortDate(row.created_at)}</span>
-              <strong>{row.model || 'unknown'}</strong>
-              <span>{row.platform || 'unknown'}</span>
-              <span>total {fmt(row.total_tokens)}</span>
-              <span>cache {fmt((row.cached_tokens || 0) + (row.cache_hit_tokens || 0) + (row.cache_read_input_tokens || 0))}</span>
-            </div>
+            <RecentUsageRow key={row.id} row={row} />
           ))}
         </div>
       </section>
@@ -250,9 +436,18 @@ export default function Observability() {
           </label>
         </div>
         <div className="tool-list">
-          {visibleTools.length === 0 ? (
+          {pagedTools.length === 0 ? (
             <div className="obs-empty">暂无工具执行记录</div>
-          ) : visibleTools.map((row) => <ToolRow key={row.id} row={row} />)}
+          ) : pagedTools.map((row) => <ToolRow key={row.id} row={row} />)}
+        </div>
+        <div className="obs-pagination">
+          <button type="button" disabled={currentToolPage <= 1} onClick={() => setToolPage((p) => Math.max(1, p - 1))}>
+            上一页
+          </button>
+          <span>{currentToolPage} / {toolTotalPages}</span>
+          <button type="button" disabled={currentToolPage >= toolTotalPages} onClick={() => setToolPage((p) => Math.min(toolTotalPages, p + 1))}>
+            下一页
+          </button>
         </div>
       </section>
     </div>
