@@ -108,14 +108,6 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 `tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。
 
-工具执行链路以当前代码为准：
-
-- OpenAI-compatible 工具循环支持 Lutopia、天气、微博热搜、网页搜索。
-- 每次工具调用结束后通过 `save_tool_execution_record` 写入 `tool_executions`，包含 `session_id`、`turn_id`、`seq`、工具名、参数、结果摘要、平台与当前用户消息 ID。
-- Context 构建时按会话取最近若干工具回合，将工具摘要作为“上轮/近期工具使用事实”注入，避免模型看不到自己上一轮实际调用过的工具。
-- 微批摘要在处理消息区间时也会读取对应工具记录，把工具事实写进 chunk 摘要，降低后续上下文断裂。
-- Mini App 的调用观测页读取 `/api/observability/tool-executions`，该接口直接查询同一实例数据库里的 `tool_executions`。
-
 ## 4. 对话与工具
 
 ### 4.1 对话通路
@@ -178,14 +170,6 @@ Step 4 结果只写事件片段，不再写 daily 小传向量。
 ## 7. Mini App 与配置管理
 
 Settings 页管理 API 配置，Config 页管理运行参数，包括缓冲延迟、摘要阈值、最近原文条数与 Telegram 分段参数。
-
-调用观测页展示 token/cache 聚合与最近工具执行记录。多实例部署时，各实例必须使用自己的 `DATABASE_URL`、`APP_NAME`、`MINIAPP_TOKEN` 与前端 `VITE_API_BASE_URL`，否则会出现 Mini App 展示正常但读写到错误实例数据的情况。
-
-线上 supervisor 的事实配置以 `/etc/supervisor/conf.d/*.conf` 为准，而不是项目目录内的 `supervisord.conf` 模板。当前约定是：
-
-- `cedarstar` 监听 `8000`
-- `cedarclio` 监听 `8001`
-- `cedarclio` 的 supervisor program 名为 `cedarclio`，需显式设置 `PORT="8001"`
 
 ## 8. 机制速查
 
