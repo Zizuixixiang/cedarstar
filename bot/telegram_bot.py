@@ -2450,7 +2450,9 @@ class TelegramBot:
     ) -> _BufferGenResult:
         """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条）。用户消息在调用上游模型之前落库，避免模型报错时丢失。"""
         try:
-            llm = await LLMInterface.create()
+            llm = await LLMInterface.create(
+                config_type="vision" if images else "chat"
+            )
             # 在调用上游模型之前落库用户合并消息，避免 HTTP 4xx/5xx、超时等导致「用户话被吞」
             try:
                 has_img = bool(images)
@@ -2917,7 +2919,7 @@ class TelegramBot:
         传入 telegram_bot 时：发送思维链、去掉 [meme:…] 后的正文与检索到的表情包。
         """
         try:
-            llm = await LLMInterface.create()
+            llm = await LLMInterface.create(config_type="vision")
             cid = int(chat_id)
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))

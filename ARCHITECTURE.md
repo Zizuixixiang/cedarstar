@@ -39,8 +39,11 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 ### 2.2 token_usage / tool_executions
 
 - `token_usage` 现在除 `raw_usage_json` 外，还会持久化 `base_url`，用于按模型提供方与网关来源追踪 token 使用。
+- `provider_cache_hit_tokens` 与 `theoretical_cached_tokens` 口径已经拆分：
+  - `provider_cache_hit_tokens` 直接按上游写入的 `cache_hit_tokens` 统计
+  - `theoretical_cached_tokens` 会结合 `base_url` 按供应商区分：DeepSeek 走 `cache_hit_tokens`，OpenRouter 走 `cached_tokens`，SiliconFlow 兼容两者
 - `tool_executions` 的 Mini App 观测接口改为分页返回，包含 `items / total / limit / offset`，并压缩 `result_raw_preview` 以降低前端渲染成本。
-- Observability 页面支持“本次”视图，直接展示最新一条 token usage，并在历史周期中按供应商返回的 usage 字段计算缓存命中与理论上限。
+- Observability 页面支持“本次”视图，直接展示最新一条 token usage，并在历史周期中分别展示实际命中与理论缓存上限。
 
 ### 2.2 `api_configs`
 
@@ -113,7 +116,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。`llm_interface.py` 的 usage 归一化会按 `base_url` 区分 DeepSeek / OpenRouter / SiliconFlow 的缓存命中口径。
+`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。`api/observability.py` 的 usage 归一化会按 `base_url` 区分 DeepSeek / OpenRouter / SiliconFlow 的缓存命中口径，并同时保留 provider 实际命中值与理论命中值。
 
 ## 4. 对话与工具
 
@@ -122,6 +125,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - Telegram 通过 webhook 接入
 - Discord 通过 bot gateway 接入
 - 两者都先进入消息缓冲，再统一构建 Context 与调用 LLM
+- Telegram 侧会根据是否携带图片选择 `LLMInterface.create(config_type="vision")` 或 `LLMInterface.create(config_type="chat")`，非缓冲生成路径则固定走 `vision`
 
 ### 4.2 工具开关
 
@@ -140,7 +144,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 LLM 响应中的思维链字段会统一归一到 `thinking`，并兼容 `reasoning_content`、`reasoning`、`thoughts`、`<thinking>...</thinking>` 等格式。Telegram 端在支持时使用可折叠 `blockquote expandable` 展示思维链；若模型或网关返回了混合包裹内容，则会先拆分思维链与正文，再分别渲染。
 
-同时，`llm_interface.py` 的 usage 归一化会把 DeepSeek / 部分网关的 `prompt_cache_hit_tokens`、`prompt_cache_miss_tokens`、`cached_tokens`、`cache_read_input_tokens` 合并成更稳定的缓存命中统计，并且不再因为多模态图片消息而强制关闭 OpenRouter cache control。
+同时，LLM usage 归一化会把 DeepSeek / 部分网关的 `prompt_cache_hit_tokens`、`prompt_cache_miss_tokens`、`cached_tokens`、`cache_read_input_tokens` 合并成更稳定的缓存命中统计，并且不再因为多模态图片消息而强制关闭 OpenRouter cache control。
 
 ## 5. 微批与日终跑批
 

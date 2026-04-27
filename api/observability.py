@@ -55,11 +55,18 @@ def _provider_cache_hit_tokens(row: Dict[str, Any]) -> int:
             return int(explicit or 0)
         except (TypeError, ValueError):
             pass
-    return max(
-        _int_value(row, "cache_hit_tokens"),
-        _int_value(row, "cache_read_input_tokens"),
-        _int_value(row, "cached_tokens"),
-    )
+    return _int_value(row, "cache_hit_tokens")
+
+
+def _theoretical_cache_hit_tokens(row: Dict[str, Any]) -> int:
+    base_url = (str(row.get("base_url") or "")).lower()
+    if "api.deepseek.com" in base_url:
+        return _int_value(row, "cache_hit_tokens")
+    if "openrouter.ai" in base_url:
+        return _int_value(row, "cached_tokens")
+    if "siliconflow.cn" in base_url:
+        return _int_value(row, "cache_hit_tokens") or _int_value(row, "cached_tokens")
+    return 0
 
 
 async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[str, Any]:
@@ -77,11 +84,7 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
                    tu.cache_write_tokens, tu.cache_hit_tokens, tu.cache_miss_tokens,
                    tu.cache_creation_input_tokens, tu.cache_read_input_tokens,
                    tu.raw_usage_json, tu.base_url,
-                   GREATEST(
-                       COALESCE(tu.cache_hit_tokens, 0),
-                       COALESCE(tu.cache_read_input_tokens, 0),
-                       COALESCE(tu.cached_tokens, 0)
-                   ) AS provider_cache_hit_tokens
+                   tu.cache_hit_tokens AS provider_cache_hit_tokens
             FROM token_usage tu
             WHERE TRUE
             {where_sql}
@@ -111,8 +114,10 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
 
     item = _row_dict(row)
     prompt_tokens = _int_value(item, "prompt_tokens")
-    hit_tokens = _provider_cache_hit_tokens(item)
-    hit_rate = (hit_tokens / prompt_tokens) if prompt_tokens else 0
+    provider_hit_tokens = _provider_cache_hit_tokens(item)
+    theoretical_hit_tokens = _theoretical_cache_hit_tokens(item)
+    hit_rate = (provider_hit_tokens / prompt_tokens) if prompt_tokens else 0
+    theoretical_hit_rate = (theoretical_hit_tokens / prompt_tokens) if prompt_tokens else 0
     totals = {
         "total_tokens": _int_value(item, "total_tokens"),
         "prompt_tokens": prompt_tokens,
@@ -123,11 +128,11 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
         "cache_miss_tokens": _int_value(item, "cache_miss_tokens"),
         "cache_creation_input_tokens": _int_value(item, "cache_creation_input_tokens"),
         "cache_read_input_tokens": _int_value(item, "cache_read_input_tokens"),
-        "provider_cache_hit_tokens": hit_tokens,
-        "theoretical_cached_tokens": hit_tokens,
+        "provider_cache_hit_tokens": provider_hit_tokens,
+        "theoretical_cached_tokens": theoretical_hit_tokens,
         "call_count": 1,
         "cache_hit_rate": hit_rate,
-        "theoretical_cache_hit_rate": hit_rate,
+        "theoretical_cache_hit_rate": theoretical_hit_rate,
     }
     platform_row = dict(totals)
     platform_row["platform"] = item.get("platform") or "unknown"
@@ -149,13 +154,7 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
         params.append(platform)
         conditions.append(f"tu.platform = ${len(params)}")
     where_sql = "WHERE " + " AND ".join(conditions)
-    provider_hit_expr = (
-        "GREATEST("
-        "COALESCE(tu.cache_hit_tokens, 0), "
-        "COALESCE(tu.cache_read_input_tokens, 0), "
-        "COALESCE(tu.cached_tokens, 0)"
-        ")"
-    )
+    provider_hit_expr = "COALESCE(tu.cache_hit_tokens, 0)"
     sum_sql = f"""
         SELECT SUM(tu.total_tokens), SUM(tu.prompt_tokens), SUM(tu.completion_tokens),
                SUM(tu.cached_tokens), SUM(tu.cache_write_tokens),
@@ -236,8 +235,10 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
         recent_rows = await conn.fetch(recent_sql, *params)
 
     prompt_tokens = (totals[1] or 0) if totals else 0
-    hit_tokens = (totals[9] or 0) if totals else 0
-    hit_rate = (hit_tokens / prompt_tokens) if prompt_tokens else 0
+    provider_hit_tokens = (totals[9] or 0) if totals else 0
+    theoretical_hit_tokens = (totals[8] or 0) if totals else 0
+    hit_rate = (provider_hit_tokens / prompt_tokens) if prompt_tokens else 0
+    theoretical_hit_rate = (theoretical_hit_tokens / prompt_tokens) if prompt_tokens else 0
     return {
         "totals": {
             "total_tokens": (totals[0] or 0) if totals else 0,
@@ -249,11 +250,11 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
             "cache_miss_tokens": (totals[6] or 0) if totals else 0,
             "cache_creation_input_tokens": (totals[7] or 0) if totals else 0,
             "cache_read_input_tokens": (totals[8] or 0) if totals else 0,
-            "provider_cache_hit_tokens": hit_tokens,
-            "theoretical_cached_tokens": hit_tokens,
+            "provider_cache_hit_tokens": provider_hit_tokens,
+            "theoretical_cached_tokens": theoretical_hit_tokens,
             "call_count": (totals[10] or 0) if totals else 0,
             "cache_hit_rate": hit_rate,
-            "theoretical_cache_hit_rate": hit_rate,
+            "theoretical_cache_hit_rate": theoretical_hit_rate,
         },
         "by_platform": [_row_dict(r) for r in rows_platform],
         "by_model": [_row_dict(r) for r in rows_model],
