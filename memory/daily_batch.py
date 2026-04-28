@@ -39,7 +39,6 @@ from llm.llm_interface import (
     CedarClioOutputGuardExhausted,
     NoActiveAPIConfigError,
     batch_one_shot_with_async_output_guard,
-    coerce_score_and_arousal_defaults,
 )
 from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display_names
 from tools.lutopia import strip_lutopia_internal_memory_blocks
@@ -67,7 +66,7 @@ try:
     from .database import (
         get_database,
         get_today_chunk_summaries,
-        delete_today_chunk_summaries,
+        archive_chunk_summaries_by_daily,
         get_today_user_character_pairs,
         get_memory_cards,
         get_latest_memory_card_for_dimension,
@@ -100,7 +99,7 @@ except ImportError:
     from memory.database import (
         get_database,
         get_today_chunk_summaries,
-        delete_today_chunk_summaries,
+        archive_chunk_summaries_by_daily,
         get_today_user_character_pairs,
         get_memory_cards,
         get_latest_memory_card_for_dimension,
@@ -754,7 +753,7 @@ class DailyBatchProcessor:
                         logger.error("生成今日小传最终失败，session=%s: %s", session_id, e)
                         return False, str(e)
 
-                    await save_summary(
+                    daily_id = await save_summary(
                         session_id=session_id,
                         summary_text=daily_summary,
                         start_message_id=0,
@@ -763,15 +762,12 @@ class DailyBatchProcessor:
                         source_date=date.fromisoformat(batch_date),
                         is_group=1 if str(session_id).startswith("telegram_-") else 0,
                     )
-                    saved_count += 1
-
-                n_chunk_del = await delete_today_chunk_summaries(batch_date)
-                if n_chunk_del:
-                    logger.info(
-                        "已删除今日 chunk 摘要 %s 条（daily 写入成功后），日期: %s",
-                        n_chunk_del,
+                    await archive_chunk_summaries_by_daily(
                         batch_date,
+                        daily_id,
+                        session_id=session_id,
                     )
+                    saved_count += 1
 
                 logger.info("今日小传保存成功: %s 个 session，日期: %s", saved_count, batch_date)
                 return True, None
@@ -834,7 +830,7 @@ class DailyBatchProcessor:
                 logger.error(f"生成今日小传最终失败: {e}")
                 return False, str(e)
             
-            await save_summary(
+            daily_id = await save_summary(
                 session_id="daily_batch",
                 summary_text=daily_summary,
                 start_message_id=0,
@@ -843,14 +839,7 @@ class DailyBatchProcessor:
                 source_date=date.fromisoformat(batch_date),
                 is_group=0,
             )
-
-            n_chunk_del = await delete_today_chunk_summaries(batch_date)
-            if n_chunk_del:
-                logger.info(
-                    "已删除今日 chunk 摘要 %s 条（daily 写入成功后），日期: %s",
-                    n_chunk_del,
-                    batch_date,
-                )
+            await archive_chunk_summaries_by_daily(batch_date, daily_id)
             
             logger.info(f"今日小传保存成功，日期: {batch_date}")
             return True, None
@@ -1809,7 +1798,7 @@ content 强制要求：
     
     async def _step4_archive_daily_and_events(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """
-        Step 4 - daily 仅保留在 PostgreSQL；ChromaDB 只写事件片段 + BM25。
+        Step 4 - 以当天 chunk 列表为输入，合并为长期事件片段写入 ChromaDB + BM25 + PG 镜像。
         """
         try:
             daily_summary = await self._combined_daily_summary_by_date(batch_date)
@@ -1817,37 +1806,26 @@ content 强制要求：
                 logger.info(f"今日没有小传，跳过 Step 4，日期: {batch_date}")
                 return True, None
 
-            summary_text = daily_summary['summary_text']
             summary_id = daily_summary['id']
             event_split_max = await _event_split_max()
-            
-            prompt = self._persona_dialogue_prefix() + f"""请评估以下今日小传的长期保留价值，严格按标准输出评分与情绪强度。
-今日小传内容：
-{summary_text}
-评分标准（score，纯整数 1-10，禁止字符串）：
-1-3：日常琐事，无长期参考价值
-4-6：有一定参考价值，但信息较普通
-7-8：有价值的信息，值得长期保留
-9-10：重要里程碑或关键信息，对长期记忆有显著价值
-情绪强度（arousal，纯浮点数 0.0-1.0，禁止字符串）：
-0.0-0.2：平静普通，几乎无情绪波动
-0.3-0.6：有情绪起伏，但整体平稳
-0.7-1.0：情绪激烈（争吵、重大喜讯、悲伤、重要决定等）
-输出要求：直接输出以大括号 {{}} 开头的纯JSON字符串，严禁markdown代码块包裹、无任何额外文字，格式：{{"score":<整数>,"arousal":<浮点数>}}。"""
+            chunks = await get_today_chunk_summaries(batch_date, include_archived=True)
+            chunks = [
+                c for c in chunks
+                if str(c.get("source_date") or "").startswith(batch_date)
+            ]
+            if not chunks:
+                logger.info(f"今日没有 chunk 可供 Step 4 拆分，日期: {batch_date}")
+                return True, None
 
-            def _parse_daily_score(raw: str) -> Tuple[int, float]:
-                score_v, arousal_v = coerce_score_and_arousal_defaults(raw)
-                return self._clamp_score(score_v), self._clamp_arousal(arousal_v)
-
-            score, arousal = await self._step4_retry_with_defaults(
-                "今日小传价值打分",
-                [{"role": "user", "content": prompt}],
-                _parse_daily_score,
-                (5, 0.1),
-                batch_date,
-                max_retries=3,
-            )
-            logger.info(f"今日小传价值分: {score}/10, arousal: {arousal:.2f}")
+            valid_chunk_ids = {int(c["id"]) for c in chunks}
+            chunk_by_id = {int(c["id"]): c for c in chunks}
+            chunk_lines = []
+            for c in chunks:
+                chunk_lines.append(
+                    f"- chunk_id={c['id']} | created_at={c.get('created_at')} | "
+                    f"session={c.get('session_id')}\n{strip_lutopia_internal_memory_blocks(str(c.get('summary_text') or ''))}"
+                )
+            chunk_input = "\n\n".join(chunk_lines)
             
             parent_doc_id = build_daily_summary_doc_id(batch_date)
             store = get_vector_store()
@@ -1855,11 +1833,12 @@ content 强制要求：
             for i in range(50):
                 store.delete_memory(build_daily_event_doc_id(batch_date, i))
 
-            split_prompt = f"""【任务】
-梳理当天发生的所有可独立成段的事件片段，输出 JSON 数组。
+            split_prompt = self._persona_dialogue_prefix() + f"""【任务】
+以下是今天按时间顺序的对话片段摘要。请找出属于同一事件/话题的片段，将它们合并成独立完整的事件描述。每个事件必须标注由哪几条 chunk 合并而来（返回 chunk_ids 列表）。
 
 【输入】
-今日小传：{summary_text}
+当天 chunk 列表：
+{chunk_input}
 
 【关键引导】
 - 这是 AI 陪伴项目，日常闲聊、互动片段、心情碎片和"重大事件"同等有价值
@@ -1867,11 +1846,13 @@ content 强制要求：
 - 通常 3-{event_split_max} 个事件，平淡的天 1-2 个即可
 - 不得超过 {event_split_max} 个
 - 至少产出 1 个事件（哪怕是"全天平淡，主要在 X 度过"这样的概括）
+- chunk_ids 只能使用输入中出现过的 chunk_id；不要编造 ID
 
 【输出 schema】
 [
   {{
     "summary": "事件描述，100-300 字",
+    "chunk_ids": [整数chunk_id, ...],
     "score": 整数 1-10，长期保留价值,
     "arousal": 浮点 0.0-1.0，情绪强度（不分正负）
   }}
@@ -1888,6 +1869,72 @@ arousal:
 - 0.3-0.6: 有情绪起伏的对话
 - 0.0-0.2: 平静日常"""
 
+            def _fallback_chunk_event() -> Dict[str, Any]:
+                text = "；".join(
+                    strip_lutopia_internal_memory_blocks(str(c.get("summary_text") or "")).strip()
+                    for c in chunks
+                )
+                return {
+                    "summary": self._fallback_event_summary(text),
+                    "chunk_ids": sorted(valid_chunk_ids),
+                    "score": 5,
+                    "arousal": 0.1,
+                }
+
+            def _normalize_chunk_events(raw_events: Any) -> List[Dict[str, Any]]:
+                events: List[Dict[str, Any]] = []
+                if isinstance(raw_events, dict):
+                    raw_events = raw_events.get("events")
+                if not isinstance(raw_events, list):
+                    raise ValueError("Step 4 events JSON must be a list")
+
+                for item in raw_events:
+                    if not isinstance(item, dict):
+                        logger.error("Step 4 丢弃非法事件：非对象 item=%r", item)
+                        continue
+                    summary = str(item.get("summary") or item.get("text") or "").strip()
+                    if not summary:
+                        logger.error("Step 4 丢弃非法事件：summary 为空 item=%r", item)
+                        continue
+                    raw_ids = item.get("chunk_ids") or item.get("source_chunk_ids") or []
+                    if not isinstance(raw_ids, list):
+                        raw_ids = [raw_ids]
+                    parsed_ids = set()
+                    for raw_id in raw_ids:
+                        try:
+                            parsed_ids.add(int(raw_id))
+                        except (TypeError, ValueError):
+                            continue
+                    legal_ids = sorted(parsed_ids & valid_chunk_ids)
+                    illegal_ids = sorted(parsed_ids - valid_chunk_ids)
+                    if illegal_ids:
+                        logger.error(
+                            "Step 4 事件包含非法 chunk_ids，已过滤: illegal=%s legal=%s summary=%s",
+                            illegal_ids,
+                            legal_ids,
+                            summary[:80],
+                        )
+                    if not legal_ids:
+                        logger.error(
+                            "Step 4 丢弃事件：chunk_ids 全部非法或为空 summary=%s raw_ids=%r",
+                            summary[:120],
+                            raw_ids,
+                        )
+                        continue
+                    events.append(
+                        {
+                            "summary": summary[:300],
+                            "chunk_ids": legal_ids,
+                            "score": self._clamp_score(item.get("score"), 5),
+                            "arousal": self._clamp_arousal(item.get("arousal"), 0.1),
+                        }
+                    )
+                    if len(events) >= event_split_max:
+                        break
+                if not events:
+                    raise ValueError("Step 4 校验后没有合法事件")
+                return events
+
             def _parse_split(raw: str) -> List[Dict[str, Any]]:
                 try:
                     parsed = json.loads(raw)
@@ -1901,21 +1948,9 @@ arousal:
                             parsed = json.loads(om.group())
                         else:
                             raise ValueError("JSON parse error")
-                return self._normalize_step4_events(
-                    parsed,
-                    summary_text,
-                    score,
-                    arousal,
-                    event_split_max,
-                )
+                return _normalize_chunk_events(parsed)
 
-            default_events = self._normalize_step4_events(
-                [],
-                summary_text,
-                5,
-                0.1,
-                event_split_max,
-            )
+            default_events = [_fallback_chunk_event()]
             events = await self._step4_retry_with_defaults(
                 "事件拆分与打分",
                 [{"role": "user", "content": split_prompt}],
@@ -1937,6 +1972,12 @@ arousal:
                 event_score = self._clamp_score(ev.get("score"), 5)
                 event_arousal = self._clamp_arousal(ev.get("arousal"), 0.1)
                 event_halflife = _score_to_halflife_days(event_score)
+                source_chunk_ids = [int(x) for x in ev.get("chunk_ids", [])]
+                is_starred = any(
+                    bool(chunk_by_id[cid].get("is_starred"))
+                    for cid in source_chunk_ids
+                    if cid in chunk_by_id
+                )
                 eid = build_daily_event_doc_id(batch_date, idx)
                 em = {
                     "date": batch_date,
@@ -1944,6 +1985,8 @@ arousal:
                     "summary_type": "daily_event",
                     "score": int(event_score),
                     "summary_id": str(summary_id),
+                    "source_chunk_ids": json.dumps(source_chunk_ids, ensure_ascii=False),
+                    "is_starred": bool(is_starred),
                     "base_score": float(event_score),
                     "halflife_days": event_halflife,
                     "arousal": float(event_arousal),
@@ -1952,6 +1995,16 @@ arousal:
                 if not add_memory(eid, frag, em):
                     logger.error(f"事件片段入库失败 id={eid}")
                     return False, f"ChromaDB 事件片段失败: {eid}"
+                try:
+                    await get_database().upsert_longterm_memory_by_chroma_id(
+                        content=frag,
+                        chroma_doc_id=eid,
+                        score=event_score,
+                        source_chunk_ids=source_chunk_ids,
+                        is_starred=is_starred,
+                    )
+                except Exception as e:
+                    logger.error("longterm_memories 镜像写入失败 id=%s: %s", eid, e)
                 try:
                     if not add_document_to_bm25(eid, frag, dict(em)):
                         refresh_bm25_index()

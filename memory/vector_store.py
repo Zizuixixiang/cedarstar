@@ -360,6 +360,30 @@ class VectorStore:
             logger.error(f"get_metadatas_by_doc_ids 失败: {e}")
             return {}
 
+    def update_metadata_fields(self, updates: Dict[str, Dict[str, Any]]) -> int:
+        """按 doc_id 局部更新 Chroma metadata 字段，保留原有 metadata。"""
+        if not updates:
+            return 0
+        ids = list(dict.fromkeys([uid for uid in updates.keys() if uid]))
+        if not ids:
+            return 0
+        try:
+            got = self.collection.get(ids=ids, include=["metadatas"])
+            ids_out = got.get("ids") or []
+            metas = got.get("metadatas") or []
+            if not ids_out:
+                return 0
+            upd_meta: List[Dict[str, Any]] = []
+            for i, uid in enumerate(ids_out):
+                md = dict(metas[i] or {})
+                md.update(updates.get(uid) or {})
+                upd_meta.append(md)
+            self.collection.update(ids=ids_out, metadatas=upd_meta)
+            return len(ids_out)
+        except Exception as e:
+            logger.error("update_metadata_fields 失败: %s", e)
+            return 0
+
     def get_embeddings_by_doc_ids(self, doc_ids: List[str]) -> Dict[str, List[float]]:
         """按 doc_id 批量读取 Chroma 已存 embedding，不重新调用 embedding API。"""
         if not doc_ids:
@@ -681,6 +705,12 @@ def get_memory_metadatas_by_doc_ids(doc_ids: List[str]) -> Dict[str, Dict[str, A
     """批量读取长期记忆 Chroma 元数据（hits、halflife_days、last_access_ts 等）。"""
     store = get_vector_store()
     return store.get_metadatas_by_doc_ids(doc_ids)
+
+
+def update_memory_metadata_fields(updates: Dict[str, Dict[str, Any]]) -> int:
+    """批量局部更新长期记忆 Chroma metadata。"""
+    store = get_vector_store()
+    return store.update_metadata_fields(updates)
 
 
 def garbage_collect_stale_memories(

@@ -8,6 +8,44 @@ import { Calendar, Database } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/dashboard.css';
 
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+
+function parseShanghaiDateTime(value) {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(value);
+  const s = value.trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00+08:00`);
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return new Date(s);
+  return new Date(`${s.replace(' ', 'T')}+08:00`);
+}
+
+function getShanghaiDateParts(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SHANGHAI_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return {
+    year: get('year'),
+    month: get('month'),
+    day: get('day'),
+  };
+}
+
+function formatShanghaiDateKey(date) {
+  const { year, month, day } = getShanghaiDateParts(date);
+  return `${year}-${month}-${day}`;
+}
+
+function formatShanghaiDateTime(value) {
+  const d = parseShanghaiDateTime(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('zh-CN', { timeZone: SHANGHAI_TIME_ZONE });
+}
+
 /**
  * 系统健康档案卡片组件
  */
@@ -105,19 +143,17 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
 
   const logs = data || [];
   
-  // 生成最近7天的数据（日期键与 batch 日志一致，使用本地日历日）
+  // 生成最近7天的数据（日期键与 batch 日志一致，使用东八区日历日）
   const generateCalendarDays = () => {
     const days = [];
     const today = new Date();
-    const pad = (n) => String(n).padStart(2, '0');
-    const toDateStr = (d) =>
-      `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+    const todayKey = formatShanghaiDateKey(today);
 
     for (let i = 6; i >= 0; i--) {
-      const date = new Date(today);
-      date.setDate(today.getDate() - i);
+      const date = new Date(today.getTime() - i * 24 * 60 * 60 * 1000);
+      const { month, day } = getShanghaiDateParts(date);
 
-      const dateStr = toDateStr(date);
+      const dateStr = formatShanghaiDateKey(date);
       const logForDay = logs.find(log => (log.date || log.batch_date) === dateStr);
       
       let status = 'none';
@@ -131,14 +167,11 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
         status = hasFail ? 'failed' : 'success';
       }
       
-      const isToday =
-        date.getFullYear() === today.getFullYear() &&
-        date.getMonth() === today.getMonth() &&
-        date.getDate() === today.getDate();
+      const isToday = dateStr === todayKey;
 
       days.push({
         date: dateStr,
-        displayDate: `${date.getMonth() + 1}/${date.getDate()}`,
+        displayDate: `${Number(month)}/${Number(day)}`,
         status,
         log: logForDay,
         isToday
@@ -347,7 +380,7 @@ function MemoryOverviewCard({ data, loading }) {
 
             {latest_daily_summary_time && (
               <p className="metric-secondary metric-secondary--dark" style={{ marginTop: '12px', fontSize: '0.85rem' }}>
-                最近每日摘要时间: {new Date(latest_daily_summary_time).toLocaleString('zh-CN')}
+                最近每日摘要时间: {formatShanghaiDateTime(latest_daily_summary_time)}
               </p>
             )}
           </div>

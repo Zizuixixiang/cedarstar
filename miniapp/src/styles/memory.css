@@ -1344,6 +1344,49 @@ h2.memory-tab-header__title,
   color: var(--text-main);
 }
 
+.summary-daily-status-badge {
+  text-transform: none;
+}
+
+.summary-daily-status-badge--done {
+  background: #eaf4ee;
+  border-color: #9bbda8;
+  color: #2f6d45;
+}
+
+.summary-daily-status-badge--pending {
+  background: #fff4df;
+  border-color: #d6b36d;
+  color: #8a5b00;
+}
+
+.summary-star-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: 1px solid var(--border-soft);
+  border-radius: 999px;
+  color: var(--text-sub);
+  background: var(--surface-main);
+  box-shadow: var(--shadow-neumorphic-small);
+  cursor: pointer;
+  transition: color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+}
+
+.summary-star-button:hover {
+  color: #a97800;
+  transform: translateY(-1px);
+}
+
+.summary-star-button--active {
+  color: #c58a00;
+  background: #fff8e8;
+  border-color: #e1c477;
+  box-shadow: inset 2px 2px 5px rgba(182, 141, 45, 0.18), inset -2px -2px 5px rgba(255, 255, 255, 0.85);
+}
+
 .timeline-content-text {
   font-size: 0.95rem;
   color: var(--text-main);

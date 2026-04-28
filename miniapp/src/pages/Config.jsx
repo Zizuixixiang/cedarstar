@@ -7,6 +7,28 @@ import { useState, useEffect, useCallback } from 'react';
 import { apiFetch } from '../apiBase';
 import '../styles/config.css';
 
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+
+function parseShanghaiDateTime(value) {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(value);
+  const s = value.trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00+08:00`);
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return new Date(s);
+  return new Date(`${s.replace(' ', 'T')}+08:00`);
+}
+
+function formatShanghaiTime(value) {
+  const d = parseShanghaiDateTime(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleTimeString('zh-CN', {
+    hour: '2-digit',
+    minute: '2-digit',
+    timeZone: SHANGHAI_TIME_ZONE,
+  });
+}
+
 // 配置项默认值（与 api/config.py DEFAULT_CONFIG 一致，供合并与重置）
 const DEFAULT_CONFIG = {
   short_term_limit: 40,
@@ -16,6 +38,9 @@ const DEFAULT_CONFIG = {
   context_max_longterm: 3,
   event_split_max: 8,
   mmr_lambda: 0.75,
+  context_archived_daily_limit: 3,
+  archived_daily_min_hits: 2,
+  starred_boost_factor: 1.2,
   daily_batch_hour: 23,
   relationship_timeline_limit: 3,
   gc_stale_days: 180,
@@ -67,13 +92,10 @@ function clampTelegramMsg(raw) {
 }
 
 // 配置项元数据
-/** 解析后端 SQLite 风格或 ISO 时间字符串为本地 Date */
+/** 解析后端 SQLite 风格或 ISO 时间字符串为 Date，数据库无时区值按东八区处理 */
 function parseConfigUpdatedAt(ts) {
   if (ts == null || typeof ts !== 'string' || !ts.trim()) return null;
-  const s = ts.trim();
-  // 数据库存储的是东八区本地时间（无时区信息），直接作为本地时间解析，不加 Z（加了会被当 UTC 再偏移 +8）
-  const normalized = s.includes('T') ? s : s.replace(' ', 'T');
-  const d = new Date(normalized);
+  const d = parseShanghaiDateTime(ts);
   return Number.isNaN(d.getTime()) ? null : d;
 }
 
@@ -142,6 +164,31 @@ const CONFIG_METADATA = [
     hint: '越接近 1 越偏相关性，越接近 0.5 越偏多样性',
     min: 0.5,
     max: 1,
+    step: 0.05,
+  },
+  {
+    key: 'context_archived_daily_limit',
+    name: '远古 daily 补充条数',
+    description: '长期召回命中较早日期时最多补充几条 daily 概况',
+    hint: '用于给远古事件补背景，不代表近期发生',
+    min: 0,
+    max: 20,
+  },
+  {
+    key: 'archived_daily_min_hits',
+    name: '远古 daily 命中阈值',
+    description: '同一远古日期召回多少个事件后优先补充 daily',
+    hint: '不足时按召回最高分补足',
+    min: 1,
+    max: 20,
+  },
+  {
+    key: 'starred_boost_factor',
+    name: '收藏召回加权',
+    description: '被收藏事件的融合分乘数',
+    hint: '1 表示不加权，默认 1.2',
+    min: 1,
+    max: 3,
     step: 0.05,
   },
   {
@@ -912,7 +959,7 @@ function Config() {
               <span className="config-footer-saved-label">上次保存时间</span>
               <span className="config-footer-saved-time">
                 {lastSaved
-                  ? lastSaved.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' })
+                  ? formatShanghaiTime(lastSaved)
                   : '尚未保存'}
               </span>
             </div>

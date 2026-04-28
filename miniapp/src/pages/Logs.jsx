@@ -8,6 +8,18 @@ import { Terminal, FileCode } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/logs.css';
 
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+
+function parseShanghaiDateTime(value) {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(value);
+  const s = value.trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00+08:00`);
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return new Date(s);
+  return new Date(`${s.replace(' ', 'T')}+08:00`);
+}
+
 // 平台选项
 const PLATFORM_OPTIONS = [
   { value: '', label: '全部' },
@@ -80,13 +92,15 @@ function LogRow({ log }) {
 
   const formatTimestamp = (timestamp) => {
     try {
-      const date = new Date(timestamp);
+      const date = parseShanghaiDateTime(timestamp);
+      if (Number.isNaN(date.getTime())) return '未知时间';
       return date.toLocaleString('zh-CN', {
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
         minute: '2-digit',
-        second: '2-digit'
+        second: '2-digit',
+        timeZone: SHANGHAI_TIME_ZONE,
       });
     } catch {
       return '未知时间';
@@ -264,13 +278,13 @@ function Logs() {
       if (level) params.append('level', level);
       if (keyword.trim()) params.append('keyword', keyword.trim());
       if (tf && tf.trim()) {
-        const d = new Date(tf.trim());
+        const d = parseShanghaiDateTime(tf.trim());
         if (!Number.isNaN(d.getTime())) {
           params.append('time_from', d.toISOString());
         }
       }
       if (tt && tt.trim()) {
-        const d = new Date(tt.trim());
+        const d = parseShanghaiDateTime(tt.trim());
         if (!Number.isNaN(d.getTime())) {
           params.append('time_to', d.toISOString());
         }

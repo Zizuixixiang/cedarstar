@@ -84,6 +84,45 @@ async def _summaries_ensure_source_date_column(conn) -> None:
     logger.debug("summaries.source_date 列检查/回填完成")
 
 
+async def _summaries_ensure_archive_columns(conn) -> None:
+    """为 summaries 补 daily 归档与收藏字段（幂等）。"""
+    await conn.execute(
+        "ALTER TABLE summaries ADD COLUMN IF NOT EXISTS archived_by INTEGER"
+    )
+    await conn.execute(
+        "ALTER TABLE summaries ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1
+                FROM pg_constraint
+                WHERE conname = 'fk_summaries_archived_by'
+            ) THEN
+                ALTER TABLE summaries
+                ADD CONSTRAINT fk_summaries_archived_by
+                FOREIGN KEY (archived_by) REFERENCES summaries(id)
+                ON DELETE SET NULL;
+            END IF;
+        END $$;
+        """
+    )
+    logger.debug("summaries.archived_by/is_starred 列检查完成")
+
+
+async def _longterm_memories_ensure_source_columns(conn) -> None:
+    """为 longterm_memories 补来源 chunk 与收藏字段（幂等）。"""
+    await conn.execute(
+        "ALTER TABLE longterm_memories ADD COLUMN IF NOT EXISTS source_chunk_ids JSONB"
+    )
+    await conn.execute(
+        "ALTER TABLE longterm_memories ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    logger.debug("longterm_memories.source_chunk_ids/is_starred 列检查完成")
+
+
 async def _daily_batch_log_ensure_step45_columns(conn) -> None:
     """为 daily_batch_log 补 step4/step5 列（幂等）。"""
     await conn.execute(
@@ -354,6 +393,8 @@ async def migrate_database_schema(conn) -> None:
     """
     await _ensure_sticker_cache_table(conn)
     await _summaries_ensure_source_date_column(conn)
+    await _summaries_ensure_archive_columns(conn)
+    await _longterm_memories_ensure_source_columns(conn)
     await _daily_batch_log_ensure_step45_columns(conn)
     await _daily_batch_log_ensure_retry_count_column(conn)
     await _backfill_daily_batch_step45_legacy_once(conn)
@@ -439,6 +480,10 @@ async def migrate_database_schema(conn) -> None:
             "ON summaries (session_id, summary_type, source_date)"
         ),
         "CREATE INDEX IF NOT EXISTS idx_summaries_source_date ON summaries (source_date)",
+        "CREATE INDEX IF NOT EXISTS idx_summaries_archived_by ON summaries (archived_by)",
+        "CREATE INDEX IF NOT EXISTS idx_summaries_is_starred ON summaries (is_starred)",
+        "CREATE INDEX IF NOT EXISTS idx_longterm_source_chunks ON longterm_memories USING GIN (source_chunk_ids)",
+        "CREATE INDEX IF NOT EXISTS idx_longterm_is_starred ON longterm_memories (is_starred)",
         (
             "CREATE INDEX IF NOT EXISTS idx_memory_cards_user_character "
             "ON memory_cards (user_id, character_id, dimension, updated_at)"
@@ -479,6 +524,9 @@ async def migrate_database_schema(conn) -> None:
             ("gc_exempt_hits_threshold", "10"),
             ("event_split_max", "8"),
             ("mmr_lambda", "0.75"),
+            ("context_archived_daily_limit", "3"),
+            ("archived_daily_min_hits", "2"),
+            ("starred_boost_factor", "1.2"),
             ("group_chat_silent_mode", "0"),
             ("group_chat_max_rounds", "3"),
             ("group_chat_interject_enabled", "0"),
@@ -544,7 +592,12 @@ class MessageDatabase:
         Args:
             dsn: PostgreSQL 连接字符串，来自 config.DATABASE_URL
         """
-        self.pool = await asyncpg.create_pool(dsn=dsn, min_size=2, max_size=10)
+        self.pool = await asyncpg.create_pool(
+            dsn=dsn,
+            min_size=2,
+            max_size=10,
+            server_settings={"TimeZone": "Asia/Shanghai"},
+        )
         await self.create_tables()
         logger.info("PostgreSQL 连接池初始化完成")
 
@@ -599,7 +652,9 @@ class MessageDatabase:
                         created_at TIMESTAMP DEFAULT NOW(),
                         summary_type TEXT DEFAULT 'chunk',
                         source_date TIMESTAMP,
-                        is_group INTEGER DEFAULT 0
+                        is_group INTEGER DEFAULT 0,
+                        archived_by INTEGER REFERENCES summaries(id) ON DELETE SET NULL,
+                        is_starred BOOLEAN NOT NULL DEFAULT FALSE
                     )
                 """)
 
@@ -686,7 +741,9 @@ class MessageDatabase:
                         content TEXT NOT NULL,
                         chroma_doc_id TEXT,
                         score INTEGER DEFAULT 5,
-                        created_at TIMESTAMP DEFAULT NOW()
+                        created_at TIMESTAMP DEFAULT NOW(),
+                        source_chunk_ids JSONB,
+                        is_starred BOOLEAN NOT NULL DEFAULT FALSE
                     )
                 """)
 
@@ -1525,7 +1582,11 @@ class MessageDatabase:
             raise ValueError(
                 f"summary_type '{summary_type}' 不在允许的值中。允许的值: {{'chunk', 'daily'}}"
             )
-        sd = source_date if source_date is not None else _dt.datetime.now().date()
+        sd = (
+            source_date
+            if source_date is not None
+            else _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8))).date()
+        )
         async with self.pool.acquire() as conn:
             summary_id = await conn.fetchval(
                 """
@@ -1560,7 +1621,7 @@ class MessageDatabase:
             row = await conn.fetchrow(
                 """
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type, source_date
+                       created_at, summary_type, source_date, archived_by, is_starred
                 FROM summaries
                 WHERE summary_type = 'daily'
                   AND source_date IS NOT NULL
@@ -1581,6 +1642,8 @@ class MessageDatabase:
             "created_at": _norm(row["created_at"]),
             "summary_type": row["summary_type"],
             "source_date": _norm(row["source_date"]),
+            "archived_by": row["archived_by"],
+            "is_starred": bool(row["is_starred"]),
         }
 
     async def get_daily_summaries_by_date(
@@ -1596,7 +1659,7 @@ class MessageDatabase:
             rows = await conn.fetch(
                 """
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type, source_date, is_group
+                       created_at, summary_type, source_date, is_group, archived_by, is_starred
                 FROM summaries
                 WHERE summary_type = 'daily'
                   AND source_date IS NOT NULL
@@ -1616,6 +1679,8 @@ class MessageDatabase:
                 "summary_type": r["summary_type"],
                 "source_date": _norm(r["source_date"]),
                 "is_group": r["is_group"],
+                "archived_by": r["archived_by"],
+                "is_starred": bool(r["is_starred"]),
             }
             for r in rows
         ]
@@ -1696,11 +1761,28 @@ class MessageDatabase:
 
             rows = await conn.fetch(
                 f"""
-                SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type, source_date
-                FROM summaries
+                SELECT
+                    s.id,
+                    s.session_id,
+                    s.summary_text,
+                    s.start_message_id,
+                    s.end_message_id,
+                    s.created_at,
+                    s.summary_type,
+                    s.source_date,
+                    s.archived_by,
+                    s.is_starred,
+                    EXISTS (
+                        SELECT 1
+                        FROM summaries AS d
+                        WHERE d.summary_type = 'daily'
+                          AND d.source_date IS NOT NULL
+                          AND d.source_date::date = COALESCE(s.source_date::date, s.created_at::date)
+                          AND (d.session_id = s.session_id OR d.session_id = 'daily_batch')
+                    ) AS has_daily_summary
+                FROM summaries AS s
                 WHERE {where_sql}
-                ORDER BY source_date DESC NULLS LAST, created_at DESC
+                ORDER BY s.source_date DESC NULLS LAST, s.created_at DESC
                 LIMIT ${lim_ph} OFFSET ${off_ph}
                 """,
                 *params_with_lim,
@@ -1716,10 +1798,73 @@ class MessageDatabase:
                 "created_at": _norm(r["created_at"]),
                 "summary_type": r["summary_type"],
                 "source_date": _norm(r["source_date"]),
+                "archived_by": r["archived_by"],
+                "is_starred": bool(r["is_starred"]),
+                "has_daily_summary": bool(r["has_daily_summary"]),
             }
             for r in rows
         ]
         return items, total
+
+    async def set_summary_starred(self, summary_id: int, is_starred: bool) -> bool:
+        """更新 summaries.is_starred；不存在则 False。"""
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                "UPDATE summaries SET is_starred = $1 WHERE id = $2",
+                bool(is_starred),
+                int(summary_id),
+            )
+        return _rowcount(status) > 0
+
+    async def recalculate_longterm_starred_for_chunk(self, chunk_id: int) -> List[Dict[str, Any]]:
+        """
+        查找所有引用 chunk_id 的长期记忆，根据来源 chunk 的收藏状态重新计算 is_starred。
+        返回需同步到 Chroma 的 chroma_doc_id/is_starred 列表。
+        """
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, chroma_doc_id, source_chunk_ids
+                FROM longterm_memories
+                WHERE source_chunk_ids @> $1::jsonb
+                """,
+                json.dumps([int(chunk_id)]),
+            )
+            changed: List[Dict[str, Any]] = []
+            for row in rows:
+                raw_ids = row["source_chunk_ids"] or []
+                if isinstance(raw_ids, str):
+                    try:
+                        raw_ids = json.loads(raw_ids)
+                    except json.JSONDecodeError:
+                        raw_ids = []
+                ids = [int(x) for x in raw_ids if str(x).strip().isdigit()]
+                if not ids:
+                    new_starred = False
+                else:
+                    new_starred = bool(
+                        await conn.fetchval(
+                            """
+                            SELECT COALESCE(bool_or(is_starred), FALSE)
+                            FROM summaries
+                            WHERE id = ANY($1::int[])
+                            """,
+                            ids,
+                        )
+                    )
+                await conn.execute(
+                    "UPDATE longterm_memories SET is_starred = $1 WHERE id = $2",
+                    new_starred,
+                    row["id"],
+                )
+                if row["chroma_doc_id"]:
+                    changed.append(
+                        {
+                            "chroma_doc_id": row["chroma_doc_id"],
+                            "is_starred": new_starred,
+                        }
+                    )
+        return changed
 
     async def update_summary_by_id(self, summary_id: int, summary_text: str) -> bool:
         """更新 summaries.summary_text；不存在则 False。"""
@@ -1920,7 +2065,7 @@ class MessageDatabase:
             rows = await conn.fetch(
                 f"""
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type, is_group
+                       created_at, summary_type, source_date, is_group, is_starred
                 FROM summaries
                 {where}
                 ORDER BY created_at DESC
@@ -1937,6 +2082,8 @@ class MessageDatabase:
                 "end_message_id": r["end_message_id"],
                 "created_at": _norm(r["created_at"]),
                 "summary_type": r["summary_type"],
+                "source_date": _norm(r["source_date"]),
+                "is_starred": bool(r["is_starred"]),
             }
             for r in rows
         ]
@@ -1944,14 +2091,14 @@ class MessageDatabase:
         return summaries
 
     async def get_today_chunk_summaries(
-        self, batch_date: Optional[str] = None
+        self, batch_date: Optional[str] = None, include_archived: bool = False
     ) -> List[Dict[str, Any]]:
         """
         获取 chunk 摘要（全局查询，按 created_at 正序）。
 
         内容日 = COALESCE(source_date::date, created_at::date)。
-        - batch_date 为 YYYY-MM-DD：内容日 <= batch_date（日终会把此前积压的 chunk 一并卷入当日 daily）。
-        - 未传 batch_date：内容日 <= 东八区「今天」（Context / Dashboard；与 delete 对称）。
+        - batch_date 为 YYYY-MM-DD：内容日 = batch_date（日终只处理当天 chunk）。
+        - 未传 batch_date：内容日 <= 东八区「今天」（Context / Dashboard；通常仅剩未归档的今日 chunk）。
         """
         day_col = "COALESCE(source_date::date, created_at::date)"
         if batch_date and str(batch_date).strip():
@@ -1960,20 +2107,23 @@ class MessageDatabase:
             except ValueError:
                 logger.warning("get_today_chunk_summaries: 无效 batch_date %s", batch_date)
                 return []
-            where_day = f"{day_col} <= $1::date"
+            where_day = f"{day_col} = $1::date"
             params = (d,)
         else:
             where_day = f"{day_col} <= (now() AT TIME ZONE 'Asia/Shanghai')::date"
             params = ()
 
+        archive_filter = "" if include_archived else "AND archived_by IS NULL"
+
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type, source_date
+                       created_at, summary_type, source_date, archived_by, is_starred
                 FROM summaries
                 WHERE summary_type = 'chunk'
                   AND {where_day}
+                  {archive_filter}
                 ORDER BY created_at ASC
                 """,
                 *params,
@@ -1988,11 +2138,54 @@ class MessageDatabase:
                 "created_at": _norm(r["created_at"]),
                 "summary_type": r["summary_type"],
                 "source_date": _norm(r["source_date"]),
+                "archived_by": r["archived_by"],
+                "is_starred": bool(r["is_starred"]),
             }
             for r in rows
         ]
         logger.debug("获取今天的 chunk 摘要: count=%s", len(summaries))
         return summaries
+
+    async def archive_chunk_summaries_by_daily(
+        self,
+        batch_date: str,
+        daily_summary_id: int,
+        session_id: Optional[str] = None,
+    ) -> int:
+        """将指定日期的 chunk 标记为已被 daily 归档，不删除原 chunk。"""
+        try:
+            d = date.fromisoformat(str(batch_date).strip())
+        except ValueError:
+            logger.warning("archive_chunk_summaries_by_daily: 无效 batch_date %s", batch_date)
+            return 0
+
+        params: List[Any] = [int(daily_summary_id), d]
+        session_filter = ""
+        if session_id:
+            params.append(session_id)
+            session_filter = f"AND session_id = ${len(params)}"
+
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                f"""
+                UPDATE summaries
+                SET archived_by = $1
+                WHERE summary_type = 'chunk'
+                  AND source_date IS NOT NULL
+                  AND source_date::date = $2::date
+                  {session_filter}
+                """,
+                *params,
+            )
+        n = _rowcount(status)
+        logger.info(
+            "chunk 摘要已归档: date=%s daily_id=%s session=%s count=%s",
+            batch_date,
+            daily_summary_id,
+            session_id or "*",
+            n,
+        )
+        return n
 
     async def delete_today_chunk_summaries(
         self, batch_date: Optional[str] = None
@@ -3549,6 +3742,55 @@ class MessageDatabase:
             )
         return row_id
 
+    async def upsert_longterm_memory_by_chroma_id(
+        self,
+        content: str,
+        chroma_doc_id: str,
+        score: int = 5,
+        source_chunk_ids: Optional[List[int]] = None,
+        is_starred: bool = False,
+    ) -> int:
+        """按 Chroma doc_id 写入或更新长期记忆镜像记录。"""
+        cid = (chroma_doc_id or "").strip()
+        if not cid:
+            raise ValueError("chroma_doc_id 不能为空")
+        chunk_json = json.dumps([int(x) for x in (source_chunk_ids or [])])
+        async with self.pool.acquire() as conn:
+            row_id = await conn.fetchval(
+                """
+                UPDATE longterm_memories
+                SET content = $1,
+                    score = $2,
+                    source_chunk_ids = $3::jsonb,
+                    is_starred = $4
+                WHERE chroma_doc_id = $5
+                RETURNING id
+                """,
+                content,
+                int(score),
+                chunk_json,
+                bool(is_starred),
+                cid,
+            )
+            if row_id is not None:
+                return int(row_id)
+            return int(
+                await conn.fetchval(
+                    """
+                    INSERT INTO longterm_memories (
+                        content, chroma_doc_id, score, source_chunk_ids, is_starred
+                    )
+                    VALUES ($1, $2, $3, $4::jsonb, $5)
+                    RETURNING id
+                    """,
+                    content,
+                    cid,
+                    int(score),
+                    chunk_json,
+                    bool(is_starred),
+                )
+            )
+
     async def get_longterm_memories(
         self, keyword: str = "", page: int = 1, page_size: int = 20
     ) -> Dict[str, Any]:
@@ -3562,7 +3804,8 @@ class MessageDatabase:
                 offset = (page - 1) * page_size
                 rows = await conn.fetch(
                     """
-                    SELECT id, content, chroma_doc_id, score, created_at
+                    SELECT id, content, chroma_doc_id, score, created_at,
+                           source_chunk_ids, is_starred
                     FROM longterm_memories
                     WHERE content LIKE $1
                     ORDER BY created_at DESC
@@ -3575,7 +3818,8 @@ class MessageDatabase:
                 offset = (page - 1) * page_size
                 rows = await conn.fetch(
                     """
-                    SELECT id, content, chroma_doc_id, score, created_at
+                    SELECT id, content, chroma_doc_id, score, created_at,
+                           source_chunk_ids, is_starred
                     FROM longterm_memories
                     ORDER BY created_at DESC
                     LIMIT $1 OFFSET $2
@@ -3589,6 +3833,8 @@ class MessageDatabase:
                 "chroma_doc_id": r["chroma_doc_id"],
                 "score": r["score"],
                 "created_at": _norm(r["created_at"]),
+                "source_chunk_ids": r["source_chunk_ids"],
+                "is_starred": bool(r["is_starred"]),
             }
             for r in rows
         ]
@@ -3606,7 +3852,8 @@ class MessageDatabase:
         async with self.pool.acquire() as conn:
             row = await conn.fetchrow(
                 """
-                SELECT id, content, chroma_doc_id, score, created_at
+                SELECT id, content, chroma_doc_id, score, created_at,
+                       source_chunk_ids, is_starred
                 FROM longterm_memories
                 WHERE id = $1
                 """,
@@ -3620,6 +3867,8 @@ class MessageDatabase:
             "chroma_doc_id": row["chroma_doc_id"],
             "score": row["score"],
             "created_at": _norm(row["created_at"]),
+            "source_chunk_ids": row["source_chunk_ids"],
+            "is_starred": bool(row["is_starred"]),
         }
 
     async def delete_longterm_memory(self, memory_id: int) -> bool:
@@ -4176,6 +4425,14 @@ async def update_summary_by_id(summary_id: int, summary_text: str) -> bool:
     return await get_database().update_summary_by_id(summary_id, summary_text)
 
 
+async def set_summary_starred(summary_id: int, is_starred: bool) -> bool:
+    return await get_database().set_summary_starred(summary_id, is_starred)
+
+
+async def recalculate_longterm_starred_for_chunk(chunk_id: int) -> List[Dict[str, Any]]:
+    return await get_database().recalculate_longterm_starred_for_chunk(chunk_id)
+
+
 async def delete_summary_by_id(summary_id: int) -> bool:
     return await get_database().delete_summary_by_id(summary_id)
 
@@ -4348,8 +4605,21 @@ async def get_recent_daily_summaries(
 
 async def get_today_chunk_summaries(
     batch_date: Optional[str] = None,
+    include_archived: bool = False,
 ) -> List[Dict[str, Any]]:
-    return await get_database().get_today_chunk_summaries(batch_date)
+    return await get_database().get_today_chunk_summaries(batch_date, include_archived)
+
+
+async def archive_chunk_summaries_by_daily(
+    batch_date: str,
+    daily_summary_id: int,
+    session_id: Optional[str] = None,
+) -> int:
+    return await get_database().archive_chunk_summaries_by_daily(
+        batch_date,
+        daily_summary_id,
+        session_id,
+    )
 
 
 async def delete_today_chunk_summaries(

@@ -377,6 +377,45 @@ async def _mmr_lambda_value() -> float:
     return 0.75
 
 
+async def _starred_boost_factor_value() -> float:
+    """收藏长期事件的召回加权系数：优先 config 表 starred_boost_factor，否则默认 1.2。"""
+    try:
+        raw = await get_database().get_config("starred_boost_factor")
+        if raw is not None and str(raw).strip() != "":
+            return max(1.0, min(3.0, float(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 starred_boost_factor 失败，使用默认 1.2: %s", e)
+    return 1.2
+
+
+async def _context_archived_daily_limit() -> int:
+    """远古 daily 补充条数：优先 config 表 context_archived_daily_limit，否则默认 3。"""
+    try:
+        raw = await get_database().get_config("context_archived_daily_limit")
+        if raw is not None and str(raw).strip() != "":
+            return max(0, min(20, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 context_archived_daily_limit 失败，使用默认 3: %s", e)
+    return 3
+
+
+async def _archived_daily_min_hits() -> int:
+    """触发远古 daily 优先补充的召回事件数阈值，默认 2。"""
+    try:
+        raw = await get_database().get_config("archived_daily_min_hits")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(20, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 archived_daily_min_hits 失败，使用默认 2: %s", e)
+    return 2
+
+
 MEMORY_CITATION_DIRECTIVE = (
     "注入的历史记忆块格式为 [uid:xxx]，其中 xxx 即为你引用时需填入的标识。"
     "若生成回复时参考了上述历史记忆，必须在文本末尾标注引用，格式为 [[used:uid]]（半角方括号、双括号），可同时标注多个。"
@@ -633,7 +672,10 @@ def _decay_resurrection_raw(metadata: Dict[str, Any], age_days: float) -> float:
     return base * exp_part * (1.0 + 0.35 * math.log(1 + hits))
 
 
-def fuse_rerank_with_time_decay(candidates: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def fuse_rerank_with_time_decay(
+    candidates: List[Dict[str, Any]],
+    starred_boost_factor: float = 1.2,
+) -> List[Dict[str, Any]]:
     """
     精排综合分：0.8×语义(归一化) + 0.2×时间衰减复活分(归一化)。
     语义分优先用 Cohere rerank_score，否则用检索 score。
@@ -670,6 +712,9 @@ def fuse_rerank_with_time_decay(candidates: List[Dict[str, Any]]) -> List[Dict[s
     for i, c in enumerate(candidates):
         cp = dict(c)
         cp["fusion_score"] = 0.8 * norm_sem(i) + 0.2 * norm_dec(i)
+        md = cp.get("metadata") or {}
+        if md.get("is_starred") is True or str(md.get("is_starred")).lower() == "true":
+            cp["fusion_score"] *= max(1.0, float(starred_boost_factor or 1.0))
         scored.append(cp)
     scored.sort(key=lambda x: x["fusion_score"], reverse=True)
     return scored
@@ -782,6 +827,7 @@ class ContextBuilder:
         """
         初始化 Context 构建器。
         """
+        self._last_longterm_results: List[Dict[str, Any]] = []
         logger.info("Context 构建器初始化完成")
     
     async def build_context(
@@ -831,6 +877,7 @@ class ContextBuilder:
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
             vector_search_section = await self._build_vector_search_section(user_message)
+            archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(session_id)
             chunk_summaries_section = await self._build_chunk_summaries_section()
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
@@ -859,6 +906,7 @@ class ContextBuilder:
                 memory_cards_section,
                 relationship_timeline_section,
                 vector_search_section,
+                archived_daily_section,
                 daily_summaries_section,
                 chunk_summaries_section,
                 recent_tool_section,
@@ -957,6 +1005,7 @@ class ContextBuilder:
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
             vector_search_section = await self._build_vector_search_section_async(user_message)
+            archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(session_id)
             chunk_summaries_section = await self._build_chunk_summaries_section()
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
@@ -985,6 +1034,7 @@ class ContextBuilder:
                 memory_cards_section,
                 relationship_timeline_section,
                 vector_search_section,
+                archived_daily_section,
                 daily_summaries_section,
                 chunk_summaries_section,
                 recent_tool_section,
@@ -1231,6 +1281,88 @@ class ContextBuilder:
         except Exception as e:
             logger.warning(f"构建 daily summary 部分失败: {e}")  # 可恢复/已兜底，降为 warning
             return ""
+
+    async def _build_archived_daily_supplement_section(self, session_id: Optional[str] = None) -> str:
+        """
+        对长期记忆召回命中的较早日期补充 daily 概况。
+
+        最近 daily 已由常规 daily 通道注入；这里只补召回事件涉及的窗口外日期。
+        """
+        try:
+            limit = await _context_archived_daily_limit()
+            if limit <= 0 or not self._last_longterm_results:
+                return ""
+
+            recent_limit = await _context_max_daily_summaries_limit()
+            recent_daily = await get_recent_daily_summaries(
+                limit=recent_limit,
+                session_id=session_id,
+            )
+            recent_dates = set()
+            for row in recent_daily:
+                raw = row.get("source_date") or row.get("created_at")
+                if raw:
+                    recent_dates.add(str(raw)[:10])
+
+            grouped: Dict[str, Dict[str, Any]] = {}
+            for result in self._last_longterm_results:
+                md = result.get("metadata") or {}
+                day = str(md.get("source_date") or md.get("date") or "")[:10]
+                if not re.match(r"^\d{4}-\d{2}-\d{2}$", day):
+                    continue
+                if day in recent_dates:
+                    continue
+                score = float(
+                    result.get("fusion_score")
+                    or result.get("rerank_score")
+                    or result.get("score")
+                    or 0.0
+                )
+                bucket = grouped.setdefault(day, {"hits": 0, "max_score": 0.0})
+                bucket["hits"] += 1
+                bucket["max_score"] = max(float(bucket["max_score"]), score)
+
+            if not grouped:
+                return ""
+
+            min_hits = await _archived_daily_min_hits()
+            priority_days = sorted(
+                (item for item in grouped.items() if item[1]["hits"] >= min_hits),
+                key=lambda kv: (kv[1]["hits"], kv[1]["max_score"], kv[0]),
+                reverse=True,
+            )
+            fallback_days = sorted(
+                (item for item in grouped.items() if item[1]["hits"] < min_hits),
+                key=lambda kv: (kv[1]["max_score"], kv[1]["hits"], kv[0]),
+                reverse=True,
+            )
+            selected_days = [d for d, _ in (priority_days + fallback_days)[:limit]]
+            if not selected_days:
+                return ""
+
+            db = get_database()
+            sections = []
+            for day in selected_days:
+                rows = await db.get_daily_summaries_by_date(day)
+                if session_id:
+                    scoped = [r for r in rows if r.get("session_id") == session_id]
+                    rows = scoped or rows
+                if not rows:
+                    continue
+                for row in rows[:1]:
+                    sections.append(f"### {day}\n{row.get('summary_text') or ''}")
+
+            if not sections:
+                return ""
+
+            return (
+                "# 较早日期概况补充\n\n"
+                "以下是长期记忆中涉及到的较早日期的概况补充，仅作为背景，不代表近期发生\n\n"
+                + "\n\n".join(sections)
+            )
+        except Exception as e:
+            logger.warning("构建远古 daily 补充失败: %s", e)
+            return ""
     
     async def _build_chunk_summaries_section(self) -> str:
         """
@@ -1350,6 +1482,7 @@ class ContextBuilder:
         双路融合后经时间衰减融合与 MMR 多样性筛选，注入时每条正文前带 [uid:doc_id]。
         """
         try:
+            self._last_longterm_results = []
             if not config.ZHIPU_API_KEY or config.ZHIPU_API_KEY == "your_zhipu_api_key_here":
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
@@ -1369,12 +1502,17 @@ class ContextBuilder:
                 vector_results, bm25_results, max(1, 2 * tk)
             )
             n_long = await _context_max_longterm_count()
-            fused = fuse_rerank_with_time_decay(all_results)
+            fused = fuse_rerank_with_time_decay(
+                all_results,
+                await _starred_boost_factor_value(),
+            )
             fused = _hydrate_candidate_embeddings(fused)
             all_results = apply_mmr(fused, await _mmr_lambda_value(), n_long)
+            self._last_longterm_results = list(all_results)
 
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
+                self._last_longterm_results = []
                 return ""
 
             sections = []
@@ -1408,6 +1546,7 @@ class ContextBuilder:
 
         except Exception as e:
             logger.warning(f"构建向量检索部分失败: {e}")  # 可恢复/已兜底，降为 warning
+            self._last_longterm_results = []
             return ""
     
     async def _build_vector_search_section_async(self, user_message: str) -> str:
@@ -1417,6 +1556,7 @@ class ContextBuilder:
         每条正文前带 [uid:doc_id]。
         """
         try:
+            self._last_longterm_results = []
             if not config.ZHIPU_API_KEY or config.ZHIPU_API_KEY == "your_zhipu_api_key_here":
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
@@ -1467,9 +1607,13 @@ class ContextBuilder:
                 logger.debug("Reranker 未返回结果，使用双路候选进入融合与 MMR")
                 reranked_results = all_results
 
-            fused = fuse_rerank_with_time_decay(reranked_results)
+            fused = fuse_rerank_with_time_decay(
+                reranked_results,
+                await _starred_boost_factor_value(),
+            )
             fused = _hydrate_candidate_embeddings(fused)
             top_results = apply_mmr(fused, await _mmr_lambda_value(), n_long)
+            self._last_longterm_results = list(top_results)
 
             sections = []
             for i, result in enumerate(top_results):
@@ -1504,6 +1648,7 @@ class ContextBuilder:
 
         except Exception as e:
             logger.warning(f"构建向量检索部分失败（异步）: {e}")  # 可恢复/已兜底，降为 warning
+            self._last_longterm_results = []
             logger.warning("异步检索失败，回退到同步检索")
             return await self._build_vector_search_section(user_message)
     
@@ -1617,6 +1762,7 @@ class ContextBuilder:
         memory_cards_section: str,
         relationship_timeline_section: str,
         vector_search_section: str,
+        archived_daily_section: str,
         daily_summaries_section: str,
         chunk_summaries_section: str,
         recent_tool_section: str,
@@ -1655,6 +1801,12 @@ class ContextBuilder:
         if relationship_timeline_section:
             slow_sections.append(relationship_timeline_section)
 
+        if vector_search_section:
+            slow_sections.append(vector_search_section)
+
+        if archived_daily_section:
+            slow_sections.append(archived_daily_section)
+
         if daily_summaries_section:
             slow_sections.append(daily_summaries_section)
 
@@ -1667,13 +1819,6 @@ class ContextBuilder:
         dynamic_sections = [time_section]
         if recent_tool_section:
             dynamic_sections.append(recent_tool_section)
-
-        if vector_search_section:
-            dynamic_sections.append(
-                "# 本轮召回的相关长期记忆\n"
-                "以下记忆可能来自过去日期，不代表今天发生；请以条目日期为准。\n\n"
-                + vector_search_section
-            )
 
         dynamic_sections.append("---\n以上是历史信息和用户记忆，请基于这些信息进行对话。")
 

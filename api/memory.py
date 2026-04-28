@@ -51,6 +51,10 @@ class SummaryTextPatch(BaseModel):
     summary_text: str
 
 
+class SummaryStarPatch(BaseModel):
+    is_starred: bool
+
+
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
     return {"success": success, "data": data, "message": message}
 
@@ -279,6 +283,42 @@ async def patch_summary(summary_id: int, body: SummaryTextPatch):
         return create_response(False, None, f"更新失败: {str(e)}")
 
 
+@router.patch("/summaries/{summary_id}/star")
+async def patch_summary_star(summary_id: int, body: SummaryStarPatch):
+    """收藏/取消收藏 chunk summary，并同步引用它的长期事件与 Chroma metadata。"""
+    from memory.database import (
+        set_summary_starred,
+        recalculate_longterm_starred_for_chunk,
+    )
+    from memory.vector_store import update_memory_metadata_fields
+
+    try:
+        ok = await set_summary_starred(summary_id, bool(body.is_starred))
+        if not ok:
+            return create_response(False, None, "记录不存在")
+
+        changed = await recalculate_longterm_starred_for_chunk(summary_id)
+        updates = {
+            row["chroma_doc_id"]: {"is_starred": bool(row["is_starred"])}
+            for row in changed
+            if row.get("chroma_doc_id")
+        }
+        chroma_updated = update_memory_metadata_fields(updates) if updates else 0
+        return create_response(
+            True,
+            {
+                "id": summary_id,
+                "is_starred": bool(body.is_starred),
+                "longterm_updated": len(changed),
+                "chroma_updated": chroma_updated,
+            },
+            "收藏状态已更新",
+        )
+    except Exception as e:
+        logger.error("更新 summary 收藏失败 id=%s: %s", summary_id, e)
+        return create_response(False, None, f"更新失败: {str(e)}")
+
+
 @router.delete("/summaries/{summary_id}")
 async def delete_summary(summary_id: int):
     """物理删除单条 summary。"""
@@ -370,6 +410,8 @@ async def get_longterm_memories(
                         "arousal": arousal_val,
                         "last_access_ts": last_ts,
                         "base_score": base_score,
+                        "is_starred": bool(meta.get("is_starred")),
+                        "source_chunk_ids": meta.get("source_chunk_ids"),
                     }
                 )
 

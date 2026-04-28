@@ -26,6 +26,9 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `context_max_longterm` | Context 中长期记忆注入条数 |
 | `event_split_max` | Step 4 单日事件拆分上限 |
 | `mmr_lambda` | 长期记忆 MMR 相关性权重 |
+| `context_archived_daily_limit` | 长期召回命中较早日期时补充的 daily 概况上限 |
+| `archived_daily_min_hits` | 同一较早日期召回事件数达到该阈值时优先补充 daily |
+| `starred_boost_factor` | 被收藏长期事件的召回融合分乘数 |
 | `daily_batch_hour` | 日终跑批时刻，支持 0.0–23.5 |
 | `relationship_timeline_limit` | 关系时间线注入条数 |
 | `gc_stale_days` | Chroma GC 闲置天数阈值 |
@@ -80,6 +83,18 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ## 三、上下文构建与召回
 
+### 3.0 新增记忆字段（数据结构）
+
+`summaries`：
+
+- `archived_by`：可空，指向归档该 chunk 的 daily summary id。chunk 生成 daily 后不再删除，而是写入该字段。
+- `is_starred`：是否收藏该 chunk / daily，默认 false。
+
+`longterm_memories`：
+
+- `source_chunk_ids`：JSONB，记录 Step 4 事件由哪些 chunk 合并而来。
+- `is_starred`：事件是否收藏，来源 chunk 任一被收藏则为 true。
+
 ### 3.1 Context 拼装顺序
 
 Context 组装时，系统按以下顺序注入信息：
@@ -89,18 +104,36 @@ Context 组装时，系统按以下顺序注入信息：
 3. memory_cards
 4. relationship_timeline
 5. 长期记忆召回
-6. daily summaries
-7. chunk summaries
-8. 最近消息
-9. 当前用户消息
+6. 远古 daily 概况补充
+7. daily summaries
+8. 未归档 chunk summaries
+9. 最近消息
+10. 当前用户消息
 
 其中长期记忆召回采用双路检索 + 融合排序 + MMR 多样性筛选：
 
 - 向量检索与 BM25 各自召回 `retrieval_top_k`
 - 候选去重后进行语义与时间衰减融合
+- `is_starred=true` 的事件在融合分计算完成后乘以 `starred_boost_factor`
 - 按 `fuse_rerank_with_time_decay` 排序
 - 再用 `mmr_lambda` 做 MMR
 - 最终注入 `context_max_longterm` 条
+
+### 3.4 远古 daily 补充
+
+长期记忆召回完成后，系统会检查命中的 `daily_event` 日期：
+
+- 最近 `context_max_daily_summaries` 条 daily 已通过常规 daily 通道注入，不重复补充
+- 对近期窗口外的命中日期按召回事件数分组
+- 优先选择命中数不少于 `archived_daily_min_hits` 的日期
+- 不足时按该日期召回事件最高分补足
+- 最多注入 `context_archived_daily_limit` 条 daily 概况
+
+该块紧跟长期记忆召回块，固定说明为：`以下是长期记忆中涉及到的较早日期的概况补充，仅作为背景，不代表近期发生`。
+
+### 3.5 chunk 注入过滤
+
+Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被 daily 归档的 chunk 保留在数据库中用于追溯、收藏和 Step 4 来源映射，但不再重复进入常规上下文。
 
 ### 3.2 长期记忆过滤
 
@@ -141,6 +174,8 @@ Context 组装时，系统按以下顺序注入信息：
 
 当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点与期间工具摘要，避免上下文断裂。
 
+chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。
+
 ### 5.2 日终跑批总流程
 
 日终跑批由 `run_daily_batch.py` 触发，按东八区业务日执行五步：
@@ -154,16 +189,19 @@ Context 组装时，系统按以下顺序注入信息：
 
 ### 5.3 Step 4 重写
 
-Step 4 使用 `analysis` 配置完成结构化事件拆分与 `score/arousal` 提取；若 analysis 不可用，则回退 `chat`。
+Step 4 使用当天按时间顺序排列的 chunk 列表作为输入，由 `analysis` 配置完成结构化事件合并、`chunk_ids` 标注与 `score/arousal` 提取；若 analysis 不可用，则回退 `chat`。
 
 Step 4 的事件拆分遵循：
 
 - 至少 1 条事件
 - 最多 `event_split_max` 条事件
+- 每条事件必须返回合法 `chunk_ids`
+- 模型返回的 `chunk_ids` 会与当天输入 chunk 集合求交集，非法 ID 会被过滤
+- 某事件过滤后没有合法 chunk，则丢弃并记 ERROR 日志
 - 连续 3 次失败后使用默认值 `score=5`、`arousal=0.1`
 - 默认值兜底后继续入库，并发 Telegram 告警
 
-Step 4 结果只写事件片段，不再写 daily 小传向量。
+Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `longterm_memories.source_chunk_ids`，并根据来源 chunk 的 `is_starred` 汇总出事件的 `is_starred`。
 
 ## 六、记忆召回策略
 
@@ -176,6 +214,15 @@ Step 4 结果只写事件片段，不再写 daily 小传向量。
 - MMR 保证多样性
 
 最终效果是：既尽量选中“最相关”的记忆，也避免同质内容扎堆。
+
+### 6.1.1 收藏加权
+
+用户可在 Mini App 收藏 chunk。收藏状态会同步影响由该 chunk 派生的长期事件：
+
+- 任一来源 chunk 被收藏，则事件 `is_starred=true`
+- Chroma metadata 同步写入 `is_starred`
+- 召回融合分完成后，对收藏事件乘以 `starred_boost_factor`
+- 加权后再进入 MMR，避免收藏事件完全绕过多样性约束
 
 ### 6.2 记忆卡片
 
@@ -215,6 +262,8 @@ Config 页管理运行参数，包括：
 | 双路召回 | 向量检索 + BM25 关键词检索 |
 | MMR 多样性 | 在召回结果中避免同质内容扎堆 |
 | 事件拆分 | Step 4 将 daily 小传拆为可独立记忆的事件片段 |
+| 远古 daily 补充 | 长期召回命中较早日期时补充对应 daily 概况 |
+| 收藏加权 | 收藏 chunk 会提升其派生长期事件的召回权重 |
 | 时效状态 | 临时状态会自动结算并可改写为历史事实 |
 | Tool 执行记录 | 保存工具调用摘要，供后续上下文与微批使用 |
 

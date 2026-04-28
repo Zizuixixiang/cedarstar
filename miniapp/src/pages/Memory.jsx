@@ -14,6 +14,7 @@ import {
   HeartHandshake,
   FileText,
   Lock,
+  Star,
   ScrollText,
 } from 'lucide-react';
 import './../styles/memory.css';
@@ -50,6 +51,32 @@ const SUMMARY_KIND_LABELS = {
   chunk: 'chunk',
   daily: 'daily',
 };
+
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+
+function parseShanghaiDateTime(value) {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(value);
+  const s = value.trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00+08:00`);
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return new Date(s);
+  return new Date(`${s.replace(' ', 'T')}+08:00`);
+}
+
+function formatShanghaiDateTime(value) {
+  if (value == null || value === '') return '—';
+  const d = parseShanghaiDateTime(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('zh-CN', { timeZone: SHANGHAI_TIME_ZONE });
+}
+
+function formatShanghaiDate(value) {
+  if (value == null || value === '') return '—';
+  const d = parseShanghaiDateTime(value);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleDateString('zh-CN', { timeZone: SHANGHAI_TIME_ZONE });
+}
 
 /**
  * 判断记忆卡片正文是否被 -webkit-line-clamp 截断。
@@ -103,7 +130,7 @@ function getTemporalDisplayStatus(row) {
   const activeFlag = Number(row.is_active) === 1;
   let beforeExpire = true;
   if (row.expire_at) {
-    const t = new Date(row.expire_at).getTime();
+    const t = parseShanghaiDateTime(row.expire_at).getTime();
     if (!Number.isNaN(t) && t <= Date.now()) {
       beforeExpire = false;
     }
@@ -122,7 +149,7 @@ function formatLastAccessTs(ts) {
   if (Number.isNaN(n)) {
     return '—';
   }
-  return new Date(n * 1000).toLocaleString('zh-CN');
+  return formatShanghaiDateTime(n * 1000);
 }
 
 function formatLongtermTitleLine(memory) {
@@ -143,9 +170,9 @@ function normalizeSummaryDateInput(value) {
 function formatSummaryRecordTitle(row) {
   if (row.source_date) {
     try {
-      const d = new Date(row.source_date);
+      const d = parseShanghaiDateTime(row.source_date);
       if (!Number.isNaN(d.getTime())) {
-        return d.toLocaleDateString('zh-CN');
+        return formatShanghaiDate(d);
       }
     } catch {
       /* fallthrough */
@@ -154,7 +181,7 @@ function formatSummaryRecordTitle(row) {
   }
   if (row.created_at) {
     try {
-      return new Date(row.created_at).toLocaleString('zh-CN');
+      return formatShanghaiDateTime(row.created_at);
     } catch {
       return '—';
     }
@@ -368,6 +395,7 @@ function SummaryRecordItem({
   onCancelDelete,
   onDeleteConfirm,
   onEdit,
+  onToggleStar,
 }) {
   const [viewOpen, setViewOpen] = useState(false);
   const [showViewFull, setShowViewFull] = useState(false);
@@ -375,6 +403,9 @@ function SummaryRecordItem({
   const bodyText = row.summary_text || '';
   const titleLine = formatSummaryRecordTitle(row);
   const typeLabel = SUMMARY_KIND_LABELS[row.summary_type] || row.summary_type || '—';
+  const isChunk = row.summary_type === 'chunk';
+  const hasDailySummary = Boolean(row.has_daily_summary);
+  const isStarred = Boolean(row.is_starred);
 
   useLayoutEffect(() => {
     if (!bodyText.trim()) {
@@ -408,6 +439,16 @@ function SummaryRecordItem({
           <span className="memory-longterm-type-badge timeline-type-badge" title="summary_type">
             {typeLabel}
           </span>
+          {isChunk ? (
+            <span
+              className={`memory-longterm-type-badge timeline-type-badge summary-daily-status-badge ${
+                hasDailySummary ? 'summary-daily-status-badge--done' : 'summary-daily-status-badge--pending'
+              }`}
+              title="该 chunk 所属日期是否已经生成 daily 日摘要"
+            >
+              {hasDailySummary ? '已日摘要' : '未日摘要'}
+            </span>
+          ) : null}
         </div>
         <div className="memory-item-head__actions summary-record-actions">
           {confirmDeleteId === row.id ? (
@@ -422,6 +463,17 @@ function SummaryRecordItem({
             </span>
           ) : (
             <>
+              {isChunk ? (
+                <button
+                  type="button"
+                  className={`summary-star-button ${isStarred ? 'summary-star-button--active' : ''}`}
+                  onClick={() => onToggleStar(row)}
+                  title={isStarred ? '取消收藏' : '收藏 chunk'}
+                  aria-label={isStarred ? '取消收藏' : '收藏 chunk'}
+                >
+                  <Star size={16} strokeWidth={2} fill={isStarred ? 'currentColor' : 'none'} aria-hidden />
+                </button>
+              ) : null}
               <button type="button" className="action-button edit-button" onClick={() => onEdit(row)}>
                 编辑
               </button>
@@ -731,7 +783,7 @@ function TemporalStateItem({ row, addToast, onRefresh }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const status = getTemporalDisplayStatus(row);
   const expireLabel = row.expire_at
-    ? new Date(row.expire_at).toLocaleString('zh-CN')
+    ? formatShanghaiDateTime(row.expire_at)
     : '未设置';
 
   const runDelete = async () => {
@@ -801,7 +853,7 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
   const cardContentRef = useRef(null);
   const isEmpty = !content || content.trim() === '';
   const displayContent = isEmpty ? '暂无内容，点击编辑添加' : content;
-  const displayTime = updatedAt ? new Date(updatedAt).toLocaleDateString('zh-CN') : '未记录';
+  const displayTime = updatedAt ? formatShanghaiDate(updatedAt) : '未记录';
 
   useLayoutEffect(() => {
     if (isEmpty) {
@@ -1265,7 +1317,7 @@ function Memory() {
           const cardTime = (c) => {
             const raw = c.updated_at || c.created_at;
             if (!raw) return 0;
-            const n = new Date(raw).getTime();
+            const n = parseShanghaiDateTime(raw).getTime();
             return Number.isNaN(n) ? 0 : n;
           };
           data.data.forEach(card => {
@@ -1743,6 +1795,37 @@ function Memory() {
       addToast(error.message || '删除失败', 'error');
     }
   };
+
+  const handleSummaryToggleStar = async (row) => {
+    const nextStarred = !Boolean(row.is_starred);
+    setSummariesItems((items) =>
+      items.map((item) =>
+        item.id === row.id ? { ...item, is_starred: nextStarred } : item
+      )
+    );
+    try {
+      const response = await apiFetch(`/api/memory/summaries/${row.id}/star`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ is_starred: nextStarred }),
+      });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || '更新收藏失败');
+      }
+      addToast(nextStarred ? '已收藏' : '已取消收藏', 'success');
+    } catch (error) {
+      console.error('更新摘要收藏失败:', error);
+      setSummariesItems((items) =>
+        items.map((item) =>
+          item.id === row.id ? { ...item, is_starred: Boolean(row.is_starred) } : item
+        )
+      );
+      addToast(error.message || '更新收藏失败', 'error');
+    }
+  };
   
   const handleAddTemporalState = async (payload) => {
     try {
@@ -2006,7 +2089,7 @@ function Memory() {
                 <div key={ev.id} className="timeline-item">
                   <div className="timeline-item-head">
                     <span className="timeline-time">
-                      {ev.created_at ? new Date(ev.created_at).toLocaleString('zh-CN') : '—'}
+                      {ev.created_at ? formatShanghaiDateTime(ev.created_at) : '—'}
                     </span>
                     <span className="timeline-type-badge">
                       {EVENT_TYPE_MAP[ev.event_type] || ev.event_type}
@@ -2106,6 +2189,7 @@ function Memory() {
                   onCancelDelete={() => setConfirmDeleteSummaryId(null)}
                   onDeleteConfirm={handleSummaryDeleteConfirm}
                   onEdit={(r) => setSummaryEditingRow(r)}
+                  onToggleStar={handleSummaryToggleStar}
                 />
               ))}
             </div>

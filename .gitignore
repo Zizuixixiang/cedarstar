@@ -231,3 +231,10 @@ CLAUDE.md
 
 # Runtime caches
 /jieba.cache
+
+# Local agent notes and one-off database backups
+AGENTS.md
+cedarclio_backup_20260428.sql
+cedarstar_backup_20260428.sql
+summaries_backup.sql
+summaries_backup.sql

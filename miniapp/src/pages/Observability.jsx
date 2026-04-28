@@ -13,6 +13,8 @@ import {
 import { apiFetch } from '../apiBase'
 import './../styles/observability.css'
 
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai'
+
 const PERIODS = [
   { key: 'current', label: '本次' },
   { key: 'today', label: '今日' },
@@ -166,11 +168,11 @@ function oneCallUsageView(data) {
 
 function shortDate(value) {
   if (!value) return '-'
-  const text = String(value)
-  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/.test(text) ? text : `${text}Z`
+  const text = String(value).trim()
+  const normalized = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(text) ? text : `${text.replace(' ', 'T')}+08:00`
   const d = new Date(normalized)
   if (Number.isNaN(d.getTime())) return text
-  return d.toLocaleString('zh-CN', { hour12: false, timeZone: 'Asia/Shanghai' })
+  return d.toLocaleString('zh-CN', { hour12: false, timeZone: SHANGHAI_TIME_ZONE })
 }
 
 function MetricCard({ icon: Icon, label, value, hint }) {

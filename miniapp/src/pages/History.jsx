@@ -8,6 +8,29 @@ import { History as HistoryIcon, Cpu, MessageCircle } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/history.css';
 
+const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+
+function parseShanghaiDateTime(value) {
+  if (value instanceof Date) return value;
+  if (typeof value !== 'string') return new Date(value);
+  const s = value.trim();
+  if (!s) return new Date(NaN);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return new Date(`${s}T00:00:00+08:00`);
+  if (/(Z|[+-]\d{2}:?\d{2})$/i.test(s)) return new Date(s);
+  return new Date(`${s.replace(' ', 'T')}+08:00`);
+}
+
+function formatShanghaiDateKey(date) {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: SHANGHAI_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(date);
+  const get = (type) => parts.find((p) => p.type === type)?.value;
+  return `${get('year')}-${get('month')}-${get('day')}`;
+}
+
 // 平台选项
 const PLATFORM_OPTIONS = [
   { value: '', label: '全部' },
@@ -103,12 +126,14 @@ function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
   // 格式化时间
   const formatTime = (timestamp) => {
     try {
-      const date = new Date(timestamp);
+      const date = parseShanghaiDateTime(timestamp);
+      if (Number.isNaN(date.getTime())) return '未知时间';
       return date.toLocaleString('zh-CN', {
         month: '2-digit',
         day: '2-digit',
         hour: '2-digit',
-        minute: '2-digit'
+        minute: '2-digit',
+        timeZone: SHANGHAI_TIME_ZONE,
       });
     } catch (error) {
       return '未知时间';
@@ -225,22 +250,15 @@ function calculateDateRange(option, customDateFrom, customDateTo) {
   }
 
   const today = new Date();
-  const fromDate = new Date();
+  const fromDate = new Date(today);
   const days = parseInt(option, 10);
   if (!isNaN(days)) {
-    fromDate.setDate(today.getDate() - days);
+    fromDate.setUTCDate(today.getUTCDate() - days);
   }
 
-  const formatDate = (date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
-
   return {
-    from: formatDate(fromDate),
-    to: formatDate(today)
+    from: formatShanghaiDateKey(fromDate),
+    to: formatShanghaiDateKey(today)
   };
 }
 
