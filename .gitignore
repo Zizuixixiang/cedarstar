@@ -206,10 +206,13 @@ Thumbs.db
 Thumbs.db
 Desktop.ini
 chroma_db/
+chroma_db_backup_old/
 miniapp/node_modules/
 portal/node_modules/
 backups/
 test/
+patch_*.py
+repair_*.py
 miniapp/.env.production
 miniapp/.env.development
 portal/.env.production
