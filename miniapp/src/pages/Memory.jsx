@@ -18,6 +18,7 @@ import {
   ScrollText,
 } from 'lucide-react';
 import './../styles/memory.css';
+import { useHorizontalDragScroll } from '../useHorizontalDragScroll';
 
 // 维度映射
 const DIMENSION_MAP = {
@@ -1234,6 +1235,8 @@ function SkeletonLoader() {
  * 主 Memory 组件
  */
 function Memory() {
+  const memoryTabsRef = useHorizontalDragScroll();
+
   // 状态管理
   const [loading, setLoading] = useState(true);
   const [memoryCards, setMemoryCards] = useState({});
@@ -1922,7 +1925,7 @@ function Memory() {
         />
       )}
       
-      <div className="memory-tabs-scroll" aria-label="记忆页签切换">
+      <div className="memory-tabs-scroll" ref={memoryTabsRef} aria-label="记忆页签切换">
         <div className="memory-tabs" role="tablist">
           {MEMORY_TABS.map((tab) => (
             <button

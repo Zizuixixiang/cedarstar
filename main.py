@@ -96,7 +96,7 @@ async def serve_miniapp(full_path: str):
         return FileResponse(str(candidate))
     index = MINIAPP_DIST / "index.html"
     if index.is_file():
-        return FileResponse(str(index))
+        return FileResponse(str(index), headers={"Cache-Control": "no-store"})
     return Response(status_code=404)
 
 
@@ -107,7 +107,7 @@ async def serve_portal(full_path: str):
         return FileResponse(str(candidate))
     index = PORTAL_DIST / "index.html"
     if index.is_file():
-        return FileResponse(str(index))
+        return FileResponse(str(index), headers={"Cache-Control": "no-store"})
     return Response(status_code=404)
 
 

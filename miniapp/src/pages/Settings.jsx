@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { apiFetch } from '../apiBase';
 import { KeyRound, BarChart3 } from 'lucide-react';
+import { useHorizontalDragScroll } from '../useHorizontalDragScroll';
 import '../styles/settings.css';
 
 /* ─── 工具函数 ─── */
@@ -252,7 +253,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字（OpenAI 兼容 /audio/transcriptions，模型填 whisper-1）'}
               {form.config_type === 'embedding' && '用于表情包 Chroma 检索（硅基流动 BAAI/bge-m3，OpenAI 兼容 /v1/embeddings）；需在列表中激活'}
               {form.config_type === 'search_summary' && '用于 web_search：把 Tavily 多条结果压成短摘要（建议小模型）；未激活本类型时回退「摘要 API」'}
-              {form.config_type === 'analysis' && '用于日终 Step 4 的结构化事件拆分、score/arousal 提取与打分；未激活时 Step 4 回退对话 API'}
+              {form.config_type === 'analysis' && '用于日终 Step 4 的事件聚类、描述与打分；未激活时 Step 4 回退摘要 API，仍不可用则使用兜底'}
             </div>
           </div>
 
@@ -346,6 +347,8 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
 function Settings() {
   const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt' | 'embedding' | 'search_summary' | 'analysis'
   const activeTabRef = useRef('chat'); // 用 ref 追踪最新 activeTab，避免闭包陷阱
+  const configTabsRef = useHorizontalDragScroll();
+  const periodTabsRef = useHorizontalDragScroll();
   const [configs, setConfigs] = useState([]);
   const [personas, setPersonas] = useState([]);
   const [tokenStats, setTokenStats] = useState(null);
@@ -523,7 +526,7 @@ function Settings() {
             <KeyRound className="card-title-icon" strokeWidth={1.75} aria-hidden />
             API 配置管理
           </h2>
-          <div className="config-tabs">
+          <div className="config-tabs" ref={configTabsRef}>
             <button 
               className={`config-tab ${activeTab === 'chat' ? 'active' : ''}`}
               onClick={() => switchTab('chat')}
@@ -667,7 +670,7 @@ function Settings() {
             <BarChart3 className="card-title-icon" strokeWidth={1.75} aria-hidden />
             Token 消耗统计
           </h2>
-          <div className="period-tabs">
+          <div className="period-tabs" ref={periodTabsRef}>
             {[['latest','本次'], ['today','今日'], ['week','本周'], ['month','本月']].map(([v, l]) => (
               <button
                 key={v}

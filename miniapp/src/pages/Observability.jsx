@@ -11,6 +11,7 @@ import {
   Search,
 } from 'lucide-react'
 import { apiFetch } from '../apiBase'
+import { useHorizontalDragScroll } from '../useHorizontalDragScroll'
 import './../styles/observability.css'
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai'
@@ -308,6 +309,7 @@ function RecentUsageRow({ row }) {
 }
 
 export default function Observability() {
+  const periodTabsRef = useHorizontalDragScroll()
   const [period, setPeriod] = useState('current')
   const [usage, setUsage] = useState(null)
   const [tools, setTools] = useState([])
@@ -369,7 +371,7 @@ export default function Observability() {
           <h1>调用观测</h1>
         </div>
         <div className="obs-actions">
-          <div className="obs-periods" role="tablist" aria-label="统计周期">
+          <div className="obs-periods" ref={periodTabsRef} role="tablist" aria-label="统计周期">
             {PERIODS.map((item) => (
               <button
                 type="button"

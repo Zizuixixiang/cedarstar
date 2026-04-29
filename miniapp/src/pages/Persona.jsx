@@ -7,6 +7,7 @@ import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { Sparkles, UserRound, Wrench, Settings2, FileCode } from 'lucide-react';
 import { apiFetch } from '../apiBase';
+import { useHorizontalDragScroll } from '../useHorizontalDragScroll';
 import '../styles/persona.css';
 
 /**
@@ -342,6 +343,7 @@ function SkeletonScreen() {
 }
 
 function Persona() {
+  const personaTabsRef = useHorizontalDragScroll();
   const [personas, setPersonas] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [activeName, setActiveName] = useState('');
@@ -569,7 +571,7 @@ function Persona() {
     <div className="persona-page">
       {/* ① 顶部人设切换标签栏 */}
       <div className="persona-tabs">
-        <div className="persona-tabs-scroll">
+        <div className="persona-tabs-scroll" ref={personaTabsRef}>
           {personas.map(p => (
             <button
               key={p.id}

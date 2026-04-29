@@ -6,6 +6,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { History as HistoryIcon, Cpu, MessageCircle } from 'lucide-react';
 import { apiFetch } from '../apiBase';
+import { useHorizontalDragScroll } from '../useHorizontalDragScroll';
 import './../styles/history.css';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
@@ -266,6 +267,8 @@ function calculateDateRange(option, customDateFrom, customDateTo) {
  * 主 History 组件
  */
 function History() {
+  const platformTabsRef = useHorizontalDragScroll();
+
   // 状态管理
   const [loading, setLoading] = useState(true);   // 初次加载
   const [fetching, setFetching] = useState(false); // 后续筛选加载（不替换页面）
@@ -768,7 +771,7 @@ function History() {
           {/* 平台切换 */}
           <div className="filter-group">
             <div className="filter-label">平台</div>
-            <div className="platform-tabs">
+            <div className="platform-tabs" ref={platformTabsRef}>
               {PLATFORM_OPTIONS.map(option => (
                 <button
                   key={option.value}
