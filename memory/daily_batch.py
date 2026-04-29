@@ -450,16 +450,30 @@ class DailyBatchProcessor:
                 self.scoring_llm = await LLMInterface.create(config_type="analysis")
             except (NoActiveAPIConfigError, APIConfigLoadError) as e:
                 logger.warning(
-                    "analysis 配置未激活或加载失败，Step 4 打分回退到 chat 模型: %s",
+                    "analysis 配置未激活或加载失败，Step 4 打分回退到 summary 模型: %s",
                     exc_detail(e),
                 )
-                self.scoring_llm = self.llm
+                try:
+                    self.scoring_llm = await LLMInterface.create(config_type="summary")
+                except Exception as se:
+                    logger.warning(
+                        "summary 配置初始化失败，Step 4 将使用默认值继续: %s",
+                        exc_detail(se),
+                    )
+                    self.scoring_llm = None
             except Exception as e:
                 logger.warning(
-                    "analysis 配置初始化异常，Step 4 打分回退到 chat 模型: %s",
+                    "analysis 配置初始化异常，Step 4 打分回退到 summary 模型: %s",
                     exc_detail(e),
                 )
-                self.scoring_llm = self.llm
+                try:
+                    self.scoring_llm = await LLMInterface.create(config_type="summary")
+                except Exception as se:
+                    logger.warning(
+                        "summary 配置初始化失败，Step 4 将使用默认值继续: %s",
+                        exc_detail(se),
+                    )
+                    self.scoring_llm = None
             self._batch_char_name, self._batch_user_name = (
                 await fetch_active_persona_display_names()
             )
@@ -874,7 +888,7 @@ class DailyBatchProcessor:
         max_retries: int = 3,
     ):
         """Step 4 analysis 调用：失败 3 次后告警并返回默认值，跑批继续。"""
-        llm = self.scoring_llm or self.llm
+        llm = self.scoring_llm
         if llm is None:
             logger.warning("Step 4 %s 无可用 LLM，直接使用默认值", task_name)
             return default_value
@@ -885,6 +899,7 @@ class DailyBatchProcessor:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages,
                     platform=Platform.BATCH,
+                    timeout_override_seconds=600,
                 )
                 raw = (llm_resp.content or "").strip()
                 return parse_func(raw)

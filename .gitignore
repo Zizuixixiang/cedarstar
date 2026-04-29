@@ -167,6 +167,8 @@ cython_debug/
 *.db
 *.sqlite
 *.sqlite3
+backup_*.sql
+*_before_*.sql
 
 # CedarStar specific
 repair.py

@@ -190,8 +190,9 @@ def format_user_context_sent_at_line(created_at: Optional[Any] = None) -> str:
                     s = s[:-1] + "+00:00"
                 d = datetime.fromisoformat(s)
             if d.tzinfo is None:
-                d = d.replace(tzinfo=timezone.utc)
-            dt = d.astimezone(tz_sh)
+                dt = d
+            else:
+                dt = d.astimezone(tz_sh)
         except Exception:
             dt = None
     if dt is None:

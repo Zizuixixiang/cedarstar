@@ -189,7 +189,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 
 ### 5.3 Step 4 重写
 
-Step 4 使用当天按时间顺序排列的 chunk 列表作为输入，由 `analysis` 配置完成结构化事件合并、`chunk_ids` 标注与 `score/arousal` 提取；若 analysis 不可用，则回退 `chat`。
+Step 4 使用当天按时间顺序排列的 chunk 列表作为输入，由 `analysis` 配置完成结构化事件合并、`chunk_ids` 标注与 `score/arousal` 提取；若 `analysis` 配置不可用，则回退 `summary` 配置，避免使用昂贵的 `chat` 模型。若 `summary` 也不可用，则不再隐式回退 `chat`，直接使用默认事件值继续。
 
 Step 4 的事件拆分遵循：
 
@@ -198,6 +198,7 @@ Step 4 的事件拆分遵循：
 - 每条事件必须返回合法 `chunk_ids`
 - 模型返回的 `chunk_ids` 会与当天输入 chunk 集合求交集，非法 ID 会被过滤
 - 某事件过滤后没有合法 chunk，则丢弃并记 ERROR 日志
+- Step 4 单次 LLM 调用使用 600 秒超时，重试次数仍为 3 次
 - 连续 3 次失败后使用默认值 `score=5`、`arousal=0.1`
 - 默认值兜底后继续入库，并发 Telegram 告警
 

@@ -1869,6 +1869,7 @@ class LLMInterface:
         messages: List[Dict[str, Any]], 
         platform: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        timeout_override_seconds: Optional[float] = None,
     ) -> LLMResponse:
         """
         使用完整的 messages 数组生成回复，并跟踪token使用量。
@@ -1877,6 +1878,7 @@ class LLMInterface:
             messages: 完整的消息数组，包含 system、user、assistant 消息
             platform: 平台标识（可选）
             tools: OpenAI 兼容 tools 列表（仅 OpenAI 路径生效；Anthropic 路径忽略）
+            timeout_override_seconds: 本次调用专用超时时间（秒），不影响实例默认配置
             
         Returns:
             LLMResponse: 含 content、可选 tool_calls、thinking 等
@@ -1902,6 +1904,8 @@ class LLMInterface:
         req_timeout = self._request_timeout_seconds(messages)
         if tools:
             req_timeout = max(req_timeout, config.LLM_STREAM_READ_TIMEOUT)
+        if timeout_override_seconds is not None:
+            req_timeout = float(timeout_override_seconds)
         logger.debug(
             f"调用 LLM API (with context and tracking): {endpoint}, 模型: {self.model_name}, "
             f"timeout={req_timeout}s"
