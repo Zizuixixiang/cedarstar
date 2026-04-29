@@ -138,6 +138,18 @@ def _annotate_longterm_chroma_stats(result: Dict[str, Any]) -> Dict[str, Any]:
     return {**result, "items": items_out}
 
 
+@router.get("/context-trace")
+async def get_context_trace():
+    """最近一次 context 构建时实际注入的摘要和长期记忆清单。"""
+    from memory.context_builder import get_last_context_trace
+
+    try:
+        return create_response(True, get_last_context_trace(), "获取本轮记忆标记成功")
+    except Exception as e:
+        logger.error(f"获取 context trace 失败: {e}")
+        return create_response(False, None, f"获取失败: {str(e)}")
+
+
 # ==========================================
 # 记忆卡片接口（读取真实 memory_cards 表）
 # ==========================================
@@ -228,6 +240,7 @@ async def list_summaries(
     summary_type: Optional[str] = None,
     source_date_from: Optional[str] = None,
     source_date_to: Optional[str] = None,
+    context_only: bool = False,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -242,13 +255,76 @@ async def list_summaries(
     d_to = (source_date_to or "").strip() or None
 
     try:
-        items, total = await get_summaries_filtered(
-            page=page,
-            page_size=page_size,
-            summary_type=st,
-            source_date_from=d_from,
-            source_date_to=d_to,
-        )
+        if context_only:
+            from memory.context_builder import get_last_context_trace
+            from memory.database import get_database
+
+            trace = get_last_context_trace()
+            ids = [
+                int(x)
+                for x in (
+                    (trace.get("daily_summary_ids") or [])
+                    + (trace.get("chunk_summary_ids") or [])
+                    + (trace.get("archived_daily_summary_ids") or [])
+                )
+                if str(x).isdigit()
+            ]
+            if ids:
+                db = get_database()
+                cond = "s.id = ANY($1::int[])"
+                params: List[Any] = [ids]
+                if st:
+                    params.append(st)
+                    cond += f" AND s.summary_type = ${len(params)}"
+                async with db.pool.acquire() as conn:
+                    rows = await conn.fetch(
+                        f"""
+                        SELECT
+                            s.id, s.session_id, s.summary_text, s.start_message_id,
+                            s.end_message_id, s.created_at, s.summary_type, s.source_date,
+                            s.archived_by, s.is_starred,
+                            EXISTS (
+                                SELECT 1
+                                FROM summaries AS d
+                                WHERE d.summary_type = 'daily'
+                                  AND d.source_date IS NOT NULL
+                                  AND d.source_date::date = COALESCE(s.source_date::date, s.created_at::date)
+                                  AND (d.session_id = s.session_id OR d.session_id = 'daily_batch')
+                            ) AS has_daily_summary
+                        FROM summaries AS s
+                        WHERE {cond}
+                        ORDER BY array_position($1::int[], s.id)
+                        """,
+                        *params,
+                    )
+                items = [
+                    {
+                        "id": r["id"],
+                        "session_id": r["session_id"],
+                        "summary_text": r["summary_text"],
+                        "start_message_id": r["start_message_id"],
+                        "end_message_id": r["end_message_id"],
+                        "created_at": r["created_at"].isoformat() if r["created_at"] else None,
+                        "summary_type": r["summary_type"],
+                        "source_date": r["source_date"].isoformat() if r["source_date"] else None,
+                        "archived_by": r["archived_by"],
+                        "is_starred": bool(r["is_starred"]),
+                        "has_daily_summary": bool(r["has_daily_summary"]),
+                    }
+                    for r in rows
+                ]
+                total = len(items)
+                page = 1
+            else:
+                items, total, page = [], 0, 1
+        else:
+            items, total = await get_summaries_filtered(
+                page=page,
+                page_size=page_size,
+                summary_type=st,
+                source_date_from=d_from,
+                source_date_to=d_to,
+            )
     except ValueError as e:
         return create_response(False, None, str(e))
     except Exception as e:
@@ -343,6 +419,7 @@ async def get_longterm_memories(
     page: int = 1,
     page_size: int = 20,
     summary_type: Optional[str] = None,
+    context_only: bool = False,
 ):
     """从 ChromaDB 分页拉取长期记忆全量；可选按 metadata.summary_type 过滤。"""
     from memory.vector_store import get_vector_store
@@ -352,7 +429,29 @@ async def get_longterm_memories(
         st = (summary_type or "").strip() or None
         where = {"summary_type": st} if st else None
 
-        if where:
+        trace_ids: List[str] = []
+        if context_only:
+            from memory.context_builder import get_last_context_trace
+
+            trace = get_last_context_trace()
+            raw_trace_ids = [str(x) for x in (trace.get("longterm_doc_ids") or []) if str(x).strip()]
+            if st and raw_trace_ids:
+                trace_result = vs.collection.get(ids=raw_trace_ids, include=["metadatas"])
+                trace_result_ids = trace_result.get("ids") or []
+                trace_metas = trace_result.get("metadatas") or []
+                meta_by_id = {
+                    doc_id: dict(trace_metas[i] or {}) if i < len(trace_metas) else {}
+                    for i, doc_id in enumerate(trace_result_ids)
+                }
+                trace_ids = [
+                    doc_id
+                    for doc_id in raw_trace_ids
+                    if meta_by_id.get(doc_id, {}).get("summary_type") == st
+                ]
+            else:
+                trace_ids = raw_trace_ids
+            total = len(trace_ids)
+        elif where:
             filt = vs.collection.get(where=where, include=["metadatas"])
             total = len(filt.get("ids") or [])
         else:
@@ -363,7 +462,66 @@ async def get_longterm_memories(
         offset = (page - 1) * page_size
 
         items: List[Dict[str, Any]] = []
-        if total > 0 and offset < total:
+        if context_only:
+            page_ids = trace_ids[offset : offset + page_size]
+            if page_ids:
+                result = vs.collection.get(
+                    ids=page_ids,
+                    include=["documents", "metadatas"],
+                )
+                ids = result.get("ids") or []
+                docs = result.get("documents") or []
+                metas = result.get("metadatas") or []
+                ordered = []
+                by_id = {
+                    doc_id: (
+                        docs[i] if i < len(docs) else "",
+                        dict(metas[i] or {}) if i < len(metas) else {},
+                    )
+                    for i, doc_id in enumerate(ids)
+                }
+                for doc_id in page_ids:
+                    if doc_id in by_id:
+                        ordered.append((doc_id, *by_id[doc_id]))
+                for doc_id, doc, meta in ordered:
+                    lat = meta.get("last_access_ts")
+                    last_ts: Optional[float] = None
+                    if lat is not None:
+                        try:
+                            last_ts = float(lat)
+                        except (TypeError, ValueError):
+                            last_ts = None
+                    raw_arousal = meta.get("arousal")
+                    arousal_val: Optional[float] = None
+                    if raw_arousal is not None:
+                        try:
+                            arousal_val = float(raw_arousal)
+                        except (TypeError, ValueError):
+                            arousal_val = None
+                    raw_base = meta.get("base_score")
+                    base_score = 5.0
+                    if raw_base is not None:
+                        try:
+                            base_score = float(raw_base)
+                        except (TypeError, ValueError):
+                            base_score = 5.0
+                    items.append(
+                        {
+                            "chroma_doc_id": doc_id,
+                            "content": doc or "",
+                            "is_manual": str(doc_id).startswith("manual_"),
+                            "summary_type": meta.get("summary_type"),
+                            "date": meta.get("date"),
+                            "hits": _safe_int(meta.get("hits"), 0),
+                            "halflife_days": _safe_int(meta.get("halflife_days"), 30),
+                            "arousal": arousal_val,
+                            "last_access_ts": last_ts,
+                            "base_score": base_score,
+                            "is_starred": bool(meta.get("is_starred")),
+                            "source_chunk_ids": meta.get("source_chunk_ids"),
+                        }
+                    )
+        elif total > 0 and offset < total:
             result = vs.collection.get(
                 limit=page_size,
                 offset=offset,

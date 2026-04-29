@@ -135,6 +135,18 @@ Context 组装时，系统按以下顺序注入信息：
 
 Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被 daily 归档的 chunk 保留在数据库中用于追溯、收藏和 Step 4 来源映射，但不再重复进入常规上下文。
 
+### 3.6 Context trace
+
+`memory/context_builder.py` 会在每次真实构建 Context 后，在进程内记录最近一轮实际注入的记忆清单：
+
+- `built_at`、`session_id`、`user_message_preview`
+- `daily_summary_ids`
+- `chunk_summary_ids`
+- `archived_daily_summary_ids`
+- `longterm_doc_ids`
+
+`GET /api/memory/context-trace` 返回这份最近一次 trace。该 trace 仅用于 Mini App 排查，不参与模型上下文，也不持久化；服务重启后会清空。
+
 ### 3.2 长期记忆过滤
 
 长期记忆默认只召回：
@@ -258,6 +270,16 @@ Config 页管理运行参数，包括：
 - 最近原文条数
 - Telegram 分段参数
 
+### 7.3 Memory
+
+Memory 页管理记忆卡片、长期记忆和 summaries。summaries 列表支持对 chunk 点星收藏，收藏状态会通过 `PATCH /api/memory/summaries/{id}/star` 同步到引用该 chunk 的长期事件与 Chroma metadata。
+
+Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
+
+- summaries 调用 `GET /api/memory/summaries?context_only=true`，按最近一次 Context trace 中的 summary id 返回实际注入条目；可继续按 `summary_type` 限定 chunk / daily。
+- 长期记忆调用 `GET /api/memory/longterm?context_only=true`，按最近一次 Context trace 中的 Chroma doc id 返回实际注入条目；可继续按 `summary_type` 限定类型。
+- 前端用蓝色“本轮”标签标记最近一次 context 实际注入的摘要和长期记忆。
+
 ## 八、机制速查
 
 | 机制 | 说明 |
@@ -270,6 +292,7 @@ Config 页管理运行参数，包括：
 | 事件拆分 | Step 4 将 daily 小传拆为可独立记忆的事件片段 |
 | 远古 daily 补充 | 长期召回命中较早日期时补充对应 daily 概况 |
 | 收藏加权 | 收藏 chunk 会提升其派生长期事件的召回权重 |
+| Context trace | 记录最近一次实际注入的摘要与长期记忆，供 Mini App “只看本轮”排查 |
 | 时效状态 | 临时状态会自动结算并可改写为历史事实 |
 | Tool 执行记录 | 保存工具调用摘要，供后续上下文与微批使用 |
 

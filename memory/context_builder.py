@@ -61,6 +61,31 @@ except ImportError:
 # 设置日志
 logger = logging.getLogger(__name__)
 
+_LAST_CONTEXT_TRACE: Dict[str, Any] = {
+    "built_at": None,
+    "session_id": None,
+    "user_message_preview": "",
+    "daily_summary_ids": [],
+    "chunk_summary_ids": [],
+    "archived_daily_summary_ids": [],
+    "longterm_doc_ids": [],
+}
+
+
+def get_last_context_trace() -> Dict[str, Any]:
+    """返回最近一次实际构建 context 时注入的记忆/摘要清单。"""
+    return {
+        "built_at": _LAST_CONTEXT_TRACE.get("built_at"),
+        "session_id": _LAST_CONTEXT_TRACE.get("session_id"),
+        "user_message_preview": _LAST_CONTEXT_TRACE.get("user_message_preview") or "",
+        "daily_summary_ids": list(_LAST_CONTEXT_TRACE.get("daily_summary_ids") or []),
+        "chunk_summary_ids": list(_LAST_CONTEXT_TRACE.get("chunk_summary_ids") or []),
+        "archived_daily_summary_ids": list(
+            _LAST_CONTEXT_TRACE.get("archived_daily_summary_ids") or []
+        ),
+        "longterm_doc_ids": list(_LAST_CONTEXT_TRACE.get("longterm_doc_ids") or []),
+    }
+
 # OpenAI 兼容路径下启用 Lutopia tools 时注入 system 末尾（与 tools 是否传入由调用方 flag 对齐）
 TOOL_ORAL_COACHING_BLOCK = (
     "调用工具前，用一句简短口语告诉用户你要去做什么，"
@@ -829,7 +854,27 @@ class ContextBuilder:
         初始化 Context 构建器。
         """
         self._last_longterm_results: List[Dict[str, Any]] = []
+        self._last_daily_summary_ids: List[int] = []
+        self._last_chunk_summary_ids: List[int] = []
+        self._last_archived_daily_summary_ids: List[int] = []
         logger.info("Context 构建器初始化完成")
+
+    def _record_context_trace(self, session_id: str, user_message: str) -> None:
+        """保存最近一轮真实注入的摘要与长期记忆，供 Mini App 排查使用。"""
+        global _LAST_CONTEXT_TRACE
+        _LAST_CONTEXT_TRACE = {
+            "built_at": datetime.now().isoformat(timespec="seconds"),
+            "session_id": session_id,
+            "user_message_preview": (user_message or "").replace("\n", " ")[:160],
+            "daily_summary_ids": list(self._last_daily_summary_ids),
+            "chunk_summary_ids": list(self._last_chunk_summary_ids),
+            "archived_daily_summary_ids": list(self._last_archived_daily_summary_ids),
+            "longterm_doc_ids": [
+                str(r.get("id") or "")
+                for r in self._last_longterm_results
+                if r.get("id")
+            ],
+        }
     
     async def build_context(
         self,
@@ -935,6 +980,7 @@ class ContextBuilder:
                 len(chunk_summaries_section or ""),
                 len(recent_messages_section or []),
             )
+            self._record_context_trace(session_id, user_message)
             
             return {
                 "system_prompt": full_system_prompt,
@@ -1063,6 +1109,7 @@ class ContextBuilder:
                 len(chunk_summaries_section or ""),
                 len(recent_messages_section or []),
             )
+            self._record_context_trace(session_id, user_message)
             
             return {
                 "system_prompt": full_system_prompt,
@@ -1247,6 +1294,7 @@ class ContextBuilder:
             str: daily summary 部分的文本，如果没有则返回空字符串
         """
         try:
+            self._last_daily_summary_ids = []
             daily_summaries = await get_recent_daily_summaries(
                 limit=await _context_max_daily_summaries_limit(),
                 session_id=session_id,
@@ -1257,6 +1305,9 @@ class ContextBuilder:
             
             # 翻转为正序（最旧的在前）
             daily_summaries.reverse()
+            self._last_daily_summary_ids = [
+                int(s["id"]) for s in daily_summaries if s.get("id") is not None
+            ]
             
             sections = []
             for summary in daily_summaries:
@@ -1281,6 +1332,7 @@ class ContextBuilder:
                 
         except Exception as e:
             logger.warning(f"构建 daily summary 部分失败: {e}")  # 可恢复/已兜底，降为 warning
+            self._last_daily_summary_ids = []
             return ""
 
     async def _build_archived_daily_supplement_section(self, session_id: Optional[str] = None) -> str:
@@ -1290,6 +1342,7 @@ class ContextBuilder:
         最近 daily 已由常规 daily 通道注入；这里只补召回事件涉及的窗口外日期。
         """
         try:
+            self._last_archived_daily_summary_ids = []
             limit = await _context_archived_daily_limit()
             if limit <= 0 or not self._last_longterm_results:
                 return ""
@@ -1351,6 +1404,8 @@ class ContextBuilder:
                 if not rows:
                     continue
                 for row in rows[:1]:
+                    if row.get("id") is not None:
+                        self._last_archived_daily_summary_ids.append(int(row["id"]))
                     sections.append(f"### {day}\n{row.get('summary_text') or ''}")
 
             if not sections:
@@ -1363,6 +1418,7 @@ class ContextBuilder:
             )
         except Exception as e:
             logger.warning("构建远古 daily 补充失败: %s", e)
+            self._last_archived_daily_summary_ids = []
             return ""
     
     async def _build_chunk_summaries_section(self) -> str:
@@ -1376,6 +1432,7 @@ class ContextBuilder:
             str: chunk summary 部分的文本，如果没有则返回空字符串
         """
         try:
+            self._last_chunk_summary_ids = []
             chunk_summaries = await get_today_chunk_summaries()
             
             if not chunk_summaries:
@@ -1391,6 +1448,9 @@ class ContextBuilder:
                     total_chunk_summaries,
                     len(chunk_summaries),
                 )
+            self._last_chunk_summary_ids = [
+                int(s["id"]) for s in chunk_summaries if s.get("id") is not None
+            ]
             
             sections = []
             for summary in chunk_summaries:
@@ -1426,6 +1486,7 @@ class ContextBuilder:
                 
         except Exception as e:
             logger.warning(f"构建 chunk summary 部分失败: {e}")  # 可恢复/已兜底，降为 warning
+            self._last_chunk_summary_ids = []
             return ""
 
     async def _build_recent_tool_executions_section(self, session_id: str) -> str:

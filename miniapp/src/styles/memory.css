@@ -83,12 +83,12 @@
   -webkit-appearance: none;
   flex-shrink: 0;
   margin: 0;
-  padding: 10px 18px;
+  padding: 12px 20px;
   border: none;
   border-radius: 0;
   background: transparent;
   color: var(--text-main);
-  font-size: 0.95rem;
+  font-size: 1.02rem;
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
@@ -308,6 +308,23 @@ h2.memory-tab-header__title,
   gap: 8px;
 }
 
+.memory-card .card-actions .action-button {
+  min-height: 34px;
+  padding: 7px 12px;
+  border: 2px solid var(--industrial-border-color);
+  border-radius: 0;
+  background: #e8e4da;
+  color: var(--text-main);
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
+  font-size: 0.85rem;
+  text-transform: none;
+}
+
+.memory-card .card-actions .delete-card-button {
+  background: #f6e0dc;
+  color: var(--industrial-red);
+}
+
 /* 卡片内容 */
 .card-content {
   color: var(--text-main);
@@ -512,9 +529,27 @@ h2.memory-tab-header__title,
 /* 搜索框和新增按钮 */
 .longterm-header {
   display: flex;
-  gap: 16px;
+  gap: 12px;
   margin-bottom: 24px;
   align-items: center;
+  flex-wrap: nowrap;
+  min-width: 0;
+  overflow: visible;
+}
+
+.longterm-filter-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 190px;
+}
+
+.longterm-filter-label .longterm-type-select {
+  flex: 0 0 auto;
+  width: 118px;
+  min-width: 0;
+  max-width: 32vw;
+  padding-left: 10px;
+  padding-right: 28px;
 }
 
 .search-input {
@@ -570,25 +605,31 @@ h2.memory-tab-header__title,
   background: var(--surface);
   box-shadow: var(--shadow-solid);
   padding: var(--card-padding);
+  padding-bottom: calc(var(--card-padding) + 26px);
   transition: none;
   position: relative;
-  margin-top: 16px;
+  margin-top: 14px;
 }
 
 .memory-item::before {
   content: 'LONG-TERM';
   position: absolute;
-  top: -14px;
+  top: -12px;
   left: 16px;
-  background: var(--badge-vault);
+  background: var(--surface);
   color: var(--text-main);
   font-family: 'Courier New', Courier, monospace;
   font-size: 10px;
   font-weight: bold;
-  padding: 2px 8px;
+  line-height: 1;
+  padding: 4px 9px;
   border: 2px solid var(--text-main);
-  box-shadow: 2px 2px 0px var(--text-main);
+  box-shadow: none;
   z-index: 10;
+}
+
+.memory-item--context::before {
+  background: var(--surface);
 }
 
 .memory-item:hover {
@@ -597,7 +638,7 @@ h2.memory-tab-header__title,
 
 /* 长期记忆：全文按钮已改为正文下方块级流式排版，仅需略增底距避免贴边 */
 .memory-item.memory-item--has-view-link {
-  padding-bottom: calc(var(--card-padding, 16px) + 4px);
+  padding-bottom: calc(var(--card-padding, 16px) + 26px);
 }
 
 .memory-summary {
@@ -647,12 +688,16 @@ h2.memory-tab-header__title,
   gap: 8px;
   min-width: 0;
   flex: 1 1 auto;
+  padding-right: 0;
 }
 
 .memory-longterm-title {
   font-weight: 600;
   line-height: 1.35;
-  word-break: break-word;
+  white-space: nowrap;
+  word-break: normal;
+  overflow-wrap: normal;
+  flex: 0 0 auto;
 }
 
 .memory-item-head__actions {
@@ -661,6 +706,9 @@ h2.memory-tab-header__title,
   align-items: center;
   justify-content: flex-end;
   gap: 8px;
+  position: absolute;
+  right: var(--card-padding);
+  bottom: 10px;
   flex-shrink: 0;
 }
 
@@ -682,6 +730,13 @@ h2.memory-tab-header__title,
 .memory-longterm-meta-footer__line {
   margin-bottom: 10px;
   word-break: break-word;
+}
+
+.memory-longterm-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-bottom: 10px;
 }
 
 .memory-longterm-meta-footer__doc {
@@ -808,27 +863,30 @@ h2.memory-tab-header__title,
 }
 
 .delete-button {
-  padding: 8px 14px;
-  background: #e8e4da;
+  padding: 4px 0;
+  background: transparent;
   color: var(--industrial-red);
+  border: 0;
   border-radius: 0;
+  box-shadow: none;
   font-family: monospace;
   font-weight: bold;
-  text-transform: uppercase;
-  font-size: 0.85rem;
+  text-transform: none;
+  font-size: 0.78rem;
   cursor: pointer;
   transition: none;
 }
 
 .delete-button:hover {
-  background: #fdd;
+  background: transparent;
+  text-decoration: underline;
   filter: none;
 }
 
 .delete-button:active {
-  background: #fcc;
-  transform: translate(1px, 1px);
-  box-shadow: 2px 2px 0 var(--shadow-color-deep);
+  background: transparent;
+  transform: none;
+  box-shadow: none;
 }
 
 /* 分页控件（单行） */
@@ -1109,12 +1167,15 @@ h2.memory-tab-header__title,
 
 /* 按钮基础样式 */
 .action-button {
-  padding: 8px 14px;
+  padding: 4px 0;
+  border: 0;
   border-radius: 0;
+  background: transparent;
+  box-shadow: none;
   font-family: monospace;
   font-weight: bold;
-  text-transform: uppercase;
-  font-size: 0.85rem;
+  text-transform: none;
+  font-size: 0.78rem;
   cursor: pointer;
   transition: none;
   display: inline-flex;
@@ -1123,22 +1184,63 @@ h2.memory-tab-header__title,
 }
 
 .edit-button {
-  background: #e8e4da;
-  color: var(--text-main);
+  background: transparent;
+  color: var(--text-sub);
 }
 
 .edit-button:hover {
-  filter: brightness(0.97);
+  filter: none;
+  color: var(--text-main);
+  text-decoration: underline;
 }
 
 .edit-button:active {
-  transform: translate(1px, 1px);
-  box-shadow: 2px 2px 0 var(--shadow-color-deep);
+  transform: none;
+  box-shadow: none;
 }
 
 .delete-card-button {
   background: #e8e4da;
   color: var(--industrial-red);
+}
+
+.memory-container .memory-item .action-button,
+.memory-container .memory-item .delete-button,
+.memory-container .memory-item .card-view-full-link {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  font-size: 0.78rem;
+  text-transform: none;
+  line-height: 1.2;
+}
+
+.memory-container .memory-item .action-button,
+.memory-container .memory-item .card-view-full-link {
+  color: var(--text-sub);
+}
+
+.memory-container .memory-item .delete-button {
+  color: var(--industrial-red);
+}
+
+.memory-container .memory-item .action-button:hover,
+.memory-container .memory-item .delete-button:hover,
+.memory-container .memory-item .card-view-full-link:hover {
+  background: transparent;
+  filter: none;
+  text-decoration: underline;
+}
+
+.memory-container .memory-item .action-button:active,
+.memory-container .memory-item .delete-button:active,
+.memory-container .memory-item .card-view-full-link:active {
+  transform: none;
+  box-shadow: none;
 }
 
 .delete-card-button:hover {
@@ -1330,6 +1432,8 @@ h2.memory-tab-header__title,
   font-family: monospace;
   font-size: 0.85rem;
   color: var(--text-sub);
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .timeline-type-badge {
@@ -1360,31 +1464,96 @@ h2.memory-tab-header__title,
   color: #8a5b00;
 }
 
+.memory-context-badge {
+  background: #e8eefc;
+  border-color: #6f86c7;
+  color: #243f86;
+  text-transform: none;
+}
+
+.memory-item--context {
+  background: var(--surface);
+  border-color: var(--text-main);
+  box-shadow: var(--shadow-solid);
+}
+
+.memory-container .summaries-type-toggle button.summaries-type-btn,
+.memory-context-filter-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  flex-shrink: 0;
+  border: 2px solid #333333;
+  border-radius: 0;
+  background: var(--surface);
+  color: var(--text-main);
+  box-shadow: 3px 3px 0 #333333;
+  padding: 8px 14px;
+  font-family: monospace;
+  font-size: 0.85rem;
+  font-weight: bold;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: none;
+  white-space: nowrap;
+}
+
+.memory-container .summaries-type-toggle button.summaries-type-btn.active {
+  background: var(--memory-moss-deep);
+  border-color: #333333;
+  color: #ffffff;
+}
+
+.memory-context-filter-btn {
+  border-color: #333333;
+  background: #e8eefc;
+  color: #243f86;
+  box-shadow: 3px 3px 0 #333333;
+}
+
+.memory-context-filter-btn.active {
+  background: #243f86;
+  border-color: #333333;
+  color: #ffffff;
+  box-shadow: 3px 3px 0 #333333;
+}
+
+.context-trace-note {
+  flex: 1 1 260px;
+  min-width: 220px;
+  color: var(--text-sub);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  font-family: monospace;
+  overflow-wrap: anywhere;
+}
+
 .summary-star-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
-  border: 1px solid var(--border-soft);
-  border-radius: 999px;
+  width: 24px;
+  height: 24px;
+  min-height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
   color: var(--text-sub);
-  background: var(--surface-main);
-  box-shadow: var(--shadow-neumorphic-small);
+  background: transparent;
+  box-shadow: none;
   cursor: pointer;
-  transition: color 0.18s ease, transform 0.18s ease, box-shadow 0.18s ease;
+  transition: none;
 }
 
 .summary-star-button:hover {
   color: #a97800;
-  transform: translateY(-1px);
+  transform: none;
 }
 
 .summary-star-button--active {
   color: #c58a00;
-  background: #fff8e8;
-  border-color: #e1c477;
-  box-shadow: inset 2px 2px 5px rgba(182, 141, 45, 0.18), inset -2px -2px 5px rgba(255, 255, 255, 0.85);
+  background: transparent;
+  box-shadow: none;
 }
 
 .timeline-content-text {
@@ -1453,8 +1622,8 @@ h2.memory-tab-header__title,
     flex-shrink: 0;
     min-width: auto;
     width: auto;
-    padding: 8px 12px;
-    font-size: 0.85rem;
+    padding: 9px 14px;
+    font-size: 0.92rem;
     letter-spacing: 0;
     white-space: nowrap;
     overflow: visible;
@@ -1525,11 +1694,16 @@ h2.memory-tab-header__title,
 
   .longterm-header {
     min-width: 0;
-    flex-wrap: wrap;
+    flex-wrap: nowrap;
   }
 
   .longterm-header .search-input {
     min-width: 0;
+  }
+
+  .longterm-filter-label .longterm-type-select {
+    width: 104px;
+    max-width: 34vw;
   }
 
   /* 窄屏下参数框略缩字号，仍允许换行完整显示 */
@@ -1539,8 +1713,8 @@ h2.memory-tab-header__title,
   }
 
   .summaries-toolbar {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    align-items: center;
   }
 
   /* 日期范围保持单行：窄屏横向滑动，不折行 */
@@ -1571,7 +1745,8 @@ h2.memory-tab-header__title,
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 12px 16px;
+  justify-content: center;
+  gap: 10px 12px;
   margin-bottom: 16px;
 }
 
@@ -1581,32 +1756,30 @@ h2.memory-tab-header__title,
 }
 
 .memory-container .summaries-type-toggle button.summaries-type-btn {
-  appearance: none;
-  -webkit-appearance: none;
-  margin: 0;
-  padding: 8px 16px;
-  border: 2px solid var(--text-main);
-  background: #e8e4da;
-  color: var(--text-main);
-  font-family: monospace;
-  font-weight: bold;
-  font-size: 0.85rem;
-  cursor: pointer;
-  border-radius: 0;
+  border: 2px solid #333333;
+  box-shadow: 3px 3px 0 #333333;
+  padding: 8px 14px;
 }
 
 .memory-container .summaries-type-toggle button.summaries-type-btn.active {
   background: var(--memory-moss-deep);
   color: #ffffff;
-  border-color: var(--memory-tab-ink);
-  box-shadow: 4px 4px 0 var(--memory-tab-ink);
+  border-color: #333333;
+  box-shadow: 3px 3px 0 #333333;
+}
+
+.memory-container .summaries-type-toggle button.summaries-type-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .summaries-date-range {
   display: flex;
   flex-wrap: nowrap;
   align-items: center;
+  align-content: center;
   gap: 8px 10px;
+  flex: 1 1 100%;
   min-width: 0;
   max-width: 100%;
   overflow-x: auto;
@@ -1626,6 +1799,7 @@ h2.memory-tab-header__title,
 .summaries-date-field {
   display: inline-flex;
   align-items: center;
+  align-self: center;
   gap: 6px;
   flex-shrink: 0;
 }
@@ -1642,6 +1816,8 @@ h2.memory-tab-header__title,
   color: var(--text-sub);
   user-select: none;
   flex-shrink: 0;
+  align-self: center;
+  line-height: 1;
 }
 
 .summaries-filter-label-text {
@@ -1731,7 +1907,147 @@ h2.memory-tab-header__title,
 }
 
 .summary-record-actions {
+  display: flex;
+  position: static;
   min-width: 0;
+  margin-top: 12px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+}
+
+.summary-record-item {
+  padding-bottom: var(--card-padding);
+}
+
+.memory-container .memory-item .summary-record-actions .action-button,
+.memory-container .memory-item .summary-record-actions .delete-button,
+.memory-container .memory-item .summary-record-actions .card-view-full-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 10px;
+  margin: 0;
+  border: 2px solid var(--industrial-border-color);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
+  background: #e8e4da;
+  color: var(--text-main);
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: bold;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.memory-container .memory-item .summary-record-actions .delete-button {
+  color: var(--industrial-red);
+  background: #f6e0dc;
+}
+
+.memory-container .memory-item .summary-record-actions .card-view-full-link {
+  margin-right: auto;
+}
+
+.memory-container .memory-item .summary-record-actions .action-button:hover,
+.memory-container .memory-item .summary-record-actions .delete-button:hover,
+.memory-container .memory-item .summary-record-actions .card-view-full-link:hover {
+  filter: brightness(0.97);
+  text-decoration: none;
+}
+
+.memory-container .memory-item .summary-record-actions .action-button:active,
+.memory-container .memory-item .summary-record-actions .delete-button:active,
+.memory-container .memory-item .summary-record-actions .card-view-full-link:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
+}
+
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .action-button,
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 10px;
+  margin: 0;
+  border: 2px solid var(--industrial-border-color);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
+  background: #e8e4da;
+  color: var(--text-main);
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: bold;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .delete-button {
+  color: var(--industrial-red);
+  background: #f6e0dc;
+}
+
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .action-button:hover,
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .delete-button:hover {
+  filter: brightness(0.97);
+  text-decoration: none;
+}
+
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .action-button:active,
+.memory-container .memory-item .memory-item-head__actions:not(.summary-record-actions) .delete-button:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
+}
+
+.memory-container .memory-item .memory-longterm-footer-actions .action-button,
+.memory-container .memory-item .memory-longterm-footer-actions .delete-button,
+.memory-container .memory-item .memory-longterm-footer-actions .card-view-full-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 10px;
+  margin: 0;
+  border: 2px solid var(--industrial-border-color);
+  border-radius: 0;
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
+  background: #e8e4da;
+  color: var(--text-main);
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: bold;
+  line-height: 1.2;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.memory-container .memory-item .memory-longterm-footer-actions .delete-button {
+  color: var(--industrial-red);
+  background: #f6e0dc;
+}
+
+.memory-container .memory-item .memory-longterm-footer-actions .card-view-full-link {
+  margin-right: auto;
+}
+
+.memory-container .memory-item .memory-longterm-footer-actions .action-button:hover,
+.memory-container .memory-item .memory-longterm-footer-actions .delete-button:hover,
+.memory-container .memory-item .memory-longterm-footer-actions .card-view-full-link:hover {
+  filter: brightness(0.97);
+  text-decoration: none;
+}
+
+.memory-container .memory-item .memory-longterm-footer-actions .action-button:active,
+.memory-container .memory-item .memory-longterm-footer-actions .delete-button:active,
+.memory-container .memory-item .memory-longterm-footer-actions .card-view-full-link:active {
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .modal-container.summary-edit-modal::before {

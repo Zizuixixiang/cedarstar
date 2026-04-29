@@ -3,7 +3,7 @@
  * 管理 AI 助手的记忆卡片和长期记忆库
  */
 
-import { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useLayoutEffect, useRef, useCallback, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { apiFetch } from '../apiBase';
 import {
@@ -188,6 +188,31 @@ function formatSummaryRecordTitle(row) {
     }
   }
   return '—';
+}
+
+function ContextTraceNote({ trace }) {
+  if (!trace?.built_at) {
+    return (
+      <div className="context-trace-note">
+        暂无本轮 context 记录
+      </div>
+    );
+  }
+  const summaryCount =
+    (trace.daily_summary_ids?.length || 0) +
+    (trace.chunk_summary_ids?.length || 0) +
+    (trace.archived_daily_summary_ids?.length || 0);
+  return (
+    <div
+      className="context-trace-note"
+      title={trace.user_message_preview ? `用户消息：${trace.user_message_preview}` : undefined}
+    >
+      最近构建：{formatShanghaiDateTime(trace.built_at)}
+      {trace.session_id ? ` · session: ${trace.session_id}` : ''}
+      {' · '}
+      摘要 {summaryCount} 条 · 长期记忆 {trace.longterm_doc_ids?.length || 0} 条
+    </div>
+  );
 }
 
 /**
@@ -391,6 +416,8 @@ function SummaryEditModal({ row, onClose, onSaved, addToast }) {
  */
 function SummaryRecordItem({
   row,
+  isInCurrentContext,
+  contextTraceLabel,
   confirmDeleteId,
   onBeginDelete,
   onCancelDelete,
@@ -430,7 +457,11 @@ function SummaryRecordItem({
   }, [bodyText]);
 
   return (
-    <div className={`memory-item summary-record-item ${showViewFull ? 'memory-item--has-view-link' : ''}`}>
+    <div
+      className={`memory-item summary-record-item ${showViewFull ? 'memory-item--has-view-link' : ''} ${
+        isInCurrentContext ? 'memory-item--context' : ''
+      }`}
+    >
       {viewOpen && (
         <ViewLongtermMemoryModal title={titleLine} content={bodyText} onClose={() => setViewOpen(false)} />
       )}
@@ -450,50 +481,58 @@ function SummaryRecordItem({
               {hasDailySummary ? '已日摘要' : '未日摘要'}
             </span>
           ) : null}
-        </div>
-        <div className="memory-item-head__actions summary-record-actions">
-          {confirmDeleteId === row.id ? (
-            <span className="summary-delete-confirm-wrap">
-              <span className="summary-delete-confirm-text">确认删除？</span>
-              <button type="button" className="summary-delete-confirm-btn" onClick={() => onDeleteConfirm(row.id)}>
-                确认
-              </button>
-              <button type="button" className="summary-delete-cancel-btn" onClick={onCancelDelete}>
-                取消
-              </button>
+          {isInCurrentContext ? (
+            <span
+              className="memory-context-badge timeline-type-badge"
+              title={contextTraceLabel || '最近一轮 context 实际注入了这条摘要'}
+            >
+              本轮
             </span>
-          ) : (
-            <>
-              {isChunk ? (
-                <button
-                  type="button"
-                  className={`summary-star-button ${isStarred ? 'summary-star-button--active' : ''}`}
-                  onClick={() => onToggleStar(row)}
-                  title={isStarred ? '取消收藏' : '收藏 chunk'}
-                  aria-label={isStarred ? '取消收藏' : '收藏 chunk'}
-                >
-                  <Star size={16} strokeWidth={2} fill={isStarred ? 'currentColor' : 'none'} aria-hidden />
-                </button>
-              ) : null}
-              <button type="button" className="action-button edit-button" onClick={() => onEdit(row)}>
-                编辑
-              </button>
-              <button type="button" className="delete-button" onClick={() => onBeginDelete(row.id)}>
-                删除
-              </button>
-            </>
-          )}
+          ) : null}
         </div>
       </div>
       <div className="memory-longterm-body-wrap">
         <div ref={bodyRef} className="memory-summary memory-summary--longterm-only">
           {bodyText}
         </div>
-        {showViewFull ? (
-          <button type="button" className="card-view-full-link" onClick={() => setViewOpen(true)}>
-            查看全文
-          </button>
-        ) : null}
+      </div>
+      <div className="summary-record-actions">
+        {confirmDeleteId === row.id ? (
+          <span className="summary-delete-confirm-wrap">
+            <span className="summary-delete-confirm-text">确认删除？</span>
+            <button type="button" className="summary-delete-confirm-btn" onClick={() => onDeleteConfirm(row.id)}>
+              确认
+            </button>
+            <button type="button" className="summary-delete-cancel-btn" onClick={onCancelDelete}>
+              取消
+            </button>
+          </span>
+        ) : (
+          <>
+            {showViewFull ? (
+              <button type="button" className="card-view-full-link" onClick={() => setViewOpen(true)}>
+                查看全文
+              </button>
+            ) : null}
+            {isChunk ? (
+              <button
+                type="button"
+                className={`summary-star-button ${isStarred ? 'summary-star-button--active' : ''}`}
+                onClick={() => onToggleStar(row)}
+                title={isStarred ? '取消收藏' : '收藏 chunk'}
+                aria-label={isStarred ? '取消收藏' : '收藏 chunk'}
+              >
+                <Star size={13} strokeWidth={2} fill={isStarred ? 'currentColor' : 'none'} aria-hidden />
+              </button>
+            ) : null}
+            <button type="button" className="action-button edit-button" onClick={() => onEdit(row)}>
+              编辑
+            </button>
+            <button type="button" className="delete-button" onClick={() => onBeginDelete(row.id)}>
+              删除
+            </button>
+          </>
+        )}
       </div>
       <div className="summary-record-meta-footer">
         <div
@@ -1026,7 +1065,7 @@ function LongTermMetadataModal({ memory, onClose, onSave }) {
 /**
  * 长期记忆项组件（Chroma 全量列表）
  */
-function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold }) {
+function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold, isInCurrentContext, contextTraceLabel }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const [viewOpen, setViewOpen] = useState(false);
   const [showViewFull, setShowViewFull] = useState(false);
@@ -1100,7 +1139,7 @@ function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold })
   }
 
   return (
-    <div className={`memory-item ${showViewFull ? 'memory-item--has-view-link' : ''}`}>
+    <div className={`memory-item ${showViewFull ? 'memory-item--has-view-link' : ''} ${isInCurrentContext ? 'memory-item--context' : ''}`}>
       {viewOpen && (
         <ViewLongtermMemoryModal
           title={formatLongtermTitleLine(memory)}
@@ -1116,15 +1155,13 @@ function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold })
               {typeLabel}
             </span>
           ) : null}
-        </div>
-        <div className="memory-item-head__actions">
-          <button type="button" className="action-button edit-button" onClick={() => onEdit(memory)}>
-            编辑
-          </button>
-          {memory.is_manual ? (
-            <button type="button" className="delete-button" onClick={handleDelete}>
-              删除
-            </button>
+          {isInCurrentContext ? (
+            <span
+              className="memory-context-badge timeline-type-badge"
+              title={contextTraceLabel || '最近一轮 context 实际注入了这条长期记忆'}
+            >
+              本轮
+            </span>
           ) : null}
         </div>
       </div>
@@ -1140,11 +1177,6 @@ function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold })
         <div ref={longtermSummaryRef} className="memory-summary memory-summary--longterm-only">
           {memory.content}
         </div>
-        {showViewFull ? (
-          <button type="button" className="card-view-full-link" onClick={() => setViewOpen(true)}>
-            查看全文
-          </button>
-        ) : null}
       </div>
       <div className="memory-detail-row memory-detail-row--chroma-stats">
         <span className="memory-meta-chip">hits：{hitsNum != null ? hitsNum : '—'}</span>
@@ -1153,6 +1185,21 @@ function LongTermMemoryItem({ memory, onDelete, onEdit, gcExemptHitsThreshold })
         <span className="memory-meta-chip">base_score：{baseDisplay}</span>
       </div>
       <div className="memory-longterm-meta-footer">
+        <div className="memory-longterm-footer-actions">
+          {showViewFull ? (
+            <button type="button" className="card-view-full-link" onClick={() => setViewOpen(true)}>
+              查看全文
+            </button>
+          ) : null}
+          <button type="button" className="action-button edit-button" onClick={() => onEdit(memory)}>
+            编辑
+          </button>
+          {memory.is_manual ? (
+            <button type="button" className="delete-button" onClick={handleDelete}>
+              删除
+            </button>
+          ) : null}
+        </div>
         <div className="memory-longterm-meta-footer__line">
           最近访问 last_access_ts：{formatLastAccessTs(memory.last_access_ts)}
         </div>
@@ -1243,6 +1290,7 @@ function Memory() {
   const [longTermMemories, setLongTermMemories] = useState([]);
   const [toasts, setToasts] = useState([]);
   const [gcExemptHitsThreshold, setGcExemptHitsThreshold] = useState(null);
+  const [contextTrace, setContextTrace] = useState(null);
   
   // 弹窗状态
   const [showEditModal, setShowEditModal] = useState(false);
@@ -1268,6 +1316,7 @@ function Memory() {
   const [summariesPage, setSummariesPage] = useState(1);
   const [summariesLoading, setSummariesLoading] = useState(false);
   const [summaryKindFilter, setSummaryKindFilter] = useState('chunk');
+  const [summariesContextOnly, setSummariesContextOnly] = useState(false);
   const [summariesDateFrom, setSummariesDateFrom] = useState('');
   const [summariesDateTo, setSummariesDateTo] = useState('');
   const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState(null);
@@ -1276,10 +1325,28 @@ function Memory() {
   
   // 长期记忆：summary_type 筛选与分页
   const [longtermTypeFilter, setLongtermTypeFilter] = useState('');
+  const [longtermContextOnly, setLongtermContextOnly] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [longtermTotal, setLongtermTotal] = useState(0);
   const totalPages = Math.max(1, Math.ceil(longtermTotal / LONGTERM_PAGE_SIZE));
   const summariesTotalPages = Math.max(1, Math.ceil(summariesTotal / SUMMARIES_PAGE_SIZE));
+  const contextSummaryIdSet = useMemo(() => {
+    const ids = [
+      ...(contextTrace?.daily_summary_ids || []),
+      ...(contextTrace?.chunk_summary_ids || []),
+      ...(contextTrace?.archived_daily_summary_ids || []),
+    ];
+    return new Set(ids.map((id) => Number(id)).filter((id) => !Number.isNaN(id)));
+  }, [contextTrace]);
+  const contextLongtermDocIdSet = useMemo(
+    () => new Set((contextTrace?.longterm_doc_ids || []).map((id) => String(id))),
+    [contextTrace]
+  );
+  const contextTraceLabel = contextTrace?.built_at
+    ? `最近构建：${formatShanghaiDateTime(contextTrace.built_at)}${
+        contextTrace.session_id ? ` · session: ${contextTrace.session_id}` : ''
+      }`
+    : '';
   
   // 添加 Toast
   const addToast = useCallback((message, type = 'info') => {
@@ -1351,10 +1418,22 @@ function Memory() {
       addToast('加载记忆卡片失败：' + error.message, 'error');
     }
   }, [addToast]);
+
+  const loadContextTrace = useCallback(async () => {
+    try {
+      const response = await apiFetch('/api/memory/context-trace');
+      const data = await response.json().catch(() => ({}));
+      if (response.ok && data.success) {
+        setContextTrace(data.data || null);
+      }
+    } catch (error) {
+      console.error('加载本轮 context 标记失败:', error);
+    }
+  }, []);
   
   // 加载长期记忆数据（ChromaDB 全量分页）
   const loadLongTermMemories = useCallback(
-    async (page = 1, summaryTypeFilter = longtermTypeFilter) => {
+    async (page = 1, summaryTypeFilter = longtermTypeFilter, contextOnlyFilter = longtermContextOnly) => {
       try {
         const params = new URLSearchParams({
           page: page.toString(),
@@ -1362,6 +1441,9 @@ function Memory() {
         });
         if (summaryTypeFilter) {
           params.set('summary_type', summaryTypeFilter);
+        }
+        if (contextOnlyFilter) {
+          params.set('context_only', 'true');
         }
 
         const response = await apiFetch(`/api/memory/longterm?${params}`);
@@ -1383,7 +1465,7 @@ function Memory() {
         addToast('加载长期记忆失败：' + error.message, 'error');
       }
     },
-    [addToast, longtermTypeFilter]
+    [addToast, longtermTypeFilter, longtermContextOnly]
   );
   
   const loadTemporalStates = useCallback(async () => {
@@ -1437,14 +1519,19 @@ function Memory() {
       const params = new URLSearchParams({
         page: String(summariesPage),
         page_size: String(SUMMARIES_PAGE_SIZE),
-        summary_type: summaryKindFilter,
       });
+      if (!summariesContextOnly) {
+        params.set('summary_type', summaryKindFilter);
+      } else {
+        params.set('context_only', 'true');
+        params.set('summary_type', summaryKindFilter);
+      }
       const df = normalizeSummaryDateInput(summariesDateFrom);
       const dt = normalizeSummaryDateInput(summariesDateTo);
-      if (df) {
+      if (!summariesContextOnly && df) {
         params.set('source_date_from', df);
       }
-      if (dt) {
+      if (!summariesContextOnly && dt) {
         params.set('source_date_to', dt);
       }
       const response = await apiFetch(`/api/memory/summaries?${params.toString()}`);
@@ -1482,9 +1569,12 @@ function Memory() {
         setSummariesLoading(false);
       }
     }
-  }, [summariesPage, summaryKindFilter, summariesDateFrom, summariesDateTo, addToast]);
+  }, [summariesPage, summaryKindFilter, summariesContextOnly, summariesDateFrom, summariesDateTo, addToast]);
   
   useEffect(() => {
+    if (activeTab === 'summaries' || activeTab === 'longterm') {
+      loadContextTrace();
+    }
     if (activeTab === 'temporal') {
       loadTemporalStates();
     } else if (activeTab === 'timeline') {
@@ -1492,7 +1582,7 @@ function Memory() {
     } else if (activeTab === 'summaries') {
       loadSummaries();
     }
-  }, [activeTab, loadTemporalStates, loadRelationshipTimeline, loadSummaries]);
+  }, [activeTab, loadTemporalStates, loadRelationshipTimeline, loadSummaries, loadContextTrace]);
   
   // 初始化加载数据
   useEffect(() => {
@@ -1501,6 +1591,7 @@ function Memory() {
       await Promise.all([
         loadMemoryCards(),
         loadLongTermMemories(),
+        loadContextTrace(),
         apiFetch('/api/config/config')
           .then(r => r.json())
           .then(d => {
@@ -1515,7 +1606,7 @@ function Memory() {
     };
     
     loadAllData();
-  }, [loadMemoryCards, loadLongTermMemories]);
+  }, [loadMemoryCards, loadLongTermMemories, loadContextTrace]);
   
   
   // 处理编辑记忆卡片
@@ -1984,12 +2075,11 @@ function Memory() {
             </div>
           </div>
 
-          <div className="longterm-header" style={{ flexWrap: 'wrap', gap: '12px' }}>
+          <div className="longterm-header">
             <label className="longterm-filter-label" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
               <span style={{ whiteSpace: 'nowrap' }}>类型筛选</span>
               <select
-                className="search-input"
-                style={{ minWidth: '200px' }}
+                className="search-input longterm-type-select"
                 value={longtermTypeFilter}
                 onChange={(e) => {
                   const v = e.target.value;
@@ -1999,12 +2089,24 @@ function Memory() {
                 }}
               >
                 <option value="">全部</option>
-                <option value="daily">daily（日总）</option>
-                <option value="daily_event">daily_event（日终片段）</option>
-                <option value="manual">manual（手动）</option>
-                <option value="state_archive">state_archive（状态归档）</option>
+                <option value="daily">日总</option>
+                <option value="daily_event">日终片段</option>
+                <option value="manual">手动</option>
+                <option value="state_archive">状态归档</option>
               </select>
             </label>
+            <button
+              type="button"
+              className={`memory-context-filter-btn ${longtermContextOnly ? 'active' : ''}`}
+              onClick={() => {
+                const next = !longtermContextOnly;
+                setLongtermContextOnly(next);
+                setCurrentPage(1);
+                loadLongTermMemories(1, longtermTypeFilter, next);
+              }}
+            >
+              只看本轮
+            </button>
           </div>
 
           <div className="memory-list">
@@ -2023,6 +2125,8 @@ function Memory() {
                   onDelete={handleDeleteMemory}
                   onEdit={(m) => setLongtermEditMemory(m)}
                   gcExemptHitsThreshold={gcExemptHitsThreshold}
+                  isInCurrentContext={contextLongtermDocIdSet.has(String(memory.chroma_doc_id))}
+                  contextTraceLabel={contextTraceLabel}
                 />
               ))
             )}
@@ -2140,6 +2244,16 @@ function Memory() {
                 daily
               </button>
             </div>
+            <button
+              type="button"
+              className={`memory-context-filter-btn ${summariesContextOnly ? 'active' : ''}`}
+              onClick={() => {
+                setSummariesContextOnly((prev) => !prev);
+                setSummariesPage(1);
+              }}
+            >
+              只看本轮
+            </button>
             <div className="summaries-date-range" role="group" aria-label="source_date 范围">
               <span className="summaries-filter-label-text">source_date</span>
               <label className="summaries-date-field">
@@ -2193,6 +2307,8 @@ function Memory() {
                   onDeleteConfirm={handleSummaryDeleteConfirm}
                   onEdit={(r) => setSummaryEditingRow(r)}
                   onToggleStar={handleSummaryToggleStar}
+                  isInCurrentContext={contextSummaryIdSet.has(Number(row.id))}
+                  contextTraceLabel={contextTraceLabel}
                 />
               ))}
             </div>
