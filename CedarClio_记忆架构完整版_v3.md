@@ -49,7 +49,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `stt`：语音转录
 - `embedding`：向量嵌入
 - `search_summary`：网页搜索结果压缩
-- `analysis`：日终 Step 4 结构化分析与打分
+- `analysis`：日终 Step 4 事件聚类、描述与打分；不可用时回退 `summary`
 
 ### 2.3 `persona_configs`
 
@@ -184,23 +184,28 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 2. Step 2：生成今日小传
 3. Step 3：记忆卡片 Upsert + relationship_timeline
 4. Step 3.5：从今日小传提取时效状态操作
-5. Step 4：analysis 结构化提取 + 事件拆分
+5. Step 4：事件聚类 + 描述打分 + 长期事件入库
 6. Step 5：Chroma GC
 
 ### 5.3 Step 4 重写
 
-Step 4 使用当天按时间顺序排列的 chunk 列表作为输入，由 `analysis` 配置完成结构化事件合并、`chunk_ids` 标注与 `score/arousal` 提取；若 `analysis` 配置不可用，则回退 `summary` 配置，避免使用昂贵的 `chat` 模型。若 `summary` 也不可用，则不再隐式回退 `chat`，直接使用默认事件值继续。
+Step 4 使用当天按时间顺序排列的 chunk 列表作为输入。默认开启 `STEP4_SPLIT_MODE=True`，将旧的单次 LLM 调用拆成两段：
+
+1. Step 4a：只做 chunk 聚类，输出 `[[chunk_id, ...], ...]`。
+2. Step 4b：逐组生成事件描述、`score` 与 `arousal`。
+
+4a 与 4b 都优先使用 `analysis` 配置；若 `analysis` 不可用，则回退 `summary` 配置，避免使用昂贵的 `chat` 模型。若 `summary` 也不可用，则不再隐式回退 `chat`，直接使用默认事件值继续。`STEP4_SPLIT_MODE=False` 时保留旧的单次调用路径，便于回滚。
 
 Step 4 的事件拆分遵循：
 
 - 至少 1 条事件
 - 最多 `event_split_max` 条事件
-- 每条事件必须返回合法 `chunk_ids`
-- 模型返回的 `chunk_ids` 会与当天输入 chunk 集合求交集，非法 ID 会被过滤
-- 某事件过滤后没有合法 chunk，则丢弃并记 ERROR 日志
-- Step 4 单次 LLM 调用使用 600 秒超时，重试次数仍为 3 次
-- 连续 3 次失败后使用默认值 `score=5`、`arousal=0.1`
-- 默认值兜底后继续入库，并发 Telegram 告警
+- 4a 返回的 `chunk_ids` 会与当天输入 chunk 集合校验，非法 ID 会被过滤
+- 某分组过滤后为空则丢弃；4a 连续 3 次失败后回退为每个 chunk 单独成组
+- 4b 不返回 `chunk_ids`；事件的 `chunk_ids` 直接复制 4a 分组结果，降低 ID 幻觉风险
+- 4b 对每个分组串行调用，连续 3 次失败则返回 `None`，该组丢弃并记 ERROR 日志
+- 4a/4b 单次 LLM 调用均使用 600 秒超时，重试次数为 3 次
+- 若全部 4b 分组失败，则使用默认事件继续，默认值为 `score=5`、`arousal=0.1`
 
 Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `longterm_memories.source_chunk_ids`，并根据来源 chunk 的 `is_starred` 汇总出事件的 `is_starred`。
 

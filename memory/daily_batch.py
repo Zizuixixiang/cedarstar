@@ -144,6 +144,10 @@ TIMEZONE = pytz.timezone("Asia/Shanghai")
 # 跑批失败后由独立进程延迟重试（秒）；与 cron 入口 ``run_daily_batch.py`` 共用
 DAILY_BATCH_FAILURE_RETRY_SECONDS = 2 * 3600
 
+# Step 4 分两段执行：4a 聚类 chunk_id，4b 逐组生成事件描述与分数。
+# 设为 False 可回退到旧的单次 LLM 调用路径。
+STEP4_SPLIT_MODE = True
+
 
 def spawn_run_daily_batch_retry_after_hours(
     batch_date: str,
@@ -450,7 +454,7 @@ class DailyBatchProcessor:
                 self.scoring_llm = await LLMInterface.create(config_type="analysis")
             except (NoActiveAPIConfigError, APIConfigLoadError) as e:
                 logger.warning(
-                    "analysis 配置未激活或加载失败，Step 4 打分回退到 summary 模型: %s",
+                    "analysis 配置未激活或加载失败，Step 4 回退到 summary 模型: %s",
                     exc_detail(e),
                 )
                 try:
@@ -463,7 +467,7 @@ class DailyBatchProcessor:
                     self.scoring_llm = None
             except Exception as e:
                 logger.warning(
-                    "analysis 配置初始化异常，Step 4 打分回退到 summary 模型: %s",
+                    "analysis 配置初始化异常，Step 4 回退到 summary 模型: %s",
                     exc_detail(e),
                 )
                 try:
@@ -1810,6 +1814,175 @@ content 强制要求：
         except Exception as e:
             logger.error(f"Step 3 执行失败: {e}")
             return False, str(e)
+
+    async def _step4a_cluster(
+        self,
+        chunks: List[Dict[str, Any]],
+        llm_config: Optional[LLMInterface],
+    ) -> List[List[int]]:
+        """Step 4a - 只聚类 chunk id；失败时每个 chunk 单独成组。"""
+        valid_ids = [int(c["id"]) for c in chunks]
+        valid_id_set = set(valid_ids)
+        chunk_lines = []
+        for c in chunks:
+            chunk_lines.append(
+                f"- chunk_id={c['id']}\n"
+                f"{strip_lutopia_internal_memory_blocks(str(c.get('summary_text') or ''))}"
+            )
+        prompt = self._persona_dialogue_prefix() + f"""【任务】
+以下是今天按时间顺序的对话片段摘要。请只根据语义主题把 chunk_id 聚类：同一事件/话题放在同一组，不同事件/话题分开。
+
+【输入】
+{chr(10).join(chunk_lines)}
+
+【要求】
+- 只返回 JSON 数组，不要解释、不要 Markdown、不要其他文字
+- 输出格式必须是：[[1,2,3],[4,5],[6]]
+- 只能使用输入中出现过的 chunk_id
+- 尽量覆盖所有输入 chunk_id
+- 平淡的天可以聚成 1-2 组，话题明显分散时可以更多组"""
+
+        if llm_config is None:
+            logger.warning("Step 4a 无可用 analysis LLM，回退为每个 chunk 单独成组")
+            return [[cid] for cid in valid_ids]
+
+        def _parse_groups(raw: str) -> List[List[int]]:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r"\[[\s\S]*\]", raw or "")
+                if not m:
+                    raise ValueError("Step 4a JSON parse error")
+                parsed = json.loads(m.group())
+            if not isinstance(parsed, list):
+                raise ValueError("Step 4a JSON must be an array")
+
+            groups: List[List[int]] = []
+            seen_ids = set()
+            for raw_group in parsed:
+                if not isinstance(raw_group, list):
+                    raise ValueError("Step 4a group must be an array")
+                group: List[int] = []
+                illegal_ids: List[Any] = []
+                for raw_id in raw_group:
+                    try:
+                        cid = int(raw_id)
+                    except (TypeError, ValueError):
+                        illegal_ids.append(raw_id)
+                        continue
+                    if cid not in valid_id_set:
+                        illegal_ids.append(raw_id)
+                        continue
+                    if cid in seen_ids or cid in group:
+                        continue
+                    group.append(cid)
+                if illegal_ids:
+                    logger.error("Step 4a 聚类包含非法 chunk_id，已过滤: %s", illegal_ids)
+                if group:
+                    groups.append(group)
+                    seen_ids.update(group)
+
+            missing_ids = [cid for cid in valid_ids if cid not in seen_ids]
+            if missing_ids:
+                logger.warning("Step 4a 聚类遗漏 chunk_id，追加为单独分组: %s", missing_ids)
+                groups.extend([[cid] for cid in missing_ids])
+            if not groups:
+                raise ValueError("Step 4a 校验后没有合法分组")
+            return groups
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, 4):
+            try:
+                llm_resp = llm_config.generate_with_context_and_tracking(
+                    [{"role": "user", "content": prompt}],
+                    platform=Platform.BATCH,
+                    timeout_override_seconds=600,
+                )
+                return _parse_groups((llm_resp.content or "").strip())
+            except Exception as e:
+                last_exc = e
+                logger.warning("Step 4a 聚类第 %s/3 次失败: %s", attempt, exc_detail(e))
+                if attempt < 3:
+                    await asyncio.sleep(2)
+
+        logger.warning(
+            "Step 4a 聚类连续 3 次失败，回退为每个 chunk 单独成组: %s",
+            exc_detail(last_exc),
+        )
+        return [[cid] for cid in valid_ids]
+
+    async def _step4b_describe_and_score(
+        self,
+        chunk_group_content: str,
+        llm_config: Optional[LLMInterface],
+    ) -> Optional[Dict[str, Any]]:
+        """Step 4b - 对单个 chunk 分组生成事件描述、score、arousal。"""
+        prompt = self._persona_dialogue_prefix() + f"""【任务】
+请把下面同一事件/话题下的对话片段摘要合并成一条长期记忆事件，并评估长期保留价值与情绪强度。
+
+【输入】
+{chunk_group_content}
+
+【输出 schema】
+{{"content": "事件描述，100-300 字", "score": 7, "arousal": 0.5}}
+
+【要求】
+- 只返回单条 JSON 对象，不要解释、不要 Markdown、不要其他文字
+- content 必须是完整、可独立理解的事件描述
+- score 是 1-10 的整数，表示长期保留价值
+- arousal 是 0.0-1.0 的浮点数，表示情绪强度（不分正负）
+
+【评分参考】
+score:
+- 8-10: 重大事件、强烈情感、关键决定
+- 4-7: 有意义的互动、值得回忆的日常
+- 1-3: 平淡的日常对话、重复性内容（让时间衰减处理）
+
+arousal:
+- 0.7+: 强情绪事件（吵架、惊喜、感动、暴怒）
+- 0.3-0.6: 有情绪起伏的对话
+- 0.0-0.2: 平静日常"""
+
+        if llm_config is None:
+            logger.warning("Step 4b 无可用 analysis LLM，返回 None")
+            return None
+
+        def _parse_desc(raw: str) -> Dict[str, Any]:
+            try:
+                parsed = json.loads(raw)
+            except json.JSONDecodeError:
+                m = re.search(r"\{[\s\S]*\}", raw or "")
+                if not m:
+                    raise ValueError("Step 4b JSON parse error")
+                parsed = json.loads(m.group())
+            if not isinstance(parsed, dict):
+                raise ValueError("Step 4b JSON must be an object")
+            content = str(parsed.get("content") or parsed.get("summary") or "").strip()
+            if not content:
+                raise ValueError("Step 4b content is empty")
+            return {
+                "content": content[:300],
+                "score": self._clamp_score(parsed.get("score"), 5),
+                "arousal": self._clamp_arousal(parsed.get("arousal"), 0.1),
+            }
+
+        last_exc: Optional[Exception] = None
+        for attempt in range(1, 4):
+            try:
+                llm_resp = llm_config.generate_with_context_and_tracking(
+                    [{"role": "user", "content": prompt}],
+                    platform=Platform.BATCH,
+                    timeout_override_seconds=600,
+                )
+                return _parse_desc((llm_resp.content or "").strip())
+            except Exception as e:
+                last_exc = e
+                logger.warning("Step 4b 描述打分第 %s/3 次失败: %s", attempt, exc_detail(e))
+                if attempt < 3:
+                    await asyncio.sleep(2)
+
+        logger.error("Step 4b 描述打分连续 3 次失败，丢弃该组: %s", exc_detail(last_exc))
+        return None
     
     async def _step4_archive_daily_and_events(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """
@@ -1848,7 +2021,61 @@ content 强制要求：
             for i in range(50):
                 store.delete_memory(build_daily_event_doc_id(batch_date, i))
 
-            split_prompt = self._persona_dialogue_prefix() + f"""【任务】
+            def _fallback_chunk_event() -> Dict[str, Any]:
+                text = "；".join(
+                    strip_lutopia_internal_memory_blocks(str(c.get("summary_text") or "")).strip()
+                    for c in chunks
+                )
+                return {
+                    "summary": self._fallback_event_summary(text),
+                    "chunk_ids": sorted(valid_chunk_ids),
+                    "score": 5,
+                    "arousal": 0.1,
+                }
+
+            default_events = [_fallback_chunk_event()]
+
+            if STEP4_SPLIT_MODE:
+                groups = await self._step4a_cluster(chunks, self.scoring_llm)
+                events: List[Dict[str, Any]] = []
+                for group_idx, group in enumerate(groups):
+                    group_lines = []
+                    for cid in group:
+                        c = chunk_by_id.get(cid)
+                        if not c:
+                            continue
+                        group_lines.append(
+                            f"- chunk_id={cid} | created_at={c.get('created_at')} | "
+                            f"session={c.get('session_id')}\n"
+                            f"{strip_lutopia_internal_memory_blocks(str(c.get('summary_text') or ''))}"
+                        )
+                    group_content = "\n\n".join(group_lines).strip()
+                    if not group_content:
+                        logger.error("Step 4b 丢弃空分组: idx=%s chunk_ids=%s", group_idx, group)
+                        continue
+
+                    desc = await self._step4b_describe_and_score(group_content, self.scoring_llm)
+                    if desc is None:
+                        logger.error(
+                            "Step 4b 分组描述打分失败，丢弃该组: idx=%s chunk_ids=%s",
+                            group_idx,
+                            group,
+                        )
+                        continue
+                    events.append(
+                        {
+                            "summary": str(desc.get("content") or "").strip()[:300],
+                            "chunk_ids": [int(cid) for cid in group],
+                            "score": self._clamp_score(desc.get("score"), 5),
+                            "arousal": self._clamp_arousal(desc.get("arousal"), 0.1),
+                        }
+                    )
+
+                if not events:
+                    logger.warning("Step 4b 全部分组失败，使用现有默认事件兜底继续")
+                    events = default_events
+            else:
+                split_prompt = self._persona_dialogue_prefix() + f"""【任务】
 以下是今天按时间顺序的对话片段摘要。请找出属于同一事件/话题的片段，将它们合并成独立完整的事件描述。每个事件必须标注由哪几条 chunk 合并而来（返回 chunk_ids 列表）。
 
 【输入】
@@ -1884,96 +2111,83 @@ arousal:
 - 0.3-0.6: 有情绪起伏的对话
 - 0.0-0.2: 平静日常"""
 
-            def _fallback_chunk_event() -> Dict[str, Any]:
-                text = "；".join(
-                    strip_lutopia_internal_memory_blocks(str(c.get("summary_text") or "")).strip()
-                    for c in chunks
-                )
-                return {
-                    "summary": self._fallback_event_summary(text),
-                    "chunk_ids": sorted(valid_chunk_ids),
-                    "score": 5,
-                    "arousal": 0.1,
-                }
+                def _normalize_chunk_events(raw_events: Any) -> List[Dict[str, Any]]:
+                    events: List[Dict[str, Any]] = []
+                    if isinstance(raw_events, dict):
+                        raw_events = raw_events.get("events")
+                    if not isinstance(raw_events, list):
+                        raise ValueError("Step 4 events JSON must be a list")
 
-            def _normalize_chunk_events(raw_events: Any) -> List[Dict[str, Any]]:
-                events: List[Dict[str, Any]] = []
-                if isinstance(raw_events, dict):
-                    raw_events = raw_events.get("events")
-                if not isinstance(raw_events, list):
-                    raise ValueError("Step 4 events JSON must be a list")
-
-                for item in raw_events:
-                    if not isinstance(item, dict):
-                        logger.error("Step 4 丢弃非法事件：非对象 item=%r", item)
-                        continue
-                    summary = str(item.get("summary") or item.get("text") or "").strip()
-                    if not summary:
-                        logger.error("Step 4 丢弃非法事件：summary 为空 item=%r", item)
-                        continue
-                    raw_ids = item.get("chunk_ids") or item.get("source_chunk_ids") or []
-                    if not isinstance(raw_ids, list):
-                        raw_ids = [raw_ids]
-                    parsed_ids = set()
-                    for raw_id in raw_ids:
-                        try:
-                            parsed_ids.add(int(raw_id))
-                        except (TypeError, ValueError):
+                    for item in raw_events:
+                        if not isinstance(item, dict):
+                            logger.error("Step 4 丢弃非法事件：非对象 item=%r", item)
                             continue
-                    legal_ids = sorted(parsed_ids & valid_chunk_ids)
-                    illegal_ids = sorted(parsed_ids - valid_chunk_ids)
-                    if illegal_ids:
-                        logger.error(
-                            "Step 4 事件包含非法 chunk_ids，已过滤: illegal=%s legal=%s summary=%s",
-                            illegal_ids,
-                            legal_ids,
-                            summary[:80],
+                        summary = str(item.get("summary") or item.get("text") or "").strip()
+                        if not summary:
+                            logger.error("Step 4 丢弃非法事件：summary 为空 item=%r", item)
+                            continue
+                        raw_ids = item.get("chunk_ids") or item.get("source_chunk_ids") or []
+                        if not isinstance(raw_ids, list):
+                            raw_ids = [raw_ids]
+                        parsed_ids = set()
+                        for raw_id in raw_ids:
+                            try:
+                                parsed_ids.add(int(raw_id))
+                            except (TypeError, ValueError):
+                                continue
+                        legal_ids = sorted(parsed_ids & valid_chunk_ids)
+                        illegal_ids = sorted(parsed_ids - valid_chunk_ids)
+                        if illegal_ids:
+                            logger.error(
+                                "Step 4 事件包含非法 chunk_ids，已过滤: illegal=%s legal=%s summary=%s",
+                                illegal_ids,
+                                legal_ids,
+                                summary[:80],
+                            )
+                        if not legal_ids:
+                            logger.error(
+                                "Step 4 丢弃事件：chunk_ids 全部非法或为空 summary=%s raw_ids=%r",
+                                summary[:120],
+                                raw_ids,
+                            )
+                            continue
+                        events.append(
+                            {
+                                "summary": summary[:300],
+                                "chunk_ids": legal_ids,
+                                "score": self._clamp_score(item.get("score"), 5),
+                                "arousal": self._clamp_arousal(item.get("arousal"), 0.1),
+                            }
                         )
-                    if not legal_ids:
-                        logger.error(
-                            "Step 4 丢弃事件：chunk_ids 全部非法或为空 summary=%s raw_ids=%r",
-                            summary[:120],
-                            raw_ids,
-                        )
-                        continue
-                    events.append(
-                        {
-                            "summary": summary[:300],
-                            "chunk_ids": legal_ids,
-                            "score": self._clamp_score(item.get("score"), 5),
-                            "arousal": self._clamp_arousal(item.get("arousal"), 0.1),
-                        }
-                    )
-                    if len(events) >= event_split_max:
-                        break
-                if not events:
-                    raise ValueError("Step 4 校验后没有合法事件")
-                return events
+                        if len(events) >= event_split_max:
+                            break
+                    if not events:
+                        raise ValueError("Step 4 校验后没有合法事件")
+                    return events
 
-            def _parse_split(raw: str) -> List[Dict[str, Any]]:
-                try:
-                    parsed = json.loads(raw)
-                except json.JSONDecodeError:
-                    sm = re.search(r"\[[\s\S]*\]", raw)
-                    if sm:
-                        parsed = json.loads(sm.group())
-                    else:
-                        om = re.search(r"\{[\s\S]*\}", raw)
-                        if om:
-                            parsed = json.loads(om.group())
+                def _parse_split(raw: str) -> List[Dict[str, Any]]:
+                    try:
+                        parsed = json.loads(raw)
+                    except json.JSONDecodeError:
+                        sm = re.search(r"\[[\s\S]*\]", raw)
+                        if sm:
+                            parsed = json.loads(sm.group())
                         else:
-                            raise ValueError("JSON parse error")
-                return _normalize_chunk_events(parsed)
+                            om = re.search(r"\{[\s\S]*\}", raw)
+                            if om:
+                                parsed = json.loads(om.group())
+                            else:
+                                raise ValueError("JSON parse error")
+                    return _normalize_chunk_events(parsed)
 
-            default_events = [_fallback_chunk_event()]
-            events = await self._step4_retry_with_defaults(
-                "事件拆分与打分",
-                [{"role": "user", "content": split_prompt}],
-                _parse_split,
-                default_events,
-                batch_date,
-                max_retries=3,
-            )
+                events = await self._step4_retry_with_defaults(
+                    "事件拆分与打分",
+                    [{"role": "user", "content": split_prompt}],
+                    _parse_split,
+                    default_events,
+                    batch_date,
+                    max_retries=3,
+                )
 
             try:
                 from .bm25_retriever import add_document_to_bm25, refresh_bm25_index
