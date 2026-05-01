@@ -2009,10 +2009,7 @@ arousal:
             summary_id = daily_summary['id']
             event_split_max = await _event_split_max()
             chunks = await get_today_chunk_summaries(batch_date, include_archived=True)
-            chunks = [
-                c for c in chunks
-                if str(c.get("source_date") or "").startswith(batch_date)
-            ]
+            # get_today_chunk_summaries 已用 <= batch_date，无需再过滤
             if not chunks:
                 logger.info(f"今日没有 chunk 可供 Step 4 拆分，日期: {batch_date}")
                 return True, None

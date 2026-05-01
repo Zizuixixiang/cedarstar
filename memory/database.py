@@ -2117,7 +2117,7 @@ class MessageDatabase:
         获取 chunk 摘要（全局查询，按 created_at 正序）。
 
         内容日 = COALESCE(source_date::date, created_at::date)。
-        - batch_date 为 YYYY-MM-DD：内容日 = batch_date（日终只处理当天 chunk）。
+        - batch_date 为 YYYY-MM-DD：内容日 <= batch_date（日终归档截止当天，补归档之前漏掉的 chunk）。
         - 未传 batch_date：内容日 <= 东八区「今天」（Context / Dashboard；通常仅剩未归档的今日 chunk）。
         """
         day_col = "COALESCE(source_date::date, created_at::date)"
@@ -2127,7 +2127,7 @@ class MessageDatabase:
             except ValueError:
                 logger.warning("get_today_chunk_summaries: 无效 batch_date %s", batch_date)
                 return []
-            where_day = f"{day_col} = $1::date"
+            where_day = f"{day_col} <= $1::date"
             params = (d,)
         else:
             where_day = f"{day_col} <= (now() AT TIME ZONE 'Asia/Shanghai')::date"
@@ -2191,7 +2191,7 @@ class MessageDatabase:
                 UPDATE summaries
                 SET archived_by = $1
                 WHERE summary_type = 'chunk'
-                  AND COALESCE(source_date::date, created_at::date) = $2::date
+                  AND COALESCE(source_date::date, created_at::date) <= $2::date
                   {session_filter}
                 """,
                 *params,
