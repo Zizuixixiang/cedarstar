@@ -1,6 +1,6 @@
 """LLM 调用观测 API：token/cache 用量与工具执行记录。"""
 
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional
 from zoneinfo import ZoneInfo
 
@@ -17,17 +17,17 @@ def _period_start(period: str) -> datetime:
     if period == "today":
         now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
         start_cn = now_cn.replace(hour=0, minute=0, second=0, microsecond=0)
-        return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+        return start_cn.replace(tzinfo=None)
     if period == "week":
         now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
         start_cn = (
             now_cn - timedelta(days=now_cn.weekday())
         ).replace(hour=0, minute=0, second=0, microsecond=0)
-        return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+        return start_cn.replace(tzinfo=None)
     if period == "month":
         now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
         start_cn = now_cn.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+        return start_cn.replace(tzinfo=None)
     raise HTTPException(status_code=400, detail="无效的统计周期")
 
 

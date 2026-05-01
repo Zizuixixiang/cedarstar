@@ -10,26 +10,26 @@ from typing import Optional, Dict, Any, List, FrozenSet
 router = APIRouter()
 
 
-def _east8_month_start_utc_naive():
-    """东八区自然月：当月 1 日 00:00:00 起；转为 UTC naive datetime，与 PG `token_usage.created_at`（NOW()）对齐比较。"""
-    from datetime import datetime, timezone
+def _east8_month_start_naive():
+    """东八区自然月：当月 1 日 00:00:00 起，按 PG 上海本地 naive timestamp 比较。"""
+    from datetime import datetime
     from zoneinfo import ZoneInfo
 
     now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
     start_cn = now_cn.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-    return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+    return start_cn.replace(tzinfo=None)
 
 
-def _east8_week_start_utc_naive():
-    """东八区自然周：周一 00:00:00 起；转为 UTC naive datetime。"""
-    from datetime import datetime, timezone, timedelta
+def _east8_week_start_naive():
+    """东八区自然周：周一 00:00:00 起，按 PG 上海本地 naive timestamp 比较。"""
+    from datetime import datetime, timedelta
     from zoneinfo import ZoneInfo
 
     now_cn = datetime.now(ZoneInfo("Asia/Shanghai"))
     start_cn = (
         now_cn - timedelta(days=now_cn.weekday())
     ).replace(hour=0, minute=0, second=0, microsecond=0)
-    return start_cn.astimezone(timezone.utc).replace(tzinfo=None)
+    return start_cn.replace(tzinfo=None)
 
 
 ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
@@ -251,9 +251,9 @@ async def get_token_usage(
     elif period == "today":
         start_date = now.replace(hour=0, minute=0, second=0, microsecond=0)
     elif period == "week":
-        start_date = _east8_week_start_utc_naive()
+        start_date = _east8_week_start_naive()
     elif period == "month":
-        start_date = _east8_month_start_utc_naive()
+        start_date = _east8_month_start_naive()
     else:
         raise HTTPException(status_code=400, detail="无效的统计周期")
     

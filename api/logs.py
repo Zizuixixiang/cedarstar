@@ -3,7 +3,8 @@
 
 提供日志查询接口。
 """
-from datetime import datetime, timezone
+from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, HTTPException, Query
 from typing import Optional, Dict, Any
@@ -14,7 +15,8 @@ router = APIRouter()
 def _parse_log_time_param(value: Optional[str]) -> Optional[datetime]:
     """
     解析查询串中的时间（ISO8601 / datetime-local 经前端 toISOString 后常见格式）。
-    返回 naive UTC datetime，与 PostgreSQL `logs.created_at TIMESTAMP` 比较一致。
+    返回上海本地 naive datetime，与 PostgreSQL `logs.created_at TIMESTAMP`
+    在 Asia/Shanghai 连接时区下写入的语义一致。
     """
     if value is None:
         return None
@@ -30,7 +32,7 @@ def _parse_log_time_param(value: Optional[str]) -> Optional[datetime]:
     except ValueError as e:
         raise HTTPException(status_code=400, detail=f"时间参数格式无效: {value!r}") from e
     if dt.tzinfo is not None:
-        dt = dt.astimezone(timezone.utc).replace(tzinfo=None)
+        dt = dt.astimezone(ZoneInfo("Asia/Shanghai")).replace(tzinfo=None)
     return dt
 
 

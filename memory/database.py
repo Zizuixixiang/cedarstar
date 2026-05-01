@@ -49,6 +49,14 @@ def _pg_timestamp_naive_utc(dt: _dt.datetime) -> _dt.datetime:
     return dt.astimezone(_dt.timezone.utc).replace(tzinfo=None)
 
 
+def _pg_timestamp_naive_shanghai(dt: _dt.datetime) -> _dt.datetime:
+    """绑定到业务本地时间 TIMESTAMP 列时使用上海本地 naive datetime。"""
+    if dt.tzinfo is None:
+        return dt
+    tz_sh = _dt.timezone(_dt.timedelta(hours=8))
+    return dt.astimezone(tz_sh).replace(tzinfo=None)
+
+
 def _r(record) -> Dict[str, Any]:
     """asyncpg Record → dict（所有 datetime 值转为字符串）。"""
     return {k: _norm(v) for k, v in dict(record).items()}
@@ -1316,12 +1324,12 @@ class MessageDatabase:
 
         if time_from is not None:
             conditions.append(f"created_at >= ${idx}")
-            params.append(_pg_timestamp_naive_utc(time_from))
+            params.append(_pg_timestamp_naive_shanghai(time_from))
             idx += 1
 
         if time_to is not None:
             conditions.append(f"created_at <= ${idx}")
-            params.append(_pg_timestamp_naive_utc(time_to))
+            params.append(_pg_timestamp_naive_shanghai(time_to))
             idx += 1
 
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""

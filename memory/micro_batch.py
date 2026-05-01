@@ -40,13 +40,17 @@ _TZ_SH = pytz.timezone("Asia/Shanghai")
 
 
 def _parse_message_created_at_utc(val: Any) -> Optional[datetime]:
-    """将消息的 created_at（datetime 或 ISO 字符串）规范为 UTC aware；无时区则按 UTC naive 处理。"""
+    """将消息的 created_at（datetime 或 ISO 字符串）规范为 UTC aware。
+
+    数据库连接和业务日历都使用 Asia/Shanghai；PostgreSQL 的 timestamp without time
+    zone 取回后是 naive datetime，语义仍是上海本地时间。
+    """
     if val is None:
         return None
     if isinstance(val, datetime):
         dt = val
         if dt.tzinfo is None:
-            return pytz.utc.localize(dt)
+            return _TZ_SH.localize(dt).astimezone(pytz.utc)
         return dt.astimezone(pytz.utc)
     s = str(val).strip().replace("Z", "+00:00")
     if not s:
@@ -56,7 +60,7 @@ def _parse_message_created_at_utc(val: Any) -> Optional[datetime]:
     except ValueError:
         return None
     if dt.tzinfo is None:
-        return pytz.utc.localize(dt)
+        return _TZ_SH.localize(dt).astimezone(pytz.utc)
     return dt.astimezone(pytz.utc)
 
 

@@ -1,4 +1,7 @@
+from datetime import datetime
+
 from memory.daily_batch import DailyBatchProcessor
+from memory.micro_batch import chunk_source_date_from_messages
 
 
 def test_default_events_always_has_at_least_one():
@@ -14,3 +17,12 @@ def test_default_events_always_has_at_least_one():
 
     assert len(result) >= 1
     assert result[0]["summary"]
+
+
+def test_chunk_source_date_treats_naive_timestamp_as_shanghai_time():
+    """PostgreSQL timestamp without time zone 取回是 naive，但业务语义是东八区本地时间。"""
+    messages = [
+        {"created_at": datetime(2026, 5, 1, 16, 44, 31)},
+    ]
+
+    assert chunk_source_date_from_messages(messages).isoformat() == "2026-05-01"
