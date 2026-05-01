@@ -331,9 +331,11 @@ export default function Observability() {
     try {
       const usageParams = new URLSearchParams({
         period,
+        request_type: 'chat',
       })
       const todayParams = new URLSearchParams({
         period: 'today',
+        request_type: 'chat',
       })
       const [usageRes, recentRes, toolsRes] = await Promise.all([
         apiFetch(`/api/observability/usage?${usageParams.toString()}`),

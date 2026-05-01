@@ -1079,6 +1079,7 @@ class LLMInterface:
         """
         # 使用调用方预取的 DB 配置（async 路径），或回退到环境变量（sync 路径）
         db_cfg = _db_cfg
+        self.config_type = config_type
         
         if db_cfg:
             self.model_name = model_name or db_cfg.get('model') or config.LLM_MODEL_NAME
@@ -1774,10 +1775,10 @@ class LLMInterface:
     ):
         """
         异步保存token使用量到数据库。
-        
+
         若在异步事件循环中则 create_task；若在线程池等无 loop 环境（如 vision 任务里
         run_in_executor 调 LLM）则同步写库，避免 no running event loop。
-        
+
         Args:
             usage: token使用统计字典
             platform: 平台标识（可选）
@@ -1809,7 +1810,7 @@ class LLMInterface:
                 )
         except Exception as e:
             logger.error("保存 token 使用量失败: %s", exc_detail(e))
-    
+
     async def _async_save_token_usage(
         self,
         usage: Dict[str, Any],
@@ -1817,7 +1818,7 @@ class LLMInterface:
     ):
         """
         异步保存token使用量的实际实现。
-        
+
         Args:
             usage: 已归一化的 token/cache 使用量
             platform: 平台标识（可选）
@@ -1839,6 +1840,7 @@ class LLMInterface:
                 theoretical_cached_tokens=usage["theoretical_cached_tokens"],
                 raw_usage=usage["raw_usage"],
                 base_url=self.api_base,
+                request_type=self.config_type,
             )
         except Exception as e:
             logger.error("异步保存 token 使用量失败: %s", exc_detail(e))

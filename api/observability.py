@@ -79,12 +79,19 @@ def _usage_row_with_rates(row: Any) -> Dict[str, Any]:
     return item
 
 
-async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[str, Any]:
+async def _latest_usage_stats(
+    db: Any,
+    platform: Optional[str] = None,
+    request_type: Optional[str] = None,
+) -> Dict[str, Any]:
     conditions = []
     params = []
     if platform:
         params.append(platform)
         conditions.append(f"tu.platform = ${len(params)}")
+    if request_type:
+        params.append(request_type)
+        conditions.append(f"tu.request_type = ${len(params)}")
     where_sql = "AND " + " AND ".join(conditions) if conditions else ""
     async with db.pool.acquire() as conn:
         row = await conn.fetchrow(
@@ -95,7 +102,8 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
                    tu.cache_creation_input_tokens, tu.cache_read_input_tokens,
                    tu.theoretical_cached_tokens,
                    tu.raw_usage_json, tu.base_url,
-                   tu.cache_hit_tokens AS provider_cache_hit_tokens
+                   tu.cache_hit_tokens AS provider_cache_hit_tokens,
+                   tu.request_type
             FROM token_usage tu
             WHERE TRUE
             {where_sql}
@@ -163,12 +171,16 @@ async def _range_usage_stats(
     start_date: datetime,
     platform: Optional[str] = None,
     recent_limit: Optional[int] = None,
+    request_type: Optional[str] = None,
 ) -> Dict[str, Any]:
     conditions = ["tu.created_at >= $1"]
     params = [start_date]
     if platform:
         params.append(platform)
         conditions.append(f"tu.platform = ${len(params)}")
+    if request_type:
+        params.append(request_type)
+        conditions.append(f"tu.request_type = ${len(params)}")
     where_sql = "WHERE " + " AND ".join(conditions)
     recent_limit_sql = f"LIMIT {int(recent_limit)}" if recent_limit else ""
     provider_hit_expr = "COALESCE(tu.cache_hit_tokens, 0)"
@@ -248,7 +260,7 @@ async def _range_usage_stats(
                tu.cache_creation_input_tokens, tu.cache_read_input_tokens,
                tu.theoretical_cached_tokens,
                {provider_hit_expr} AS provider_cache_hit_tokens,
-               tu.raw_usage_json
+               tu.raw_usage_json, tu.request_type
         FROM token_usage tu {where_sql}
         ORDER BY tu.created_at DESC, tu.id DESC
         {recent_limit_sql}
@@ -294,15 +306,16 @@ async def usage_observability(
     period: str = Query("today", description="current / today / week / month"),
     platform: Optional[str] = Query(None, description="按平台过滤"),
     recent_limit: Optional[int] = Query(None, ge=1, le=1000, description="最近调用返回条数；不传则返回该周期全部"),
+    request_type: Optional[str] = Query(None, description="按请求类型过滤（chat / summary / vision 等）"),
 ):
     """返回 token 与缓存观测聚合，不内置价格表。"""
     from memory.database import get_database
 
     db = get_database()
     if period == "current":
-        stats = await _latest_usage_stats(db, platform)
+        stats = await _latest_usage_stats(db, platform, request_type)
     else:
-        stats = await _range_usage_stats(db, _period_start(period), platform, recent_limit)
+        stats = await _range_usage_stats(db, _period_start(period), platform, recent_limit, request_type)
     stats["period"] = period
     stats["platform"] = platform
     stats["recent_limit"] = recent_limit

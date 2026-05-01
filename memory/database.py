@@ -268,6 +268,13 @@ async def _ensure_token_usage_cache_columns(conn) -> None:
     await conn.execute(
         "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS theoretical_cached_tokens INTEGER DEFAULT 0"
     )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS request_type TEXT DEFAULT 'chat'"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_token_usage_request_type "
+        "ON token_usage (request_type, created_at)"
+    )
 
 
 async def _ensure_message_platform_file_id_column(conn) -> None:
@@ -715,7 +722,8 @@ class MessageDatabase:
                         cache_read_input_tokens INTEGER DEFAULT 0,
                         theoretical_cached_tokens INTEGER DEFAULT 0,
                         raw_usage_json JSONB,
-                        base_url TEXT
+                        base_url TEXT,
+                        request_type TEXT DEFAULT 'chat'
                     )
                 """)
 
@@ -2967,6 +2975,7 @@ class MessageDatabase:
         theoretical_cached_tokens: int = 0,
         raw_usage: Optional[Dict[str, Any]] = None,
         base_url: Optional[str] = None,
+        request_type: Optional[str] = None,
     ) -> int:
         """保存 token 使用量，返回插入 ID。"""
         async with self.pool.acquire() as conn:
@@ -2976,9 +2985,9 @@ class MessageDatabase:
                     platform, prompt_tokens, completion_tokens, total_tokens, model,
                     cached_tokens, cache_write_tokens, cache_hit_tokens, cache_miss_tokens,
                     cache_creation_input_tokens, cache_read_input_tokens, theoretical_cached_tokens,
-                    raw_usage_json, base_url
+                    raw_usage_json, base_url, request_type
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14, $15)
                 RETURNING id
                 """,
                 platform,
@@ -2995,6 +3004,7 @@ class MessageDatabase:
                 int(theoretical_cached_tokens or 0),
                 json.dumps(raw_usage, ensure_ascii=False) if raw_usage is not None else None,
                 None if base_url is None else str(base_url),
+                request_type or "chat",
             )
         logger.debug(
             "保存 token 使用量成功: ID=%s, model=%s, total_tokens=%s",
