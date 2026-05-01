@@ -2179,8 +2179,7 @@ class MessageDatabase:
                 UPDATE summaries
                 SET archived_by = $1
                 WHERE summary_type = 'chunk'
-                  AND source_date IS NOT NULL
-                  AND source_date::date = $2::date
+                  AND COALESCE(source_date::date, created_at::date) = $2::date
                   {session_filter}
                 """,
                 *params,
