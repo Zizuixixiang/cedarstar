@@ -9,6 +9,7 @@ import json
 import logging
 import asyncio
 import copy
+import math
 import time
 import re
 import uuid
@@ -681,6 +682,22 @@ def _openrouter_supports_cache_control(api_base: Optional[str], model_name: Opti
     return "openrouter" in s and "claude" in s
 
 
+OPENROUTER_CLAUDE_PROVIDER = "amazon-bedrock"
+
+
+def _openrouter_claude_provider_preferences(
+    api_base: Optional[str], model_name: Optional[str]
+) -> Optional[Dict[str, Any]]:
+    """为 OpenRouter 上的 Claude 模型固定非 Anthropic 供应商。"""
+    s = f"{api_base or ''} {model_name or ''}".lower()
+    if "openrouter" not in s or "claude" not in s:
+        return None
+    return {
+        "order": [OPENROUTER_CLAUDE_PROVIDER],
+        "allow_fallbacks": False,
+    }
+
+
 def _strip_cache_control_from_blocks(value: Any) -> Any:
     if isinstance(value, list):
         out: List[Any] = []
@@ -705,8 +722,9 @@ def _usage_int(usage: Mapping[str, Any], key: str, default: int = 0) -> int:
 def _normalize_usage_for_storage(
     usage: Mapping[str, Any],
     base_url: Optional[str] = None,
+    theoretical_cached_tokens: int = 0,
 ) -> Dict[str, Any]:
-    """按供应商约定归一化 usage，并写入缓存命中统计。"""
+    """按供应商约定归一化 usage，并附带理论缓存输入统计。"""
     prompt_tokens = _usage_int(usage, "prompt_tokens", _usage_int(usage, "input_tokens"))
     completion_tokens = _usage_int(
         usage, "completion_tokens", _usage_int(usage, "output_tokens")
@@ -757,8 +775,58 @@ def _normalize_usage_for_storage(
         "cache_miss_tokens": cache_miss_tokens,
         "cache_creation_input_tokens": cache_creation_input_tokens,
         "cache_read_input_tokens": cache_read_input_tokens,
+        "theoretical_cached_tokens": max(0, int(theoretical_cached_tokens or 0)),
         "raw_usage": dict(usage),
     }
+
+
+def estimate_theoretical_cached_tokens(messages: List[Dict[str, Any]]) -> int:
+    """估算本轮 messages 中标记 cache_control 的稳定输入 token 数。
+
+    usage 里的 prompt_tokens 是 token 口径；这里用 CJK/ASCII 混合文本的轻量估算，
+    避免把字符数直接当 token 数导致理论上限虚高。
+    """
+    total = 0
+
+    def estimate_text_tokens(text: str) -> int:
+        cjk = 0
+        ascii_runs = 0
+        in_ascii_run = False
+        other = 0
+        for ch in text:
+            code = ord(ch)
+            if 0x4E00 <= code <= 0x9FFF or 0x3400 <= code <= 0x4DBF or 0x3040 <= code <= 0x30FF or 0xAC00 <= code <= 0xD7AF:
+                cjk += 1
+                in_ascii_run = False
+            elif ch.isascii() and (ch.isalnum() or ch in "_-./:@#"):
+                if not in_ascii_run:
+                    ascii_runs += 1
+                    in_ascii_run = True
+            else:
+                other += 1
+                in_ascii_run = False
+        return max(1, cjk + math.ceil(other / 2) + math.ceil(ascii_runs * 1.3)) if text.strip() else 0
+
+    def walk(value: Any) -> None:
+        nonlocal total
+        if isinstance(value, list):
+            for item in value:
+                walk(item)
+            return
+        if not isinstance(value, dict):
+            return
+        if value.get("cache_control") and value.get("type") == "text":
+            text = value.get("text")
+            if isinstance(text, str):
+                total += estimate_text_tokens(text)
+        content = value.get("content")
+        if isinstance(content, list):
+            walk(content)
+
+    for msg in messages or []:
+        if isinstance(msg, dict):
+            walk(msg.get("content"))
+    return total
 
 
 def _openai_tools_specs_to_anthropic(
@@ -1320,6 +1388,12 @@ class LLMInterface:
             "temperature": self.temperature,
             "stream": False,
         }
+        provider_preferences = _openrouter_claude_provider_preferences(
+            self.api_base,
+            self.model_name,
+        )
+        if provider_preferences:
+            payload["provider"] = provider_preferences
         if tools:
             payload["tools"] = tools
             # OpenAI Chat Completions：与 tools 同发，值为字面量 "auto"（由模型决定是否调用工具）
@@ -1692,7 +1766,12 @@ class LLMInterface:
                 )
             raise
     
-    def _save_token_usage_async(self, usage: Dict[str, Any], platform: Optional[str] = None):
+    def _save_token_usage_async(
+        self,
+        usage: Dict[str, Any],
+        platform: Optional[str] = None,
+        theoretical_cached_tokens: int = 0,
+    ):
         """
         异步保存token使用量到数据库。
         
@@ -1702,9 +1781,14 @@ class LLMInterface:
         Args:
             usage: token使用统计字典
             platform: 平台标识（可选）
+            theoretical_cached_tokens: 本轮 context 中被 cache_control 标记的稳定输入量
         """
         try:
-            normalized = _normalize_usage_for_storage(usage, self.api_base)
+            normalized = _normalize_usage_for_storage(
+                usage,
+                self.api_base,
+                theoretical_cached_tokens=theoretical_cached_tokens,
+            )
 
             try:
                 loop = asyncio.get_running_loop()
@@ -1752,7 +1836,9 @@ class LLMInterface:
                 cache_miss_tokens=usage["cache_miss_tokens"],
                 cache_creation_input_tokens=usage["cache_creation_input_tokens"],
                 cache_read_input_tokens=usage["cache_read_input_tokens"],
+                theoretical_cached_tokens=usage["theoretical_cached_tokens"],
                 raw_usage=usage["raw_usage"],
+                base_url=self.api_base,
             )
         except Exception as e:
             logger.error("异步保存 token 使用量失败: %s", exc_detail(e))
@@ -1921,7 +2007,11 @@ class LLMInterface:
             
             # 保存token使用量
             if llm_response.usage:
-                self._save_token_usage_async(llm_response.usage, platform)
+                self._save_token_usage_async(
+                    llm_response.usage,
+                    platform,
+                    estimate_theoretical_cached_tokens(messages),
+                )
             
             thinking_content = self._extract_thinking_content(response_data)
             llm_response.thinking = thinking_content
@@ -2177,7 +2267,11 @@ class LLMInterface:
                 tool_calls_out = built
 
         if usage_out:
-            self._save_token_usage_async(usage_out, platform)
+            self._save_token_usage_async(
+                usage_out,
+                platform,
+                estimate_theoretical_cached_tokens(messages),
+            )
 
         return {
             "content": content_str,
@@ -2249,7 +2343,11 @@ class LLMInterface:
             
             # 保存token使用量
             if llm_response.usage:
-                self._save_token_usage_async(llm_response.usage, platform)
+                self._save_token_usage_async(
+                    llm_response.usage,
+                    platform,
+                    estimate_theoretical_cached_tokens(messages),
+                )
             
             # 提取思维链内容
             thinking_content = self._extract_thinking_content(response_data)

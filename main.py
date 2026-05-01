@@ -7,7 +7,7 @@ CedarStar 项目主入口。
 3. Telegram：初始化 Application，由 FastAPI `/webhook/telegram` 接收推送（无 polling）
 4. FastAPI REST API 服务
 
-日终跑批由 cron 调用项目根目录 `run_daily_batch.py`，不再在进程内定时调度。
+日终跑批由进程内定时调度（读取数据库 `daily_batch_hour` 配置），不再依赖 cron。
 """
 
 import asyncio
@@ -233,7 +233,7 @@ async def main_async():
     2. FastAPI REST API 服务器（含 Telegram webhook 路由）
 
     Telegram Application 在收请求前由 setup_telegram_webhook_app() 初始化，无独立长驻任务。
-    日终跑批见根目录 run_daily_batch.py（cron）。
+    日终跑批由进程内 schedule_daily_batch() 调度，读取数据库 daily_batch_hour 配置。
     """
     logger = logging.getLogger(__name__)
     
@@ -254,6 +254,10 @@ async def main_async():
         from memory.async_log_handler import setup_async_logging, log_flusher_task
         setup_async_logging("SYSTEM")
         asyncio.create_task(log_flusher_task())
+
+        # 启动日终跑批定时调度器（读取数据库 daily_batch_hour 配置）
+        from memory.daily_batch import schedule_daily_batch
+        asyncio.create_task(schedule_daily_batch())
 
         # 任一 Bot 开始收消息前，阻塞重建 BM25 索引（与 Chroma 全量对齐；无文档时为空索引，不抛错）
         logger.info("重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...")

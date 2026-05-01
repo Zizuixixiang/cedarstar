@@ -59,12 +59,15 @@ function providerCacheHitRate(row) {
 
 function theoreticalCacheHitRate(row) {
   const explicit = numberOrNull(row?.theoretical_cache_hit_rate)
-  return explicit === null ? providerCacheHitRate(row) : explicit
+  if (explicit !== null) return explicit
+  const prompt = Number(row?.prompt_tokens || 0)
+  if (prompt <= 0) return null
+  return theoreticalCachedTokens(row) / prompt
 }
 
 function theoreticalCachedTokens(row) {
   const explicit = numberOrNull(row?.theoretical_cached_tokens)
-  return explicit === null ? providerCacheHitTokens(row) : explicit
+  return explicit === null ? 0 : explicit
 }
 
 function normalizeUsageStats(data) {
@@ -99,6 +102,7 @@ function normalizeUsageStats(data) {
   const prompt = Number(firstRow.prompt_tokens || 0)
   const safeTotals = data.totals || {}
   const fallbackHitTokens = providerCacheHitTokens(firstRow)
+  const fallbackTheoreticalTokens = theoreticalCachedTokens(firstRow)
   const hasTotalCacheFields = [
     'provider_cache_hit_tokens',
     'cache_hit_tokens',
@@ -117,10 +121,10 @@ function normalizeUsageStats(data) {
     cache_creation_input_tokens: Number(safeTotals.cache_creation_input_tokens ?? firstRow.cache_creation_input_tokens ?? 0),
     cache_read_input_tokens: Number(safeTotals.cache_read_input_tokens ?? firstRow.cache_read_input_tokens ?? 0),
     provider_cache_hit_tokens: Number(safeTotals.provider_cache_hit_tokens ?? firstRow.provider_cache_hit_tokens ?? hitTokens),
-    theoretical_cached_tokens: Number(safeTotals.theoretical_cached_tokens ?? firstRow.theoretical_cached_tokens ?? hitTokens),
+    theoretical_cached_tokens: Number(safeTotals.theoretical_cached_tokens ?? firstRow.theoretical_cached_tokens ?? 0),
     call_count: Number(safeTotals.call_count ?? recent.length ?? 0),
     cache_hit_rate: Number(safeTotals.cache_hit_rate ?? (prompt > 0 ? hitTokens / prompt : 0)),
-    theoretical_cache_hit_rate: Number(safeTotals.theoretical_cache_hit_rate ?? firstRow.theoretical_cache_hit_rate ?? (prompt > 0 ? hitTokens / prompt : 0)),
+    theoretical_cache_hit_rate: Number(safeTotals.theoretical_cache_hit_rate ?? firstRow.theoretical_cache_hit_rate ?? (prompt > 0 ? fallbackTheoreticalTokens / prompt : 0)),
   }
   const platformRows = Array.isArray(data.by_platform) && data.by_platform.length > 0 ? data.by_platform : [{ ...totals, platform: firstRow.platform || 'unknown' }]
   const modelRows = Array.isArray(data.by_model) && data.by_model.length > 0 ? data.by_model : [{ ...totals, model: firstRow.model || 'unknown' }]
@@ -139,6 +143,7 @@ function oneCallUsageView(data) {
   if (!row) return data
   const hitTokens = providerCacheHitTokens(row)
   const prompt = Number(row.prompt_tokens || 0)
+  const theoreticalTokens = Number(row.theoretical_cached_tokens || 0)
   const totals = {
     total_tokens: Number(row.total_tokens || 0),
     prompt_tokens: prompt,
@@ -150,10 +155,10 @@ function oneCallUsageView(data) {
     cache_creation_input_tokens: Number(row.cache_creation_input_tokens || 0),
     cache_read_input_tokens: Number(row.cache_read_input_tokens || 0),
     provider_cache_hit_tokens: Number(row.provider_cache_hit_tokens ?? hitTokens),
-    theoretical_cached_tokens: Number(row.theoretical_cached_tokens ?? 0),
+    theoretical_cached_tokens: theoreticalTokens,
     call_count: 1,
     cache_hit_rate: Number(row.cache_hit_rate ?? (prompt > 0 ? hitTokens / prompt : 0)),
-    theoretical_cache_hit_rate: Number(row.theoretical_cache_hit_rate ?? 0),
+    theoretical_cache_hit_rate: Number(row.theoretical_cache_hit_rate ?? (prompt > 0 ? theoreticalTokens / prompt : 0)),
   }
   const platformRow = { ...totals, platform: row.platform || 'unknown' }
   const modelRow = { ...totals, model: row.model || 'unknown' }
@@ -324,18 +329,29 @@ export default function Observability() {
     setLoading(true)
     setUsage(null)
     try {
-      const [usageRes, toolsRes] = await Promise.all([
-        apiFetch(`/api/observability/usage?period=${period}`),
+      const usageParams = new URLSearchParams({
+        period,
+      })
+      const todayParams = new URLSearchParams({
+        period: 'today',
+      })
+      const [usageRes, recentRes, toolsRes] = await Promise.all([
+        apiFetch(`/api/observability/usage?${usageParams.toString()}`),
+        apiFetch(`/api/observability/usage?${todayParams.toString()}`),
         apiFetch('/api/observability/tool-executions?limit=60'),
       ])
       const usageData = await usageRes.json()
+      const recentData = await recentRes.json()
       const toolsData = await toolsRes.json()
       const toolPayload = toolsData.success ? toolsData.data : []
       const usagePayload = usageData.success ? usageData.data : null
+      const recentPayload = recentData.success ? recentData.data : null
       const normalizedTools = Array.isArray(toolPayload) ? toolPayload : (toolPayload?.items || [])
       const normalizedUsage = period === 'current' ? oneCallUsageView(usagePayload) : normalizeUsageStats(usagePayload)
+      const todayRecent = normalizeUsageStats(recentPayload)?.recent || []
+      const usageWithTodayRecent = normalizedUsage ? { ...normalizedUsage, recent: todayRecent } : normalizedUsage
       if (loadSeqRef.current === seq) {
-        setUsage(normalizedUsage)
+        setUsage(usageWithTodayRecent)
         setTools(normalizedTools)
         setToolPage(1)
       }
@@ -417,12 +433,12 @@ export default function Observability() {
       <section className="obs-panel">
         <div className="obs-panel-title">
           <Clock3 size={16} strokeWidth={1.8} aria-hidden />
-          <h2>最近调用</h2>
+          <h2>最近调用（今日）</h2>
         </div>
         <div className="recent-calls">
           {(usage?.recent || []).length === 0 ? (
             <div className="obs-empty">暂无 token usage 记录</div>
-          ) : (usage?.recent || []).slice(0, 12).map((row) => (
+          ) : (usage?.recent || []).map((row) => (
             <RecentUsageRow key={row.id} row={row} />
           ))}
         </div>

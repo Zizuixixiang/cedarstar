@@ -59,14 +59,24 @@ def _provider_cache_hit_tokens(row: Dict[str, Any]) -> int:
 
 
 def _theoretical_cache_hit_tokens(row: Dict[str, Any]) -> int:
-    base_url = (str(row.get("base_url") or "")).lower()
-    if "api.deepseek.com" in base_url:
-        return _int_value(row, "cache_hit_tokens")
-    if "openrouter.ai" in base_url:
-        return _int_value(row, "cached_tokens")
-    if "siliconflow.cn" in base_url:
-        return _int_value(row, "cache_hit_tokens") or _int_value(row, "cached_tokens")
-    return 0
+    prompt_tokens = _int_value(row, "prompt_tokens")
+    theoretical_tokens = max(
+        _int_value(row, "theoretical_cached_tokens"),
+        _provider_cache_hit_tokens(row),
+    )
+    return min(theoretical_tokens, prompt_tokens) if prompt_tokens > 0 else theoretical_tokens
+
+
+def _usage_row_with_rates(row: Any) -> Dict[str, Any]:
+    item = _row_dict(row)
+    prompt_tokens = _int_value(item, "prompt_tokens")
+    provider_hit_tokens = _provider_cache_hit_tokens(item)
+    theoretical_hit_tokens = _theoretical_cache_hit_tokens(item)
+    item["provider_cache_hit_tokens"] = provider_hit_tokens
+    item["theoretical_cached_tokens"] = theoretical_hit_tokens
+    item["cache_hit_rate"] = (provider_hit_tokens / prompt_tokens) if prompt_tokens else 0
+    item["theoretical_cache_hit_rate"] = (theoretical_hit_tokens / prompt_tokens) if prompt_tokens else 0
+    return item
 
 
 async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[str, Any]:
@@ -83,6 +93,7 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
                    tu.completion_tokens, tu.total_tokens, tu.cached_tokens,
                    tu.cache_write_tokens, tu.cache_hit_tokens, tu.cache_miss_tokens,
                    tu.cache_creation_input_tokens, tu.cache_read_input_tokens,
+                   tu.theoretical_cached_tokens,
                    tu.raw_usage_json, tu.base_url,
                    tu.cache_hit_tokens AS provider_cache_hit_tokens
             FROM token_usage tu
@@ -112,7 +123,7 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
         }
         return {"totals": empty_totals, "by_platform": [], "by_model": [], "by_day": [], "recent": []}
 
-    item = _row_dict(row)
+    item = _usage_row_with_rates(row)
     prompt_tokens = _int_value(item, "prompt_tokens")
     provider_hit_tokens = _provider_cache_hit_tokens(item)
     theoretical_hit_tokens = _theoretical_cache_hit_tokens(item)
@@ -147,20 +158,31 @@ async def _latest_usage_stats(db: Any, platform: Optional[str] = None) -> Dict[s
     }
 
 
-async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[str] = None) -> Dict[str, Any]:
+async def _range_usage_stats(
+    db: Any,
+    start_date: datetime,
+    platform: Optional[str] = None,
+    recent_limit: Optional[int] = None,
+) -> Dict[str, Any]:
     conditions = ["tu.created_at >= $1"]
     params = [start_date]
     if platform:
         params.append(platform)
         conditions.append(f"tu.platform = ${len(params)}")
     where_sql = "WHERE " + " AND ".join(conditions)
+    recent_limit_sql = f"LIMIT {int(recent_limit)}" if recent_limit else ""
     provider_hit_expr = "COALESCE(tu.cache_hit_tokens, 0)"
+    theoretical_hit_expr = (
+        "LEAST(COALESCE(tu.prompt_tokens, 0), "
+        "GREATEST(COALESCE(tu.theoretical_cached_tokens, 0), "
+        f"{provider_hit_expr}))"
+    )
     sum_sql = f"""
         SELECT SUM(tu.total_tokens), SUM(tu.prompt_tokens), SUM(tu.completion_tokens),
                SUM(tu.cached_tokens), SUM(tu.cache_write_tokens),
                SUM(tu.cache_hit_tokens), SUM(tu.cache_miss_tokens),
                SUM(tu.cache_creation_input_tokens), SUM(tu.cache_read_input_tokens),
-               SUM({provider_hit_expr}), COUNT(*)
+               SUM({theoretical_hit_expr}), SUM({provider_hit_expr}), COUNT(*)
         FROM token_usage tu {where_sql}
     """
     by_platform_sql = f"""
@@ -174,6 +196,7 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
                SUM(tu.cache_miss_tokens) AS cache_miss_tokens,
                SUM(tu.cache_creation_input_tokens) AS cache_creation_input_tokens,
                SUM(tu.cache_read_input_tokens) AS cache_read_input_tokens,
+               SUM({theoretical_hit_expr}) AS theoretical_cached_tokens,
                SUM({provider_hit_expr}) AS provider_cache_hit_tokens,
                COUNT(*) AS call_count
         FROM token_usage tu {where_sql}
@@ -191,6 +214,7 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
                SUM(tu.cache_miss_tokens) AS cache_miss_tokens,
                SUM(tu.cache_creation_input_tokens) AS cache_creation_input_tokens,
                SUM(tu.cache_read_input_tokens) AS cache_read_input_tokens,
+               SUM({theoretical_hit_expr}) AS theoretical_cached_tokens,
                SUM({provider_hit_expr}) AS provider_cache_hit_tokens,
                COUNT(*) AS call_count
         FROM token_usage tu {where_sql}
@@ -209,6 +233,7 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
                SUM(tu.cache_miss_tokens) AS cache_miss_tokens,
                SUM(tu.cache_creation_input_tokens) AS cache_creation_input_tokens,
                SUM(tu.cache_read_input_tokens) AS cache_read_input_tokens,
+               SUM({theoretical_hit_expr}) AS theoretical_cached_tokens,
                SUM({provider_hit_expr}) AS provider_cache_hit_tokens,
                COUNT(*) AS call_count
         FROM token_usage tu {where_sql}
@@ -221,11 +246,12 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
                tu.completion_tokens, tu.total_tokens, tu.cached_tokens,
                tu.cache_write_tokens, tu.cache_hit_tokens, tu.cache_miss_tokens,
                tu.cache_creation_input_tokens, tu.cache_read_input_tokens,
+               tu.theoretical_cached_tokens,
                {provider_hit_expr} AS provider_cache_hit_tokens,
                tu.raw_usage_json
         FROM token_usage tu {where_sql}
         ORDER BY tu.created_at DESC, tu.id DESC
-        LIMIT 50
+        {recent_limit_sql}
     """
     async with db.pool.acquire() as conn:
         totals = await conn.fetchrow(sum_sql, *params)
@@ -235,8 +261,8 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
         recent_rows = await conn.fetch(recent_sql, *params)
 
     prompt_tokens = (totals[1] or 0) if totals else 0
-    provider_hit_tokens = (totals[9] or 0) if totals else 0
-    theoretical_hit_tokens = (totals[8] or 0) if totals else 0
+    theoretical_hit_tokens = (totals[9] or 0) if totals else 0
+    provider_hit_tokens = (totals[10] or 0) if totals else 0
     hit_rate = (provider_hit_tokens / prompt_tokens) if prompt_tokens else 0
     theoretical_hit_rate = (theoretical_hit_tokens / prompt_tokens) if prompt_tokens else 0
     return {
@@ -250,16 +276,16 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
             "cache_miss_tokens": (totals[6] or 0) if totals else 0,
             "cache_creation_input_tokens": (totals[7] or 0) if totals else 0,
             "cache_read_input_tokens": (totals[8] or 0) if totals else 0,
-            "provider_cache_hit_tokens": provider_hit_tokens,
             "theoretical_cached_tokens": theoretical_hit_tokens,
-            "call_count": (totals[10] or 0) if totals else 0,
+            "provider_cache_hit_tokens": provider_hit_tokens,
+            "call_count": (totals[11] or 0) if totals else 0,
             "cache_hit_rate": hit_rate,
             "theoretical_cache_hit_rate": theoretical_hit_rate,
         },
         "by_platform": [_row_dict(r) for r in rows_platform],
         "by_model": [_row_dict(r) for r in rows_model],
         "by_day": [_row_dict(r) for r in rows_day],
-        "recent": [_row_dict(r) for r in recent_rows],
+        "recent": [_usage_row_with_rates(r) for r in recent_rows],
     }
 
 
@@ -267,6 +293,7 @@ async def _range_usage_stats(db: Any, start_date: datetime, platform: Optional[s
 async def usage_observability(
     period: str = Query("today", description="current / today / week / month"),
     platform: Optional[str] = Query(None, description="按平台过滤"),
+    recent_limit: Optional[int] = Query(None, ge=1, le=1000, description="最近调用返回条数；不传则返回该周期全部"),
 ):
     """返回 token 与缓存观测聚合，不内置价格表。"""
     from memory.database import get_database
@@ -275,9 +302,10 @@ async def usage_observability(
     if period == "current":
         stats = await _latest_usage_stats(db, platform)
     else:
-        stats = await _range_usage_stats(db, _period_start(period), platform)
+        stats = await _range_usage_stats(db, _period_start(period), platform, recent_limit)
     stats["period"] = period
     stats["platform"] = platform
+    stats["recent_limit"] = recent_limit
     return create_response(True, stats)
 
 

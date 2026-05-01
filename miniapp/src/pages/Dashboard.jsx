@@ -76,9 +76,16 @@ function HealthCard({ data, loading, batchLogs }) {
       latest.step3_status === 1 &&
       s4 === 1 &&
       s5 === 1;
+    const hasAnyRealFailure =
+      latest.error_message ||
+      latest.error_stack ||
+      latest.retry_count > 0 ||
+      [latest.step1_status, latest.step2_status, latest.step3_status, s4, s5].some((v) => Number(v) === 0);
     return allSuccess
       ? { text: '全部成功', color: 'var(--batch-success-text)' }
-      : { text: '存在失败', color: '#C94A4A' };
+      : hasAnyRealFailure
+        ? { text: '存在失败', color: '#C94A4A' }
+        : { text: '处理中', color: 'var(--text-sub)' };
   };
 
   const batchStatus = getBatchStatus();
@@ -158,13 +165,25 @@ function BatchCalendarCard({ data, loading, selectedDay, onDayClick }) {
       
       let status = 'none';
       if (logForDay) {
-        // 兼容 has_failure 字段或通过 step_status 判断
+        // 兼容 has_failure 字段；若没有该字段，则只在日志确认为已跑且存在失败/未完成时判失败。
         const s4 = logForDay.step4_status ?? 0;
         const s5 = logForDay.step5_status ?? 0;
-        const hasFail = logForDay.has_failure ??
-          (logForDay.step1_status === 0 || logForDay.step2_status === 0 || logForDay.step3_status === 0 ||
-            s4 === 0 || s5 === 0);
-        status = hasFail ? 'failed' : 'success';
+        const completedAnyStep =
+          Number(logForDay.step1_status) === 1 ||
+          Number(logForDay.step2_status) === 1 ||
+          Number(logForDay.step3_status) === 1 ||
+          Number(s4) === 1 ||
+          Number(s5) === 1;
+        const hasFailureFlag = logForDay.has_failure === true || logForDay.has_failure === 1;
+        const hasRealFailure =
+          hasFailureFlag ||
+          ((completedAnyStep || logForDay.error_message || logForDay.error_stack || Number(logForDay.retry_count) > 0) &&
+            (Number(logForDay.step1_status) === 0 ||
+              Number(logForDay.step2_status) === 0 ||
+              Number(logForDay.step3_status) === 0 ||
+              Number(s4) === 0 ||
+              Number(s5) === 0));
+        status = hasRealFailure ? 'failed' : 'success';
       }
       
       const isToday = dateStr === todayKey;

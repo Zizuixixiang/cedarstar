@@ -8,7 +8,6 @@
 import sys
 import asyncio
 import logging
-from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -16,7 +15,7 @@ load_dotenv()
 from memory.database import initialize_database
 from memory.daily_batch import (
     DailyBatchProcessor,
-    TIMEZONE,
+    resolve_daily_batch_date,
     schedule_daily_batch_retry_if_needed,
 )
 
@@ -29,13 +28,13 @@ logger = logging.getLogger(__name__)
 
 async def main():
     batch_arg = sys.argv[1] if len(sys.argv) > 1 else None
-    resolved_batch_date = batch_arg or datetime.now(TIMEZONE).strftime("%Y-%m-%d")
 
     # 初始化数据库连接池
     await initialize_database()
+    resolved_batch_date = await resolve_daily_batch_date(batch_arg)
 
     processor = DailyBatchProcessor()
-    success = await processor.run_daily_batch(batch_arg)
+    success = await processor.run_daily_batch(resolved_batch_date)
 
     if success:
         logger.info("日终跑批完成")

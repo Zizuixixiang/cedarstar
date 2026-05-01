@@ -265,6 +265,9 @@ async def _ensure_token_usage_cache_columns(conn) -> None:
     await conn.execute(
         "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS base_url TEXT"
     )
+    await conn.execute(
+        "ALTER TABLE token_usage ADD COLUMN IF NOT EXISTS theoretical_cached_tokens INTEGER DEFAULT 0"
+    )
 
 
 async def _ensure_message_platform_file_id_column(conn) -> None:
@@ -710,6 +713,7 @@ class MessageDatabase:
                         cache_miss_tokens INTEGER DEFAULT 0,
                         cache_creation_input_tokens INTEGER DEFAULT 0,
                         cache_read_input_tokens INTEGER DEFAULT 0,
+                        theoretical_cached_tokens INTEGER DEFAULT 0,
                         raw_usage_json JSONB,
                         base_url TEXT
                     )
@@ -2960,6 +2964,7 @@ class MessageDatabase:
         cache_miss_tokens: int = 0,
         cache_creation_input_tokens: int = 0,
         cache_read_input_tokens: int = 0,
+        theoretical_cached_tokens: int = 0,
         raw_usage: Optional[Dict[str, Any]] = None,
         base_url: Optional[str] = None,
     ) -> int:
@@ -2970,9 +2975,10 @@ class MessageDatabase:
                 INSERT INTO token_usage (
                     platform, prompt_tokens, completion_tokens, total_tokens, model,
                     cached_tokens, cache_write_tokens, cache_hit_tokens, cache_miss_tokens,
-                    cache_creation_input_tokens, cache_read_input_tokens, raw_usage_json, base_url
+                    cache_creation_input_tokens, cache_read_input_tokens, theoretical_cached_tokens,
+                    raw_usage_json, base_url
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb, $13)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14)
                 RETURNING id
                 """,
                 platform,
@@ -2986,6 +2992,7 @@ class MessageDatabase:
                 int(cache_miss_tokens or 0),
                 int(cache_creation_input_tokens or 0),
                 int(cache_read_input_tokens or 0),
+                int(theoretical_cached_tokens or 0),
                 json.dumps(raw_usage, ensure_ascii=False) if raw_usage is not None else None,
                 None if base_url is None else str(base_url),
             )

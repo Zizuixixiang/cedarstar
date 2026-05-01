@@ -270,6 +270,19 @@ async def _daily_batch_trigger_hour() -> float:
     return 23
 
 
+async def resolve_daily_batch_date(batch_date: Optional[str] = None) -> str:
+    """解析无参跑批日期：早于配置触发时刻时处理前一天。"""
+    if batch_date and str(batch_date).strip():
+        return str(batch_date).strip()
+
+    now = datetime.now(TIMEZONE)
+    trigger_hour = await _daily_batch_trigger_hour()
+    current_hour = now.hour + now.minute / 60
+    if current_hour < trigger_hour:
+        now = now - timedelta(days=1)
+    return now.strftime("%Y-%m-%d")
+
+
 async def _gc_stale_days_threshold() -> float:
     """Step 5 GC 闲置天数阈值：优先 config 表 gc_stale_days，否则默认 180。"""
     try:
@@ -482,8 +495,7 @@ class DailyBatchProcessor:
                 await fetch_active_persona_display_names()
             )
 
-            if batch_date is None:
-                batch_date = datetime.now(TIMEZONE).strftime("%Y-%m-%d")
+            batch_date = await resolve_daily_batch_date(batch_date)
 
             await self._resolve_batch_memory_identity(batch_date)
 
