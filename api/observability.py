@@ -60,10 +60,7 @@ def _provider_cache_hit_tokens(row: Dict[str, Any]) -> int:
 
 def _theoretical_cache_hit_tokens(row: Dict[str, Any]) -> int:
     prompt_tokens = _int_value(row, "prompt_tokens")
-    theoretical_tokens = max(
-        _int_value(row, "theoretical_cached_tokens"),
-        _provider_cache_hit_tokens(row),
-    )
+    theoretical_tokens = _int_value(row, "theoretical_cached_tokens")
     return min(theoretical_tokens, prompt_tokens) if prompt_tokens > 0 else theoretical_tokens
 
 
@@ -186,8 +183,7 @@ async def _range_usage_stats(
     provider_hit_expr = "COALESCE(tu.cache_hit_tokens, 0)"
     theoretical_hit_expr = (
         "LEAST(COALESCE(tu.prompt_tokens, 0), "
-        "GREATEST(COALESCE(tu.theoretical_cached_tokens, 0), "
-        f"{provider_hit_expr}))"
+        "COALESCE(tu.theoretical_cached_tokens, 0))"
     )
     sum_sql = f"""
         SELECT SUM(tu.total_tokens), SUM(tu.prompt_tokens), SUM(tu.completion_tokens),

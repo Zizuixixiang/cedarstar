@@ -1570,6 +1570,7 @@ class TelegramBot:
         base_message,
         bot,
         tools: Optional[List[Dict[str, Any]]] = None,
+        cacheable_ratio: float = 0.0,
     ) -> _TelegramSseRound:
         """
         一轮 SSE（可含多次 HTTP）：仅对 **流式读超时** 自动重试，最多重试 STREAM_READ_TIMEOUT_MAX_RETRIES 次。
@@ -1579,7 +1580,8 @@ class TelegramBot:
         chat_id = base_message.chat.id
         for attempt in range(STREAM_READ_TIMEOUT_MAX_RETRIES + 1):
             sse = await self._telegram_stream_llm_one_sse_attempt(
-                llm, messages, base_message, bot, tools=tools
+                llm, messages, base_message, bot, tools=tools,
+                cacheable_ratio=cacheable_ratio,
             )
             if sse.err_pack is None:
                 return sse
@@ -1624,6 +1626,7 @@ class TelegramBot:
         base_message,
         bot,
         tools: Optional[List[Dict[str, Any]]] = None,
+        cacheable_ratio: float = 0.0,
     ) -> _TelegramSseRound:
         """单次 HTTP 流式：实时编辑思维链占位；结束态供 _telegram_finalize_sse_round_outcome 定稿。"""
         chat_id = base_message.chat.id
@@ -1636,7 +1639,8 @@ class TelegramBot:
             th_list: List[str] = []
             try:
                 gen = llm.generate_stream(
-                    messages, platform=Platform.TELEGRAM, tools=tools
+                    messages, platform=Platform.TELEGRAM, tools=tools,
+                    cacheable_ratio=cacheable_ratio,
                 )
                 while True:
                     try:
@@ -1668,6 +1672,7 @@ class TelegramBot:
                                         "guard_refusal_abort": bool(
                                             fin.get("guard_refusal_abort")
                                         ),
+                                        "cacheable_ratio": fin.get("cacheable_ratio", 0.0),
                                     },
                                 )
                             ),
@@ -1754,7 +1759,10 @@ class TelegramBot:
             # 保存 Token (流式在子线程丢弃了记录，这里在主 loop 补记)
             u_data = done_payload.get("usage")
             if u_data:
-                llm._save_token_usage_async(u_data, Platform.TELEGRAM)
+                llm._save_token_usage_async(
+                    u_data, Platform.TELEGRAM,
+                    done_payload.get("cacheable_ratio", 0.0),
+                )
 
         elif err_pack is not None:
             _ex, c_partial, t_partial = err_pack
@@ -1992,12 +2000,14 @@ class TelegramBot:
         messages: List[Dict[str, Any]],
         base_message,
         bot,
+        cacheable_ratio: float = 0.0,
     ) -> _TelegramStreamOutcome:
         cur_messages: List[Dict[str, Any]] = messages
         sse: Optional[_TelegramSseRound] = None
         for attempt in range(2):
             sse = await self._telegram_stream_llm_one_sse_round(
-                llm, cur_messages, base_message, bot
+                llm, cur_messages, base_message, bot,
+                cacheable_ratio=cacheable_ratio,
             )
             fin = sse.done_payload or {}
             if fin.get("guard_refusal_abort") and attempt == 0:
@@ -2022,6 +2032,7 @@ class TelegramBot:
         bot,
         session_id: Optional[str] = None,
         user_message_id: Optional[int] = None,
+        cacheable_ratio: float = 0.0,
     ) -> _TelegramStreamOutcome:
         """
         Sirius + OpenAI 兼容路径：首轮起携带 Lutopia tools；若模型发起 function call，
@@ -2086,6 +2097,7 @@ class TelegramBot:
                         base_message,
                         bot,
                         tools=tools_param,
+                        cacheable_ratio=cacheable_ratio,
                     )
                     fin = sse.done_payload or {}
                     if fin.get("guard_refusal_abort") and attempt == 0:
@@ -2554,6 +2566,7 @@ class TelegramBot:
             )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
+            cacheable_ratio = context.get("cacheable_ratio", 0.0)
             if not messages:
                 messages = [{"role": "user", "content": combined_content}]
 
@@ -2601,11 +2614,10 @@ class TelegramBot:
                     snap = cur_m
                     llm_resp = await asyncio.to_thread(
                         lambda m=snap: llm.generate_with_context_and_tracking(
-                            m, platform=Platform.TELEGRAM
+                            m, platform=Platform.TELEGRAM,
+                            cacheable_ratio=cacheable_ratio,
                         )
                     )
-                    if hasattr(llm_resp, "usage") and llm_resp.usage:
-                        llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
                     raw_txt = llm_resp.content or ""
                     safe, hit = truncate_accumulator_at_first_refusal(raw_txt)
                     last_hit = hit
@@ -2639,10 +2651,12 @@ class TelegramBot:
                         bot,
                         session_id=session_id,
                         user_message_id=user_row_id if 'user_row_id' in locals() else None,
+                        cacheable_ratio=cacheable_ratio,
                     )
                 else:
                     outcome = await self._telegram_stream_thinking_and_reply(
-                        llm, messages, base_message, bot
+                        llm, messages, base_message, bot,
+                        cacheable_ratio=cacheable_ratio,
                     )
 
             # 用户消息已在上方先行落库；此处仅处理助手侧 persist 标记
@@ -2936,6 +2950,7 @@ class TelegramBot:
             )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
+            cacheable_ratio = context.get("cacheable_ratio", 0.0)
             if not messages:
                 messages = [{"role": "user", "content": content}]
 
@@ -2985,13 +3000,12 @@ class TelegramBot:
 
                 def _call() -> Any:
                     return llm.generate_with_context_and_tracking(
-                        messages, platform=Platform.TELEGRAM
+                        messages, platform=Platform.TELEGRAM,
+                        cacheable_ratio=cacheable_ratio,
                     )
 
                 llm_resp = await asyncio.to_thread(_call)
                 cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
-            if hasattr(llm_resp, 'usage') and llm_resp.usage:
-                llm._save_token_usage_async(llm_resp.usage, Platform.TELEGRAM)
             think_plain = (llm_resp.thinking or "").strip()
             if telegram_bot and think_plain:
                 html_th = self._telegram_thinking_blockquote_html(think_plain)

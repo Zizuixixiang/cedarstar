@@ -722,7 +722,7 @@ def _usage_int(usage: Mapping[str, Any], key: str, default: int = 0) -> int:
 def _normalize_usage_for_storage(
     usage: Mapping[str, Any],
     base_url: Optional[str] = None,
-    theoretical_cached_tokens: int = 0,
+    cacheable_ratio: float = 0.0,
 ) -> Dict[str, Any]:
     """按供应商约定归一化 usage，并附带理论缓存输入统计。"""
     prompt_tokens = _usage_int(usage, "prompt_tokens", _usage_int(usage, "input_tokens"))
@@ -755,15 +755,19 @@ def _normalize_usage_for_storage(
     elif "openrouter.ai" in base:
         cache_hit_tokens = _usage_int(details, "cached_tokens")
     elif "siliconflow.cn" in base:
+        # OpenAI 格式：prompt_cache_hit_tokens；Anthropic 格式：cache_read_input_tokens
         cache_hit_tokens = _usage_int(
             usage,
             "prompt_cache_hit_tokens",
             _usage_int(details, "cached_tokens"),
         )
+        cache_hit_tokens = max(cache_hit_tokens, cache_read_input_tokens)
     else:
         cache_hit_tokens = 0
 
     cache_miss_tokens = 0
+
+    theoretical_cached_tokens = int(prompt_tokens * cacheable_ratio) if prompt_tokens > 0 else 0
 
     return {
         "prompt_tokens": prompt_tokens,
@@ -775,50 +779,40 @@ def _normalize_usage_for_storage(
         "cache_miss_tokens": cache_miss_tokens,
         "cache_creation_input_tokens": cache_creation_input_tokens,
         "cache_read_input_tokens": cache_read_input_tokens,
-        "theoretical_cached_tokens": max(0, int(theoretical_cached_tokens or 0)),
+        "theoretical_cached_tokens": max(0, theoretical_cached_tokens),
         "raw_usage": dict(usage),
     }
 
 
-def estimate_theoretical_cached_tokens(messages: List[Dict[str, Any]]) -> int:
-    """估算本轮 messages 中标记 cache_control 的稳定输入 token 数。
+def estimate_cacheable_ratio(messages: List[Dict[str, Any]]) -> float:
+    """计算 messages 中被 cache_control 标记的文本的 token 占比。
 
-    usage 里的 prompt_tokens 是 token 口径；这里用 CJK/ASCII 混合文本的轻量估算，
-    避免把字符数直接当 token 数导致理论上限虚高。
+    使用 tiktoken cl100k_base 估算 token 数（与主流 LLM tokenizer 接近），
+    返回 0.0~1.0。调用方用此比率乘以 provider 返回的实际 prompt_tokens。
     """
-    total = 0
+    try:
+        enc = tiktoken.get_encoding("cl100k_base")
+    except Exception:
+        return 0.0
 
-    def estimate_text_tokens(text: str) -> int:
-        cjk = 0
-        ascii_runs = 0
-        in_ascii_run = False
-        other = 0
-        for ch in text:
-            code = ord(ch)
-            if 0x4E00 <= code <= 0x9FFF or 0x3400 <= code <= 0x4DBF or 0x3040 <= code <= 0x30FF or 0xAC00 <= code <= 0xD7AF:
-                cjk += 1
-                in_ascii_run = False
-            elif ch.isascii() and (ch.isalnum() or ch in "_-./:@#"):
-                if not in_ascii_run:
-                    ascii_runs += 1
-                    in_ascii_run = True
-            else:
-                other += 1
-                in_ascii_run = False
-        return max(1, cjk + math.ceil(other / 2) + math.ceil(ascii_runs * 1.3)) if text.strip() else 0
+    cached_tokens = 0
+    total_tokens = 0
 
     def walk(value: Any) -> None:
-        nonlocal total
+        nonlocal cached_tokens, total_tokens
         if isinstance(value, list):
             for item in value:
                 walk(item)
             return
         if not isinstance(value, dict):
             return
-        if value.get("cache_control") and value.get("type") == "text":
+        if value.get("type") == "text":
             text = value.get("text")
-            if isinstance(text, str):
-                total += estimate_text_tokens(text)
+            if isinstance(text, str) and text.strip():
+                est = len(enc.encode(text))
+                total_tokens += est
+                if value.get("cache_control"):
+                    cached_tokens += est
         content = value.get("content")
         if isinstance(content, list):
             walk(content)
@@ -826,7 +820,9 @@ def estimate_theoretical_cached_tokens(messages: List[Dict[str, Any]]) -> int:
     for msg in messages or []:
         if isinstance(msg, dict):
             walk(msg.get("content"))
-    return total
+    if total_tokens <= 0:
+        return 0.0
+    return cached_tokens / total_tokens
 
 
 def _openai_tools_specs_to_anthropic(
@@ -1771,7 +1767,7 @@ class LLMInterface:
         self,
         usage: Dict[str, Any],
         platform: Optional[str] = None,
-        theoretical_cached_tokens: int = 0,
+        cacheable_ratio: float = 0.0,
     ):
         """
         异步保存token使用量到数据库。
@@ -1782,13 +1778,13 @@ class LLMInterface:
         Args:
             usage: token使用统计字典
             platform: 平台标识（可选）
-            theoretical_cached_tokens: 本轮 context 中被 cache_control 标记的稳定输入量
+            cacheable_ratio: 本轮 context 中被 cache_control 标记的文本字符占比 (0.0~1.0)
         """
         try:
             normalized = _normalize_usage_for_storage(
                 usage,
                 self.api_base,
-                theoretical_cached_tokens=theoretical_cached_tokens,
+                cacheable_ratio=cacheable_ratio,
             )
 
             try:
@@ -1958,15 +1954,17 @@ class LLMInterface:
         platform: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         timeout_override_seconds: Optional[float] = None,
+        cacheable_ratio: float = 0.0,
     ) -> LLMResponse:
         """
         使用完整的 messages 数组生成回复，并跟踪token使用量。
-        
+
         Args:
             messages: 完整的消息数组，包含 system、user、assistant 消息
             platform: 平台标识（可选）
             tools: OpenAI 兼容 tools 列表（仅 OpenAI 路径生效；Anthropic 路径忽略）
             timeout_override_seconds: 本次调用专用超时时间（秒），不影响实例默认配置
+            cacheable_ratio: v3 架构稳定部分的字符占比 (0.0~1.0)，由 context builder 计算
             
         Returns:
             LLMResponse: 含 content、可选 tool_calls、thinking 等
@@ -2012,9 +2010,9 @@ class LLMInterface:
                 self._save_token_usage_async(
                     llm_response.usage,
                     platform,
-                    estimate_theoretical_cached_tokens(messages),
+                    cacheable_ratio,
                 )
-            
+
             thinking_content = self._extract_thinking_content(response_data)
             llm_response.thinking = thinking_content
             
@@ -2048,6 +2046,7 @@ class LLMInterface:
         messages: List[Dict[str, Any]],
         platform: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        cacheable_ratio: float = 0.0,
     ) -> Generator[Tuple[str, str], None, Dict[str, Any]]:
         """
         流式生成（仅 OpenAI 兼容 `chat/completions` + SSE）。
@@ -2272,7 +2271,7 @@ class LLMInterface:
             self._save_token_usage_async(
                 usage_out,
                 platform,
-                estimate_theoretical_cached_tokens(messages),
+                cacheable_ratio,
             )
 
         return {
@@ -2281,15 +2280,17 @@ class LLMInterface:
             "usage": usage_out,
             "tool_calls": tool_calls_out,
             "guard_refusal_abort": content_guard.aborted_due_to_refusal,
+            "cacheable_ratio": cacheable_ratio,
         }
     
     def generate_with_thinking(
-        self, 
-        prompt: str, 
+        self,
+        prompt: str,
         system_prompt: Optional[str] = None,
         conversation_history: Optional[List[Dict[str, str]]] = None,
         platform: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
+        cacheable_ratio: float = 0.0,
     ) -> Tuple[str, Optional[str]]:
         """
         生成文本响应，提取思维链内容。
@@ -2348,9 +2349,9 @@ class LLMInterface:
                 self._save_token_usage_async(
                     llm_response.usage,
                     platform,
-                    estimate_theoretical_cached_tokens(messages),
+                    cacheable_ratio,
                 )
-            
+
             # 提取思维链内容
             thinking_content = self._extract_thinking_content(response_data)
             

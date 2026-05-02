@@ -962,29 +962,64 @@ class ContextBuilder:
                 full_system_prompt.append(
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
-            
+
             # 组装 messages 数组
             messages = self._assemble_messages(
                 full_system_prompt,
                 recent_messages_section,
                 current_user_message
             )
-            
+
+            # 用实际组装后的内容计算 cacheable_ratio（包含格式化开销和工具定义）
+            # 前缀缓存（SiliconFlow 等）缓存整个稳定前缀，包括 cache_control 标记前的块
+            # 统计方式：从第一个块开始，到（含）第一个带 cache_control 的块为止
+            system_text_len = 0
+            cached_text_len = 0
+            found_cache_boundary = False
+            if isinstance(full_system_prompt, list):
+                for block in full_system_prompt:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        blen = len(block.get("text") or "")
+                        system_text_len += blen
+                        if not found_cache_boundary:
+                            cached_text_len += blen
+                            if block.get("cache_control"):
+                                found_cache_boundary = True
+            elif isinstance(full_system_prompt, str):
+                system_text_len = len(full_system_prompt)
+
+            messages_text_len = 0
+            for m in messages:
+                if m.get("role") == "system":
+                    continue
+                c = m.get("content", "")
+                if isinstance(c, str):
+                    messages_text_len += len(c)
+                elif isinstance(c, list):
+                    for part in c:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            messages_text_len += len(part.get("text") or "")
+
+            total_text_len = system_text_len + messages_text_len
+            cacheable_ratio = cached_text_len / total_text_len if total_text_len > 0 else 0.0
+
             logger.debug(f"Context 构建完成: session={session_id}, system_prompt_length={len(full_system_prompt)}, messages_count={len(messages)}")
             logger.info(
-                "context built: session=%s system_prompt_length=%s messages_count=%s daily_section_len=%s chunk_section_len=%s recent_messages=%s",
+                "context built: session=%s system_prompt_length=%s messages_count=%s daily_section_len=%s chunk_section_len=%s recent_messages=%s cacheable_ratio=%.3f",
                 session_id,
                 len(full_system_prompt),
                 len(messages),
                 len(daily_summaries_section or ""),
                 len(chunk_summaries_section or ""),
                 len(recent_messages_section or []),
+                cacheable_ratio,
             )
             self._record_context_trace(session_id, user_message)
-            
+
             return {
                 "system_prompt": full_system_prompt,
-                "messages": messages
+                "messages": messages,
+                "cacheable_ratio": cacheable_ratio,
             }
             
         except Exception as e:
@@ -1091,29 +1126,64 @@ class ContextBuilder:
                 full_system_prompt.append(
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
-            
+
             # 组装 messages 数组
             messages = self._assemble_messages(
                 full_system_prompt,
                 recent_messages_section,
                 current_user_message
             )
-            
+
+            # 用实际组装后的内容计算 cacheable_ratio（包含格式化开销和工具定义）
+            # 前缀缓存（SiliconFlow 等）缓存整个稳定前缀，包括 cache_control 标记前的块
+            # 统计方式：从第一个块开始，到（含）第一个带 cache_control 的块为止
+            system_text_len = 0
+            cached_text_len = 0
+            found_cache_boundary = False
+            if isinstance(full_system_prompt, list):
+                for block in full_system_prompt:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        blen = len(block.get("text") or "")
+                        system_text_len += blen
+                        if not found_cache_boundary:
+                            cached_text_len += blen
+                            if block.get("cache_control"):
+                                found_cache_boundary = True
+            elif isinstance(full_system_prompt, str):
+                system_text_len = len(full_system_prompt)
+
+            messages_text_len = 0
+            for m in messages:
+                if m.get("role") == "system":
+                    continue
+                c = m.get("content", "")
+                if isinstance(c, str):
+                    messages_text_len += len(c)
+                elif isinstance(c, list):
+                    for part in c:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            messages_text_len += len(part.get("text") or "")
+
+            total_text_len = system_text_len + messages_text_len
+            cacheable_ratio = cached_text_len / total_text_len if total_text_len > 0 else 0.0
+
             logger.debug(f"Context 构建完成（异步）: session={session_id}, system_prompt_length={len(full_system_prompt)}, messages_count={len(messages)}")
             logger.info(
-                "context built async: session=%s system_prompt_length=%s messages_count=%s daily_section_len=%s chunk_section_len=%s recent_messages=%s",
+                "context built async: session=%s system_prompt_length=%s messages_count=%s daily_section_len=%s chunk_section_len=%s recent_messages=%s cacheable_ratio=%.3f",
                 session_id,
                 len(full_system_prompt),
                 len(messages),
                 len(daily_summaries_section or ""),
                 len(chunk_summaries_section or ""),
                 len(recent_messages_section or []),
+                cacheable_ratio,
             )
             self._record_context_trace(session_id, user_message)
-            
+
             return {
                 "system_prompt": full_system_prompt,
-                "messages": messages
+                "messages": messages,
+                "cacheable_ratio": cacheable_ratio,
             }
             
         except Exception as e:
@@ -1850,9 +1920,10 @@ class ContextBuilder:
             fixed_sections.append(TOOL_ORAL_COACHING_BLOCK)
 
         blocks: List[Dict[str, Any]] = [
-            _cache_text_block("\n\n".join(s for s in fixed_sections if s.strip()), cache=True)
+            _cache_text_block("\n\n".join(s for s in fixed_sections if s.strip()), cache=False)
         ]
 
+        # 稳定部分（cache 边界内）：变化频率低，适合前缀缓存
         slow_sections: List[str] = []
         if temporal_states_section:
             slow_sections.append(temporal_states_section)
@@ -1863,20 +1934,23 @@ class ContextBuilder:
         if relationship_timeline_section:
             slow_sections.append(relationship_timeline_section)
 
-        if vector_search_section:
-            slow_sections.append(vector_search_section)
-
-        if archived_daily_section:
-            slow_sections.append(archived_daily_section)
-
         if daily_summaries_section:
             slow_sections.append(daily_summaries_section)
 
         if slow_sections:
             blocks.append(_cache_text_block("\n\n".join(slow_sections), cache=True))
 
+        # 向量检索 + 远古 daily 依赖检索结果，每次请求不同，放在 cache 边界之后
+        variable_sections: List[str] = []
+        if vector_search_section:
+            variable_sections.append(vector_search_section)
+        if archived_daily_section:
+            variable_sections.append(archived_daily_section)
+        if variable_sections:
+            blocks.append(_cache_text_block("\n\n".join(variable_sections), cache=False))
+
         if chunk_summaries_section:
-            blocks.append(_cache_text_block(chunk_summaries_section, cache=True))
+            blocks.append(_cache_text_block(chunk_summaries_section, cache=False))
 
         dynamic_sections = [time_section]
         if recent_tool_section:
@@ -1912,11 +1986,6 @@ class ContextBuilder:
         
         # 添加历史消息
         recent_out = [dict(m) for m in recent_messages]
-        if len(recent_out) > 2:
-            idx = len(recent_out) - 3
-            c = recent_out[idx].get("content")
-            if isinstance(c, str) and c.strip():
-                recent_out[idx]["content"] = [_cache_text_block(c, cache=True)]
         messages.extend(recent_out)
         
         # 添加当前用户消息

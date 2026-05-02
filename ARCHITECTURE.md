@@ -44,7 +44,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `token_usage` 现在除 `raw_usage_json` 外，还会持久化 `base_url`，用于按模型提供方与网关来源追踪 token 使用。
 - `provider_cache_hit_tokens` 与 `theoretical_cached_tokens` 口径已经拆分：
   - `provider_cache_hit_tokens` 直接按上游写入的 `cache_hit_tokens` 统计
-  - `theoretical_cached_tokens` 记录本轮请求里被 `cache_control` 标记的稳定输入量估算值；观测 API 会以供应商实际命中值作为旧数据兜底下限，并按 prompt tokens 封顶
+  - `theoretical_cached_tokens` 记录本轮请求里稳定前缀部分的输入量估算值（按 context 拼装顺序中前缀缓存边界内的内容计算）；观测 API 会以供应商实际命中值作为旧数据兜底下限，并按 prompt tokens 封顶
 - `tool_executions` 的 Mini App 观测接口改为分页返回，包含 `items / total / limit / offset`，并压缩 `result_raw_preview` 以降低前端渲染成本。
 - Observability 页面支持“本次”视图，聚合区默认展示最新一条 token usage；“最近调用（今日）”固定展示东八区当天全部调用。
 
@@ -106,17 +106,23 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.1 Context 拼装顺序
 
-1. system prompt
+前缀缓存边界内（稳定部分，每次请求字节一致）：
+
+1. system prompt + 指令块（优先级、引用、思考语言、工具口播）
 2. temporal_states
 3. memory_cards
 4. relationship_timeline
-5. 长期记忆召回
-6. 远古 daily 概况补充
-7. daily summaries
+5. daily summaries
+
+前缀缓存边界外（每次请求可能变化）：
+
+6. 长期记忆召回
+7. 远古 daily 概况补充
 8. 未归档 chunk summaries
-9. 最近消息
-   - 其中会额外带入最近几条已摘要消息，作为 chunk→正常对话的衔接窗口，避免摘要边界过于突兀
-10. 当前用户消息
+9. 动态内容（当前时间、工具记录、结束语）
+10. 最近消息
+    - 其中会额外带入最近几条已摘要消息，作为 chunk→正常对话的衔接窗口，避免摘要边界过于突兀
+11. 当前用户消息
 
 ### 3.2 长期记忆召回
 

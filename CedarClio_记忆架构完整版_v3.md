@@ -97,18 +97,19 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.1 Context 拼装顺序
 
-Context 组装时，系统按以下顺序注入信息：
+Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注在侧）：
 
-1. system prompt
-2. temporal_states
-3. memory_cards
-4. relationship_timeline
-5. 长期记忆召回
-6. 远古 daily 概况补充
-7. daily summaries
+1. system prompt + 指令块（优先级、引用、思考语言、工具口播） —— 前缀缓存 ✓
+2. temporal_states —— 前缀缓存 ✓
+3. memory_cards —— 前缀缓存 ✓
+4. relationship_timeline —— 前缀缓存 ✓
+5. daily summaries —— 前缀缓存 ✓
+6. 长期记忆召回
+7. 远古 daily 概况补充
 8. 未归档 chunk summaries
-9. 最近消息
-10. 当前用户消息
+9. 动态内容（当前时间、工具记录、结束语）
+10. 最近消息
+11. 当前用户消息
 
 其中长期记忆召回采用双路检索 + 融合排序 + MMR 多样性筛选：
 
