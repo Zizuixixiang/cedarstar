@@ -1596,8 +1596,8 @@ class ContextBuilder:
                 else:
                     arg_text = str(args).replace("\n", " ").strip()[:160]
                 summary = (row.get("result_summary") or "").strip()
-                if len(summary) > 1800:
-                    summary = summary[:1800] + "..."
+                if len(summary) > 150:
+                    summary = summary[:150] + "..."
                 prefix = f"- {nm}"
                 if arg_text:
                     prefix += f"（{arg_text}）"

@@ -139,7 +139,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。`api/observability.py` 的 usage 归一化会按 `base_url` 区分 DeepSeek / OpenRouter / SiliconFlow 的缓存命中口径，并同时保留 provider 实际命中值与理论命中值。
+`tool_executions` 记录每次工具调用的短摘要与原始结果。摘要上限 150 字（短于 150 直接存原文），DB 兜底截断 1200；原始结果截断 50K，仅供排查。Context 注入与 chunk 摘要均使用 150 字摘要。Mini App 观测页会对工具执行做分页展示，并默认仅展示压缩后的原文预览。日终跑批自动清理 7 天前的记录。`api/observability.py` 的 usage 归一化会按 `base_url` 区分 DeepSeek / OpenRouter / SiliconFlow 的缓存命中口径，并同时保留 provider 实际命中值与理论命中值。
 
 ### 3.4 远古 daily 补充
 
@@ -195,7 +195,7 @@ LLM 响应中的思维链字段会统一归一到 `thinking`，并兼容 `reason
 
 ### 5.1 微批摘要
 
-未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点与期间工具摘要；上下文侧会额外保留少量已摘要消息作为过渡窗口。
+未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。上下文侧会额外保留少量已摘要消息作为过渡窗口。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后不删除 chunk，而是写入 `archived_by=<daily_id>` 标记归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 

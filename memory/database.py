@@ -864,8 +864,8 @@ class MessageDatabase:
         if raw is not None and len(raw) > 50000:
             raw = raw[:50000] + "\n...(truncated)"
         summary = (result_summary or "").strip()
-        if len(summary) > 2400:
-            summary = summary[:2400] + "..."
+        if len(summary) > 1200:
+            summary = summary[:1200] + "..."
         async with self.pool.acquire() as conn:
             eid = await conn.fetchval(
                 """
@@ -895,6 +895,17 @@ class MessageDatabase:
             tool_name,
         )
         return int(eid)
+
+    async def cleanup_tool_executions(self, days: int = 7) -> int:
+        """清理超过 N 天的工具执行记录。"""
+        async with self.pool.acquire() as conn:
+            n = await conn.fetchval(
+                "DELETE FROM tool_executions WHERE created_at < NOW() - make_interval(days => $1) RETURNING COUNT(*)",
+                int(days),
+            )
+        if n:
+            logger.info("cleanup_tool_executions: 清理 %s 条超过 %d 天的记录", n, days)
+        return int(n or 0)
 
     async def get_recent_tool_executions(
         self,
@@ -4686,6 +4697,10 @@ async def get_tool_executions_for_message_range(
     return await get_database().get_tool_executions_for_message_range(
         session_id, start_message_id, end_message_id
     )
+
+
+async def cleanup_tool_executions(days: int = 7) -> int:
+    return await get_database().cleanup_tool_executions(days)
 
 
 async def get_token_observability_stats(

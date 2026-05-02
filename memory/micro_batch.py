@@ -233,36 +233,35 @@ async def _resolve_micro_batch_tool_context(
     session_id: str,
     start_message_id: int,
     end_message_id: int,
-) -> str:
-    """把同一批消息关联的工具记录加入 chunk 摘要输入，避免工具信息断档。"""
+) -> List[Dict[str, Any]]:
+    """取同一批消息关联的工具记录，返回结构化数据供内联注入。"""
     try:
         rows = await get_tool_executions_for_message_range(
             session_id, start_message_id, end_message_id
         )
     except Exception as e:
         logger.warning("读取微批工具记录失败: %s", e)
-        return ""
-    if not rows:
-        return ""
-    lines: List[str] = []
+        return []
+    results: List[Dict[str, Any]] = []
     for row in rows[:20]:
         nm = row.get("tool_name") or "tool"
         summary = (row.get("result_summary") or "").strip()
         args = row.get("arguments_json") or {}
         if isinstance(args, dict):
             arg_text = "；".join(
-                f"{k}={str(v).replace(chr(10), ' ')[:60]}"
+                f"{k}={str(v).replace(chr(10), ' ')[:40]}"
                 for k, v in list(args.items())[:3]
                 if not str(k).startswith("_")
             )
         else:
-            arg_text = str(args).replace("\n", " ")[:160]
-        line = f"- {nm}"
-        if arg_text:
-            line += f"（{arg_text}）"
-        line += f"：{summary[:700]}"
-        lines.append(line)
-    return "\n".join(lines)
+            arg_text = str(args).replace("\n", " ")[:80]
+        results.append({
+            "assistant_message_id": row.get("assistant_message_id"),
+            "tool_name": nm,
+            "args_text": arg_text,
+            "summary": summary[:150],
+        })
+    return results
 
 
 class SummaryLLMInterface:
@@ -304,46 +303,59 @@ class SummaryLLMInterface:
         char_name: str = DEFAULT_BATCH_CHAR_NAME,
         user_name: str = DEFAULT_BATCH_USER_NAME,
         memory_prefix: str = "",
-        tool_context: str = "",
+        tool_records: Optional[List[Dict[str, Any]]] = None,
     ) -> str:
         """
         生成消息摘要。
-        
+
         Args:
             messages: 消息列表，格式为 [{"role": "user", "content": "..."}, ...]
             char_name: 助手侧显示名（注入 Prompt 与对话行前缀）
             user_name: 用户侧显示名
-            
+            tool_records: 工具执行记录，内联注入到对应 assistant 消息之后
+
         Returns:
             str: 生成的摘要文本
-            
+
         Raises:
             ValueError: 如果 API 密钥未设置
             Exception: 如果 API 调用失败
         """
         if not self.api_key:
             raise ValueError("摘要 API 密钥未设置，无法生成摘要")
-        
+
         prefix = f"这是 {char_name} 与 {user_name} 的对话记录。\n"
         mp = memory_prefix or ""
-        # 构建摘要提示
+
+        # 按 assistant_message_id 分组工具记录
+        tool_by_msg_id: Dict[int, List[Dict[str, Any]]] = {}
+        for rec in (tool_records or []):
+            mid = rec.get("assistant_message_id")
+            if mid is not None:
+                tool_by_msg_id.setdefault(int(mid), []).append(rec)
+
+        # 构建摘要提示，工具结果内联到对应 assistant 消息之后
         conversation_text = ""
         for msg in messages:
             role_label = user_name if msg["role"] == "user" else char_name
             conversation_text += f"{role_label}: {msg['content']}\n\n"
+            # 在 assistant 消息后注入该轮工具结果
+            msg_id = msg.get("id")
+            if msg_id is not None and int(msg_id) in tool_by_msg_id:
+                for rec in tool_by_msg_id[int(msg_id)]:
+                    nm = rec["tool_name"]
+                    args = rec.get("args_text") or ""
+                    summary = rec.get("summary") or ""
+                    tool_line = f"[调用工具 {nm}]"
+                    if args:
+                        tool_line += f" 参数：{args}"
+                    tool_line += f" 结果：{summary}"
+                    conversation_text += f"{tool_line}\n\n"
 
-        tool_block = ""
-        if (tool_context or "").strip():
-            tool_block = (
-                "\n【期间工具使用】\n"
-                + tool_context.strip()
-                + "\n\n"
-            )
-        
         prompt = f"""{prefix}{mp}请为以下对话生成150-200字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。
 输出客观凝练，无主观修饰，严格符合字数要求。
 【对话记录】
-{conversation_text}{tool_block}
+{conversation_text}
 摘要（中文）:"""
         
         try:
@@ -495,24 +507,25 @@ async def generate_summary_for_messages(
         # 创建摘要 LLM 接口
         summary_llm = SummaryLLMInterface()
         
-        # 转换消息格式
+        # 转换消息格式，保留 id 供工具结果内联定位
         formatted_messages = []
         for msg in messages:
             role = "user" if msg['role'] == 'user' else "assistant"
             raw = str(msg.get("content") or "")
-            formatted_messages.append(
-                {
-                    "role": role,
-                    "content": strip_lutopia_internal_memory_blocks(raw),
-                }
-            )
-        
+            entry: Dict[str, Any] = {
+                "role": role,
+                "content": strip_lutopia_internal_memory_blocks(raw),
+            }
+            if msg.get("id") is not None:
+                entry["id"] = int(msg["id"])
+            formatted_messages.append(entry)
+
         memory_prefix = await _resolve_micro_batch_memory_prefix(messages)
         ids = [int(m["id"]) for m in messages if m.get("id") is not None]
-        tool_context = ""
+        tool_records: List[Dict[str, Any]] = []
         if ids:
             sid = str(messages[0].get("session_id") or "")
-            tool_context = await _resolve_micro_batch_tool_context(
+            tool_records = await _resolve_micro_batch_tool_context(
                 sid, min(ids), max(ids)
             )
 
@@ -522,7 +535,7 @@ async def generate_summary_for_messages(
             char_name=char_name,
             user_name=user_name,
             memory_prefix=memory_prefix,
-            tool_context=tool_context,
+            tool_records=tool_records,
         )
         
         return summary

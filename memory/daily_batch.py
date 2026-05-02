@@ -91,6 +91,7 @@ try:
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
         purge_logs_older_than_days,
+        cleanup_tool_executions,
         increment_daily_batch_retry_count,
         reset_daily_batch_retry_count,
     )
@@ -124,6 +125,7 @@ except ImportError:
         list_incomplete_daily_batch_dates_in_range,
         mark_expired_skipped_daily_batch_logs_before,
         purge_logs_older_than_days,
+        cleanup_tool_executions,
         increment_daily_batch_retry_count,
         reset_daily_batch_retry_count,
     )
@@ -507,6 +509,13 @@ class DailyBatchProcessor:
                     logger.info("已清理早于 7 天的系统日志（logs）%s 条", n_del)
             except Exception as e:
                 logger.warning("清理过期系统日志失败（不影响跑批）: %s", e)
+
+            try:
+                n_tool = await cleanup_tool_executions(7)
+                if n_tool > 0:
+                    logger.info("已清理早于 7 天的工具执行记录 %s 条", n_tool)
+            except Exception as e:
+                logger.warning("清理工具执行记录失败（不影响跑批）: %s", e)
 
             batch_log = await get_daily_batch_log(batch_date)
             

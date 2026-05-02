@@ -28,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 TOOL_LOG_SNIP_MAX = 200
 BEHAVIOR_DESC_MAX = 80
-TOOL_CONTEXT_SUMMARY_MAX = 2400
+TOOL_CONTEXT_SUMMARY_MAX = 150
 
 
 def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
@@ -79,8 +79,11 @@ def _tool_result_text_candidates(value: Any) -> List[str]:
 
 
 def summarize_tool_result_for_context(tool_name: str, arguments_json: str, result_text: str) -> str:
-    """生成下一轮 Context 用的短摘要；不把长 raw 直接塞给模型。"""
+    """生成下一轮 Context 用的短摘要；不把长 raw 直接塞给模型。短结果直接返回。"""
     raw = (result_text or "").strip()
+    # 短结果直接存，不做摘要
+    if len(raw) <= TOOL_CONTEXT_SUMMARY_MAX:
+        return raw or "已执行，但没有返回可读结果。"
     summary = ""
     try:
         parsed = json.loads(raw)

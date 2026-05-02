@@ -160,7 +160,7 @@ Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 用于记录每次工具调用的短摘要与原始结果。Context 只注入短摘要，不直接塞入长原文。
+`tool_executions` 用于记录每次工具调用的短摘要与原始结果。摘要上限 150 字（短于 150 直接存原文），DB 兜底截断 1200；原始结果截断 50K，仅供排查。Context 注入与 chunk 摘要均使用 150 字摘要。日终跑批自动清理 7 天前的记录。
 
 ## 四、对话与工具
 
@@ -185,7 +185,7 @@ Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点与期间工具摘要，避免上下文断裂。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入人物称呼锚点；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 
