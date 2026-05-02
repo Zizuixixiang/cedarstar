@@ -49,7 +49,7 @@ const DEFAULT_CONFIG = {
   telegram_max_msg: 8,
   send_cot_to_telegram: 1,
   send_cot_in_group_chat: 0,
-  telegram_force_recent_images: 0,
+
   offline_mode_active: 0,
   group_chat_silent_mode: 0,
   group_chat_max_rounds: 3,
@@ -866,36 +866,6 @@ function Config() {
           </div>
           <hr className="config-divider" />
 
-          <div className="config-item">
-            <div className="config-info">
-              <div className="config-name">近期图片原图直传</div>
-              <div className="config-desc">打开后跳过相关性判断，每轮直接附上近期原图。</div>
-            </div>
-            <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
-                <input
-                  type="checkbox"
-                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                  checked={config.telegram_force_recent_images === 1}
-                  onChange={(e) => {
-                    const val = e.target.checked ? 1 : 0;
-                    setConfig((prev) => ({ ...prev, telegram_force_recent_images: val }));
-                    setHasUnsavedChanges(true);
-                  }}
-                />
-                <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>强制传近期原图</span>
-              </label>
-              <button
-                type="button"
-                className="config-btn-secondary config-btn-telegram-inline-save"
-                onClick={() => saveConfigKey('telegram_force_recent_images', config.telegram_force_recent_images)}
-                disabled={savingTelegramKey === 'telegram_force_recent_images'}
-              >
-                {savingTelegramKey === 'telegram_force_recent_images' ? '保存中…' : '保存此项'}
-              </button>
-            </div>
-          </div>
-          <hr className="config-divider" />
 
           {TELEGRAM_CONFIG_ROWS.map((row, idx) => (
             <div key={row.key}>

@@ -115,44 +115,8 @@ _TELEGRAM_PLAIN_TRUNC_SUFFIX = "（已截断）"
 _TELEGRAM_STREAM_GENERIC_ERROR = "抱歉，生成回复时出错了，请稍后再试。"
 # Guard 用尽或仍拒答时的情境兜底（避免向用户展示模型安全拒答原文）
 _TELEGRAM_GUARD_ROLEPLAY_FALLBACK = "……刚才有点走神，我们继续吧。"
-_RECENT_IMAGE_COMPARE_KEYWORDS = (
-    "上面图片",
-    "对比",
-    "比一比",
-    "上面",
-    "上",
-    "之前那张",
-    "刚才那张",
-    "哪个好看",
-    "和刚才",
-    "上一张",
-    "前一张",
-)
-_RECENT_IMAGE_REFERENCE_KEYWORDS = (
-    "上面图片",
-    "图",
-    "图片",
-    "照片",
-    "图里",
-    "图上",
-    "这张",
-    "那张",
-    "上一张",
-    "刚才那张",
-    "刚发的",
-    "上面那个",
-    "这个",
-    "那个",
-    "它",
-    "这是什么",
-    "是什么",
-    "像不像",
-    "好看吗",
-    "怎么样",
-    "哪里",
-    "哪儿",
-    "看起来",
-)
+_PARSE_IMAGE_COUNT_RE = re.compile(r'[前上]([1-9一二三四五六七八九])张(?:图|照片|图片)')
+_PARSE_IMAGE_COUNT_MAP = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
 
 
 def _telegram_user_visible_model_error(
@@ -2305,69 +2269,13 @@ class TelegramBot:
             )
         return out
 
-    async def _should_attach_recent_images(
-        self,
-        session_id: str,
-        current_text: str,
-    ) -> bool:
-        """判断当前文本是否需要临时带上近期图片历史。"""
-        rows = await get_recent_image_messages(session_id, limit=5)
-        if not rows:
-            return False
-        force_cfg = await get_database().get_config(
-            "telegram_force_recent_images", "0"
-        )
-        if self._is_truthy_config_value(force_cfg):
-            return True
-        text = (current_text or "").strip()
-        if not text or not self._recent_image_rule_matches(text):
-            return False
-        captions = []
-        for row in rows:
-            cap = (row.get("image_caption") or row.get("content") or "").strip()
-            if cap:
-                captions.append(f"- {cap[:180]}")
-        if not captions:
-            return False
-        prompt = (
-            "判断当前用户消息是否真的需要查看近期图片才能回答。"
-            "如果只是碰巧出现“上”“图”等字但语义与图片无关，输出 no。"
-            "只输出 yes 或 no。\n\n"
-            f"当前用户消息：{text}\n\n近期图片说明：\n" + "\n".join(captions)
-        )
-        try:
-            llm = LLMInterface(config_type="summary")
-            ans = await asyncio.to_thread(llm.generate_simple, prompt)
-            return str(ans or "").strip().lower().startswith("yes")
-        except Exception as e:
-            logger.debug("近期图片引用判断失败，按不附加处理: %s", exc_detail(e))
-            return False
-
-    def _recent_image_rule_matches(self, text: str) -> bool:
-        """Cheap local guard for image follow-ups that do not literally say "image"."""
-        t = (text or "").strip()
-        if not t:
-            return False
-        if any(k in t for k in _RECENT_IMAGE_COMPARE_KEYWORDS):
-            return True
-        if any(k in t for k in _RECENT_IMAGE_REFERENCE_KEYWORDS):
-            return True
-        if len(t) <= 40 and any(
-            k in t
-            for k in (
-                "像",
-                "好看",
-                "怪",
-                "哪里",
-                "哪儿",
-                "什么",
-                "咋样",
-                "如何",
-                "评价",
-            )
-        ):
-            return True
-        return False
+    def _parse_image_count_from_text(self, text: str) -> int:
+        """解析前X张图/上X张图，返回X（1-9），无匹配返回0。"""
+        m = _PARSE_IMAGE_COUNT_RE.search(text or "")
+        if not m:
+            return 0
+        v = m.group(1)
+        return _PARSE_IMAGE_COUNT_MAP.get(v, int(v))
 
     async def _recent_image_caption_hint(
         self,
@@ -2523,14 +2431,12 @@ class TelegramBot:
             llm_images = images or None
             if bot is not None:
                 current_text = text_for_llm or combined_content
-                need_recent_images = await self._should_attach_recent_images(
-                    session_id,
-                    current_text,
-                )
-                if need_recent_images:
+                recent_image_count = self._parse_image_count_from_text(current_text)
+                if recent_image_count > 0:
                     image_hint = await self._recent_image_caption_hint(
                         session_id,
                         current_text,
+                        limit=recent_image_count,
                     )
                     if image_hint:
                         text_for_llm = (
@@ -2543,7 +2449,7 @@ class TelegramBot:
                     recent_images = await self._load_recent_telegram_image_payloads(
                         bot,
                         session_id,
-                        limit=3,
+                        limit=recent_image_count,
                         exclude_file_ids=current_file_ids,
                     )
                     if recent_images:
@@ -2551,7 +2457,7 @@ class TelegramBot:
                         current_count = len(images or [])
                         history_hint = (
                             "\n\n[系统提示：已临时附上近期图片历史。图片顺序："
-                            f"前 {len(recent_images)} 张为历史图片（从近到远，第一张就是“上一张/刚才那张”），"
+                            f"前 {len(recent_images)} 张为历史图片（从近到远，第一张就是「上一张/刚才那张」），"
                             f"后 {current_count} 张为用户本轮刚发的图片。]"
                         )
                         text_for_llm = ((text_for_llm or combined_content or "").strip() + history_hint).strip()

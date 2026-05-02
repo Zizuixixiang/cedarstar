@@ -53,7 +53,7 @@ async def generate_image_caption(
     fail_caption = VISION_FAIL_CAPTION_SHORT
 
     try:
-        llm = LLMInterface(config_type="vision")
+        llm = await LLMInterface.create(config_type="vision")
         content = build_user_multimodal_content(
             llm.api_base,
             llm.model_name,

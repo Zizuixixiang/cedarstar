@@ -144,6 +144,12 @@ _REFUSAL_PATTERNS_SOFT: Tuple[re.Pattern, ...] = (
     re.compile(r"道德审查"),
     re.compile(r"不适合讨论"),
     re.compile(r"超出了[^\n。]{0,12}(范围|能力)"),
+    re.compile(r"I['′′']?\s*(?:m|am)\s+(?:unable|not able)\s+to\s+(?:answer|respond|help)", re.I),
+    re.compile(r"I['′′']?\s*(?:m|am)\s+not\s+(?:allowed|permitted)\s+to", re.I),
+    re.compile(r"I['′′']?\s*(?:m|am)\s+not\s+supposed\s+to", re.I),
+    re.compile(r"(?:that['′′']?s|this is)\s+not\s+something\s+I\s+can", re.I),
+    re.compile(r"I\s+(?:must|have to)\s+(?:decline|refuse|reject)", re.I),
+    re.compile(r"I\s+shouldn['′′']?t\s+(?:answer|respond|help|assist)", re.I),
 )
 
 
