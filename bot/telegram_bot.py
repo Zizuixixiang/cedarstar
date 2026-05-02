@@ -115,8 +115,8 @@ _TELEGRAM_PLAIN_TRUNC_SUFFIX = "（已截断）"
 _TELEGRAM_STREAM_GENERIC_ERROR = "抱歉，生成回复时出错了，请稍后再试。"
 # Guard 用尽或仍拒答时的情境兜底（避免向用户展示模型安全拒答原文）
 _TELEGRAM_GUARD_ROLEPLAY_FALLBACK = "……刚才有点走神，我们继续吧。"
-_PARSE_IMAGE_COUNT_RE = re.compile(r'[前上]([1-9一二三四五六七八九])张(?:图|照片|图片)')
-_PARSE_IMAGE_COUNT_MAP = {'一': 1, '二': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
+_PARSE_IMAGE_COUNT_RE = re.compile(r'[前上]([1-9一二两三四五六七八九])张(?:图|照片|图片)')
+_PARSE_IMAGE_COUNT_MAP = {'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
 
 
 def _telegram_user_visible_model_error(
@@ -2275,7 +2275,12 @@ class TelegramBot:
         if not m:
             return 0
         v = m.group(1)
-        return _PARSE_IMAGE_COUNT_MAP.get(v, int(v))
+        if v in _PARSE_IMAGE_COUNT_MAP:
+            return _PARSE_IMAGE_COUNT_MAP[v]
+        try:
+            return int(v)
+        except (ValueError, TypeError):
+            return 0
 
     async def _recent_image_caption_hint(
         self,
@@ -2284,7 +2289,7 @@ class TelegramBot:
         *,
         limit: int = 3,
     ) -> str:
-        rows = await get_recent_image_messages(session_id, limit=limit)
+        rows = list(reversed(await get_recent_image_messages(session_id, limit=limit)))
         lines: List[str] = []
         for idx, row in enumerate(rows, start=1):
             cap = (row.get("image_caption") or row.get("content") or "").strip()
@@ -2296,7 +2301,7 @@ class TelegramBot:
             return ""
         return (
             "\n\n[系统提示：用户这轮可能在追问近期图片。以下为近期图片摘要，"
-            "顺序从近到远，1 是最近一张：\n"
+            "顺序从远到近，最后一条是最近一张：\n"
             + "\n".join(lines)
             + "]"
         )
@@ -2345,7 +2350,7 @@ class TelegramBot:
                         "data": base64.b64encode(bytes(data)).decode("ascii"),
                         "mime_type": mime,
                         "caption": caption,
-                        "label": f"历史图片{idx}（从近到远，1 是上一张可用图片）",
+                        "label": f"历史图片{idx}（从远到近，最后一张是上一张可用图片）",
                         "platform_file_id": fid,
                     }
                 )
@@ -2453,11 +2458,12 @@ class TelegramBot:
                         exclude_file_ids=current_file_ids,
                     )
                     if recent_images:
+                        recent_images = list(reversed(recent_images))
                         llm_images = [*recent_images, *(images or [])]
                         current_count = len(images or [])
                         history_hint = (
                             "\n\n[系统提示：已临时附上近期图片历史。图片顺序："
-                            f"前 {len(recent_images)} 张为历史图片（从近到远，第一张就是「上一张/刚才那张」），"
+                            f"前 {len(recent_images)} 张为历史图片（从远到近，最后一张是「上一张/刚才那张」），"
                             f"后 {current_count} 张为用户本轮刚发的图片。]"
                         )
                         text_for_llm = ((text_for_llm or combined_content or "").strip() + history_hint).strip()
