@@ -1385,6 +1385,8 @@ class LLMInterface:
             "temperature": self.temperature,
             "stream": False,
         }
+        if _openrouter_supports_cache_control(self.api_base, self.model_name):
+            payload["reasoning"] = {"max_tokens": 10000}
         provider_preferences = _openrouter_claude_provider_preferences(
             self.api_base,
             self.model_name,
