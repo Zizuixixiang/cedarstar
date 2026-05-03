@@ -81,6 +81,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `enable_weather_tool`
 - `enable_weibo_tool`
 - `enable_search_tool`
+- `enable_x_tool`
 
 ## 三、上下文构建与召回
 
@@ -181,6 +182,7 @@ Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被
 - 天气
 - 微博热搜
 - 网页搜索
+- X (Twitter)（11 个工具：发推、点赞、回复、搜索、时间线、关注/取关、粉丝列表等，共享每日配额）
 
 工具口播提示由 system suffix 注入，确保模型在调用工具前先说一句自然口语。
 

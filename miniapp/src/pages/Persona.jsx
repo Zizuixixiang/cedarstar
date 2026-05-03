@@ -71,6 +71,7 @@ const EMPTY_FORM = {
   enable_weather_tool: 0,
   enable_weibo_tool: 0,
   enable_search_tool: 0,
+  enable_x_tool: 0,
 };
 
 function t(v) {
@@ -351,7 +352,10 @@ function Persona() {
   const [savedForm, setSavedForm] = useState(EMPTY_FORM);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
-  const hasUnsavedChanges = JSON.stringify(form) !== JSON.stringify(savedForm);
+  const [xDailyReadLimit, setXDailyReadLimit] = useState(100);
+  const [savedXDailyReadLimit, setSavedXDailyReadLimit] = useState(100);
+  const [xUsedToday, setXUsedToday] = useState(0);
+  const hasUnsavedChanges = JSON.stringify(form) !== JSON.stringify(savedForm) || xDailyReadLimit !== savedXDailyReadLimit;
   const previewSections = useMemo(() => buildPreviewSections(form), [form]);
   const preview = useMemo(
     () => buildPreviewPlainText(previewSections),
@@ -417,6 +421,8 @@ function Persona() {
           d.enable_weibo_tool != null && Number(d.enable_weibo_tool) !== 0 ? 1 : 0,
         enable_search_tool:
           d.enable_search_tool != null && Number(d.enable_search_tool) !== 0 ? 1 : 0,
+        enable_x_tool:
+          d.enable_x_tool != null && Number(d.enable_x_tool) !== 0 ? 1 : 0,
       };
       setForm(f);
       setSavedForm(f);
@@ -433,6 +439,22 @@ function Persona() {
         if (list.length > 0) {
           await fetchDetail(list[0].id);
         }
+        // 加载 X 每日配额
+        try {
+          const cfg = await apiFetch('/api/config');
+          if (cfg?.success && cfg?.data?.x_daily_read_limit != null) {
+            const v = Number(cfg.data.x_daily_read_limit) || 100;
+            setXDailyReadLimit(v);
+            setSavedXDailyReadLimit(v);
+          }
+        } catch (_) {}
+        // 加载 X 今日用量
+        try {
+          const usage = await apiFetch('/api/config/x-usage');
+          if (usage?.success && usage?.data?.used_today != null) {
+            setXUsedToday(Number(usage.data.used_today) || 0);
+          }
+        } catch (_) {}
       } catch (e) {
         toast.error('加载失败，请刷新重试');
       } finally {
@@ -541,6 +563,15 @@ function Persona() {
       const data = await res.json();
       if (data.success) {
         setSavedForm({ ...form });
+        // 保存 X 每日配额到 config 表
+        try {
+          await apiFetch('/api/config', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ x_daily_read_limit: xDailyReadLimit }),
+          });
+          setSavedXDailyReadLimit(xDailyReadLimit);
+        } catch (_) {}
         toast.success('✓ 人设已保存', { autoClose: 2000 });
       } else {
         throw new Error(data.message || '保存失败');
@@ -904,6 +935,39 @@ function Persona() {
             </label>
             <p className="persona-field-hint">
               开启后模型可调用 web_search（Tavily + 搜索摘要模型）；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_x_tool === 1}
+                onChange={e =>
+                  handleChange('enable_x_tool', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用 X (Twitter) 工具</span>
+              {form.enable_x_tool === 1 && (
+                <>
+                  <span style={{ marginLeft: 12, opacity: 0.7, fontSize: '0.85em' }}>每日读取上限</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={10000}
+                    value={xDailyReadLimit}
+                    onChange={e => {
+                      const v = parseInt(e.target.value, 10);
+                      if (!isNaN(v) && v >= 1) setXDailyReadLimit(v);
+                    }}
+                    style={{ width: 72, textAlign: 'center', marginLeft: 4 }}
+                  />
+                  <span style={{ opacity: 0.6, fontSize: '0.85em' }}>条/天</span>
+                  <span style={{ marginLeft: 10, opacity: 0.5, fontSize: '0.8em' }}>
+                    今日已用 {xUsedToday}/{xDailyReadLimit}
+                  </span>
+                </>
+              )}
+            </label>
+            <p className="persona-field-hint">
+              开启后模型可调用 post_tweet / read_mentions；关闭不注册；随本套人设保存。
             </p>
           </div>
         </div>

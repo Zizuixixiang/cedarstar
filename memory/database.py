@@ -513,6 +513,9 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_search_tool INTEGER DEFAULT 0"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_x_tool INTEGER DEFAULT 0"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -583,6 +586,7 @@ async def migrate_database_schema(conn) -> None:
             ("group_chat_interject_enabled", "0"),
             ("group_chat_interject_probability", "0.2"),
             ("external_chunk_max_chars", "2000"),
+            ("x_daily_read_limit", "100"),
         ],
     )
 
@@ -3647,7 +3651,7 @@ class MessageDatabase:
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
-            "enable_weather_tool", "enable_weibo_tool", "enable_search_tool",
+            "enable_weather_tool", "enable_weibo_tool", "enable_search_tool", "enable_x_tool",
         ]
         cols = ", ".join(fields)
         placeholders = ", ".join([f"${i + 1}" for i in range(len(fields))])
@@ -3677,6 +3681,12 @@ class MessageDatabase:
                     values.append(1 if int(raw) else 0)
                 except (TypeError, ValueError):
                     values.append(0)
+            elif f == "enable_x_tool":
+                raw = data.get("enable_x_tool", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
             else:
                 values.append(data.get(f, ""))
         async with self.pool.acquire() as conn:
@@ -3695,7 +3705,7 @@ class MessageDatabase:
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
-            "enable_weather_tool", "enable_weibo_tool", "enable_search_tool",
+            "enable_weather_tool", "enable_weibo_tool", "enable_search_tool", "enable_x_tool",
         }
         update_data = {k: v for k, v in data.items() if k in allowed}
         if "enable_lutopia" in update_data:
@@ -3726,6 +3736,13 @@ class MessageDatabase:
                 )
             except (TypeError, ValueError):
                 update_data["enable_search_tool"] = 0
+        if "enable_x_tool" in update_data:
+            try:
+                update_data["enable_x_tool"] = (
+                    1 if int(update_data["enable_x_tool"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_x_tool"] = 0
         if not update_data:
             return False
         set_parts = [f"{k} = ${i + 1}" for i, k in enumerate(update_data.keys())]

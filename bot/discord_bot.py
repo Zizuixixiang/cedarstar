@@ -429,6 +429,7 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))
+                or bool(getattr(llm, "enable_x_tool", False))
             ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(
@@ -570,6 +571,7 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))
+                or bool(getattr(llm, "enable_x_tool", False))
             ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(

@@ -57,6 +57,7 @@ DEFAULT_CONFIG = {
     "group_chat_max_rounds": 3,
     "group_chat_interject_enabled": 0,
     "group_chat_interject_probability": 0.2,
+    "x_daily_read_limit": 100,
 }
 
 
@@ -233,6 +234,17 @@ async def update_config(new_config: Dict[str, Any]):
         return create_response(False, None, "没有有效的配置更新")
 
 from pydantic import BaseModel
+
+@router.get("/x-usage")
+async def get_x_usage():
+    """返回 X (Twitter) 工具当日配额用量。"""
+    try:
+        from tools.x_tool import get_today_usage
+        usage = await get_today_usage()
+        return create_response(True, usage)
+    except Exception as e:
+        return create_response(False, None, str(e))
+
 
 class OfflineModeToggleRequest(BaseModel):
     enable: bool

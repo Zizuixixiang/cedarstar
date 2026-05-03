@@ -1041,6 +1041,21 @@ def _persona_row_enable_search_tool(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _persona_row_enable_x_tool(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用 X 工具（enable_x_tool 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_x_tool")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -1055,6 +1070,7 @@ class LLMInterface:
         enable_weather_tool: 是否开启 get_weather 工具（同上）。
         enable_weibo_tool: 是否开启 get_weibo_hot 工具（同上）。
         enable_search_tool: 是否开启 web_search 工具（同上）。
+        enable_x_tool: 是否开启 X (Twitter) 工具（同上）。
     """
     
     def __init__(
@@ -1066,6 +1082,7 @@ class LLMInterface:
         _enable_weather_tool: Optional[bool] = None,
         _enable_weibo_tool: Optional[bool] = None,
         _enable_search_tool: Optional[bool] = None,
+        _enable_x_tool: Optional[bool] = None,
     ):
         """
         初始化 LLM 接口。
@@ -1117,6 +1134,9 @@ class LLMInterface:
         )
         self.enable_search_tool = (
             bool(_enable_search_tool) if _enable_search_tool is not None else False
+        )
+        self.enable_x_tool = (
+            bool(_enable_x_tool) if _enable_x_tool is not None else False
         )
 
         self.timeout = config.LLM_TIMEOUT
@@ -1171,6 +1191,7 @@ class LLMInterface:
         enable_weather_tool_flag = False
         enable_weibo_tool_flag = False
         enable_search_tool_flag = False
+        enable_x_tool_flag = False
         if db_cfg and config_type == "chat":
             pid = db_cfg.get("persona_id")
             if pid is not None:
@@ -1195,6 +1216,7 @@ class LLMInterface:
                         enable_search_tool_flag = _persona_row_enable_search_tool(
                             prow
                         )
+                        enable_x_tool_flag = _persona_row_enable_x_tool(prow)
 
         return cls(
             model_name=model_name,
@@ -1204,6 +1226,7 @@ class LLMInterface:
             _enable_weather_tool=enable_weather_tool_flag,
             _enable_weibo_tool=enable_weibo_tool_flag,
             _enable_search_tool=enable_search_tool_flag,
+            _enable_x_tool=enable_x_tool_flag,
         )
 
     @staticmethod
@@ -2424,12 +2447,14 @@ async def complete_with_lutopia_tool_loop(
         OPENAI_SEARCH_TOOLS,
         OPENAI_WEATHER_TOOLS,
         OPENAI_WEIBO_TOOLS,
+        OPENAI_X_TOOLS,
         build_tool_system_suffix,
         inject_tool_suffix_into_messages,
     )
     from tools.search import execute_search_function_call
     from tools.weather import execute_weather_function_call
     from tools.weibo import execute_weibo_function_call
+    from tools.x_tool import execute_x_function_call
 
     tools_list: List[Dict[str, Any]] = []
     suffix_keys: List[str] = []
@@ -2445,6 +2470,9 @@ async def complete_with_lutopia_tool_loop(
     if getattr(llm, "enable_search_tool", False):
         tools_list.extend(OPENAI_SEARCH_TOOLS)
         suffix_keys.append("search")
+    if getattr(llm, "enable_x_tool", False):
+        tools_list.extend(OPENAI_X_TOOLS)
+        suffix_keys.append("x")
     tools_payload: Optional[List[Dict[str, Any]]] = (
         tools_list if tools_list else None
     )
@@ -2558,6 +2586,16 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_d3 = {}
                     result_str = await execute_search_function_call(nm, args_d3)
+                elif nm in (
+                    "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
+                    "reply_tweet", "search_tweets", "get_timeline", "get_user",
+                    "follow_user", "unfollow_user", "get_followers",
+                ):
+                    try:
+                        args_dx: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_dx = {}
+                    result_str = await execute_x_function_call(nm, args_dx)
                 else:
                     result_str = await execute_lutopia_function_call(
                         nm, raw_args or "{}", mcp_session=mcp_session

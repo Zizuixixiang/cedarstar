@@ -95,6 +95,7 @@ from tools.prompts import (
     OPENAI_SEARCH_TOOLS,
     OPENAI_WEATHER_TOOLS,
     OPENAI_WEIBO_TOOLS,
+    OPENAI_X_TOOLS,
     build_tool_system_suffix,
     inject_tool_suffix_into_messages,
 )
@@ -2017,6 +2018,9 @@ class TelegramBot:
         if getattr(llm, "enable_search_tool", False):
             tools_list.extend(OPENAI_SEARCH_TOOLS)
             suffix_keys.append("search")
+        if getattr(llm, "enable_x_tool", False):
+            tools_list.extend(OPENAI_X_TOOLS)
+            suffix_keys.append("x")
         if suffix_keys:
             inject_tool_suffix_into_messages(
                 cur_messages, build_tool_system_suffix(suffix_keys)
@@ -2430,8 +2434,9 @@ class TelegramBot:
             weather_on = bool(getattr(llm, "enable_weather_tool", False))
             weibo_on = bool(getattr(llm, "enable_weibo_tool", False))
             search_on = bool(getattr(llm, "enable_search_tool", False))
+            x_on = bool(getattr(llm, "enable_x_tool", False))
             oral = (
-                lutopia_on or weather_on or weibo_on or search_on
+                lutopia_on or weather_on or weibo_on or search_on or x_on
             ) and not is_anthropic
             llm_images = images or None
             if bot is not None:
@@ -2484,15 +2489,15 @@ class TelegramBot:
 
             if is_anthropic:
                 llm_path = "anthropic_prefetch → generate_with_context_and_tracking（无 tools）"
-            elif lutopia_on or weather_on or weibo_on or search_on:
+            elif lutopia_on or weather_on or weibo_on or search_on or x_on:
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply_with_lutopia "
-                    "→ generate_stream(tools=Lutopia±天气±微博±搜索)（persona 工具开关）"
+                    "→ generate_stream(tools=Lutopia±天气±微博±搜索±X)（persona 工具开关）"
                 )
             else:
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply "
-                    "→ generate_stream(tools=None)（未启用 Lutopia/天气/微博/搜索工具）"
+                    "→ generate_stream(tools=None)（未启用任何工具）"
                 )
             logger.info(
                 "[TG路径追踪] _generate_reply_from_buffer 已建 LLM：session_id=%s model=%s "
@@ -2555,7 +2560,7 @@ class TelegramBot:
                     llm, "enable_weather_tool", False
                 ) or getattr(llm, "enable_weibo_tool", False) or getattr(
                     llm, "enable_search_tool", False
-                ):
+                ) or getattr(llm, "enable_x_tool", False):
                     outcome = await self._telegram_stream_thinking_and_reply_with_lutopia(
                         llm,
                         messages,
@@ -2852,6 +2857,7 @@ class TelegramBot:
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))
+                or bool(getattr(llm, "enable_x_tool", False))
             ) and not llm._use_anthropic_messages_api()
             context = await build_context(
                 session_id,

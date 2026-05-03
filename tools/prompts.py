@@ -40,6 +40,14 @@ SEARCH_TOOL_DIRECTIVE = (
     "不必等用户明确要求；简单常识无需搜索。禁止每轮都调用。"
 )
 
+X_TOOL_DIRECTIVE = (
+    "【X (Twitter)】可用工具：post_tweet（发推）、read_mentions（读@提及）、like_tweet/unlike_tweet（点赞/取消赞）、"
+    "reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
+    "get_user（查用户信息，不耗配额）、follow_user/unfollow_user（关注/取关）、get_followers（粉丝列表）。"
+    "发推和回复前应确认用户意图，避免误发；除 get_user 外所有操作共享每日配额，超限返回错误。"
+    "（南杉：Shan_Cedar,Sirius:Sirius_Cedar）"
+)
+
 OPENAI_WEATHER_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
@@ -100,11 +108,49 @@ OPENAI_SEARCH_TOOLS: List[Dict[str, Any]] = [
     }
 ]
 
+OPENAI_X_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "post_tweet",
+            "description": "在 X (Twitter) 上发布一条推文",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "推文正文，最长 280 字符",
+                    },
+                },
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "read_mentions",
+            "description": "读取当前用户在 X (Twitter) 上的最新 @提及，受每日配额限制",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "最多返回条数，默认 10，不超过每日剩余配额",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+]
+
 TOOL_DIRECTIVES: Dict[str, str] = {
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
     "weather": WEATHER_TOOL_DIRECTIVE,
     "weibo": WEIBO_HOT_TOOL_DIRECTIVE,
     "search": SEARCH_TOOL_DIRECTIVE,
+    "x": X_TOOL_DIRECTIVE,
 }
 
 

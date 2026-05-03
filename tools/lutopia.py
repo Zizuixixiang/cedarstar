@@ -715,6 +715,17 @@ async def append_tool_exchange_to_messages(
             except json.JSONDecodeError:
                 args_ws = {}
             out = await execute_search_function_call(nm, args_ws)
+        elif nm in (
+            "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
+            "reply_tweet", "search_tweets", "get_timeline", "get_user",
+            "follow_user", "unfollow_user", "get_followers",
+        ):
+            try:
+                args_xx: Dict[str, Any] = json.loads(arg or "{}")
+            except json.JSONDecodeError:
+                args_xx = {}
+            from tools.x_tool import execute_x_function_call
+            out = await execute_x_function_call(nm, args_xx)
         else:
             out = await execute_lutopia_function_call(
                 nm, arg or "{}", mcp_session=mcp_session
