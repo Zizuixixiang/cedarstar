@@ -441,7 +441,8 @@ function Persona() {
         }
         // 加载 X 每日配额
         try {
-          const cfg = await apiFetch('/api/config');
+          const cfgRes = await apiFetch('/api/config');
+          const cfg = await cfgRes.json();
           if (cfg?.success && cfg?.data?.x_daily_read_limit != null) {
             const v = Number(cfg.data.x_daily_read_limit) || 100;
             setXDailyReadLimit(v);
@@ -450,7 +451,8 @@ function Persona() {
         } catch (_) {}
         // 加载 X 今日用量
         try {
-          const usage = await apiFetch('/api/config/x-usage');
+          const usageRes = await apiFetch('/api/config/x-usage');
+          const usage = await usageRes.json();
           if (usage?.success && usage?.data?.used_today != null) {
             setXUsedToday(Number(usage.data.used_today) || 0);
           }
@@ -945,27 +947,27 @@ function Persona() {
                 }
               />
               <span>启用 X (Twitter) 工具</span>
-              {form.enable_x_tool === 1 && (
-                <>
-                  <span style={{ marginLeft: 12, opacity: 0.7, fontSize: '0.85em' }}>每日读取上限</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={10000}
-                    value={xDailyReadLimit}
-                    onChange={e => {
-                      const v = parseInt(e.target.value, 10);
-                      if (!isNaN(v) && v >= 1) setXDailyReadLimit(v);
-                    }}
-                    style={{ width: 72, textAlign: 'center', marginLeft: 4 }}
-                  />
-                  <span style={{ opacity: 0.6, fontSize: '0.85em' }}>条/天</span>
-                  <span style={{ marginLeft: 10, opacity: 0.5, fontSize: '0.8em' }}>
-                    今日已用 {xUsedToday}/{xDailyReadLimit}
-                  </span>
-                </>
-              )}
             </label>
+            {form.enable_x_tool === 1 && (
+              <div style={{ marginTop: 6, paddingLeft: 34 }}>
+                <span style={{ opacity: 0.7, fontSize: '0.78em' }}>读取上限</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={xDailyReadLimit}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 1) setXDailyReadLimit(v);
+                  }}
+                  style={{ width: 56, textAlign: 'center', marginLeft: 4, fontSize: '0.78em' }}
+                />
+                <span style={{ opacity: 0.6, fontSize: '0.78em' }}>条/天</span>
+                <span style={{ marginLeft: 10, opacity: 0.5, fontSize: '0.75em' }}>
+                  今日已用 {xUsedToday}/{xDailyReadLimit}
+                </span>
+              </div>
+            )}
             <p className="persona-field-hint">
               开启后模型可调用 post_tweet / read_mentions；关闭不注册；随本套人设保存。
             </p>

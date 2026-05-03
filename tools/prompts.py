@@ -143,6 +143,167 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "like_tweet",
+            "description": "对指定推文点赞",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {
+                        "type": "string",
+                        "description": "要点赞的推文 ID",
+                    },
+                },
+                "required": ["tweet_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unlike_tweet",
+            "description": "取消对指定推文的点赞",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {
+                        "type": "string",
+                        "description": "要取消点赞的推文 ID",
+                    },
+                },
+                "required": ["tweet_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "reply_tweet",
+            "description": "回复一条推文",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {
+                        "type": "string",
+                        "description": "要回复的推文 ID",
+                    },
+                    "text": {
+                        "type": "string",
+                        "description": "回复内容，最长 280 字符",
+                    },
+                },
+                "required": ["tweet_id", "text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "search_tweets",
+            "description": "在 X (Twitter) 上按关键词搜索最近的推文",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "搜索关键词",
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "最多返回条数，默认 10，API 最小 10",
+                    },
+                },
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_timeline",
+            "description": "获取当前用户的关注时间线（home timeline）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "最多返回条数，默认 10",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_user",
+            "description": "查询 X (Twitter) 用户信息（不消耗配额）",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "username": {
+                        "type": "string",
+                        "description": "用户名（不含@）",
+                    },
+                },
+                "required": ["username"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "follow_user",
+            "description": "关注指定 X (Twitter) 用户",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "要关注的用户 ID",
+                    },
+                },
+                "required": ["user_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unfollow_user",
+            "description": "取消关注指定 X (Twitter) 用户",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "string",
+                        "description": "要取消关注的用户 ID",
+                    },
+                },
+                "required": ["user_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_followers",
+            "description": "获取当前用户的粉丝列表",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "max_results": {
+                        "type": "integer",
+                        "description": "最多返回条数，默认 20",
+                    },
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 TOOL_DIRECTIVES: Dict[str, str] = {
