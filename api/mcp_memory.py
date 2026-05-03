@@ -307,7 +307,7 @@ async def add_external_chunk(content: str, as_of_date: Optional[str] = None) -> 
     一次会话最多调用一次。
     content 应是当前完整对话的摘要总结，不是单条消息。
 
-    as_of_date 用于补录历史窗口对话。补录后请使用 trigger_daily_rerun 手动重跑该日期的 daily 摘要，
+    as_of_date 用于补录历史窗口对话。补录后需在服务器执行 `python run_daily_batch.py YYYY-MM-DD` 手动重跑该日期的 daily 摘要，
     重跑时会把新 chunk 标记为已归档（archived_by 回填），避免被当晚自动跑批误吃。
     一天可补录多条，重跑时会拼接全部 chunk。
 

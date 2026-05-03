@@ -332,7 +332,7 @@ Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（Git
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
-| `add_external_chunk` | content, as_of_date | 从网页端 Claude 整理的对话摘要写入记忆库。仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用，不要主动调用。as_of_date 支持历史补录，补录后需 trigger_daily_rerun 重跑当日 daily |
+| `add_external_chunk` | content, as_of_date | 从网页端 Claude 整理的对话摘要写入记忆库。仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用，不要主动调用。as_of_date 支持历史补录，补录后需在服务器执行 `python run_daily_batch.py YYYY-MM-DD` 重跑当日 daily |
 
 `add_external_chunk` 内部流程：
 1. 日期校验（`as_of_date` 不允许未来日期）
