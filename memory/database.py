@@ -159,7 +159,10 @@ async def _longterm_memories_ensure_source_columns(conn) -> None:
     await conn.execute(
         "ALTER TABLE longterm_memories ADD COLUMN IF NOT EXISTS is_starred BOOLEAN NOT NULL DEFAULT FALSE"
     )
-    logger.debug("longterm_memories.source_chunk_ids/is_starred 列检查完成")
+    await conn.execute(
+        "ALTER TABLE longterm_memories ADD COLUMN IF NOT EXISTS source_date DATE"
+    )
+    logger.debug("longterm_memories.source_chunk_ids/is_starred/source_date 列检查完成")
 
 
 async def _daily_batch_log_ensure_step45_columns(conn) -> None:
@@ -3923,6 +3926,7 @@ class MessageDatabase:
         score: int = 5,
         source_chunk_ids: Optional[List[int]] = None,
         is_starred: bool = False,
+        source_date: Optional[date] = None,
     ) -> int:
         """按 Chroma doc_id 写入或更新长期记忆镜像记录。"""
         cid = (chroma_doc_id or "").strip()
@@ -3936,14 +3940,16 @@ class MessageDatabase:
                 SET content = $1,
                     score = $2,
                     source_chunk_ids = $3::jsonb,
-                    is_starred = $4
-                WHERE chroma_doc_id = $5
+                    is_starred = $4,
+                    source_date = $5
+                WHERE chroma_doc_id = $6
                 RETURNING id
                 """,
                 content,
                 int(score),
                 chunk_json,
                 bool(is_starred),
+                source_date,
                 cid,
             )
             if row_id is not None:
@@ -3952,9 +3958,9 @@ class MessageDatabase:
                 await conn.fetchval(
                     """
                     INSERT INTO longterm_memories (
-                        content, chroma_doc_id, score, source_chunk_ids, is_starred
+                        content, chroma_doc_id, score, source_chunk_ids, is_starred, source_date
                     )
-                    VALUES ($1, $2, $3, $4::jsonb, $5)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6)
                     RETURNING id
                     """,
                     content,
@@ -3962,6 +3968,7 @@ class MessageDatabase:
                     int(score),
                     chunk_json,
                     bool(is_starred),
+                    source_date,
                 )
             )
 

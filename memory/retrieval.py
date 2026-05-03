@@ -2,6 +2,12 @@
 长期记忆召回辅助：日常白名单与回溯（retrospect）关键词检测。
 
 向量检索与 BM25 共用同一套 summary_type 集合，与 Chroma metadata 对齐。
+
+summary_type 语义约定（ChromaDB metadata.summary_type）：
+  daily_event   — 日终跑批由 LLM 从 chunk 拆分出的事件片段
+  app_event     — MCP add_external_chunk 从网页端 Claude 对话摘要写入的事件
+  manual        — Mini App 手动新增的长期记忆
+  state_archive — 时效状态（temporal_states）到期归档后的快照
 """
 
 from __future__ import annotations
@@ -39,12 +45,13 @@ RETROSPECT_KEYWORDS = [
 ]
 
 # 日常召回：不含 state_archive（历史被覆盖片段仅回溯时召出）
-LONGTERM_SUMMARY_TYPES_DAILY: List[str] = ["daily", "daily_event", "manual"]
+LONGTERM_SUMMARY_TYPES_DAILY: List[str] = ["daily", "daily_event", "manual", "app_event"]
 
 LONGTERM_SUMMARY_TYPES_RETROSPECT: List[str] = [
     "daily",
     "daily_event",
     "manual",
+    "app_event",
     "state_archive",
 ]
 

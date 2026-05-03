@@ -42,6 +42,7 @@ const SUMMARY_TYPE_LABELS = {
   daily: '日总 daily',
   daily_event: '日终片段 daily_event',
   manual: '手动 manual',
+  app_event: 'APP端 app_event',
   state_archive: '状态归档 state_archive',
 };
 
@@ -2245,6 +2246,7 @@ function Memory() {
                 <option value="daily">日总</option>
                 <option value="daily_event">日终片段</option>
                 <option value="manual">手动</option>
+                <option value="app_event">APP端</option>
                 <option value="state_archive">状态归档</option>
               </select>
             </label>

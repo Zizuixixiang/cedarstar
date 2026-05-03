@@ -150,7 +150,7 @@ async def search_memories(
         from memory.bm25_retriever import search_bm25
         from memory.context_builder import _merge_vector_bm25_dedupe
 
-        allowed_types = type_filter if type_filter else ["daily_event", "manual"]
+        allowed_types = type_filter if type_filter else ["daily_event", "manual", "app_event"]
 
         where: Optional[Dict[str, Any]] = None
         if allowed_types:
@@ -299,13 +299,17 @@ async def get_context_trace() -> str:
 
 
 @mcp.tool()
-async def add_external_chunk(content: str) -> str:
+async def add_external_chunk(content: str, as_of_date: Optional[str] = None) -> str:
     """从网页端 Claude 整理的对话摘要写入记忆库。
 
     仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用。
     不要主动判断对话是否值得整理，不要在对话中途调用。
     一次会话最多调用一次。
     content 应是当前完整对话的摘要总结，不是单条消息。
+
+    as_of_date 用于补录历史窗口对话。补录后请使用 trigger_daily_rerun 手动重跑该日期的 daily 摘要，
+    重跑时会把新 chunk 标记为已归档（archived_by 回填），避免被当晚自动跑批误吃。
+    一天可补录多条，重跑时会拼接全部 chunk。
 
     流程：LLM 拆分事件 → summaries 写 chunk 留底 → longterm_memories 逐条写事件 → ChromaDB embedding → BM25。
     """
@@ -316,6 +320,31 @@ async def add_external_chunk(content: str) -> str:
         from llm.llm_interface import LLMInterface
         from memory.vector_store import add_memory
         from memory.bm25_retriever import add_document_to_bm25, refresh_bm25_index
+
+        # 0. 日期校验
+        today = datetime.now(_TZ_SH).date()
+        if as_of_date is not None and str(as_of_date).strip():
+            raw_date = str(as_of_date).strip()
+            try:
+                resolved_date = datetime.strptime(raw_date, "%Y-%m-%d").date()
+            except ValueError:
+                return json.dumps({
+                    "success": False,
+                    "error": f"as_of_date 格式错误，须为 YYYY-MM-DD: {raw_date}",
+                }, ensure_ascii=False)
+            delta = (today - resolved_date).days
+            if delta < 0:
+                return json.dumps({
+                    "success": False,
+                    "error": f"as_of_date 不允许未来日期: {raw_date}",
+                }, ensure_ascii=False)
+            if delta > 30:
+                return json.dumps({
+                    "success": False,
+                    "error": f"as_of_date 超出 30 天范围: {raw_date}（距今 {delta} 天）",
+                }, ensure_ascii=False)
+        else:
+            resolved_date = today
 
         # 1. 字数校验
         db = get_database()
@@ -341,8 +370,9 @@ async def add_external_chunk(content: str) -> str:
             "请将其拆分为独立的事件/话题片段，每个事件给出 score（1-10，重要程度）和 arousal（0-1，情绪强度）。\n\n"
             f"【输入】\n{content}\n\n"
             "【输出 schema】\n"
-            '[{"summary": "事件描述（简洁，50-200字）", "score": 5, "arousal": 0.1}, ...]\n'
-            "只输出 JSON 数组，不要解释、不要 Markdown。"
+            '[{"summary": "事件描述（50-200字，不得少于50字）", "score": 5, "arousal": 0.1}, ...]\n'
+            "只输出 JSON 数组，不要解释、不要 Markdown。\n"
+            "注意：每个事件的 summary 必须不少于 50 个字符，过短的片段应合并到相邻事件中。"
         )
 
         raw_resp = None
@@ -385,14 +415,13 @@ async def add_external_chunk(content: str) -> str:
             }, ensure_ascii=False)
 
         # 3. PG: summaries 写 chunk 留底
-        today = datetime.now(_TZ_SH).date()
         chunk_id = await save_summary(
             session_id="mcp_external",
-            summary_text=content,
+            summary_text=f"[APP端] {content}",
             start_message_id=0,
             end_message_id=0,
             summary_type="chunk",
-            source_date=today,
+            source_date=resolved_date,
             source="claude_web",
             external_events_generated=True,
         )
@@ -403,15 +432,16 @@ async def add_external_chunk(content: str) -> str:
             if not isinstance(ev, dict):
                 continue
             frag = str(ev.get("summary") or "").strip()
-            if not frag:
+            if not frag or len(frag) < 50:
+                logger.warning("add_external_chunk 跳过过短事件 idx=%s len=%s", idx, len(frag))
                 continue
             score = max(1, min(10, int(float(ev.get("score", 5)))))
             arousal = max(0.0, min(1.0, float(ev.get("arousal", 0.1))))
             doc_id = f"mcp_external_{chunk_id}_{idx}"
             metadata = {
-                "date": today.isoformat(),
+                "date": resolved_date.isoformat(),
                 "session_id": "mcp_external",
-                "summary_type": "daily_event",
+                "summary_type": "app_event",
                 "source": "claude_web",
                 "base_score": float(score),
                 "halflife_days": max(1, score * 3),
@@ -432,6 +462,7 @@ async def add_external_chunk(content: str) -> str:
                     chroma_doc_id=doc_id,
                     score=score,
                     source_chunk_ids=[chunk_id],
+                    source_date=resolved_date,
                 )
             except Exception as e:
                 logger.error("add_external_chunk longterm_memories 写入失败 doc_id=%s: %s", doc_id, e)
