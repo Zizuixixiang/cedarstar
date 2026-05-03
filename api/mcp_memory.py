@@ -338,11 +338,6 @@ async def add_external_chunk(content: str, as_of_date: Optional[str] = None) -> 
                     "success": False,
                     "error": f"as_of_date 不允许未来日期: {raw_date}",
                 }, ensure_ascii=False)
-            if delta > 30:
-                return json.dumps({
-                    "success": False,
-                    "error": f"as_of_date 超出 30 天范围: {raw_date}（距今 {delta} 天）",
-                }, ensure_ascii=False)
         else:
             resolved_date = today
 

@@ -332,10 +332,10 @@ Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（Git
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
-| `add_external_chunk` | content, as_of_date | 从网页端 Claude 整理的对话摘要写入记忆库。仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用，不要主动调用。as_of_date 支持历史补录（30天内），补录后需 trigger_daily_rerun 重跑当日 daily |
+| `add_external_chunk` | content, as_of_date | 从网页端 Claude 整理的对话摘要写入记忆库。仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用，不要主动调用。as_of_date 支持历史补录，补录后需 trigger_daily_rerun 重跑当日 daily |
 
 `add_external_chunk` 内部流程：
-1. 日期校验（`as_of_date` 不允许未来日期，超出30天范围报错）
+1. 日期校验（`as_of_date` 不允许未来日期）
 2. 字数校验（`external_chunk_max_chars`，默认 2000）
 3. LLM 拆分事件（使用 `analysis` 配置，不可用时回退 `summary`），输出 `[{summary, score, arousal}, ...]`，跳过 < 50 字事件
 4. PG `summaries` 表写入 chunk 留底（`source=claude_web`, `external_events_generated=TRUE`，文本加 `[APP端]` 前缀）
