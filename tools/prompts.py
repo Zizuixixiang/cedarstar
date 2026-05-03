@@ -26,7 +26,8 @@ LUTOPIA_TOOL_DIRECTIVE = (
 )
 
 WEATHER_TOOL_DIRECTIVE = (
-    "你可以调用 get_weather 工具查询当前天气。用户问天气、或你觉得天气信息有助于回答时再调用，禁止每轮都调用。"
+    "你可以调用 get_weather 工具查询天气。用户问天气、或你觉得天气信息有助于回答时再调用，禁止每轮都调用。"
+    "默认查当前天气；用户问未来/明天/这周/预报等情况时传 mode=\"forecast\" 查7天预报。"
 )
 
 WEIBO_HOT_TOOL_DIRECTIVE = (
@@ -44,14 +45,19 @@ OPENAI_WEATHER_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "get_weather",
-            "description": "查询当前天气状况",
+            "description": "查询天气。默认查当前实时天气；传 mode=\"forecast\" 可查未来7天预报。",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "location": {
                         "type": "string",
                         "description": "城市名，留空则用默认配置的城市",
-                    }
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "查询模式：\"now\"（默认）查实时天气，\"forecast\" 查未来7天预报",
+                        "enum": ["now", "forecast"],
+                    },
                 },
                 "required": [],
             },

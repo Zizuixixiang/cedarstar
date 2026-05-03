@@ -5,7 +5,7 @@ Shared by HTTP `/api/weather/current` and the AI `get_weather` tool.
 import logging
 import time
 from datetime import datetime
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import httpx
 from fastapi import APIRouter
@@ -144,6 +144,62 @@ async def _fetch_hefeng_for_location_id(location_id: str, city_display: Optional
     }
 
 
+async def _fetch_forecast_for_location_id(location_id: str, city_display: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Fetch 7-day forecast from QWeather /v7/weather/7d."""
+    key = config.HEFENG_API_KEY
+    if not key:
+        return None
+    loc = (location_id or "").strip() or config.HEFENG_LOCATION
+    params = {"location": loc}
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=_qweather_headers()) as client:
+            r = await client.get(_qweather_url("/v7/weather/7d"), params=params)
+        if r.status_code != 200:
+            logger.warning("QWeather 7d HTTP error: status=%s body=%s", r.status_code, r.text[:200])
+            return None
+        data = r.json()
+    except Exception as e:
+        logger.warning("QWeather 7d request failed: %s", e)
+        return None
+
+    if str(data.get("code")) != "200":
+        logger.warning("QWeather 7d error: code=%s", data.get("code"))
+        return None
+
+    daily = data.get("daily") or []
+    city = (city_display or "").strip() or config.HEFENG_CITY
+
+    update_raw = data.get("updateTime") or ""
+    if isinstance(update_raw, str) and len(update_raw) >= 19:
+        updated_at = update_raw[:19]
+    else:
+        updated_at = datetime.now().replace(microsecond=0).isoformat()
+
+    days: List[Dict[str, Any]] = []
+    for d in daily:
+        wind_scale = d.get("windScale", "")
+        if isinstance(wind_scale, str) and "-" in wind_scale:
+            wind_scale = wind_scale.split("-")[0].strip()
+        days.append({
+            "date": d.get("fxDate", ""),
+            "condition_day": d.get("textDay", ""),
+            "condition_night": d.get("textNight", ""),
+            "high": d.get("tempMax", ""),
+            "low": d.get("tempMin", ""),
+            "humidity": d.get("humidity", ""),
+            "wind_dir": d.get("windDirDay", ""),
+            "wind_scale": str(wind_scale),
+            "sunrise": d.get("sunrise", ""),
+            "sunset": d.get("sunset", ""),
+        })
+
+    return {
+        "city": city,
+        "updated_at": updated_at,
+        "forecast": days,
+    }
+
+
 async def fetch_weather_cached(location_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Return the same shape as GET /api/weather/current.
@@ -183,3 +239,49 @@ async def fetch_weather_cached(location_name: Optional[str] = None) -> Dict[str,
 @router.get("/current")
 async def current_weather():
     return await fetch_weather_cached(None)
+
+
+# --- Forecast cache (same TTL, separate key prefix to avoid collision) ---
+
+_FORECAST_BY_LOC: Dict[str, Dict[str, Any]] = {}
+
+
+async def fetch_forecast_cached(location_name: Optional[str] = None) -> Dict[str, Any]:
+    """
+    Return 7-day forecast. Shape: {"city", "updated_at", "forecast": [...]}
+    """
+    loc_id = config.HEFENG_LOCATION
+    display: Optional[str] = None
+    name = (location_name or "").strip()
+
+    if not config.HEFENG_API_KEY:
+        return {"city": name or config.HEFENG_CITY, "forecast": [], "error": _NO_API_KEY}
+
+    if name:
+        resolved = await lookup_city_location_id(name)
+        if not resolved:
+            logger.info("QWeather city did not resolve to LocationID: %s", name)
+            return {"city": name, "forecast": [], "error": _CITY_NOT_RESOLVED}
+        loc_id = resolved
+        display = name
+
+    cache_key = f"7d:{loc_id}"
+    now_ts = time.monotonic()
+    ent = _FORECAST_BY_LOC.get(cache_key)
+    if ent is not None and (now_ts - float(ent["ts"])) < _CACHE_TTL_SEC:
+        body = dict(ent["body"])
+        if display:
+            body["city"] = display
+        return body
+
+    fresh = await _fetch_forecast_for_location_id(loc_id, display)
+    if fresh is None:
+        return {"city": display or name or config.HEFENG_CITY, "forecast": [], "error": _WEATHER_UNAVAILABLE}
+
+    _FORECAST_BY_LOC[cache_key] = {"ts": now_ts, "body": dict(fresh)}
+    return dict(fresh)
+
+
+@router.get("/forecast")
+async def forecast_weather():
+    return await fetch_forecast_cached(None)
