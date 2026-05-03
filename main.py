@@ -12,6 +12,7 @@ CedarStar 项目主入口。
 
 import asyncio
 import logging
+import re
 import sys
 import os
 from datetime import datetime
@@ -31,6 +32,7 @@ if current_dir not in sys.path:
 from config import config, validate_config
 from api.router import api_router
 from api.webhook import router as telegram_webhook_router
+from api.mcp_memory import mcp_sse_app
 
 # 创建 FastAPI 应用
 app = FastAPI(
@@ -74,6 +76,9 @@ async def verify_token(token: str | None = Depends(API_KEY_HEADER)):
 
 # 包含 API 路由（Mini App 控制台：须带 X-Cedarstar-Token）
 app.include_router(api_router, prefix="/api", dependencies=[Depends(verify_token)])
+
+# MCP Memory Server（独立鉴权，不走 X-Cedarstar-Token）
+app.mount("/mcp/memory", mcp_sse_app)
 
 # 根路径
 @app.get("/")
@@ -131,6 +136,39 @@ class _SuppressTelegramBotApiUrlInfoFilter(logging.Filter):
         return True
 
 
+def _patch_uvicorn_access_log_redact():
+    """
+    给 uvicorn.access logger 的 handler 加一个 token 脱敏 wrapper。
+    uvicorn.access 的 CustomFormatter 会从 record.args 里 unpack request_line，
+    所以不能改 filter，得 wrap formatMessage 在输出后做替换。
+    """
+    _pat = re.compile(r"(/mcp/memory/)[a-f0-9]{32,128}(/sse)")
+    access_logger = logging.getLogger("uvicorn.access")
+
+    def _wrap(handler):
+        orig_format = handler.format
+
+        def redacting_format(record):
+            s = orig_format(record)
+            return _pat.sub(r"\g<1>***\2", s)
+
+        handler.format = redacting_format
+
+    # 如果 handler 已经存在（uvicorn 启动早于 setup_logging），直接 wrap；
+    # 否则延迟到第一次 addHandler 时 wrap（用 _addHandler wrapper）。
+    if access_logger.handlers:
+        for h in access_logger.handlers:
+            _wrap(h)
+    else:
+        orig_add = access_logger.addHandler
+
+        def patched_add(handler):
+            orig_add(handler)
+            _wrap(handler)
+
+        access_logger.addHandler = patched_add
+
+
 def setup_logging():
     """
     设置日志配置。
@@ -152,6 +190,9 @@ def setup_logging():
     _tg_url_filter = _SuppressTelegramBotApiUrlInfoFilter()
     logging.getLogger("httpx").addFilter(_tg_url_filter)
     logging.getLogger("httpcore").addFilter(_tg_url_filter)
+
+    # uvicorn access log 里的 MCP URL 含 token，替换为 ***
+    _patch_uvicorn_access_log_redact()
 
 
 async def run_discord_bot():

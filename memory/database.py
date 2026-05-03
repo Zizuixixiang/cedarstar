@@ -92,6 +92,37 @@ async def _summaries_ensure_source_date_column(conn) -> None:
     logger.debug("summaries.source_date 列检查/回填完成")
 
 
+async def _summaries_ensure_source_column(conn) -> None:
+    """为 summaries 补 source / external_events_generated 列（幂等）。"""
+    await conn.execute(
+        "ALTER TABLE summaries ADD COLUMN IF NOT EXISTS source VARCHAR(32) DEFAULT 'internal'"
+    )
+    await conn.execute(
+        "ALTER TABLE summaries ADD COLUMN IF NOT EXISTS external_events_generated BOOLEAN DEFAULT FALSE"
+    )
+    logger.debug("summaries.source/external_events_generated 列检查完成")
+
+
+async def _ensure_mcp_audit_log_table(conn) -> None:
+    """创建 mcp_audit_log 表（幂等）。"""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS mcp_audit_log (
+            id SERIAL PRIMARY KEY,
+            token_scope VARCHAR(32),
+            tool_name VARCHAR(64),
+            arguments JSONB,
+            result_status VARCHAR(32),
+            error_message TEXT,
+            called_at TIMESTAMPTZ DEFAULT NOW()
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mcp_audit_log_called_at "
+        "ON mcp_audit_log (called_at)"
+    )
+    logger.debug("mcp_audit_log 表检查完成")
+
+
 async def _summaries_ensure_archive_columns(conn) -> None:
     """为 summaries 补 daily 归档与收藏字段（幂等）。"""
     await conn.execute(
@@ -411,6 +442,7 @@ async def migrate_database_schema(conn) -> None:
     """
     await _ensure_sticker_cache_table(conn)
     await _summaries_ensure_source_date_column(conn)
+    await _summaries_ensure_source_column(conn)
     await _summaries_ensure_archive_columns(conn)
     await _longterm_memories_ensure_source_columns(conn)
     await _daily_batch_log_ensure_step45_columns(conn)
@@ -423,6 +455,7 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_summaries_group_column(conn)
     await _ensure_group_chat_state_table(conn)
     await _ensure_model_favorites_table(conn)
+    await _ensure_mcp_audit_log_table(conn)
 
     await conn.execute(
         "ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT"
@@ -549,6 +582,7 @@ async def migrate_database_schema(conn) -> None:
             ("group_chat_max_rounds", "3"),
             ("group_chat_interject_enabled", "0"),
             ("group_chat_interject_probability", "0.2"),
+            ("external_chunk_max_chars", "2000"),
         ],
     )
 
@@ -1607,6 +1641,8 @@ class MessageDatabase:
         summary_type: str = "chunk",
         source_date: Optional[date] = None,
         is_group: int = 0,
+        source: str = "internal",
+        external_events_generated: bool = False,
     ) -> int:
         """保存对话摘要，返回插入 ID。source_date 默认当天；日终跑批传入 batch_date 以便按日历日查询。"""
         if summary_type not in {"chunk", "daily"}:
@@ -1623,16 +1659,16 @@ class MessageDatabase:
                 """
                 INSERT INTO summaries (
                     session_id, summary_text, start_message_id, end_message_id,
-                    summary_type, source_date, is_group
+                    summary_type, source_date, is_group, source, external_events_generated
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING id
                 """,
                 session_id, summary_text, start_message_id, end_message_id,
-                summary_type, sd, int(is_group),
+                summary_type, sd, int(is_group), source, external_events_generated,
             )
         logger.debug(
-            "保存摘要成功: ID=%s, session=%s, type=%s", summary_id, session_id, summary_type
+            "保存摘要成功: ID=%s, session=%s, type=%s, source=%s", summary_id, session_id, summary_type, source
         )
         return summary_id
 
@@ -1723,6 +1759,8 @@ class MessageDatabase:
         summary_type: Optional[str] = None,
         source_date_from_str: Optional[str] = None,
         source_date_to_str: Optional[str] = None,
+        source_filter: Optional[str] = None,
+        only_unarchived: bool = False,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         分页查询 summaries；可选 summary_type（chunk/daily）、内容日区间（起止 YYYY-MM-DD，可只填一侧）。
@@ -1765,6 +1803,13 @@ class MessageDatabase:
             params.append(summary_type)
             conds.append(f"summary_type = ${len(params)}")
 
+        if source_filter and source_filter.strip():
+            params.append(source_filter.strip())
+            conds.append(f"source = ${len(params)}")
+
+        if only_unarchived:
+            conds.append("archived_by IS NULL")
+
         # 筛选日：优先 source_date 日历日；旧数据 source_date 为空时用 created_at::date，否则仅有 source_date 时选不到
         day_expr = "COALESCE(source_date::date, created_at::date)"
 
@@ -1803,6 +1848,8 @@ class MessageDatabase:
                     s.source_date,
                     s.archived_by,
                     s.is_starred,
+                    s.source,
+                    s.external_events_generated,
                     EXISTS (
                         SELECT 1
                         FROM summaries AS d
@@ -1831,6 +1878,8 @@ class MessageDatabase:
                 "source_date": _norm(r["source_date"]),
                 "archived_by": r["archived_by"],
                 "is_starred": bool(r["is_starred"]),
+                "source": r["source"] or "internal",
+                "external_events_generated": bool(r["external_events_generated"]),
                 "has_daily_summary": bool(r["has_daily_summary"]),
             }
             for r in rows
@@ -2150,7 +2199,8 @@ class MessageDatabase:
             rows = await conn.fetch(
                 f"""
                 SELECT id, session_id, summary_text, start_message_id, end_message_id,
-                       created_at, summary_type, source_date, archived_by, is_starred
+                       created_at, summary_type, source_date, archived_by, is_starred,
+                       external_events_generated
                 FROM summaries
                 WHERE summary_type = 'chunk'
                   AND {where_day}
@@ -2171,6 +2221,7 @@ class MessageDatabase:
                 "source_date": _norm(r["source_date"]),
                 "archived_by": r["archived_by"],
                 "is_starred": bool(r["is_starred"]),
+                "external_events_generated": bool(r["external_events_generated"]),
             }
             for r in rows
         ]
@@ -2214,6 +2265,36 @@ class MessageDatabase:
             daily_summary_id,
             session_id or "*",
             n,
+        )
+        return n
+
+    async def archive_external_chunks_by_daily(
+        self,
+        batch_date: str,
+        daily_summary_id: int,
+    ) -> int:
+        """将指定日期 external_events_generated=true 的 chunk 回填 archived_by（不删除原 chunk）。"""
+        try:
+            d = date.fromisoformat(str(batch_date).strip())
+        except ValueError:
+            logger.warning("archive_external_chunks_by_daily: 无效 batch_date %s", batch_date)
+            return 0
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                """
+                UPDATE summaries
+                SET archived_by = $1
+                WHERE summary_type = 'chunk'
+                  AND external_events_generated = TRUE
+                  AND COALESCE(source_date::date, created_at::date) <= $2::date
+                  AND archived_by IS NULL
+                """,
+                int(daily_summary_id), d,
+            )
+        n = _rowcount(status)
+        logger.info(
+            "external chunk 已回填归档: date=%s daily_id=%s count=%s",
+            batch_date, daily_summary_id, n,
         )
         return n
 
@@ -4459,6 +4540,8 @@ async def save_summary(
     summary_type: str = "chunk",
     source_date: Optional[date] = None,
     is_group: int = 0,
+    source: str = "internal",
+    external_events_generated: bool = False,
 ) -> int:
     return await get_database().save_summary(
         session_id,
@@ -4468,6 +4551,8 @@ async def save_summary(
         summary_type,
         source_date,
         is_group,
+        source,
+        external_events_generated,
     )
 
 
@@ -4487,6 +4572,8 @@ async def get_summaries_filtered(
     summary_type: Optional[str] = None,
     source_date_from: Optional[str] = None,
     source_date_to: Optional[str] = None,
+    source_filter: Optional[str] = None,
+    only_unarchived: bool = False,
 ) -> Tuple[List[Dict[str, Any]], int]:
     return await get_database().get_summaries_filtered(
         page=page,
@@ -4494,6 +4581,8 @@ async def get_summaries_filtered(
         summary_type=summary_type,
         source_date_from_str=source_date_from,
         source_date_to_str=source_date_to,
+        source_filter=source_filter,
+        only_unarchived=only_unarchived,
     )
 
 
@@ -4709,6 +4798,15 @@ async def archive_chunk_summaries_by_daily(
     )
 
 
+async def archive_external_chunks_by_daily(
+    batch_date: str,
+    daily_summary_id: int,
+) -> int:
+    return await get_database().archive_external_chunks_by_daily(
+        batch_date, daily_summary_id,
+    )
+
+
 async def delete_today_chunk_summaries(
     batch_date: Optional[str] = None,
 ) -> int:
@@ -4753,6 +4851,31 @@ async def get_tool_executions_for_message_range(
 
 async def cleanup_tool_executions(days: int = 7) -> int:
     return await get_database().cleanup_tool_executions(days)
+
+
+async def insert_mcp_audit_log(
+    token_scope: str,
+    tool_name: str,
+    arguments: Optional[Dict[str, Any]] = None,
+    result_status: str = "success",
+    error_message: Optional[str] = None,
+) -> int:
+    """写入 MCP 审计日志，返回插入 ID。"""
+    db = get_database()
+    async with db.pool.acquire() as conn:
+        row_id = await conn.fetchval(
+            """
+            INSERT INTO mcp_audit_log (token_scope, tool_name, arguments, result_status, error_message)
+            VALUES ($1, $2, $3::jsonb, $4, $5)
+            RETURNING id
+            """,
+            token_scope,
+            tool_name,
+            json.dumps(arguments, ensure_ascii=False) if arguments else None,
+            result_status,
+            error_message,
+        )
+    return int(row_id)
 
 
 async def get_token_observability_stats(

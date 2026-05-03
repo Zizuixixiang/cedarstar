@@ -67,6 +67,7 @@ try:
         get_database,
         get_today_chunk_summaries,
         archive_chunk_summaries_by_daily,
+        archive_external_chunks_by_daily,
         get_today_user_character_pairs,
         get_memory_cards,
         get_latest_memory_card_for_dimension,
@@ -101,6 +102,7 @@ except ImportError:
         get_database,
         get_today_chunk_summaries,
         archive_chunk_summaries_by_daily,
+        archive_external_chunks_by_daily,
         get_today_user_character_pairs,
         get_memory_cards,
         get_latest_memory_card_for_dimension,
@@ -2017,10 +2019,27 @@ arousal:
 
             summary_id = daily_summary['id']
             event_split_max = await _event_split_max()
-            chunks = await get_today_chunk_summaries(batch_date, include_archived=True)
+            all_chunks = await get_today_chunk_summaries(batch_date, include_archived=True)
             # get_today_chunk_summaries 已用 <= batch_date，无需再过滤
-            if not chunks:
+            if not all_chunks:
                 logger.info(f"今日没有 chunk 可供 Step 4 拆分，日期: {batch_date}")
+                return True, None
+
+            # 过滤掉 external_events_generated=true 的 chunk（其事件已在 add_external_chunk 时写入）
+            chunks = [c for c in all_chunks if not c.get("external_events_generated")]
+            external_chunks = [c for c in all_chunks if c.get("external_events_generated")]
+            if external_chunks:
+                logger.info(
+                    "Step 4 跳过 %d 条 external chunk（事件已预生成），日期: %s",
+                    len(external_chunks), batch_date,
+                )
+            if not chunks:
+                logger.info(f"今日仅有 external chunk，跳过聚类，日期: {batch_date}")
+                # 仍需回填 external chunk 的 archived_by
+                try:
+                    await archive_external_chunks_by_daily(batch_date, summary_id)
+                except Exception as e:
+                    logger.warning("回填 external chunk archived_by 失败: %s", e)
                 return True, None
 
             valid_chunk_ids = {int(c["id"]) for c in chunks}
@@ -2257,13 +2276,20 @@ arousal:
                         refresh_bm25_index()
                 except Exception as e:
                     logger.error(f"BM25 事件片段增量失败: {e}")
-            
+
+            # 回填 external chunk 的 archived_by（其事件已在 add_external_chunk 时写入，无需重复生成）
+            if external_chunks:
+                try:
+                    await archive_external_chunks_by_daily(batch_date, summary_id)
+                except Exception as e:
+                    logger.warning("回填 external chunk archived_by 失败: %s", e)
+
             return True, None
-            
+
         except Exception as e:
             logger.error(f"Step 4 执行失败: {e}")
             return False, str(e)
-    
+
     async def _step5_chroma_gc(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """Step 5 - Chroma 向量记忆 GC（衰减 + 闲置天数阈值 + 无子节点 + hits 豁免）。"""
         try:

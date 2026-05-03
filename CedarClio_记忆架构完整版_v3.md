@@ -36,6 +36,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `retrieval_top_k` | 向量 / BM25 各路召回数 |
 | `telegram_max_chars` | Telegram 分段最大字数 |
 | `telegram_max_msg` | Telegram 分段最大条数 |
+| `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
 
 ### 2.2 `api_configs`
 
@@ -89,6 +90,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 - `archived_by`：可空，指向归档该 chunk 的 daily summary id。chunk 生成 daily 后不再删除，而是写入该字段。
 - `is_starred`：是否收藏该 chunk / daily，默认 false。
+- `source`：VARCHAR(32)，默认 `internal`。MCP 外部写入的 chunk 标记为 `claude_web`。
+- `external_events_generated`：BOOLEAN，默认 FALSE。标记该 chunk 的事件已在 `add_external_chunk` 时预生成，日终跑批跳过重复聚类。
 
 `longterm_memories`：
 
@@ -191,7 +194,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 
 ### 5.2 日终跑批总流程
 
-日终跑批由 `run_daily_batch.py` 触发，按东八区业务日执行五步：
+日终跑批由进程内 `schedule_daily_batch()` 按数据库 `daily_batch_hour` 配置定时触发（东八区），按业务日执行六步。`run_daily_batch.py` 保留为独立命令行入口（手动补跑 / 重试子进程调用）。
 
 1. Step 1：到期 temporal_states 结算
 2. Step 2：生成今日小传
@@ -202,7 +205,9 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 
 ### 5.3 Step 4 重写
 
-Step 4 使用当天按时间顺序排列的 chunk 列表作为输入。默认开启 `STEP4_SPLIT_MODE=True`，将旧的单次 LLM 调用拆成两段：
+Step 4 使用当天按时间顺序排列的 chunk 列表作为输入。聚类前先过滤掉 `external_events_generated=TRUE` 的外部 chunk（其事件已在 `add_external_chunk` 时预生成），仅对内部 chunk 执行聚类。聚类完成后，调用 `archive_external_chunks_by_daily()` 回填外部 chunk 的 `archived_by`。若当天仅有外部 chunk，则跳过聚类，直接回填。
+
+默认开启 `STEP4_SPLIT_MODE=True`，将旧的单次 LLM 调用拆成两段：
 
 1. Step 4a：只做 chunk 聚类，输出 `[[chunk_id, ...], ...]`。
 2. Step 4b：逐组生成事件描述、`score` 与 `arousal`。
@@ -279,9 +284,99 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 - summaries 调用 `GET /api/memory/summaries?context_only=true`，按最近一次 Context trace 中的 summary id 返回实际注入条目；可继续按 `summary_type` 限定 chunk / daily。
 - 长期记忆调用 `GET /api/memory/longterm?context_only=true`，按最近一次 Context trace 中的 Chroma doc id 返回实际注入条目；可继续按 `summary_type` 限定类型。
-- 前端用蓝色“本轮”标签标记最近一次 context 实际注入的摘要和长期记忆。
+- 前端用蓝色”本轮”标签标记最近一次 context 实际注入的摘要和长期记忆。
 
-## 八、机制速查
+## 八、MCP Memory Server
+
+### 8.1 端点与鉴权
+
+MCP 服务器以 ASGI 中间件形式挂载在 `/mcp/memory` 路径下，通过 SSE（Server-Sent Events）传输层对外暴露，供 Claude.ai Custom Connector 等外部客户端连接。
+
+**端点路径：**
+
+- SSE 连接：`GET /mcp/memory/{token}/sse`
+- POST 消息：`POST /mcp/memory/{token}/messages/?session_id=xxx`
+
+POST 消息路径由 MCP server 在 SSE 连接建立时自动下发（`event: endpoint`），客户端无需手动构造。
+
+**鉴权方案 — URL 内嵌 token：**
+
+Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（GitHub issue #112），仅支持无认证或 OAuth 2.1 + DCR。因此采用 URL 内嵌 token 方案：
+
+- token 格式：64 字符十六进制字符串（`[a-f0-9]{64}`），由环境变量 `MCP_WEB_READ_TOKEN` 和 `MCP_WEB_WRITE_TOKEN` 配置
+- 匹配 read token → 绑定 read scope（7 个只读工具）
+- 匹配 write token → 绑定 write scope（7 个只读工具 + 1 个写入工具，同时拥有 read 权限）
+- 都不匹配 → 返回 404（非 401，避免攻击者通过响应码判断 token 存在性）
+
+中间件鉴权通过后，将 `scope[“root_path”]` 设为 `/mcp/memory/{token}`，使 MCP server 在 SSE `endpoint` 事件中自动构造含 token 的 messages URL：`/mcp/memory/{token}/messages/?session_id=xxx`。客户端后续 POST 请求自然携带 token，无需额外处理。
+
+### 8.2 工具清单
+
+**读工具（7 个，read scope 可用）：**
+
+| 工具 | 参数 | 说明 |
+|---|---|---|
+| `search_memories` | query, top_k=10, type_filter, source_filter | 向量 + BM25 双路召回搜索长期记忆。type_filter 可选 daily_event / manual，默认 ['daily_event', 'manual']。source_filter 按 Chroma metadata.source 过滤 |
+| `get_recent_summaries` | date, days, summary_type, only_unarchived, source_filter, page=1, page_size=20 | 分页列出 summaries。date 为具体日期 YYYY-MM-DD，days 为最近 N 天，summary_type 为 chunk/daily/省略=全部 |
+| `get_memory_cards` | user_id, character_id, dimension, limit=50 | 获取记忆卡片列表，不传 user_id/character_id 时返回全部激活卡片 |
+| `get_temporal_states` | 无 | 列出全部 temporal_states（含已停用），按 created_at 倒序 |
+| `get_relationship_timeline` | 无 | 全部关系时间线，按 created_at 倒序 |
+| `get_persona` | persona_id | 获取单个人设配置详情 |
+| `get_context_trace` | 无 | 最近一次 context 构建时实际注入的摘要和长期记忆清单 |
+
+**写工具（1 个，write scope 可用）：**
+
+| 工具 | 参数 | 说明 |
+|---|---|---|
+| `add_external_chunk` | content | 从网页端 Claude 整理的对话摘要写入记忆库。仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用，不要主动调用。一次会话最多调用一次 |
+
+`add_external_chunk` 内部流程：
+1. 字数校验（`external_chunk_max_chars`，默认 2000）
+2. LLM 拆分事件（使用 `analysis` 配置，不可用时回退 `summary`），输出 `[{summary, score, arousal}, ...]`
+3. PG `summaries` 表写入 chunk 留底（`source=claude_web`, `external_events_generated=TRUE`）
+4. 逐条事件写入：ChromaDB embedding → PG `longterm_memories` 镜像 → BM25 增量索引
+
+### 8.3 审计日志
+
+所有 MCP `call_tool` 调用（含鉴权失败）写入 `mcp_audit_log` 表，用于安全审计和使用追踪：
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | SERIAL | 主键 |
+| `token_scope` | VARCHAR(32) | read / write / `__auth__`（鉴权失败时） |
+| `tool_name` | VARCHAR(64) | 工具名称，鉴权失败时为 `__auth__` |
+| `arguments` | JSONB | 工具调用参数 |
+| `result_status` | VARCHAR(32) | success / error |
+| `error_message` | TEXT | 错误信息（成功时为 NULL） |
+| `called_at` | TIMESTAMPTZ | 调用时间，默认 NOW() |
+
+### 8.4 日志脱敏
+
+uvicorn access log 中的完整 URL 路径（含 token）由 `_RedactMcpTokenFilter` 自动替换为 `***`，防止 token 泄露到日志文件。中间件鉴权通过后会将 `scope[“path”]` 重写为内部路径（`/sse` 或 `/messages/`），原始路径保存在 `scope[“mcp_original_path”]` 中。
+
+## 九、外部写入（External Chunk）
+
+### 9.1 概述
+
+外部写入是指通过 MCP Memory Server 的 `add_external_chunk` 工具，从网页端 Claude 将对话摘要写入记忆库。与内部 chunk（由 Telegram/Discord 对话自动生成）不同，外部 chunk 的事件在写入时就由 LLM 拆分完成，不需要在日终跑批 Step 4 中重复处理。
+
+### 9.2 数据结构变更
+
+`summaries` 表新增两列：
+
+- `source`：VARCHAR(32)，默认 `internal`。MCP 外部写入的 chunk 标记为 `claude_web`。
+- `external_events_generated`：BOOLEAN，默认 FALSE。标记该 chunk 的事件已在 `add_external_chunk` 时由 LLM 预生成并写入 ChromaDB + longterm_memories，日终跑批不应重复聚类。
+
+### 9.3 日终跑批 Step 4 处理
+
+Step 4 聚类前，先将当天 chunk 按 `external_events_generated` 分为两组：
+
+- **内部 chunk**（`external_events_generated=FALSE`）：正常进入 4a 聚类 → 4b 描述打分流程。
+- **外部 chunk**（`external_events_generated=TRUE`）：跳过聚类，因为事件已在 `add_external_chunk` 时由 LLM 拆分并写入长期记忆。聚类完成后，调用 `archive_external_chunks_by_daily()` 将这些 chunk 的 `archived_by` 回填为当前 daily summary 的 ID。
+
+若当天仅有外部 chunk（无内部 chunk），则直接回填 `archived_by`，跳过整个 4a/4b 聚类流程。
+
+## 十、机制速查
 
 | 机制 | 说明 |
 |---|---|
@@ -296,7 +391,9 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 | Context trace | 记录最近一次实际注入的摘要与长期记忆，供 Mini App “只看本轮”排查 |
 | 时效状态 | 临时状态会自动结算并可改写为历史事实 |
 | Tool 执行记录 | 保存工具调用摘要，供后续上下文与微批使用 |
+| MCP Memory Server | URL 内嵌 token 鉴权的 MCP SSE 端点，供 Claude.ai 等外部客户端读写记忆，含审计日志与日志脱敏 |
+| 外部写入 | MCP add_external_chunk 写入的 chunk 标记 source=claude_web，日终跳过重复聚类，仅回填 archived_by |
 
-## 九、结语
+## 十一、结语
 
 本 v3 文档按当前实现重写，作为 CedarStar 记忆系统的主说明文档。后续若代码演进，应直接更新 v3 正文，不再通过补丁式追加历史修订说明。
