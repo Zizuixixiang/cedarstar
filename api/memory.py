@@ -47,6 +47,12 @@ class TemporalStateCreate(BaseModel):
     expire_at: Optional[str] = None
 
 
+class TemporalStateUpdate(BaseModel):
+    state_content: Optional[str] = None
+    action_rule: Optional[str] = None
+    expire_at: Optional[str] = None
+
+
 class SummaryTextPatch(BaseModel):
     summary_text: str
 
@@ -745,6 +751,33 @@ async def create_temporal_state(body: TemporalStateCreate):
     except Exception as e:
         logger.error(f"创建时效状态失败: {e}")
         return create_response(False, None, f"创建时效状态失败: {str(e)}")
+
+
+@router.patch("/temporal-states/{state_id}")
+async def update_temporal_state(state_id: str, body: TemporalStateUpdate):
+    """更新一条 temporal_states 的 state_content / action_rule / expire_at。"""
+    from memory.database import update_temporal_state as db_update
+
+    has_any = (
+        body.state_content is not None
+        or body.action_rule is not None
+        or body.expire_at is not None
+    )
+    if not has_any:
+        return create_response(False, None, "至少提供一个可更新字段")
+    try:
+        n = await db_update(
+            state_id,
+            state_content=body.state_content,
+            action_rule=body.action_rule,
+            expire_at=body.expire_at,
+        )
+        if n:
+            return create_response(True, {"id": state_id}, "更新成功")
+        return create_response(False, None, "记录不存在")
+    except Exception as e:
+        logger.error(f"更新时效状态失败: {e}")
+        return create_response(False, None, f"更新时效状态失败: {str(e)}")
 
 
 @router.delete("/temporal-states/{state_id}")

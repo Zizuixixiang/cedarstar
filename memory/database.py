@@ -2849,6 +2849,47 @@ class MessageDatabase:
             )
         return eid
 
+    async def update_temporal_state(
+        self,
+        state_id: str,
+        state_content: Optional[str] = None,
+        action_rule: Optional[str] = None,
+        expire_at: Optional[str] = None,
+    ) -> int:
+        """更新一条 temporal_states 的 state_content / action_rule / expire_at；返回受影响行数。"""
+        sid = (state_id or "").strip()
+        if not sid:
+            return 0
+        sets: List[str] = []
+        params: List[Any] = []
+        idx = 1
+        if state_content is not None:
+            sets.append(f"state_content = ${idx}")
+            params.append(state_content)
+            idx += 1
+        if action_rule is not None:
+            sets.append(f"action_rule = ${idx}")
+            params.append(action_rule)
+            idx += 1
+        if expire_at is not None:
+            if expire_at == "":
+                sets.append(f"expire_at = NULL")
+            else:
+                try:
+                    dt_exp = _dt.datetime.fromisoformat(expire_at.replace("Z", "+00:00"))
+                    sets.append(f"expire_at = ${idx}")
+                    params.append(_pg_timestamp_naive_utc(dt_exp))
+                    idx += 1
+                except ValueError:
+                    logger.warning("update_temporal_state: 解析 expire_at 失败: %s", expire_at)
+        if not sets:
+            return 0
+        params.append(sid)
+        sql = f"UPDATE temporal_states SET {', '.join(sets)} WHERE id = ${idx}"
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(sql, *params)
+        return _rowcount(result)
+
     async def save_temporal_state(
         self,
         id: str,
@@ -4531,6 +4572,17 @@ async def get_recent_relationship_timeline(limit: int = 3) -> List[Dict[str, Any
 
 async def list_temporal_states_all() -> List[Dict[str, Any]]:
     return await get_database().list_temporal_states_all()
+
+
+async def update_temporal_state(
+    state_id: str,
+    state_content: Optional[str] = None,
+    action_rule: Optional[str] = None,
+    expire_at: Optional[str] = None,
+) -> int:
+    return await get_database().update_temporal_state(
+        state_id, state_content=state_content, action_rule=action_rule, expire_at=expire_at
+    )
 
 
 async def insert_temporal_state(

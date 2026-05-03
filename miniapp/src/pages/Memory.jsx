@@ -817,9 +817,142 @@ function AddTemporalStateModal({ onClose, onSubmit }) {
 }
 
 /**
+ * 编辑时效状态弹窗
+ */
+function EditTemporalStateModal({ row, onClose, onSaved, addToast }) {
+  const [stateContent, setStateContent] = useState(row?.state_content || '');
+  const [actionRule, setActionRule] = useState(row?.action_rule || '');
+  const [expireAt, setExpireAt] = useState(() => {
+    if (!row?.expire_at) return '';
+    try {
+      const d = parseShanghaiDateTime(row.expire_at);
+      if (Number.isNaN(d.getTime())) return '';
+      const pad = (n) => String(n).padStart(2, '0');
+      return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    } catch { return ''; }
+  });
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    setStateContent(row?.state_content || '');
+    setActionRule(row?.action_rule || '');
+    if (row?.expire_at) {
+      try {
+        const d = parseShanghaiDateTime(row.expire_at);
+        if (!Number.isNaN(d.getTime())) {
+          const pad = (n) => String(n).padStart(2, '0');
+          setExpireAt(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+          return;
+        }
+      } catch { /* fallthrough */ }
+    }
+    setExpireAt('');
+  }, [row]);
+
+  const handleSave = async () => {
+    if (!row?.id || busy) return;
+    setBusy(true);
+    try {
+      const payload = {};
+      if (stateContent !== (row.state_content || '')) {
+        payload.state_content = stateContent;
+      }
+      if (actionRule !== (row.action_rule || '')) {
+        payload.action_rule = actionRule || null;
+      }
+      const origExpire = (() => {
+        if (!row.expire_at) return '';
+        try {
+          const d = parseShanghaiDateTime(row.expire_at);
+          if (Number.isNaN(d.getTime())) return '';
+          const pad = (n) => String(n).padStart(2, '0');
+          return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+        } catch { return ''; }
+      })();
+      if (expireAt !== origExpire) {
+        payload.expire_at = expireAt || '';
+      }
+      if (Object.keys(payload).length === 0) {
+        onClose();
+        return;
+      }
+      const res = await apiFetch(`/api/memory/temporal-states/${encodeURIComponent(row.id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || '保存失败');
+      }
+      onSaved?.();
+      onClose();
+    } catch (e) {
+      console.error(e);
+      addToast?.(e.message || '保存失败', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay" role="presentation" onClick={() => !busy && onClose()}>
+      <div
+        className="modal-container"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="edit-temporal-title"
+      >
+        <div className="modal-title" id="edit-temporal-title">编辑时效状态</div>
+        <div className="modal-section">
+          <div className="modal-label">状态内容（state_content）</div>
+          <textarea
+            className="edit-textarea"
+            style={{ minHeight: '100px' }}
+            value={stateContent}
+            onChange={(e) => setStateContent(e.target.value)}
+            disabled={busy}
+            autoFocus
+          />
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">行为规则（action_rule，可选）</div>
+          <textarea
+            className="edit-textarea"
+            style={{ minHeight: '80px' }}
+            value={actionRule}
+            onChange={(e) => setActionRule(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div className="modal-section">
+          <div className="modal-label">到期时间（expire_at，可选）</div>
+          <input
+            type="datetime-local"
+            className="search-input"
+            value={expireAt}
+            onChange={(e) => setExpireAt(e.target.value)}
+            disabled={busy}
+          />
+        </div>
+        <div className="modal-actions">
+          <button type="button" className="modal-button cancel" onClick={onClose} disabled={busy}>
+            取消
+          </button>
+          <button type="button" className="modal-button confirm" onClick={handleSave} disabled={busy}>
+            {busy ? '保存中…' : '保存'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
  * 时效状态列表项
  */
-function TemporalStateItem({ row, addToast, onRefresh }) {
+function TemporalStateItem({ row, addToast, onRefresh, onEdit }) {
   const [showConfirm, setShowConfirm] = useState(false);
   const status = getTemporalDisplayStatus(row);
   const expireLabel = row.expire_at
@@ -868,12 +1001,17 @@ function TemporalStateItem({ row, addToast, onRefresh }) {
     <div className="temporal-item">
       <div className="temporal-item-head">
         <span className={`temporal-status-pill ${status.className}`}>{status.label}</span>
-        {/* 仅「生效中」可手动停用；已到期仍 is_active=1 时显示「已过期」，由日终 Step1 结算，不再提供软删除 */}
-        {status.label === '生效中' && (
-          <button className="delete-button" type="button" onClick={() => setShowConfirm(true)}>
-            软删除
+        <span style={{ display: 'flex', gap: '6px' }}>
+          <button className="action-button edit-button" type="button" onClick={() => onEdit(row)}>
+            编辑
           </button>
-        )}
+          {/* 仅「生效中」可手动停用；已到期仍 is_active=1 时显示「已过期」，由日终 Step1 结算，不再提供软删除 */}
+          {status.label === '生效中' && (
+            <button className="delete-button" type="button" onClick={() => setShowConfirm(true)}>
+              软删除
+            </button>
+          )}
+        </span>
       </div>
       <div className="temporal-content">{row.state_content || '（无内容）'}</div>
       {row.action_rule ? <div className="temporal-action-rule">规则：{row.action_rule}</div> : null}
@@ -1302,11 +1440,13 @@ function Memory() {
   
   const [showAddModal, setShowAddModal] = useState(false);
   const [showTemporalAddModal, setShowTemporalAddModal] = useState(false);
+  const [temporalEditingRow, setTemporalEditingRow] = useState(null);
   const [longtermEditMemory, setLongtermEditMemory] = useState(null);
   
   const [activeTab, setActiveTab] = useState('summaries');
   const [temporalStates, setTemporalStates] = useState([]);
   const [temporalLoading, setTemporalLoading] = useState(false);
+  const [temporalActiveOnly, setTemporalActiveOnly] = useState(false);
   const [timelineEvents, setTimelineEvents] = useState([]);
   const [timelineLoading, setTimelineLoading] = useState(false);
 
@@ -2003,6 +2143,19 @@ function Memory() {
         />
       )}
 
+      {temporalEditingRow && (
+        <EditTemporalStateModal
+          row={temporalEditingRow}
+          addToast={addToast}
+          onClose={() => setTemporalEditingRow(null)}
+          onSaved={() => {
+            addToast('已保存', 'success');
+            setTemporalEditingRow(null);
+            loadTemporalStates();
+          }}
+        />
+      )}
+
       {summaryEditingRow && (
         <SummaryEditModal
           row={summaryEditingRow}
@@ -2143,8 +2296,15 @@ function Memory() {
               </span>
               <span className="memory-tab-header__title-text">时效状态</span>
             </h2>
-            <div className="memory-tab-header__actions">
-              <button className="add-button" type="button" onClick={() => setShowTemporalAddModal(true)}>
+            <div className="memory-tab-header__actions" style={{ display: 'flex', alignItems: 'center', gap: '8px', width: '100%' }}>
+              <button
+                type="button"
+                className={`memory-context-filter-btn ${temporalActiveOnly ? 'active' : ''}`}
+                onClick={() => setTemporalActiveOnly((prev) => !prev)}
+              >
+                只看生效中
+              </button>
+              <button className="add-button" type="button" style={{ marginLeft: 'auto' }} onClick={() => setShowTemporalAddModal(true)}>
                 + 新增
               </button>
             </div>
@@ -2158,18 +2318,28 @@ function Memory() {
               </div>
               <div className="empty-state-text">暂无时效状态</div>
             </div>
-          ) : (
-            <div className="memory-list">
-              {temporalStates.map((row) => (
-                <TemporalStateItem
-                  key={row.id}
-                  row={row}
-                  addToast={addToast}
-                  onRefresh={loadTemporalStates}
-                />
-              ))}
-            </div>
-          )}
+          ) : (() => {
+            const filtered = temporalActiveOnly
+              ? temporalStates.filter((row) => getTemporalDisplayStatus(row).label === '生效中')
+              : temporalStates;
+            return filtered.length === 0 ? (
+              <div className="empty-state">
+                <div className="empty-state-text">暂无生效中的时效状态</div>
+              </div>
+            ) : (
+              <div className="memory-list">
+                {filtered.map((row) => (
+                  <TemporalStateItem
+                    key={row.id}
+                    row={row}
+                    addToast={addToast}
+                    onRefresh={loadTemporalStates}
+                    onEdit={setTemporalEditingRow}
+                  />
+                ))}
+              </div>
+            );
+          })()}
         </>
       )}
 

@@ -1350,6 +1350,11 @@ h2.memory-tab-header__title,
   margin-top: 8px;
 }
 
+.temporal-item-head .action-button,
+.temporal-item-head .delete-button {
+  padding: 4px 10px;
+}
+
 .temporal-status-pill {
   font-family: monospace;
   text-transform: uppercase;

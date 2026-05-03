@@ -223,8 +223,10 @@ def format_user_context_sent_at_line(created_at: Optional[Any] = None) -> str:
     if dt is None:
         dt = datetime.now(tz_sh)
     # 时、分之间用全角冒号，与「当前系统时间」块区分表述为「当前时间」
+    weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     line = (
-        f"{dt.year}年{dt.month}月{dt.day}日 "
+        f"{dt.year}年{dt.month}月{dt.day}日"
+        f"{weekdays[dt.weekday()]} "
         f"{dt.hour:02d}：{dt.minute:02d}"
     )
     return f"【当前时间：{line}】"
@@ -1550,7 +1552,9 @@ class ContextBuilder:
             
             if sections:
                 chunk_section = "\n\n".join(sections)
-                return f"# 今日对话摘要\n\n{chunk_section}"
+                from datetime import timezone, timedelta
+                today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y年%m月%d日")
+                return f"# 今日对话摘要（{today}）\n\n{chunk_section}"
             else:
                 return ""
                 
@@ -1910,7 +1914,9 @@ class ContextBuilder:
         """
         from datetime import datetime, timezone, timedelta
         tz_utc_8 = timezone(timedelta(hours=8))
-        now_str = datetime.now(tz_utc_8).strftime("%Y年%m月%d日 %H:%M")
+        _now = datetime.now(tz_utc_8)
+        _weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
+        now_str = f"{_now.year}年{_now.month}月{_now.day}日{_weekdays[_now.weekday()]} {_now.strftime('%H:%M')}"
         time_section = f"【当前系统时间（东八区）：{now_str}】\n(提示：在对话中若关注时间信息，请以此时间为基准！)"
 
         fixed_sections = [system_prompt, MEMORY_BLOCK_PRIORITY_DIRECTIVE]
