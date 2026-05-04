@@ -2,7 +2,8 @@
 向量存储模块。
 
 封装 ChromaDB 操作，提供长期记忆向量检索功能。
-使用智谱 embedding-3 模型生成向量，本地 ChromaDB 存储。
+默认使用 SiliconFlow Qwen3-Embedding-8B 生成向量，本地 ChromaDB 存储。
+通过环境变量 EMBEDDING_PROVIDER 切换：siliconflow（默认）/ zhipu。
 """
 
 import os
@@ -14,7 +15,6 @@ from datetime import datetime
 
 import chromadb
 from chromadb.config import Settings
-import jieba
 import requests
 from config import config
 
@@ -91,62 +91,29 @@ def decayed_memory_strength(
     return b * (0.5 ** (elapsed_days / hl))
 
 
-class ZhipuEmbedding:
-    """
-    智谱 AI Embedding 客户端。
-    
-    调用智谱 embedding-3 模型生成文本向量。
-    """
-    
-    def __init__(self, api_key: Optional[str] = None):
-        """
-        初始化智谱 Embedding 客户端。
-        
-        Args:
-            api_key: 智谱 API 密钥，如果为 None 则从配置读取
-        """
-        self.api_key = api_key or config.ZHIPU_API_KEY
-        if not self.api_key:
-            raise ValueError("ZHIPU_API_KEY 未设置，请检查 .env 文件")
-        
-        self.base_url = "https://open.bigmodel.cn/api/paas/v4/embeddings"
-        self.model = "embedding-3"
-        
-        # 设置代理
-        self.proxies = config.proxy_dict
-        
-        logger.info(f"智谱 Embedding 客户端初始化完成，模型: {self.model}")
-    
-    def get_embedding(self, text: str) -> List[float]:
-        """
-        获取文本的向量表示。
-        
-        Args:
-            text: 要向量化的文本
-            
-        Returns:
-            List[float]: 文本向量（1024维）
-            
-        Raises:
-            Exception: 如果 API 调用失败
-        """
-        # 预处理文本：分词并限制长度
-        words = jieba.lcut(text)
-        if len(words) > 512:
-            words = words[:512]
-        processed_text = " ".join(words)
+class SiliconFlowEmbedding:
+    """SiliconFlow Embedding 客户端（Qwen3-Embedding-8B，dim=1024）。"""
 
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or os.getenv("SILICONFLOW_API_KEY", "")
+        if not self.api_key:
+            raise ValueError("SILICONFLOW_API_KEY 未设置，请检查 .env 文件")
+        self.base_url = "https://api.siliconflow.cn/v1/embeddings"
+        self.model = "Qwen/Qwen3-Embedding-8B"
+        self.dimensions = 1024
+        self.proxies = config.proxy_dict
+        logger.info("SiliconFlow Embedding 客户端初始化完成，模型: %s", self.model)
+
+    def get_embedding(self, text: str) -> List[float]:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
         }
-
         data = {
             "model": self.model,
-            "input": processed_text,
-            "dimensions": 1024,
+            "input": text,
+            "dimensions": self.dimensions,
         }
-
         max_attempts = 3
         last_err: Optional[Exception] = None
         for attempt in range(1, max_attempts + 1):
@@ -161,52 +128,102 @@ class ZhipuEmbedding:
                 result = response.json()
                 if "data" in result and len(result["data"]) > 0:
                     embedding = result["data"][0]["embedding"]
-                    logger.debug("成功获取文本向量，长度: %s", len(embedding))
+                    logger.debug("SiliconFlow embedding 成功，长度: %s", len(embedding))
                     return embedding
-                raise ValueError(f"API 响应格式错误: {result}")
+                raise ValueError(f"SiliconFlow API 响应格式错误: {result}")
             if response.status_code in (429, 503):
                 last_err = Exception(
-                    f"智谱 Embedding HTTP {response.status_code}: {response.text[:500]}"
+                    f"SiliconFlow Embedding HTTP {response.status_code}: {response.text[:500]}"
                 )
                 logger.warning(
-                    "Embedding HTTP %s，第 %s/%s 次，2s 后重试",
-                    response.status_code,
-                    attempt,
-                    max_attempts,
+                    "SiliconFlow Embedding HTTP %s，第 %s/%s 次，2s 后重试",
+                    response.status_code, attempt, max_attempts,
                 )
                 if attempt < max_attempts:
                     time.sleep(2)
                     continue
                 raise last_err
-            error_msg = (
-                f"智谱 Embedding API 调用失败: {response.status_code} - {response.text}"
-            )
+            error_msg = f"SiliconFlow Embedding API 失败: {response.status_code} - {response.text}"
             logger.error(error_msg)
             raise Exception(error_msg)
-    
+
     def get_embeddings(self, texts: List[str]) -> List[List[float]]:
-        """
-        批量获取文本向量。
-        
-        Args:
-            texts: 要向量化的文本列表
-            
-        Returns:
-            List[List[float]]: 文本向量列表
-            
-        Raises:
-            Exception: 如果 API 调用失败
-        """
         embeddings = []
         for text in texts:
             try:
-                embedding = self.get_embedding(text)
-                embeddings.append(embedding)
+                embeddings.append(self.get_embedding(text))
             except Exception as e:
-                logger.error(f"批量获取向量失败，文本: {text[:50]}..., 错误: {e}")
-                # 返回零向量作为占位
+                logger.error("SiliconFlow 批量 embedding 失败，文本: %s... 错误: %s", text[:50], e)
+                embeddings.append([0.0] * self.dimensions)
+        return embeddings
+
+
+class ZhipuEmbedding:
+    """
+    智谱 AI Embedding 客户端（embedding-3，dim=1024）。
+    通过 EMBEDDING_PROVIDER=zhipu 激活。
+    """
+
+    def __init__(self, api_key: Optional[str] = None):
+        self.api_key = api_key or config.ZHIPU_API_KEY
+        if not self.api_key:
+            raise ValueError("ZHIPU_API_KEY 未设置，请检查 .env 文件")
+        self.base_url = "https://open.bigmodel.cn/api/paas/v4/embeddings"
+        self.model = "embedding-3"
+        self.proxies = config.proxy_dict
+        logger.info("智谱 Embedding 客户端初始化完成，模型: %s", self.model)
+
+    def get_embedding(self, text: str) -> List[float]:
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json",
+        }
+        data = {
+            "model": self.model,
+            "input": text,
+            "dimensions": 1024,
+        }
+        max_attempts = 3
+        last_err: Optional[Exception] = None
+        for attempt in range(1, max_attempts + 1):
+            response = requests.post(
+                self.base_url,
+                headers=headers,
+                json=data,
+                proxies=self.proxies,
+                timeout=30,
+            )
+            if response.status_code == 200:
+                result = response.json()
+                if "data" in result and len(result["data"]) > 0:
+                    embedding = result["data"][0]["embedding"]
+                    logger.debug("智谱 embedding 成功，长度: %s", len(embedding))
+                    return embedding
+                raise ValueError(f"智谱 API 响应格式错误: {result}")
+            if response.status_code in (429, 503):
+                last_err = Exception(
+                    f"智谱 Embedding HTTP {response.status_code}: {response.text[:500]}"
+                )
+                logger.warning(
+                    "智谱 Embedding HTTP %s，第 %s/%s 次，2s 后重试",
+                    response.status_code, attempt, max_attempts,
+                )
+                if attempt < max_attempts:
+                    time.sleep(2)
+                    continue
+                raise last_err
+            error_msg = f"智谱 Embedding API 失败: {response.status_code} - {response.text}"
+            logger.error(error_msg)
+            raise Exception(error_msg)
+
+    def get_embeddings(self, texts: List[str]) -> List[List[float]]:
+        embeddings = []
+        for text in texts:
+            try:
+                embeddings.append(self.get_embedding(text))
+            except Exception as e:
+                logger.error("智谱批量 embedding 失败，文本: %s... 错误: %s", text[:50], e)
                 embeddings.append([0.0] * 1024)
-        
         return embeddings
 
 
@@ -240,8 +257,12 @@ class VectorStore:
             )
         )
         
-        # 初始化智谱 Embedding 客户端
-        self.embedding_client = ZhipuEmbedding()
+        # 初始化 Embedding 客户端（通过 EMBEDDING_PROVIDER 环境变量切换）
+        provider = (os.getenv("EMBEDDING_PROVIDER") or "siliconflow").strip().lower()
+        if provider == "zhipu":
+            self.embedding_client = ZhipuEmbedding()
+        else:
+            self.embedding_client = SiliconFlowEmbedding()
         
         # 获取或创建集合
         self.collection = self.client.get_or_create_collection(

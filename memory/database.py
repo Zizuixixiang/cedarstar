@@ -3927,12 +3927,17 @@ class MessageDatabase:
         source_chunk_ids: Optional[List[int]] = None,
         is_starred: bool = False,
         source_date: Optional[date] = None,
+        theme: Optional[str] = None,
+        entities: Optional[List[str]] = None,
+        emotion: Optional[str] = None,
+        event_type: Optional[str] = None,
     ) -> int:
         """按 Chroma doc_id 写入或更新长期记忆镜像记录。"""
         cid = (chroma_doc_id or "").strip()
         if not cid:
             raise ValueError("chroma_doc_id 不能为空")
         chunk_json = json.dumps([int(x) for x in (source_chunk_ids or [])])
+        entities_json = json.dumps(entities or [], ensure_ascii=False)
         async with self.pool.acquire() as conn:
             row_id = await conn.fetchval(
                 """
@@ -3941,8 +3946,12 @@ class MessageDatabase:
                     score = $2,
                     source_chunk_ids = $3::jsonb,
                     is_starred = $4,
-                    source_date = $5
-                WHERE chroma_doc_id = $6
+                    source_date = $5,
+                    theme = $6,
+                    entities = $7::jsonb,
+                    emotion = $8,
+                    event_type = $9
+                WHERE chroma_doc_id = $10
                 RETURNING id
                 """,
                 content,
@@ -3950,6 +3959,10 @@ class MessageDatabase:
                 chunk_json,
                 bool(is_starred),
                 source_date,
+                theme,
+                entities_json,
+                emotion,
+                event_type,
                 cid,
             )
             if row_id is not None:
@@ -3958,9 +3971,10 @@ class MessageDatabase:
                 await conn.fetchval(
                     """
                     INSERT INTO longterm_memories (
-                        content, chroma_doc_id, score, source_chunk_ids, is_starred, source_date
+                        content, chroma_doc_id, score, source_chunk_ids, is_starred, source_date,
+                        theme, entities, emotion, event_type
                     )
-                    VALUES ($1, $2, $3, $4::jsonb, $5, $6)
+                    VALUES ($1, $2, $3, $4::jsonb, $5, $6, $7, $8::jsonb, $9, $10)
                     RETURNING id
                     """,
                     content,
@@ -3969,6 +3983,10 @@ class MessageDatabase:
                     chunk_json,
                     bool(is_starred),
                     source_date,
+                    theme,
+                    entities_json,
+                    emotion,
+                    event_type,
                 )
             )
 

@@ -135,6 +135,26 @@ except ImportError:
 # 设置日志
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Step 4b 事件标签 enum 常量
+# ---------------------------------------------------------------------------
+
+EVENT_THEMES = [
+    "daily_life", "work_career", "education", "health", "relationship",
+    "emotion", "hobby", "travel", "finance", "family", "conflict",
+    "milestone", "decision", "other",
+]
+
+EVENT_EMOTIONS = [
+    "happy", "sad", "angry", "anxious", "excited", "calm", "grateful",
+    "nostalgic", "frustrated", "hopeful", "neutral", "other",
+]
+
+EVENT_TYPES = [
+    "daily_warmth", "decision", "emotional_shift", "milestone",
+    "conflict", "routine", "other",
+]
+
 
 class _MemoryMergeResult(NamedTuple):
     """记忆卡片合并结果：discarded 仅 current_status / preferences 可能非空。"""
@@ -1151,6 +1171,29 @@ class DailyBatchProcessor:
             return max(0.0, min(1.0, float(value)))
         except (TypeError, ValueError):
             return default
+
+    @staticmethod
+    def _clamp_enum(value: Any, allowed: List[str], default: str) -> str:
+        """将 LLM 输出的 enum 值钳制到允许列表内。"""
+        s = str(value or "").strip().lower()
+        return s if s in allowed else default
+
+    @staticmethod
+    def _clamp_entities(value: Any, max_items: int = 5) -> List[str]:
+        """将 LLM 输出的 entities 数组钳制为去重、去空、最多 max_items 项的字符串列表。"""
+        if not isinstance(value, list):
+            return []
+        seen = set()
+        result = []
+        for item in value:
+            s = str(item or "").strip()
+            if not s or s in seen:
+                continue
+            seen.add(s)
+            result.append(s)
+            if len(result) >= max_items:
+                break
+        return result
 
     def _normalize_step4_events(
         self,
@@ -2197,21 +2240,29 @@ content 强制要求：
         chunk_group_content: str,
         llm_config: Optional[LLMInterface],
     ) -> Optional[Dict[str, Any]]:
-        """Step 4b - 对单个 chunk 分组生成事件描述、score、arousal。"""
+        """Step 4b - 对单个 chunk 分组生成事件描述、score、arousal + 4 标签。"""
+        _themes_str = " / ".join(EVENT_THEMES)
+        _emotions_str = " / ".join(EVENT_EMOTIONS)
+        _types_str = " / ".join(EVENT_TYPES)
+
         prompt = self._persona_dialogue_prefix() + f"""【任务】
-请把下面同一事件/话题下的对话片段摘要合并成一条长期记忆事件，并评估长期保留价值与情绪强度。
+请把下面同一事件/话题下的对话片段摘要合并成一条长期记忆事件，并评估长期保留价值、情绪强度，以及主题标签。
 
 【输入】
 {chunk_group_content}
 
 【输出 schema】
-{{"content": "事件描述，100-300 字", "score": 7, "arousal": 0.5}}
+{{"content": "事件描述，100-300 字", "score": 7, "arousal": 0.5, "theme": "daily_life", "entities": ["人名/组织名"], "emotion": "neutral", "event_type": "daily_warmth"}}
 
 【要求】
 - 只返回单条 JSON 对象，不要解释、不要 Markdown、不要其他文字
 - content 必须是完整、可独立理解的事件描述
 - score 是 1-10 的整数，表示长期保留价值
 - arousal 是 0.0-1.0 的浮点数，表示情绪强度（不分正负）
+- theme: 事件主题，从以下取值选择：{_themes_str}
+- entities: 事件涉及的实体（人名、组织名、产品名等），最多 5 个。必须是有意义的专有名词，禁止填入「今天」「南杉」「东西」等泛指词。无明确实体时返回空数组 []
+- emotion: 主导情绪，从以下取值选择：{_emotions_str}
+- event_type: 事件类型，从以下取值选择：{_types_str}
 
 【评分参考】
 score:
@@ -2245,6 +2296,10 @@ arousal:
                 "content": content[:300],
                 "score": self._clamp_score(parsed.get("score"), 5),
                 "arousal": self._clamp_arousal(parsed.get("arousal"), 0.1),
+                "theme": self._clamp_enum(parsed.get("theme"), EVENT_THEMES, "other"),
+                "entities": self._clamp_entities(parsed.get("entities"), max_items=5),
+                "emotion": self._clamp_enum(parsed.get("emotion"), EVENT_EMOTIONS, "neutral"),
+                "event_type": self._clamp_enum(parsed.get("event_type"), EVENT_TYPES, "other"),
             }
 
         last_exc: Optional[Exception] = None
@@ -2363,6 +2418,10 @@ arousal:
                             "chunk_ids": [int(cid) for cid in group],
                             "score": self._clamp_score(desc.get("score"), 5),
                             "arousal": self._clamp_arousal(desc.get("arousal"), 0.1),
+                            "theme": desc.get("theme", "other"),
+                            "entities": desc.get("entities", []),
+                            "emotion": desc.get("emotion", "neutral"),
+                            "event_type": desc.get("event_type", "other"),
                         }
                     )
 
@@ -2370,6 +2429,9 @@ arousal:
                     logger.warning("Step 4b 全部分组失败，使用现有默认事件兜底继续")
                     events = default_events
             else:
+                _themes_str = " / ".join(EVENT_THEMES)
+                _emotions_str = " / ".join(EVENT_EMOTIONS)
+                _types_str = " / ".join(EVENT_TYPES)
                 split_prompt = self._persona_dialogue_prefix() + f"""【任务】
 以下是今天按时间顺序的对话片段摘要。请找出属于同一事件/话题的片段，将它们合并成独立完整的事件描述。每个事件必须标注由哪几条 chunk 合并而来（返回 chunk_ids 列表）。
 
@@ -2391,9 +2453,18 @@ arousal:
     "summary": "事件描述，100-300 字",
     "chunk_ids": [整数chunk_id, ...],
     "score": 整数 1-10，长期保留价值,
-    "arousal": 浮点 0.0-1.0，情绪强度（不分正负）
+    "arousal": 浮点 0.0-1.0，情绪强度（不分正负）,
+    "theme": "事件主题枚举值",
+    "entities": ["实体1", "实体2"],
+    "emotion": "主导情绪枚举值",
+    "event_type": "事件类型枚举值"
   }}
 ]
+
+theme 取值：{_themes_str}
+emotion 取值：{_emotions_str}
+event_type 取值：{_types_str}
+entities: 事件涉及的实体（人名、组织名、产品名等），最多 5 个，必须是有意义的专有名词。无明确实体时返回空数组 []
 
 【评分参考】
 score:
@@ -2452,6 +2523,10 @@ arousal:
                                 "chunk_ids": legal_ids,
                                 "score": self._clamp_score(item.get("score"), 5),
                                 "arousal": self._clamp_arousal(item.get("arousal"), 0.1),
+                                "theme": self._clamp_enum(item.get("theme"), EVENT_THEMES, "other"),
+                                "entities": self._clamp_entities(item.get("entities"), max_items=5),
+                                "emotion": self._clamp_enum(item.get("emotion"), EVENT_EMOTIONS, "neutral"),
+                                "event_type": self._clamp_enum(item.get("event_type"), EVENT_TYPES, "other"),
                             }
                         )
                         if len(events) >= event_split_max:
@@ -2502,6 +2577,10 @@ arousal:
                     for cid in source_chunk_ids
                     if cid in chunk_by_id
                 )
+                event_theme = ev.get("theme", "other")
+                event_entities = ev.get("entities", [])
+                event_emotion = ev.get("emotion", "neutral")
+                event_event_type = ev.get("event_type", "other")
                 eid = build_daily_event_doc_id(batch_date, idx)
                 em = {
                     "date": batch_date,
@@ -2515,6 +2594,10 @@ arousal:
                     "halflife_days": event_halflife,
                     "arousal": float(event_arousal),
                     "parent_id": parent_doc_id,
+                    "theme": str(event_theme),
+                    "entities": "|".join(str(e) for e in event_entities) if event_entities else "",
+                    "emotion": str(event_emotion),
+                    "event_type": str(event_event_type),
                 }
                 if not add_memory(eid, frag, em):
                     logger.error(f"事件片段入库失败 id={eid}")
@@ -2526,6 +2609,10 @@ arousal:
                         score=event_score,
                         source_chunk_ids=source_chunk_ids,
                         is_starred=is_starred,
+                        theme=event_theme,
+                        entities=event_entities,
+                        emotion=event_emotion,
+                        event_type=event_event_type,
                     )
                 except Exception as e:
                     logger.error("longterm_memories 镜像写入失败 id=%s: %s", eid, e)
