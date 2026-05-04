@@ -139,7 +139,7 @@ const CONFIG_METADATA = [
     description: 'Context 中纳入的 summary_type=daily 条数',
     hint: '注入最近几天的今日小传作为背景',
     min: 1,
-    max: 30,
+    max: 90,
   },
   {
     key: 'context_max_longterm',
