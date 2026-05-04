@@ -58,6 +58,13 @@ DEFAULT_CONFIG = {
     "group_chat_interject_enabled": 0,
     "group_chat_interject_probability": 0.2,
     "x_daily_read_limit": 100,
+
+    "tts_enabled": 0,
+    "tts_speed": 0.95,
+    "tts_vol": 1.0,
+    "tts_pitch": 0,
+    "tts_intensity": 0,
+    "tts_timbre": 0,
 }
 
 

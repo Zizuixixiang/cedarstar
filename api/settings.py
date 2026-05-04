@@ -33,7 +33,7 @@ def _east8_week_start_naive():
 
 
 ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
-    {"chat", "summary", "vision", "stt", "embedding", "search_summary", "analysis"}
+    {"chat", "summary", "vision", "stt", "tts", "embedding", "search_summary", "analysis"}
 )
 
 
@@ -49,7 +49,8 @@ class ApiConfigCreate(BaseModel):
     base_url: str
     model: Optional[str] = None
     persona_id: Optional[int] = None
-    config_type: Optional[str] = 'chat'  # chat / summary / vision / stt / embedding / search_summary / analysis
+    config_type: Optional[str] = 'chat'
+    voice_id: Optional[str] = None
 
 
 class ApiConfigUpdate(BaseModel):
@@ -60,6 +61,7 @@ class ApiConfigUpdate(BaseModel):
     model: Optional[str] = None
     persona_id: Optional[int] = None
     config_type: Optional[str] = None
+    voice_id: Optional[str] = None
 
 
 @router.get("/api-configs")

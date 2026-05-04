@@ -22,6 +22,7 @@ const CONFIG_TYPE_LABEL = {
   summary: '摘要',
   vision: '视觉',
   stt: '语音转录',
+  tts: '语音合成',
   embedding: 'Embedding',
   search_summary: '搜索摘要',
   analysis: '分析',
@@ -32,6 +33,7 @@ const CONFIG_TYPE_CLASS = {
   summary: 'summary-type',
   vision: 'vision-type',
   stt: 'stt-type',
+  tts: 'tts-type',
   embedding: 'embedding-type',
   search_summary: 'search-summary-type',
   analysis: 'analysis-type',
@@ -42,6 +44,7 @@ const EMPTY_TAB_TIP = {
   summary: '暂无摘要 API 配置，点击右上角新增',
   vision: '暂无视觉 API 配置，点击右上角新增',
   stt: '暂无语音转录 API 配置，点击右上角新增（可用硅基流动 OpenAI 兼容，或选择火山引擎原生 ASR）',
+  tts: '暂无语音合成 API 配置，点击右上角新增（MiniMax T2A v2，填写 API Key 即可）',
   embedding: '暂无 Embedding 配置，点击右上角新增（表情包向量用硅基流动 OpenAI 兼容 /v1/embeddings）',
   search_summary: '暂无搜索摘要模型配置，点击右上角新增（用于压缩 Tavily 结果；未填时可回退已激活的摘要 API）',
   analysis: '暂无分析模型配置，点击右上角新增（用于 Step 4 结构化提取与打分）',
@@ -73,6 +76,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
     model: initial?.model || '',
     persona_id: initial?.persona_id ?? '',
     config_type: initial?.config_type || configType || 'chat',
+    voice_id: initial?.voice_id || '',
   });
   const [showKey, setShowKey] = useState(false);
   const [modelOptions, setModelOptions] = useState(initial?.model ? [initial.model] : []);
@@ -184,6 +188,9 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
         model: form.model.trim() || null,
         config_type: form.config_type,
       };
+      if (form.config_type === 'tts' && form.voice_id.trim()) {
+        body.voice_id = form.voice_id.trim();
+      }
       // 编辑时只有填写了新 key 才更新
       if (form.api_key.trim()) body.api_key = form.api_key.trim();
       if (!isEdit) body.api_key = form.api_key.trim();
@@ -250,6 +257,12 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
                 <span className="type-radio-text">语音转录 API</span>
               </label>
               <label className="type-radio-label">
+                <input type="radio" name="config_type" value="tts"
+                  checked={form.config_type === 'tts'}
+                  onChange={() => set('config_type', 'tts')} />
+                <span className="type-radio-text">语音合成 API</span>
+              </label>
+              <label className="type-radio-label">
                 <input type="radio" name="config_type" value="embedding"
                   checked={form.config_type === 'embedding'}
                   onChange={() => set('config_type', 'embedding')} />
@@ -273,6 +286,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               {form.config_type === 'summary' && '用于批量总结、记忆归档、微批处理（建议用大模型如 GPT-4）'}
               {form.config_type === 'vision' && '用于图片理解、多模态消息（与对话/摘要配置独立激活）'}
               {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字；默认支持 OpenAI 兼容 /audio/transcriptions，也支持火山引擎原生 ASR 分支'}
+              {form.config_type === 'tts' && '用于 Telegram 私聊语音输出（MiniMax T2A v2）；填写 API Key 和 Voice ID，激活后文字消息后会追发语音'}
               {form.config_type === 'embedding' && '用于表情包 Chroma 检索（硅基流动 BAAI/bge-m3，OpenAI 兼容 /v1/embeddings）；需在列表中激活'}
               {form.config_type === 'search_summary' && '用于 web_search：把 Tavily 多条结果压成短摘要（建议小模型）；未激活本类型时回退「摘要 API」'}
               {form.config_type === 'analysis' && '用于日终 Step 4 的事件聚类、描述与打分；未激活时 Step 4 回退摘要 API，仍不可用则使用兜底'}
@@ -324,43 +338,65 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
             )}
           </div>
 
+          {/* TTS Voice ID */}
+          {form.config_type === 'tts' && (
+            <div className="modal-field">
+              <label className="modal-label">Voice ID</label>
+              <input className="modal-input" value={form.voice_id}
+                onChange={e => set('voice_id', e.target.value)}
+                placeholder="如 Chinese_Melodic_Man 或克隆音色 ID" />
+              <div className="modal-hint">MiniMax 系统音色 ID 或克隆音色 ID。系统音色列表见 MiniMax 文档。</div>
+            </div>
+          )}
+
           {/* 模型 */}
           <div className="modal-field">
             <label className="modal-label">模型</label>
-            <div className="modal-model-row">
-              {mergedModelOptions.length > 0 ? (
-                <select className="modal-select" value={form.model}
-                  onChange={e => set('model', e.target.value)}>
-                  <option value="">请选择模型</option>
-                  {mergedModelOptions.map(m => <option key={m} value={m}>{m}</option>)}
-                </select>
-              ) : (
+            {form.config_type === 'tts' ? (
+              <>
                 <input className="modal-input" value={form.model}
                   onChange={e => set('model', e.target.value)}
-                  placeholder={isStt ? '硅基流动填模型名；火山可填 volc:volcengine_streaming_common' : '手动输入模型名，或点右侧按钮获取'} />
-              )}
-              <button
-                className={`fetch-models-btn ${fetchingModels ? 'loading' : ''}`}
-                onClick={handleFetchModels}
-                disabled={fetchingModels}
-              >
-                {fetchingModels ? <span className="spin">⟳</span> : '获取模型列表'}
-              </button>
-              <button className="clear-models-btn" onClick={handleFavoriteModel}>
-                收藏
-              </button>
-            </div>
-            {modelOptions.length > 0 && (
-              <button className="clear-models-btn" onClick={() => setModelOptions([])}>
-                切换为手动输入
-              </button>
-            )}
-            {isStt && (
-              <div className="modal-hint">
-                {isVolcengineStt
-                  ? '火山引擎使用 Seed-ASR 2.0 BigModel，模型字段仅用于识别火山分支，无需修改。'
-                  : 'OpenAI 兼容 STT 一般填写 whisper-1 或供应商提供的语音识别模型名。'}
-              </div>
+                  placeholder="speech-2.8-turbo" />
+                <div className="modal-hint">可选：speech-2.8-turbo（默认）、speech-2.8-hd、speech-2.6-turbo 等</div>
+              </>
+            ) : (
+              <>
+                <div className="modal-model-row">
+                  {mergedModelOptions.length > 0 ? (
+                    <select className="modal-select" value={form.model}
+                      onChange={e => set('model', e.target.value)}>
+                      <option value="">请选择模型</option>
+                      {mergedModelOptions.map(m => <option key={m} value={m}>{m}</option>)}
+                    </select>
+                  ) : (
+                    <input className="modal-input" value={form.model}
+                      onChange={e => set('model', e.target.value)}
+                      placeholder={isStt ? '硅基流动填模型名；火山可填 volc:volcengine_streaming_common' : '手动输入模型名，或点右侧按钮获取'} />
+                  )}
+                  <button
+                    className={`fetch-models-btn ${fetchingModels ? 'loading' : ''}`}
+                    onClick={handleFetchModels}
+                    disabled={fetchingModels}
+                  >
+                    {fetchingModels ? <span className="spin">⟳</span> : '获取模型列表'}
+                  </button>
+                  <button className="clear-models-btn" onClick={handleFavoriteModel}>
+                    收藏
+                  </button>
+                </div>
+                {modelOptions.length > 0 && (
+                  <button className="clear-models-btn" onClick={() => setModelOptions([])}>
+                    切换为手动输入
+                  </button>
+                )}
+                {isStt && (
+                  <div className="modal-hint">
+                    {isVolcengineStt
+                      ? '火山引擎使用 Seed-ASR 2.0 BigModel，模型字段仅用于识别火山分支，无需修改。'
+                      : 'OpenAI 兼容 STT 一般填写 whisper-1 或供应商提供的语音识别模型名。'}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -590,13 +626,19 @@ function Settings() {
             >
               视觉 API
             </button>
-            <button 
+            <button
               className={`config-tab ${activeTab === 'stt' ? 'active' : ''}`}
               onClick={() => switchTab('stt')}
             >
               语音转录
             </button>
-            <button 
+            <button
+              className={`config-tab ${activeTab === 'tts' ? 'active' : ''}`}
+              onClick={() => switchTab('tts')}
+            >
+              语音合成
+            </button>
+            <button
               className={`config-tab ${activeTab === 'embedding' ? 'active' : ''}`}
               onClick={() => switchTab('embedding')}
             >

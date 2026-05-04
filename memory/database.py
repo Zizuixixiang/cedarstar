@@ -388,6 +388,7 @@ async def ensure_api_configs_schema(conn) -> None:
         ("persona_id", "INTEGER"),
         ("is_active", "INTEGER DEFAULT 0"),
         ("config_type", "TEXT DEFAULT 'chat'"),
+        ("voice_id", "TEXT"),
     ]:
         await conn.execute(
             f"ALTER TABLE api_configs ADD COLUMN IF NOT EXISTS {col} {col_def}"
@@ -590,6 +591,15 @@ async def migrate_database_schema(conn) -> None:
             ("group_chat_interject_probability", "0.2"),
             ("external_chunk_max_chars", "2000"),
             ("x_daily_read_limit", "100"),
+            ("tts_enabled", "false"),
+            ("tts_voice_id", ""),
+            ("tts_model", "speech-2.8-turbo"),
+            ("tts_speed", "0.95"),
+            ("tts_vol", "1.0"),
+            ("tts_pitch", "0"),
+            ("tts_intensity", "0"),
+            ("tts_timbre", "0"),
+            ("tts_api_key", ""),
         ],
     )
 
@@ -3531,6 +3541,49 @@ class MessageDatabase:
         logger.debug("获取所有配置成功: %s 条", len(configs))
         return configs
 
+    async def get_tts_config(self) -> dict:
+        """批量读取 TTS 运行参数，返回带默认值的 dict。
+        api_key / voice_id / model 优先从激活的 tts api_configs 行读取；
+        速度等调参从 config 表读取。"""
+        # 读 config 表的调参
+        param_keys = [
+            "tts_enabled",
+            "tts_speed",
+            "tts_vol",
+            "tts_pitch",
+            "tts_intensity",
+            "tts_timbre",
+        ]
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT key, value FROM config WHERE key = ANY($1::text[])", param_keys
+            )
+            # 读激活的 tts api_config
+            api_row = await conn.fetchrow(
+                "SELECT api_key, base_url, model, voice_id FROM api_configs "
+                "WHERE config_type = 'tts' AND is_active = 1 LIMIT 1"
+            )
+        cfg = {r["key"]: r["value"] for r in rows}
+        api_key = ""
+        voice_id = ""
+        model = "speech-2.8-turbo"
+        if api_row:
+            api_key = api_row["api_key"] or ""
+            voice_id = api_row["voice_id"] or ""
+            model = api_row["model"] or "speech-2.8-turbo"
+        tts_enabled_raw = cfg.get("tts_enabled", "false").lower()
+        return {
+            "enabled": tts_enabled_raw in ("true", "1"),
+            "voice_id": voice_id,
+            "model": model,
+            "speed": float(cfg.get("tts_speed", "0.95")),
+            "vol": float(cfg.get("tts_vol", "1.0")),
+            "pitch": int(cfg.get("tts_pitch", "0")),
+            "intensity": int(cfg.get("tts_intensity", "0")),
+            "timbre": int(cfg.get("tts_timbre", "0")),
+            "api_key": api_key,
+        }
+
     async def get_config_max_updated_at_for_keys(
         self, keys: List[str]
     ) -> Optional[str]:
@@ -3785,7 +3838,7 @@ class MessageDatabase:
                 rows = await conn.fetch(
                     """
                     SELECT a.id, a.name, a.api_key, a.base_url, a.model,
-                           a.persona_id, a.is_active, a.config_type,
+                           a.persona_id, a.is_active, a.config_type, a.voice_id,
                            a.created_at, a.updated_at,
                            p.name AS persona_name
                     FROM api_configs a
@@ -3799,7 +3852,7 @@ class MessageDatabase:
                 rows = await conn.fetch(
                     """
                     SELECT a.id, a.name, a.api_key, a.base_url, a.model,
-                           a.persona_id, a.is_active, a.config_type,
+                           a.persona_id, a.is_active, a.config_type, a.voice_id,
                            a.created_at, a.updated_at,
                            p.name AS persona_name
                     FROM api_configs a
@@ -3824,8 +3877,8 @@ class MessageDatabase:
             await self._ensure_api_configs_table(conn)
             row_id = await conn.fetchval(
                 """
-                INSERT INTO api_configs (name, api_key, base_url, model, persona_id, config_type)
-                VALUES ($1, $2, $3, $4, $5, $6)
+                INSERT INTO api_configs (name, api_key, base_url, model, persona_id, config_type, voice_id)
+                VALUES ($1, $2, $3, $4, $5, $6, $7)
                 RETURNING id
                 """,
                 data.get("name", ""),
@@ -3834,12 +3887,13 @@ class MessageDatabase:
                 data.get("model"),
                 data.get("persona_id"),
                 data.get("config_type", "chat"),
+                data.get("voice_id"),
             )
         return row_id if row_id is not None else -1
 
     async def update_api_config(self, config_id: int, data: Dict[str, Any]) -> bool:
         """更新 API 配置。"""
-        allowed = {"name", "api_key", "base_url", "model", "persona_id", "config_type"}
+        allowed = {"name", "api_key", "base_url", "model", "persona_id", "config_type", "voice_id"}
         update_data = {k: v for k, v in data.items() if k in allowed}
         if not update_data:
             return False

@@ -94,6 +94,36 @@ TOOL_ORAL_COACHING_BLOCK = (
     "不要罗列工具名称，不要说技术性的话。"
 )
 
+TTS_PROMPT_BLOCK = """【TTS语气标签使用说明】
+当前系统已开启语音输出，回复中的括号标签会被TTS引擎渲染为真实人声音效，
+括号本身不会显示给用户。停顿标记同理。
+
+标签规则：
+- 标签紧贴在触发它的文字前后，不要孤立放在句子中间
+- 每条回复最多插入2~3个，过多会显得刻意
+- 符合自身风格，不要为了用而用
+
+可用标签及适用场景：
+(sighs)   — 叹气
+(chuckle) — 忍住的轻笑
+(laughs)  — 笑出来
+(breath)  — 呼吸/停顿感
+(emm)     — 犹豫/思考中
+(humming) — 低哼
+(gasps)   — 轻微惊讶
+(groans)  — 低鸣/无奈
+
+停顿控制：
+用 <#秒数#> 在句子中插入停顿，单位秒，范围 0.01~99.99
+适合话说到一半刻意顿住、沉默感、语气拉长
+
+示例：
+"(sighs)你自己说的。"
+"(chuckle)就知道你会这样。"
+"(emm)<#0.8#>……算了，随你。"
+"你确定吗。<#1.5#>好吧。"
+"""
+
 _USER_IMAGE_CONTENT_RE = re.compile(
     r"^\[发送了(\d+)张图片\]\s*(.*)$", re.DOTALL
 )
@@ -1135,6 +1165,15 @@ class ContextBuilder:
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
 
+            # TTS 语气标签注入
+            tts_enabled = await get_database().get_config("tts_enabled", "false")
+            logger.info("[TTS注入] tts_enabled 原始值=%r, 判断结果=%s", tts_enabled, tts_enabled.lower() in ("true", "1"))
+            if tts_enabled.lower() in ("true", "1"):
+                full_system_prompt.append(
+                    _cache_text_block(TTS_PROMPT_BLOCK, cache=False)
+                )
+                logger.info("[TTS注入] TTS_PROMPT_BLOCK 已追加到 system prompt，当前共 %d 个 block", len(full_system_prompt))
+
             # 组装 messages 数组
             messages = self._assemble_messages(
                 full_system_prompt,
@@ -1298,6 +1337,15 @@ class ContextBuilder:
                 full_system_prompt.append(
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
+
+            # TTS 语气标签注入
+            tts_enabled = await get_database().get_config("tts_enabled", "false")
+            logger.info("[TTS注入] tts_enabled 原始值=%r, 判断结果=%s", tts_enabled, tts_enabled.lower() in ("true", "1"))
+            if tts_enabled.lower() in ("true", "1"):
+                full_system_prompt.append(
+                    _cache_text_block(TTS_PROMPT_BLOCK, cache=False)
+                )
+                logger.info("[TTS注入] TTS_PROMPT_BLOCK 已追加到 system prompt，当前共 %d 个 block", len(full_system_prompt))
 
             # 组装 messages 数组
             messages = self._assemble_messages(

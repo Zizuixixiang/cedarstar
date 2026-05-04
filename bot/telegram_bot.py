@@ -415,6 +415,18 @@ class TelegramBot:
             return self._is_truthy_config_value(group_cot_cfg)
         return True
 
+    @staticmethod
+    def _strip_tts_markers(text: str) -> str:
+        """去掉 TTS 专用标记，避免显示给用户。"""
+        text = re.sub(r"<#[\d.]+#>", "", text)
+        text = re.sub(
+            r"\((sighs|chuckle|laughs|breath|inhale|exhale|gasps|groans|"
+            r"humming|emm|coughs|clear-throat|sniffs|pant|snorts|hissing|sneezes)\)",
+            "",
+            text,
+        )
+        return text
+
     async def _send_text_near_base(
         self,
         base_message,
@@ -426,6 +438,7 @@ class TelegramBot:
         """
         私聊保留 reply 语义；群聊用 send_message，避免每条助手回复都显示引用用户消息。
         """
+        text = self._strip_tts_markers(text)
         if base_message is not None and self._is_group_message(base_message) and bot is not None:
             return await bot.send_message(
                 chat_id=base_message.chat.id,
@@ -433,6 +446,54 @@ class TelegramBot:
                 parse_mode=parse_mode,
             )
         return await base_message.reply_text(text, parse_mode=parse_mode)
+
+    async def _send_voice_after_text(
+        self,
+        full_text: str,
+        base_message,
+        bot,
+        chat_id: int,
+    ) -> None:
+        """TTS 语音发送。只在私聊触发，失败静默降级不影响文字消息。"""
+        if base_message is not None and self._is_group_message(base_message):
+            return
+
+        from memory.database import get_database
+        db = get_database()
+        tts_cfg = await db.get_tts_config()
+        if not tts_cfg["enabled"] or not tts_cfg["voice_id"] or not tts_cfg["api_key"]:
+            return
+
+        # 只去 HTML 标签，保留 TTS 停顿标记 <#1.5#>
+        clean_text = re.sub(r"<(?!(?:#[\d.]+#))[a-zA-Z/][^>]*>", "", full_text).strip()
+        if not clean_text:
+            return
+
+        clean_text = clean_text[:10000]
+
+        from tools.tts_minimax import minimax_tts
+
+        audio_bytes = await minimax_tts(
+            text=clean_text,
+            api_key=tts_cfg["api_key"],
+            voice_id=tts_cfg["voice_id"],
+            model=tts_cfg["model"],
+            speed=tts_cfg["speed"],
+            vol=tts_cfg["vol"],
+            pitch=tts_cfg["pitch"],
+            intensity=tts_cfg["intensity"],
+            timbre=tts_cfg["timbre"],
+        )
+        if audio_bytes is None:
+            return
+
+        audio_io = io.BytesIO(audio_bytes)
+        audio_io.name = "voice.mp3"
+
+        try:
+            await bot.send_voice(chat_id=chat_id, voice=audio_io)
+        except Exception as e:
+            logger.error("send_voice failed: %s", e)
 
     async def _relay_group_assistant_message(
         self,
@@ -1370,6 +1431,7 @@ class TelegramBot:
             out_chunks.extend(self._telegram_html_body_chunks(seg))
         first_mid: Optional[str] = None
         for i, chunk in enumerate(out_chunks):
+            chunk = self._strip_tts_markers(chunk)
             stack = "".join(traceback.format_stack())
             logging.warning(f"send called from: {stack}")
             sent = await bot.send_message(
@@ -1470,6 +1532,18 @@ class TelegramBot:
                     if first_mid is None and mid:
                         first_mid = mid
                     await asyncio.sleep(0.3)
+
+        # TTS 语音追发（私聊 only，失败静默降级）
+        all_text = " ".join(
+            (payload or "").strip()
+            for kind, payload in segments
+            if kind == "text" and (payload or "").strip()
+        )
+        if all_text:
+            await self._send_voice_after_text(
+                all_text, base_message, bot, chat_id
+            )
+
         return first_mid, meme_any
 
     async def _telegram_deliver_prefetched_llm_response(

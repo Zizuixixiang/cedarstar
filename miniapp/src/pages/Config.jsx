@@ -55,6 +55,13 @@ const DEFAULT_CONFIG = {
   group_chat_max_rounds: 3,
   group_chat_interject_enabled: 0,
   group_chat_interject_probability: 0.2,
+
+  tts_enabled: 0,
+  tts_speed: 0.95,
+  tts_vol: 1.0,
+  tts_pitch: 0,
+  tts_intensity: 0,
+  tts_timbre: 0,
 };
 
 /** Telegram 分段参数：单独 PUT 保存，与 api/config.py 一致 */
@@ -918,6 +925,90 @@ function Config() {
                 </div>
               </div>
               {idx < TELEGRAM_CONFIG_ROWS.length - 1 && <hr className="config-divider" />}
+            </div>
+          ))}
+        </div>
+
+        {/* TTS 语音合成参数 */}
+        <hr className="config-divider" />
+        <div className="config-telegram-section">
+          <div className="config-telegram-section-header">
+            <div className="config-name">TTS 语音合成</div>
+            <div className="config-desc">
+              MiniMax T2A v2 参数；API Key 和 Voice ID 在「设置」页管理，每项修改后可单独保存
+            </div>
+          </div>
+
+          <div className="config-item">
+            <div className="config-info">
+              <div className="config-name">启用语音输出</div>
+              <div className="config-desc">开启后私聊文字消息后会追发一条语音。</div>
+            </div>
+            <div className="config-controls config-controls--telegram-row" style={{ flexWrap: 'wrap', gap: '16px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', flex: 1 }}>
+                <input
+                  type="checkbox"
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                  checked={config.tts_enabled === 1}
+                  onChange={(e) => {
+                    const val = e.target.checked ? 1 : 0;
+                    setConfig((prev) => ({ ...prev, tts_enabled: val }));
+                    setHasUnsavedChanges(true);
+                  }}
+                />
+                <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>启用</span>
+              </label>
+              <button
+                type="button"
+                className="config-btn-secondary config-btn-telegram-inline-save"
+                onClick={() => saveConfigKey('tts_enabled', config.tts_enabled)}
+                disabled={savingTelegramKey === 'tts_enabled'}
+              >
+                {savingTelegramKey === 'tts_enabled' ? '保存中…' : '保存此项'}
+              </button>
+            </div>
+          </div>
+          <hr className="config-divider" />
+
+          {[
+            { key: 'tts_speed', name: '语速', desc: '0.5 ~ 2.0，默认 0.95', min: 0.5, max: 2.0, step: 0.05 },
+            { key: 'tts_vol', name: '音量', desc: '0.5 ~ 2.0，默认 1.0', min: 0.5, max: 2.0, step: 0.05 },
+            { key: 'tts_pitch', name: '音调', desc: '-12 ~ 12，默认 0', min: -12, max: 12, step: 1 },
+            { key: 'tts_intensity', name: '情感强度', desc: '0 ~ 10，默认 0（自然）', min: 0, max: 10, step: 1 },
+            { key: 'tts_timbre', name: '音色相似度', desc: '0 ~ 10，默认 0（自然）', min: 0, max: 10, step: 1 },
+          ].map((row, idx, arr) => (
+            <div key={row.key}>
+              <div className="config-item">
+                <div className="config-info">
+                  <div className="config-name">{row.name}</div>
+                  <div className="config-desc">{row.desc}</div>
+                </div>
+                <div className="config-controls">
+                  <input
+                    type="range"
+                    className="config-slider"
+                    min={row.min}
+                    max={row.max}
+                    step={row.step}
+                    value={config[row.key]}
+                    onChange={e => {
+                      const v = Math.round(Number(e.target.value) / row.step) * row.step;
+                      setConfig(prev => ({ ...prev, [row.key]: v }));
+                      setHasUnsavedChanges(true);
+                    }}
+                  />
+                  <span className="config-tts-value">{config[row.key]}</span>
+                  <button
+                    type="button"
+                    className="config-btn-secondary config-btn-telegram-inline-save"
+                    onClick={() => saveConfigKey(row.key, config[row.key])}
+                    disabled={savingTelegramKey === row.key}
+                  >
+                    {savingTelegramKey === row.key ? '保存中…' : '保存此项'}
+                  </button>
+                </div>
+              </div>
+              {idx < arr.length - 1 && <hr className="config-divider" />}
             </div>
           ))}
         </div>

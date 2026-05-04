@@ -251,6 +251,23 @@
   touch-action: pan-y;
 }
 
+/* TTS 参数值显示 */
+.config-tts-value {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 48px;
+  height: 28px;
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-main);
+  background: var(--surface);
+  border: 2px solid var(--text-main);
+  padding: 0 6px;
+  box-sizing: border-box;
+}
+
 .config-slider::-webkit-slider-runnable-track {
   height: 10px;
   background: #d8d9d4;
