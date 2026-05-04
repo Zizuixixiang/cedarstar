@@ -215,6 +215,7 @@ backups/
 test/
 patch_*.py
 repair_*.py
+scripts/backfill_app_chunks.py
 miniapp/.env.production
 miniapp/.env.development
 portal/.env.production

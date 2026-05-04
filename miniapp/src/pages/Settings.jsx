@@ -41,11 +41,14 @@ const EMPTY_TAB_TIP = {
   chat: '暂无对话 API 配置，点击右上角新增',
   summary: '暂无摘要 API 配置，点击右上角新增',
   vision: '暂无视觉 API 配置，点击右上角新增',
-  stt: '暂无语音转录 API 配置，点击右上角新增（模型建议 whisper-1）',
+  stt: '暂无语音转录 API 配置，点击右上角新增（可用硅基流动 OpenAI 兼容，或选择火山引擎原生 ASR）',
   embedding: '暂无 Embedding 配置，点击右上角新增（表情包向量用硅基流动 OpenAI 兼容 /v1/embeddings）',
   search_summary: '暂无搜索摘要模型配置，点击右上角新增（用于压缩 Tavily 结果；未填时可回退已激活的摘要 API）',
   analysis: '暂无分析模型配置，点击右上角新增（用于 Step 4 结构化提取与打分）',
 };
+
+const VOLCENGINE_STT_BASE_URL = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel';
+const VOLCENGINE_STT_MODEL = 'volc:volcengine_input_common';
 
 /* ─── 骨架屏 ─── */
 function SkeletonCard({ rows = 3 }) {
@@ -77,7 +80,26 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
   const [fetchingModels, setFetchingModels] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  const isStt = form.config_type === 'stt';
+  const isVolcengineStt = isStt && (
+    form.base_url.toLowerCase().includes('openspeech') ||
+    form.base_url.toLowerCase().includes('volc') ||
+    form.model.toLowerCase().startsWith('volc:') ||
+    form.model.toLowerCase().startsWith('volcengine:')
+  );
+
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+
+  const applyVolcengineSttPreset = () => {
+    setForm(p => ({
+      ...p,
+      config_type: 'stt',
+      name: p.name || '火山引擎语音识别',
+      base_url: p.base_url || VOLCENGINE_STT_BASE_URL,
+      model: p.model || VOLCENGINE_STT_MODEL,
+    }));
+    toast.info('已填入火山引擎 STT 预设，API Key 填写 appid:access_token 或单个 API Key');
+  };
 
   const fetchFavorites = useCallback(async (baseUrl = form.base_url) => {
     if (!baseUrl.trim()) {
@@ -250,11 +272,17 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               {form.config_type === 'chat' && '用于日常对话、短期记忆、思维链'}
               {form.config_type === 'summary' && '用于批量总结、记忆归档、微批处理（建议用大模型如 GPT-4）'}
               {form.config_type === 'vision' && '用于图片理解、多模态消息（与对话/摘要配置独立激活）'}
-              {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字（OpenAI 兼容 /audio/transcriptions，模型填 whisper-1）'}
+              {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字；默认支持 OpenAI 兼容 /audio/transcriptions，也支持火山引擎原生 ASR 分支'}
               {form.config_type === 'embedding' && '用于表情包 Chroma 检索（硅基流动 BAAI/bge-m3，OpenAI 兼容 /v1/embeddings）；需在列表中激活'}
               {form.config_type === 'search_summary' && '用于 web_search：把 Tavily 多条结果压成短摘要（建议小模型）；未激活本类型时回退「摘要 API」'}
               {form.config_type === 'analysis' && '用于日终 Step 4 的事件聚类、描述与打分；未激活时 Step 4 回退摘要 API，仍不可用则使用兜底'}
             </div>
+            {form.config_type === 'stt' && (
+              <div className="modal-hint">
+                <button className="clear-models-btn" onClick={applyVolcengineSttPreset}>填入火山引擎预设</button>
+                <span> 火山分支会在 Base URL/模型名含 volc、openspeech 或模型以 volc: 开头时自动启用；硅基流动等原逻辑不受影响。</span>
+              </div>
+            )}
           </div>
 
           {/* 配置名称 */}
@@ -269,7 +297,14 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
             <label className="modal-label">Base URL</label>
             <input className="modal-input" value={form.base_url}
               onChange={e => set('base_url', e.target.value)}
-              placeholder="https://api.deepseek.com" />
+              placeholder={isStt ? '硅基流动填 /v1；火山填 openspeech 识别接口 URL' : 'https://api.deepseek.com'} />
+            {isStt && (
+              <div className="modal-hint">
+                {isVolcengineStt
+                  ? '当前会走火山引擎原生 ASR 分支。'
+                  : '当前会走 OpenAI 兼容语音转录分支（如硅基流动 /audio/transcriptions）。'}
+              </div>
+            )}
           </div>
 
           {/* API Key */}
@@ -279,11 +314,14 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               <input className="modal-input" type={showKey ? 'text' : 'password'}
                 value={form.api_key}
                 onChange={e => set('api_key', e.target.value)}
-                placeholder={isEdit ? '留空则不修改' : 'sk-...'} />
+                placeholder={isVolcengineStt ? 'appid:access_token' : (isEdit ? '留空则不修改' : 'sk-...')} />
               <button className="eye-btn" onClick={() => setShowKey(v => !v)}>
                 {showKey ? '🙈' : '👁'}
               </button>
             </div>
+            {isVolcengineStt && (
+              <div className="modal-hint">火山引擎：填写 appid:access_token（冒号分隔），或单个 API Key（UUID 格式）。从控制台 speech/new 页面获取。</div>
+            )}
           </div>
 
           {/* 模型 */}
@@ -299,7 +337,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               ) : (
                 <input className="modal-input" value={form.model}
                   onChange={e => set('model', e.target.value)}
-                  placeholder="手动输入模型名，或点右侧按钮获取" />
+                  placeholder={isStt ? '硅基流动填模型名；火山可填 volc:volcengine_streaming_common' : '手动输入模型名，或点右侧按钮获取'} />
               )}
               <button
                 className={`fetch-models-btn ${fetchingModels ? 'loading' : ''}`}
@@ -316,6 +354,13 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               <button className="clear-models-btn" onClick={() => setModelOptions([])}>
                 切换为手动输入
               </button>
+            )}
+            {isStt && (
+              <div className="modal-hint">
+                {isVolcengineStt
+                  ? '火山引擎使用 Seed-ASR 2.0 BigModel，模型字段仅用于识别火山分支，无需修改。'
+                  : 'OpenAI 兼容 STT 一般填写 whisper-1 或供应商提供的语音识别模型名。'}
+              </div>
             )}
           </div>
 
