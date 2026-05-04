@@ -1079,7 +1079,7 @@ class DailyBatchProcessor:
             logger.error(f"Step 2 执行失败: {e}")
             return False, str(e)
 
-    def _call_summary_llm_custom(self, prompt: str) -> str:
+    def _call_summary_llm_custom(self, prompt: str, response_format: Optional[Dict[str, Any]] = None) -> str:
         """使用摘要模型配置执行自定义 prompt（不经 micro_batch 的对话摘要模板包装）。"""
         sl = self.summary_llm
         base = int(getattr(sl, "max_tokens", 500) or 500)
@@ -1093,6 +1093,7 @@ class DailyBatchProcessor:
             max_tokens=mt,
             platform=Platform.BATCH,
             max_retries=5,
+            response_format=response_format,
         )
 
     async def _step4_retry_with_defaults(
@@ -1938,12 +1939,8 @@ few-shot 示例：
             logger.info(f"调用 LLM 分析今日小传维度，日期: {batch_date}")
 
             def _gen_dim():
-                return self.summary_llm.generate_summary(
-                    [{"role": "user", "content": prompt}],
-                    char_name=self._batch_char_name,
-                    user_name=self._batch_user_name,
-                    response_format=STEP3_JSON_SCHEMA,
-                )
+                role_prefix = f"对话角色：{self._batch_char_name} 与 {self._batch_user_name}。\n"
+                return self._call_summary_llm_custom(role_prefix + prompt, response_format=STEP3_JSON_SCHEMA)
 
             def _parse_dim(raw_resp):
                 raw_resp = (raw_resp or "").strip()
@@ -2082,11 +2079,7 @@ content 强制要求：
 直接输出以大括号 {{}} 开头的纯 JSON 字符串，严禁使用 markdown 的 json 代码块包裹，严禁输出任何前言后语、额外解释文本。"""
 
             def _gen_tl():
-                return self.summary_llm.generate_summary(
-                    [{"role": "user", "content": tl_prompt}],
-                    char_name=self._batch_char_name,
-                    user_name=self._batch_user_name,
-                )
+                return self._call_summary_llm_custom(tl_prompt)
 
             def _parse_tl(raw):
                 try:
