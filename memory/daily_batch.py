@@ -354,7 +354,7 @@ class DailyBatchProcessor:
         self._batch_char_name: str = "AI"
         self._batch_user_name: str = "用户"
         self._batch_user_id: str = "default_user"
-        self._batch_char_id: str = "sirius"
+        self._batch_char_id: str = config.DEFAULT_CHARACTER_ID
 
         # 维度列表
         self.dimensions = [
@@ -374,7 +374,8 @@ class DailyBatchProcessor:
         return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录。\n"
 
     async def _resolve_batch_memory_identity(self, batch_date: str) -> None:
-        """按当日首对 user/character 解析记忆卡查询主键；无则与 Step 3 兜底一致。"""
+        """按当日首对 user/character 解析记忆卡查询主键；无则回退到 DEFAULT_CHARACTER_ID。"""
+        default_cid = config.DEFAULT_CHARACTER_ID
         try:
             pairs = await get_today_user_character_pairs(batch_date)
             if pairs:
@@ -384,15 +385,24 @@ class DailyBatchProcessor:
                 self._batch_char_id = (
                     str(c).strip()
                     if c is not None and str(c).strip()
-                    else "sirius"
+                    else default_cid
                 )
+                if self._batch_char_id == default_cid:
+                    logger.warning(
+                        "跑批 character_id 为空，回退到 DEFAULT_CHARACTER_ID=%s (batch_date=%s)",
+                        default_cid, batch_date,
+                    )
             else:
                 self._batch_user_id = "default_user"
-                self._batch_char_id = "sirius"
+                self._batch_char_id = default_cid
+                logger.warning(
+                    "今日无用户对话记录，回退到 DEFAULT_CHARACTER_ID=%s (batch_date=%s)",
+                    default_cid, batch_date,
+                )
         except Exception as e:
-            logger.warning("跑批记忆身份解析失败，使用兜底: %s", e)
+            logger.warning("跑批记忆身份解析失败，回退到 DEFAULT_CHARACTER_ID=%s: %s", default_cid, e)
             self._batch_user_id = "default_user"
-            self._batch_char_id = "sirius"
+            self._batch_char_id = default_cid
 
     async def _memory_context_prefix(self) -> str:
         """注入 current_status / relationships 激活卡与关系锚点，供小模型对齐语义。"""
@@ -1584,10 +1594,10 @@ class DailyBatchProcessor:
                 logger.warning(f"查询今日用户列表失败，使用默认值: {e}")
                 user_character_pairs = []
 
-            # 如果没有查到用户，使用默认值（兜底）
+            # 如果没有查到用户，跳过当天 Step 3
             if not user_character_pairs:
-                logger.info("今日无用户对话记录，使用默认 user_id/character_id 进行记忆卡片更新")
-                user_character_pairs = [("default_user", "sirius")]
+                logger.info("今日无用户对话记录，跳过 Step 3 记忆卡片更新，日期: %s", batch_date)
+                return True, None
 
             # 3. 构建 LLM Prompt，要求按 7 个维度分析今日小传
             dimensions_desc = {

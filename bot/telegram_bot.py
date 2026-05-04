@@ -2382,6 +2382,21 @@ class TelegramBot:
             llm = await LLMInterface.create(
                 config_type="vision" if images else "chat"
             )
+            if llm.character_id is None:
+                logger.error(
+                    "persona_id 缺失，无法处理消息 session_id=%s config_type=%s",
+                    session_id, "vision" if images else "chat",
+                )
+                if bot:
+                    await bot.send_message(
+                        chat_id=chat_id,
+                        text="配置缺失,请检查 mini app api_configs",
+                    )
+                return _BufferGenResult(
+                    reply="",
+                    character_id=None,
+                    persist_assistant=False,
+                )
             # 在调用上游模型之前落库用户合并消息，避免 HTTP 4xx/5xx、超时等导致「用户话被吞」
             try:
                 has_img = bool(images)
@@ -2851,6 +2866,14 @@ class TelegramBot:
         """
         try:
             llm = await LLMInterface.create(config_type="vision")
+            if llm.character_id is None:
+                logger.error("persona_id 缺失，无法处理消息 session_id=%s", session_id)
+                if telegram_bot:
+                    await telegram_bot.send_message(
+                        chat_id=chat_id,
+                        text="配置缺失,请检查 mini app api_configs",
+                    )
+                return None
             cid = int(chat_id)
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))

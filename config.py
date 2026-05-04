@@ -592,11 +592,14 @@ class Config:
     @property
     def DEFAULT_CHARACTER_ID(self) -> str:
         """
-        无激活 chat 配置或 persona_id 为空时，写入 messages.character_id 的兜底值。
-        环境变量 DEFAULT_CHARACTER_ID；未设置或非空字符串无效时默认为 sirius。
+        环境变量 DEFAULT_CHARACTER_ID，必填。未设置时启动失败（fail-loud）。
         """
         v = (os.getenv("DEFAULT_CHARACTER_ID") or "").strip()
-        return v if v else "sirius"
+        if not v:
+            raise RuntimeError(
+                "DEFAULT_CHARACTER_ID env var is required, please set it in .env"
+            )
+        return v
 
 
 # 平台常量定义

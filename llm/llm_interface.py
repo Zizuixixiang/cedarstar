@@ -1064,7 +1064,7 @@ class LLMInterface:
     
     Attributes:
         character_id: 与当前激活 api_configs 行中 persona_id 对应的字符串，
-            供 Bot 写入 messages.character_id；无有效 persona_id 时为 "sirius"。
+            供 Bot 写入 messages.character_id；配置缺失时为 None。
         enable_lutopia: 当前激活人设（persona_configs）是否开启 Lutopia Forum 工具；
             由 ``create()`` 从库内 persona 行读取；无库内人设或未设置时为 False。
         enable_weather_tool: 是否开启 get_weather 工具（同上）。
@@ -1119,8 +1119,11 @@ class LLMInterface:
                 self.api_base = config.LLM_API_BASE
             logger.info(f"LLMInterface 使用环境变量配置: config_type={config_type}, model={self.model_name}")
         
-        # 与当前激活 api_configs 关联的人设 ID，写入消息表时作为 character_id（无则兜底 sirius）
-        self.character_id = self._resolve_character_id_from_config(db_cfg)
+        # 与当前激活 api_configs 关联的人设 ID，写入消息表时作为 character_id
+        try:
+            self.character_id = self._resolve_character_id_from_config(db_cfg)
+        except ValueError:
+            self.character_id = None
 
         # Lutopia / 天气 等工具开关：仅 ``await create()`` 从 persona_configs 注入；同步构造默认为 False
         self.enable_lutopia = (
@@ -1240,20 +1243,37 @@ class LLMInterface:
         return None
 
     @staticmethod
-    def _resolve_character_id_from_config(db_cfg: Optional[Dict[str, Any]]) -> str:
+    def _resolve_character_id_from_config(db_cfg: Optional[Dict[str, Any]]) -> Optional[str]:
         """
         从激活配置中的 persona_id 得到写入 messages 的 character_id 字符串。
 
-        persona_id 为空或缺失时返回字符串 "sirius"。
+        - db_cfg 为 None 时回退到 config.DEFAULT_CHARACTER_ID（环境变量）。
+        - db_cfg 有值但 persona_id 缺失/为空时抛出 ValueError（fail-loud）。
         """
         if not db_cfg:
-            return "sirius"
+            return config.DEFAULT_CHARACTER_ID
         pid = db_cfg.get("persona_id")
         if pid is None:
-            return "sirius"
+            config_type = db_cfg.get("config_type", "unknown")
+            config_id = db_cfg.get("id", "unknown")
+            logger.error(
+                "persona_id is missing for config_type=%s, config_id=%s",
+                config_type, config_id,
+            )
+            raise ValueError(
+                f"persona_id is required for config_type={config_type}"
+            )
         s = str(pid).strip()
         if not s or s.lower() == "none":
-            return "sirius"
+            config_type = db_cfg.get("config_type", "unknown")
+            config_id = db_cfg.get("id", "unknown")
+            logger.error(
+                "persona_id is empty for config_type=%s, config_id=%s",
+                config_type, config_id,
+            )
+            raise ValueError(
+                f"persona_id is required for config_type={config_type}"
+            )
         return s
 
     def _use_anthropic_messages_api(self) -> bool:
