@@ -493,8 +493,27 @@ class TelegramBot:
                     pass
             return False
 
-        audio_io = io.BytesIO(audio_bytes)
-        audio_io.name = "voice.mp3"
+        # Telegram send_voice 要求 OGG/Opus 格式，MiniMax TTS 返回 MP3，需要转换
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ffmpeg", "-i", "pipe:0",
+                "-c:a", "libopus", "-b:a", "32k",
+                "-vbr", "on", "-application", "voip",
+                "-f", "ogg", "pipe:1",
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            ogg_bytes, stderr = await proc.communicate(input=audio_bytes)
+            if proc.returncode != 0 or not ogg_bytes:
+                logger.error("ffmpeg MP3→OGG failed: rc=%s err=%s", proc.returncode, stderr.decode(errors="replace")[:200])
+                return False
+        except Exception as e:
+            logger.error("ffmpeg conversion error: %s", e)
+            return False
+
+        audio_io = io.BytesIO(ogg_bytes)
+        audio_io.name = "voice.ogg"
 
         try:
             await bot.send_voice(chat_id=chat_id, voice=audio_io)

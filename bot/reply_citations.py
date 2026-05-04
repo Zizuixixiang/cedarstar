@@ -22,7 +22,7 @@ _USED_UID_FWC_PATTERN = re.compile(r"【used:([^】]*)】")
 # 单括号 [used:uid]（勿与 [[used:…]] 重叠：后者整段先被另一规则去掉）
 _USED_UID_SINGLE_RE = re.compile(r"(?<!\[)\[used:([^\]]+)\](?!\])")
 _MEME_MARKER_PATTERN = re.compile(r"\[meme:([^\]]*)\]")
-_VOICE_MARKER_PATTERN = re.compile(r"\[voice\](.*?)\[/voice\]", re.DOTALL)
+_VOICE_MARKER_PATTERN = re.compile(r"\[voice\](.*?)(?:\[/voice\]|(?=\[voice\])|$)", re.DOTALL)
 # 与 `|||` 一起作为顺序分隔：`re.split` 捕获组会保留分隔符
 _MEME_OR_TRIPLE_PIPE_SPLIT_RE = re.compile(r"(\[meme:[^\]]*\]|\|\|\|)")
 # Telegram 允许的块级标签：仅在闭合块外按换行拆段（单 \\n 与连续空行均切分）
