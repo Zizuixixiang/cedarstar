@@ -304,6 +304,7 @@ class SummaryLLMInterface:
         user_name: str = DEFAULT_BATCH_USER_NAME,
         memory_prefix: str = "",
         tool_records: Optional[List[Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> str:
         """
         生成消息摘要。
@@ -368,6 +369,7 @@ class SummaryLLMInterface:
                 max_tokens=self.max_tokens,
                 platform=Platform.BATCH,
                 max_retries=5,
+                response_format=response_format,
             )
             logger.debug(f"摘要生成成功，长度: {len(text)} 字符")
             return text

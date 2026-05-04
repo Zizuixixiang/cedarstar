@@ -307,6 +307,7 @@ def batch_one_shot_with_async_output_guard(
     platform: str,
     max_retries: int = 5,
     base_temperature: Optional[float] = None,
+    response_format: Optional[Dict[str, Any]] = None,
 ) -> str:
     """
     单次 user 消息类调用：带输出 Guard 与温度递减，失败抛 CedarClioOutputGuardExhausted。
@@ -329,7 +330,7 @@ def batch_one_shot_with_async_output_guard(
         llm.timeout = timeout
         llm.max_tokens = max_tokens
         llm.temperature = max(0.1, bt - 0.12 * (attempt - 1))
-        resp = llm.generate_with_context_and_tracking(ms, platform=platform)
+        resp = llm.generate_with_context_and_tracking(ms, platform=platform, response_format=response_format)
         last_raw = (resp.content or "").strip()
         if not output_guard_blocks_model_text(last_raw):
             return last_raw
@@ -1410,14 +1411,16 @@ class LLMInterface:
         self,
         messages: List[Dict[str, Any]],
         tools: Optional[List[Dict[str, Any]]] = None,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """
         准备 OpenAI 兼容 API 的请求负载。
-        
+
         Args:
             messages: 消息列表
             tools: OpenAI tools / function 定义列表；有值时附带 tool_choice=auto
-            
+            response_format: 可选的 response_format（如 json_schema strict mode）
+
         Returns:
             Dict[str, Any]: 请求负载
         """
@@ -1434,6 +1437,8 @@ class LLMInterface:
             "temperature": self.temperature,
             "stream": False,
         }
+        if response_format:
+            payload["response_format"] = response_format
         if _openrouter_supports_cache_control(self.api_base, self.model_name):
             payload["reasoning"] = {"max_tokens": 10000}
         provider_preferences = _openrouter_claude_provider_preferences(
@@ -2000,12 +2005,13 @@ class LLMInterface:
         return response
     
     def generate_with_context_and_tracking(
-        self, 
-        messages: List[Dict[str, Any]], 
+        self,
+        messages: List[Dict[str, Any]],
         platform: Optional[str] = None,
         tools: Optional[List[Dict[str, Any]]] = None,
         timeout_override_seconds: Optional[float] = None,
         cacheable_ratio: float = 0.0,
+        response_format: Optional[Dict[str, Any]] = None,
     ) -> LLMResponse:
         """
         使用完整的 messages 数组生成回复，并跟踪token使用量。
@@ -2034,9 +2040,9 @@ class LLMInterface:
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
-            payload = self._prepare_openai_payload(messages, tools)
+            payload = self._prepare_openai_payload(messages, tools, response_format=response_format)
             parse_func = self._parse_openai_response
-        
+
         # 发送请求（带 tools 时为整段非流式等待，推理模型首轮可能很久；与流式读超时对齐）
         req_timeout = self._request_timeout_seconds(messages)
         if tools:

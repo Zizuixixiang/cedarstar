@@ -335,6 +335,166 @@ def _score_to_halflife_days(score: int) -> int:
     return 30
 
 
+# ---------------------------------------------------------------------------
+# Step 3 结构化 JSON Schema（strict mode）
+# 注意：manual_override 字段只由 PG 表和后端代码控制，绝不进 LLM schema
+# ---------------------------------------------------------------------------
+
+STEP3_JSON_SCHEMA = {
+    "type": "json_schema",
+    "json_schema": {
+        "name": "memory_cards",
+        "strict": True,
+        "schema": {
+            "type": "object",
+            "properties": {
+                "current_status": {
+                    "anyOf": [
+                        {
+                            "type": "object",
+                            "properties": {
+                                "updated_at": {"type": "string"},
+                                "content": {"type": "string"},
+                            },
+                            "required": ["updated_at", "content"],
+                            "additionalProperties": False,
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "goals": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string"},
+                                    "content": {"type": "string"},
+                                    "status": {
+                                        "type": "string",
+                                        "enum": ["active", "completed", "abandoned", "deferred"],
+                                    },
+                                },
+                                "required": ["date", "content", "status"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "key_events": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string"},
+                                    "content": {"type": "string"},
+                                    "importance": {
+                                        "type": "integer",
+                                        "minimum": 1,
+                                        "maximum": 5,
+                                    },
+                                },
+                                "required": ["date", "content", "importance"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "interaction_patterns": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string"},
+                                    "pattern": {"type": "string"},
+                                    "frequency": {"type": "string"},
+                                },
+                                "required": ["date", "pattern", "frequency"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "rules": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string"},
+                                    "content": {"type": "string"},
+                                    "established_by": {"type": "string"},
+                                },
+                                "required": ["date", "content", "established_by"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "preferences": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "content": {"type": "string"},
+                                    "evidence_date": {"type": "string"},
+                                },
+                                "required": ["content", "evidence_date"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                },
+                "relationships": {
+                    "anyOf": [
+                        {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "date": {"type": "string"},
+                                    "event": {"type": "string"},
+                                    "polarity": {
+                                        "type": "string",
+                                        "enum": ["+", "-", "neutral"],
+                                    },
+                                },
+                                "required": ["date", "event", "polarity"],
+                                "additionalProperties": False,
+                            },
+                        },
+                        {"type": "null"},
+                    ]
+                },
+            },
+            "required": [
+                "current_status",
+                "goals",
+                "key_events",
+                "interaction_patterns",
+                "rules",
+                "preferences",
+                "relationships",
+            ],
+            "additionalProperties": False,
+        },
+    },
+}
+
+
 class DailyBatchProcessor:
     """
     日终跑批处理器类。
@@ -1337,6 +1497,51 @@ class DailyBatchProcessor:
         except Exception as e:
             logger.warning("[Step 3.5] adjust_expire 分支失败: %s", exc_detail(e))
 
+    @staticmethod
+    def _serialize_dimension_content(dimension: str, raw_value: Any) -> str:
+        """将 LLM 输出的结构化数据序列化为可读文本，存入 memory_cards.content。"""
+        if dimension == "current_status":
+            # 单 object: {updated_at, content}
+            if isinstance(raw_value, dict):
+                return raw_value.get("content", "")
+            return str(raw_value) if raw_value else ""
+
+        # 其余维度均为 array
+        if not isinstance(raw_value, list) or len(raw_value) == 0:
+            return ""
+
+        lines = []
+        for item in raw_value:
+            if not isinstance(item, dict):
+                continue
+            date_str = item.get("date", "")
+            content = item.get("content", "")
+
+            if dimension == "goals":
+                status = item.get("status", "")
+                lines.append(f"[{date_str}] {content} ({status})")
+            elif dimension == "key_events":
+                importance = item.get("importance", "")
+                lines.append(f"[{date_str}] {content} (重要度:{importance})")
+            elif dimension == "interaction_patterns":
+                pattern = item.get("pattern", "")
+                freq = item.get("frequency", "")
+                lines.append(f"[{date_str}] {pattern} (频率:{freq})")
+            elif dimension == "rules":
+                established_by = item.get("established_by", "")
+                lines.append(f"[{date_str}] {content} (来源:{established_by})")
+            elif dimension == "preferences":
+                evidence_date = item.get("evidence_date", "")
+                lines.append(f"[{evidence_date}] {content}")
+            elif dimension == "relationships":
+                event = item.get("event", "")
+                polarity = item.get("polarity", "")
+                lines.append(f"[{date_str}] {event} ({polarity})")
+            else:
+                lines.append(f"[{date_str}] {content}" if date_str else content)
+
+        return "\n".join(lines)
+
     async def _merge_memory_card_contents(
         self,
         dimension: str,
@@ -1646,20 +1851,45 @@ class DailyBatchProcessor:
                     + "\n\n"
                 )
 
-            prompt = f"""请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照7个维度分类输出，禁止推理、禁止编造、禁止扩写。
+            prompt = f"""请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照指定 JSON Schema 输出，禁止推理、禁止编造、禁止扩写。
 {old_cards_block}今日小传（{batch_date}）：
 {summary_text}
-请按以下7个维度分析，提取今日小传中出现的新信息：
+
+请按以下 7 个维度提取今日小传中出现的新信息：
 {dimensions_list}
-输出要求：
+
+输出规则：
 1. 只写结论性事实，禁止写事件过程、对话细节、流水账描述。
-2. 字数限制：interaction_patterns 不超过 150 字；其余所有维度不超过 80 字。
-3. 该维度无新增信息时，必须返回 null。
-4. 直接输出纯 JSON 字符串，无代码块、无前言、无解释、无多余内容。
-5. 同一条信息只归入语义最相关的维度，禁止跨维度重复记录同一事实。
-6. 对比现有记忆，仅提取今日新增的、发生状态变化的、或与旧认知有冲突的增量信息。已有的固定事实禁止重复提取。
-格式示例：
-{{"preferences":null,"interaction_patterns":"...","current_status":null,"goals":null,"relationships":null,"key_events":null,"rules":null}}"""
+2. 同一条信息只归入语义最相关的维度，禁止跨维度重复记录。
+3. 对比现有记忆，仅提取今日新增的、发生状态变化的、或与旧认知有冲突的增量信息。
+4. 无对应素材的维度：数组类型返回空数组 []，current_status 返回 null。
+5. 所有日期格式：YYYY-MM-DD。
+6. 字数限制：interaction_patterns.pattern 不超过 150 字；其余文本字段不超过 80 字。
+
+few-shot 示例：
+输入：「南杉今天说以后不吃辣了，还提到了下周要去华为面试。」
+输出：
+{{
+  "current_status": null,
+  "goals": [{{"date": "{batch_date}", "content": "下周华为面试", "status": "active"}}],
+  "key_events": [],
+  "interaction_patterns": [],
+  "rules": [{{"date": "{batch_date}", "content": "不吃辣", "established_by": "南杉"}}],
+  "preferences": [{{"content": "不吃辣", "evidence_date": "{batch_date}"}}],
+  "relationships": []
+}}
+
+输入：「今天啥也没聊，就是闲聊打了个招呼。」
+输出：
+{{
+  "current_status": null,
+  "goals": [],
+  "key_events": [],
+  "interaction_patterns": [],
+  "rules": [],
+  "preferences": [],
+  "relationships": []
+}}"""
 
             # 4. 调用 SUMMARY LLM 分析维度
             logger.info(f"调用 LLM 分析今日小传维度，日期: {batch_date}")
@@ -1669,6 +1899,7 @@ class DailyBatchProcessor:
                     [{"role": "user", "content": prompt}],
                     char_name=self._batch_char_name,
                     user_name=self._batch_user_name,
+                    response_format=STEP3_JSON_SCHEMA,
                 )
 
             def _parse_dim(raw_resp):
@@ -1697,7 +1928,7 @@ class DailyBatchProcessor:
                 logger.error(f"提取今日小传维度失败，Step 3 中止: {e}")
                 return False, f"LLM 调用或解析失败: {e}"
 
-            logger.info(f"LLM 维度分析完成，有内容的维度: {[k for k, v in dimension_data.items() if v and v != 'null']}")
+            logger.info(f"LLM 维度分析完成，有内容的维度: {[k for k, v in dimension_data.items() if v is not None and v != 'null' and not (isinstance(v, list) and len(v) == 0)]}")
 
             # 6. 对每个用户执行 Upsert
             for user_id, character_id in user_character_pairs:
@@ -1706,17 +1937,34 @@ class DailyBatchProcessor:
                 for dimension in self.dimensions:
                     # 单个维度失败不影响其他维度
                     try:
-                        new_content = dimension_data.get(dimension)
+                        raw_value = dimension_data.get(dimension)
 
-                        # 跳过 null 或空值
-                        if not new_content or new_content == "null":
+                        # 跳过 null / 空数组 / 空值
+                        if raw_value is None or raw_value == "null":
                             logger.debug(f"维度 {dimension} 无新信息，跳过")
+                            continue
+                        if isinstance(raw_value, list) and len(raw_value) == 0:
+                            logger.debug(f"维度 {dimension} 无新信息（空数组），跳过")
+                            continue
+
+                        # 将结构化数据序列化为可读文本
+                        new_content = self._serialize_dimension_content(dimension, raw_value)
+                        if not new_content:
+                            logger.debug(f"维度 {dimension} 序列化后为空，跳过")
                             continue
 
                         # 该维度最近一条（含 is_active=0），便于「全表软删后重跑」仍更新同一行
                         existing_card = await get_latest_memory_card_for_dimension(
                             user_id, character_id, dimension
                         )
+
+                        # manual_override 检查：如果该行被手动覆盖，跳过
+                        if existing_card and existing_card.get("manual_override"):
+                            logger.info(
+                                "维度 %s 的记忆卡片 id=%s 已被手动覆盖，跳过自动更新",
+                                dimension, existing_card["id"],
+                            )
+                            continue
 
                         if existing_card:
                             # 已有记录 → 模型合并去重后 UPDATE，并重新激活
@@ -1727,7 +1975,7 @@ class DailyBatchProcessor:
                                 dimension,
                                 dim_label,
                                 old_content,
-                                str(new_content),
+                                new_content,
                                 batch_date,
                             )
                             merged_content = merge_out.merged

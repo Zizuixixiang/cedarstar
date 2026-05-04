@@ -1542,7 +1542,7 @@ class MessageDatabase:
             row = await conn.fetchrow(
                 """
                 SELECT id, user_id, character_id, dimension, content,
-                       updated_at, source_message_id, is_active
+                       updated_at, source_message_id, is_active, manual_override
                 FROM memory_cards
                 WHERE user_id = $1 AND character_id = $2 AND dimension = $3
                 ORDER BY updated_at DESC
