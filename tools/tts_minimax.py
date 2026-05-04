@@ -3,7 +3,7 @@ MiniMax T2A v2 TTS 客户端
 文档：https://platform.minimax.io/docs/api-reference/speech-t2a-http
 """
 import logging
-from typing import Optional
+from typing import Optional, Tuple
 
 import httpx
 
@@ -22,9 +22,10 @@ async def minimax_tts(
     pitch: int = 0,
     intensity: int = 0,
     timbre: int = 0,
-) -> Optional[bytes]:
+) -> Tuple[Optional[bytes], Optional[str]]:
     """
-    调用 MiniMax TTS，返回 mp3 bytes，失败返回 None（不抛异常，调用方降级）。
+    调用 MiniMax TTS，返回 (mp3 bytes, error_message)。
+    成功时 error_message 为 None；失败时 bytes 为 None，error_message 为用户可读的错误描述。
     text 长度不超过 10000 字符；超长请调用方截断后分批调用。
     """
     payload = {
@@ -62,11 +63,19 @@ async def minimax_tts(
             )
             resp.raise_for_status()
             data = resp.json()
+            base_resp = data.get("base_resp", {})
+            status_code = base_resp.get("status_code", 0)
+            if status_code != 0:
+                status_msg = base_resp.get("status_msg", "未知错误")
+                logger.error("TTS API error: code=%s msg=%s", status_code, status_msg)
+                if status_code == 1008:
+                    return None, "语音合成失败：MiniMax 账户余额不足，请充值后重试。"
+                return None, f"语音合成失败：{status_msg}"
             hex_audio = data.get("data", {}).get("audio", "")
             if not hex_audio:
                 logger.error("TTS response missing audio field: %s", data)
-                return None
-            return bytes.fromhex(hex_audio)
+                return None, "语音合成失败：响应中缺少音频数据。"
+            return bytes.fromhex(hex_audio), None
     except Exception as e:
         logger.error("MiniMax TTS failed: %s", e)
-        return None
+        return None, f"语音合成失败：{e}"

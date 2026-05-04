@@ -8,7 +8,7 @@ import re
 import unicodedata
 from typing import List, Literal, Optional, Set, Tuple
 
-TelegramOrderedSegment = Tuple[Literal["text", "meme"], str]
+TelegramOrderedSegment = Tuple[Literal["text", "meme", "voice"], str]
 
 from bot.logutil import exc_detail
 from memory.database import get_database
@@ -22,6 +22,7 @@ _USED_UID_FWC_PATTERN = re.compile(r"【used:([^】]*)】")
 # 单括号 [used:uid]（勿与 [[used:…]] 重叠：后者整段先被另一规则去掉）
 _USED_UID_SINGLE_RE = re.compile(r"(?<!\[)\[used:([^\]]+)\](?!\])")
 _MEME_MARKER_PATTERN = re.compile(r"\[meme:([^\]]*)\]")
+_VOICE_MARKER_PATTERN = re.compile(r"\[voice\](.*?)\[/voice\]", re.DOTALL)
 # 与 `|||` 一起作为顺序分隔：`re.split` 捕获组会保留分隔符
 _MEME_OR_TRIPLE_PIPE_SPLIT_RE = re.compile(r"(\[meme:[^\]]*\]|\|\|\|)")
 # Telegram 允许的块级标签：仅在闭合块外按换行拆段（单 \\n 与连续空行均切分）
@@ -339,7 +340,7 @@ def parse_telegram_segments_with_memes(
     reply_text: str, *, max_msg: int = 8, max_chars: int = 50
 ) -> Tuple[List[TelegramOrderedSegment], str]:
     """
-    一级：将 `|||` 与 `[meme:描述]` 视为同级顺序分隔符，拆成 (text|meme)* 序列。
+    一级：将 `|||`、`[meme:描述]` 与 `[voice]...[/voice]` 视为同级顺序分隔符，拆成 (text|meme|voice)* 序列。
 
     二级（仅当正文中 **不出现** ``|||`` 时执行；``[meme:…]`` 不算「AI 已分段」）：
     对每个 text 段在 `<pre>` / `<code>` / `<blockquote>` 块外按换行（``\\n``）拆行，
@@ -351,14 +352,21 @@ def parse_telegram_segments_with_memes(
     须在 schedule_update_memory_hits_and_clean_reply 之后调用。
 
     Returns:
-        segments: 按出现顺序的 ``("text", 片段)`` / ``("meme", 描述)``；描述可为空（仍占位，发送时跳过）。
-        body_for_db: 仅所有 text 片段按顺序用换行拼接（供 messages 落库，不含 meme 标记）。
+        segments: 按出现顺序的 ``("text", 片段)`` / ``("meme", 描述)`` / ``("voice", 语音内容)``；描述可为空（仍占位，发送时跳过）。
+        body_for_db: 仅所有 text 片段按顺序用换行拼接（供 messages 落库，不含 meme/voice 标记）。
     """
     if not isinstance(reply_text, str):
         return [], ""
     raw = reply_text.replace("｜｜｜", "|||")
     if not raw.strip():
         return [], ""
+
+    # 提取 [voice]...[/voice] 标签，替换为占位符
+    voice_segments: List[Tuple[int, str]] = []  # (位置, 语音内容)
+    def _voice_replacer(m):
+        voice_segments.append((m.start(), (m.group(1) or "").strip()))
+        return f"\x00VOICE_{len(voice_segments) - 1}\x00"
+    raw = _VOICE_MARKER_PATTERN.sub(_voice_replacer, raw)
 
     # 仅 ||| 视为模型显式分段；仅有 [meme:…] 时仍走强行走分割二级逻辑。
     has_ai_pipe_split = "|||" in raw
@@ -398,6 +406,29 @@ def parse_telegram_segments_with_memes(
 
     if not has_ai_pipe_split:
         segments = _enforce_max_msg_segments(segments, max_msg)
+
+    # 还原 voice 占位符
+    final_segments: List[TelegramOrderedSegment] = []
+    for kind, s in segments:
+        if kind == "text" and "\x00VOICE_" in s:
+            # 包含 voice 占位符，需要拆分
+            parts = re.split(r"(\x00VOICE_\d+\x00)", s)
+            for part in parts:
+                if part is None or part == "":
+                    continue
+                vm = re.match(r"\x00VOICE_(\d+)\x00", part)
+                if vm:
+                    idx = int(vm.group(1))
+                    if idx < len(voice_segments):
+                        final_segments.append(("voice", voice_segments[idx][1]))
+                else:
+                    t = part.strip()
+                    if t:
+                        final_segments.append(("text", t))
+        else:
+            final_segments.append((kind, s))
+
+    segments = final_segments
 
     text_lines: List[str] = []
     for kind, s in segments:

@@ -425,6 +425,7 @@ class TelegramBot:
             "",
             text,
         )
+        text = re.sub(r"\[voice\].*?\[/voice\]", "", text, flags=re.DOTALL)
         return text
 
     async def _send_text_near_base(
@@ -453,27 +454,27 @@ class TelegramBot:
         base_message,
         bot,
         chat_id: int,
-    ) -> None:
-        """TTS 语音发送。只在私聊触发，失败静默降级不影响文字消息。"""
+    ) -> bool:
+        """TTS 语音发送。只在私聊触发，失败静默降级不影响文字消息。返回是否成功发送语音。"""
         if base_message is not None and self._is_group_message(base_message):
-            return
+            return False
 
         from memory.database import get_database
         db = get_database()
         tts_cfg = await db.get_tts_config()
         if not tts_cfg["enabled"] or not tts_cfg["voice_id"] or not tts_cfg["api_key"]:
-            return
+            return False
 
         # 只去 HTML 标签，保留 TTS 停顿标记 <#1.5#>
         clean_text = re.sub(r"<(?!(?:#[\d.]+#))[a-zA-Z/][^>]*>", "", full_text).strip()
         if not clean_text:
-            return
+            return False
 
         clean_text = clean_text[:10000]
 
         from tools.tts_minimax import minimax_tts
 
-        audio_bytes = await minimax_tts(
+        audio_bytes, tts_error = await minimax_tts(
             text=clean_text,
             api_key=tts_cfg["api_key"],
             voice_id=tts_cfg["voice_id"],
@@ -485,15 +486,22 @@ class TelegramBot:
             timbre=tts_cfg["timbre"],
         )
         if audio_bytes is None:
-            return
+            if tts_error:
+                try:
+                    await bot.send_message(chat_id=chat_id, text=tts_error)
+                except Exception:
+                    pass
+            return False
 
         audio_io = io.BytesIO(audio_bytes)
         audio_io.name = "voice.mp3"
 
         try:
             await bot.send_voice(chat_id=chat_id, voice=audio_io)
+            return True
         except Exception as e:
             logger.error("send_voice failed: %s", e)
+            return False
 
     async def _relay_group_assistant_message(
         self,
@@ -1495,14 +1503,15 @@ class TelegramBot:
         segments: List[Tuple[str, str]],
         *,
         base_message=None,
-    ) -> Tuple[Optional[str], bool]:
+    ) -> Tuple[Optional[str], bool, bool]:
         """
-        按 segments 顺序交替发文字段（可走 HTML 分段）与表情包。
+        按 segments 顺序交替发文字段（可走 HTML 分段）、表情包与语音。
         base_message 非空时文字用 reply；否则用 send_message（与 _telegram_send_body_via_chat 一致）。
-        返回 (首条助手消息 message_id, 是否至少发出过一张表情)。
+        返回 (首条助手消息 message_id, 是否至少发出过一张表情, 是否成功发送语音)。
         """
         first_mid: Optional[str] = None
         meme_any = False
+        voice_any = False
         for i, (kind, payload) in enumerate(segments):
             logger.info(
                 f"[segment_debug] 发送第{i + 1}段 type={kind} "
@@ -1532,19 +1541,18 @@ class TelegramBot:
                     if first_mid is None and mid:
                         first_mid = mid
                     await asyncio.sleep(0.3)
+            elif kind == "voice":
+                v = (payload or "").strip()
+                if not v:
+                    continue
+                sent = await self._send_voice_after_text(
+                    v, base_message, bot, chat_id
+                )
+                if sent:
+                    voice_any = True
+                await asyncio.sleep(0.25)
 
-        # TTS 语音追发（私聊 only，失败静默降级）
-        all_text = " ".join(
-            (payload or "").strip()
-            for kind, payload in segments
-            if kind == "text" and (payload or "").strip()
-        )
-        if all_text:
-            await self._send_voice_after_text(
-                all_text, base_message, bot, chat_id
-            )
-
-        return first_mid, meme_any
+        return first_mid, meme_any, voice_any
 
     async def _telegram_deliver_prefetched_llm_response(
         self, llm_resp: Any, base_message, bot
@@ -1576,8 +1584,9 @@ class TelegramBot:
         )
         assistant_message_id: Optional[str] = None
         meme_sent = False
+        voice_sent = False
         if segments:
-            assistant_message_id, meme_sent = (
+            assistant_message_id, meme_sent, voice_sent = (
                 await self._telegram_deliver_ordered_segments(
                     bot,
                     base_message.chat.id,
@@ -1980,8 +1989,9 @@ class TelegramBot:
         )
         assistant_message_id: Optional[str] = None
         meme_sent = False
+        voice_sent = False
         if segments:
-            assistant_message_id, meme_sent = (
+            assistant_message_id, meme_sent, voice_sent = (
                 await self._telegram_deliver_ordered_segments(
                     bot, chat_id, segments, base_message=base_message
                 )
@@ -3042,7 +3052,7 @@ class TelegramBot:
             )
             meme_sent = False
             if telegram_bot and segments:
-                _, meme_sent = await self._telegram_deliver_ordered_segments(
+                _, meme_sent, _ = await self._telegram_deliver_ordered_segments(
                     telegram_bot, cid, segments, base_message=None
                 )
             if body_for_db.strip():
