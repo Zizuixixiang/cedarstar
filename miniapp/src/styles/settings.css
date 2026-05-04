@@ -919,6 +919,12 @@
   padding-right: 42px;
 }
 
+/* 隐藏浏览器原生密码显示按钮（Edge / Chrome） */
+.modal-input-wrap .modal-input::-ms-reveal,
+.modal-input-wrap .modal-input::-webkit-credentials-auto-fill-button {
+  display: none;
+}
+
 .eye-btn {
   position: absolute;
   right: 10px;

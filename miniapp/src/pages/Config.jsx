@@ -402,12 +402,18 @@ function Config() {
   }, [fetchConfig]);
 
   // 处理配置变更（自动 clamp 到范围）
+  const roundToStep = (num, step) => {
+    const raw = Math.round(num / step) * step;
+    const decimals = String(step).split('.')[1]?.length || 0;
+    return parseFloat(raw.toFixed(decimals));
+  };
+
   const handleConfigChange = (key, rawValue) => {
     const meta = CONFIG_METADATA.find(item => item.key === key);
     const num = Number(rawValue);
     if (isNaN(num)) return;
     const step = meta.step || 1;
-    const rounded = Math.round(num / step) * step;
+    const rounded = roundToStep(num, step);
     const clamped = Math.max(meta.min, Math.min(meta.max, rounded));
     setConfig(prev => ({ ...prev, [key]: clamped }));
     setHasUnsavedChanges(true);
@@ -420,7 +426,7 @@ function Config() {
     const step = meta.step || 1;
     const clamped = isNaN(num)
       ? DEFAULT_CONFIG[key]
-      : Math.max(meta.min, Math.min(meta.max, Math.round(num / step) * step));
+      : Math.max(meta.min, Math.min(meta.max, roundToStep(num, step)));
     setConfig(prev => ({ ...prev, [key]: clamped }));
   };
 
@@ -992,7 +998,7 @@ function Config() {
                     step={row.step}
                     value={config[row.key]}
                     onChange={e => {
-                      const v = Math.round(Number(e.target.value) / row.step) * row.step;
+                      const v = roundToStep(Number(e.target.value), row.step);
                       setConfig(prev => ({ ...prev, [row.key]: v }));
                       setHasUnsavedChanges(true);
                     }}
