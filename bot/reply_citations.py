@@ -434,6 +434,8 @@ def parse_telegram_segments_with_memes(
     for kind, s in segments:
         if kind == "text" and (s or "").strip():
             text_lines.append((s or "").strip())
+        elif kind == "voice" and (s or "").strip():
+            text_lines.append(f"[语音]{s}")
     body_for_db = "\n".join(text_lines)
     return segments, body_for_db
 
