@@ -370,7 +370,8 @@ async def add_external_chunk(content: str, as_of_date: Optional[str] = None) -> 
             "注意：每个事件的 summary 必须不少于 50 个字符，过短的片段应合并到相邻事件中。"
         )
 
-        raw_resp = None
+        events_parsed = None
+        last_raw = ""
         last_exc = None
         for attempt in range(1, 4):
             try:
@@ -378,35 +379,35 @@ async def add_external_chunk(content: str, as_of_date: Optional[str] = None) -> 
                     [{"role": "user", "content": prompt}],
                     timeout_override_seconds=120,
                 )
-                raw_resp = (resp.content or "").strip()
-                break
+                last_raw = (resp.content or "").strip()
             except Exception as e:
                 last_exc = e
                 logger.warning("add_external_chunk LLM 拆分第 %s/3 次失败: %s", attempt, e)
                 if attempt < 3:
                     await asyncio.sleep(2)
+                continue
 
-        if raw_resp is None:
-            return json.dumps({
-                "success": False,
-                "error": f"LLM 拆分 3 次重试全失败: {last_exc}",
-            }, ensure_ascii=False)
+            # JSON 解析
+            try:
+                events_parsed = json.loads(last_raw)
+            except json.JSONDecodeError:
+                m = re.search(r"\[[\s\S]*\]", last_raw)
+                if m:
+                    try:
+                        events_parsed = json.loads(m.group())
+                    except json.JSONDecodeError:
+                        pass
+            if isinstance(events_parsed, list) and events_parsed:
+                break
+            logger.warning("add_external_chunk JSON 解析第 %s/3 次失败，原始输出: %s", attempt, last_raw[:200])
+            events_parsed = None
+            if attempt < 3:
+                await asyncio.sleep(2)
 
-        # 解析 JSON
-        events_parsed = None
-        try:
-            events_parsed = json.loads(raw_resp)
-        except json.JSONDecodeError:
-            m = re.search(r"\[[\s\S]*\]", raw_resp)
-            if m:
-                try:
-                    events_parsed = json.loads(m.group())
-                except json.JSONDecodeError:
-                    pass
         if not isinstance(events_parsed, list) or not events_parsed:
             return json.dumps({
                 "success": False,
-                "error": f"LLM 输出解析失败，原始输出: {raw_resp[:300]}",
+                "error": f"LLM 拆分 3 次重试全失败（{last_exc or 'JSON 解析失败'}），原始输出: {last_raw[:300]}",
             }, ensure_ascii=False)
 
         # 3. PG: summaries 写 chunk 留底
