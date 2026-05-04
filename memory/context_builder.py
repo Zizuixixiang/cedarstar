@@ -6,7 +6,7 @@ Context 构建模块。
 2. temporal_states：is_active=1 的全部记录（在记忆卡片之前）
 3. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
 4. relationship_timeline：条数见 `relationship_timeline_limit`（库内选取），注入 Context 时按 created_at 正序排列
-5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，经精排、MMR 多样性筛选后注入 `context_max_longterm` 条
+5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，经 SiliconFlow Rerank 精排、阈值过滤、event_type 分级时间衰减、MMR 多样性筛选后注入 `context_max_longterm` 条
 6. daily summary：`context_max_daily_summaries`（优先）或环境变量决定条数，倒序取后翻为正序拼入
 7. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
 8. 最近消息：`short_term_limit`（优先）或环境变量决定条数，再正序排列后拼入
@@ -380,16 +380,16 @@ async def _relationship_timeline_limit() -> int:
 
 
 async def _retrieval_top_k() -> int:
-    """双路检索各路 top_k：优先 config 表 retrieval_top_k，否则默认 5。"""
+    """双路检索各路 top_k：优先 config 表 retrieval_top_k，默认 30。"""
     try:
         raw = await get_database().get_config("retrieval_top_k")
         if raw is not None and str(raw).strip() != "":
-            return max(1, min(30, int(str(raw).strip())))
+            return max(1, min(50, int(str(raw).strip())))
     except (ValueError, TypeError):
         pass
     except Exception as e:
-        logger.debug("读取 retrieval_top_k 失败，使用默认 5: %s", e)
-    return 5
+        logger.debug("读取 retrieval_top_k 失败，使用默认 30: %s", e)
+    return 30
 
 
 async def _mmr_lambda_value() -> float:
@@ -442,6 +442,167 @@ async def _archived_daily_min_hits() -> int:
     except Exception as e:
         logger.debug("读取 archived_daily_min_hits 失败，使用默认 2: %s", e)
     return 2
+
+
+# ---------------------------------------------------------------------------
+# C3: Rerank 配置读取函数
+# ---------------------------------------------------------------------------
+
+async def _rerank_enabled() -> bool:
+    """是否启用 rerank：优先 config 表 rerank_enabled，默认 true。"""
+    try:
+        raw = await get_database().get_config("rerank_enabled")
+        if raw is not None:
+            return str(raw).strip().lower() in ("true", "1", "yes")
+    except Exception:
+        pass
+    return True
+
+
+async def _rerank_candidate_size() -> int:
+    """rerank 候选集大小上限，默认 50。"""
+    try:
+        raw = await get_database().get_config("rerank_candidate_size")
+        if raw is not None and str(raw).strip() != "":
+            return max(10, min(100, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_candidate_size 失败，使用默认 50: %s", e)
+    return 50
+
+
+async def _rerank_score_floor() -> float:
+    """非收藏事件的 rerank 分数阈值，默认 0.3。"""
+    try:
+        raw = await get_database().get_config("rerank_score_floor")
+        if raw is not None and str(raw).strip() != "":
+            return max(0.0, min(1.0, float(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_score_floor 失败，使用默认 0.3: %s", e)
+    return 0.3
+
+
+async def _rerank_starred_floor() -> float:
+    """收藏事件的 rerank 分数阈值，默认 0.15。"""
+    try:
+        raw = await get_database().get_config("rerank_starred_floor")
+        if raw is not None and str(raw).strip() != "":
+            return max(0.0, min(1.0, float(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_starred_floor 失败，使用默认 0.15: %s", e)
+    return 0.15
+
+
+async def _rerank_query_max_chars() -> int:
+    """rerank query 最大字符数，默认 300。"""
+    try:
+        raw = await get_database().get_config("rerank_query_max_chars")
+        if raw is not None and str(raw).strip() != "":
+            return max(50, min(1000, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_query_max_chars 失败，使用默认 300: %s", e)
+    return 300
+
+
+async def _rerank_query_turns() -> int:
+    """构建 rerank query 时取最近几轮对话，默认 2。"""
+    try:
+        raw = await get_database().get_config("rerank_query_turns")
+        if raw is not None and str(raw).strip() != "":
+            return max(1, min(10, int(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_query_turns 失败，使用默认 2: %s", e)
+    return 2
+
+
+async def _rerank_timeout_sec() -> float:
+    """rerank API 超时秒数，默认 3.0。"""
+    try:
+        raw = await get_database().get_config("rerank_timeout_sec")
+        if raw is not None and str(raw).strip() != "":
+            return max(0.5, min(10.0, float(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_timeout_sec 失败，使用默认 3.0: %s", e)
+    return 3.0
+
+
+async def _half_life_by_event_type(event_type: str) -> int:
+    """按 event_type 返回半衰期天数。"""
+    et = (event_type or "").strip().lower()
+    if et == "milestone":
+        key = "half_life_milestone"
+        default = 1000
+    elif et in ("decision", "emotional_shift"):
+        key = "half_life_decision"
+        default = 200
+    else:
+        key = "half_life_default"
+        default = 60
+    try:
+        raw = await get_database().get_config(key)
+        if raw is not None and str(raw).strip() != "":
+            return max(1, int(str(raw).strip()))
+    except (ValueError, TypeError):
+        pass
+    except Exception:
+        pass
+    return default
+
+
+async def _build_rerank_query(session_id: str, current_message: str) -> str:
+    """
+    构建 rerank query：取当前 session 最近 N 轮对话，加角色前缀，截断到 max_chars。
+    """
+    max_chars = await _rerank_query_max_chars()
+    turns = await _rerank_query_turns()
+
+    # 取最近消息（不包含当前轮）
+    recent = await get_unsummarized_messages_desc(session_id, limit=turns * 2)
+    recent.reverse()  # 正序
+
+    parts = []
+    for msg in recent:
+        role = msg.get("role", "")
+        content = (msg.get("content") or "").strip()
+        if not content:
+            continue
+        if role == "user":
+            parts.append(f"南杉: {content}")
+        elif role in ("assistant", "assistant_other"):
+            parts.append(f"小克: {content}")
+
+    # 加当前消息
+    if current_message and current_message.strip():
+        parts.append(f"南杉: {current_message.strip()}")
+
+    query = "\n".join(parts)
+    if len(query) > max_chars:
+        query = query[-max_chars:]
+    return query
+
+
+def _time_decay_factor(metadata: Dict[str, Any], half_life_days: int, now_ts: float) -> float:
+    """计算时间衰减系数：exp(-ln2 / half_life * age_days)。"""
+    age = _memory_age_days(metadata, now_ts)
+    if half_life_days <= 0:
+        return 1.0
+    return math.exp(-math.log(2) / half_life_days * age)
+
+
+def _is_starred(metadata: Dict[str, Any]) -> bool:
+    """判断是否收藏。"""
+    return metadata.get("is_starred") is True or str(metadata.get("is_starred", "")).lower() == "true"
 
 
 MEMORY_CITATION_DIRECTIVE = (
@@ -876,6 +1037,15 @@ class ContextBuilder:
                 for r in self._last_longterm_results
                 if r.get("id")
             ],
+            "rerank_scores": {
+                str(r.get("id") or ""): {
+                    "rerank_score": r.get("rerank_score"),
+                    "fusion_score": float(r.get("fusion_score", 0.0)),
+                    "event_type": (r.get("metadata") or {}).get("event_type"),
+                }
+                for r in self._last_longterm_results
+                if r.get("id")
+            },
         }
     
     async def build_context(
@@ -1088,7 +1258,7 @@ class ContextBuilder:
             relationship_timeline_section = await self._build_relationship_timeline_section()
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
-            vector_search_section = await self._build_vector_search_section_async(user_message)
+            vector_search_section = await self._build_vector_search_section_async(user_message, session_id)
             archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(session_id)
             chunk_summaries_section = await self._build_chunk_summaries_section()
@@ -1685,27 +1855,32 @@ class ContextBuilder:
             self._last_longterm_results = []
             return ""
     
-    async def _build_vector_search_section_async(self, user_message: str) -> str:
+    async def _build_vector_search_section_async(
+        self, user_message: str, session_id: str = ""
+    ) -> str:
         """
-        异步构建向量检索部分：并行双路检索 → Cohere 打分 →
-        语义归一化×0.8 + 时间衰减复活分归一化×0.2 综合排序 → MMR → 取 top N（见 _context_max_longterm_count）；
-        每条正文前带 [uid:doc_id]。
+        C3 新链路：并行双路检索 → SiliconFlow Rerank → 阈值过滤 →
+        event_type 分级时间衰减 + starred boost → MMR → 取 top N。
+
+        异常降级：rerank 超时或失败时走旧的 fuse_rerank_with_time_decay 路径。
         """
+        from memory.reranker import rerank as sf_rerank, RerankFallbackException
+
         try:
             self._last_longterm_results = []
-            if not config.ZHIPU_API_KEY or config.ZHIPU_API_KEY == "your_zhipu_api_key_here":
-                logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
-                return ""
-
-            if not config.COHERE_API_KEY or config.COHERE_API_KEY == "your_cohere_api_key_here":
-                logger.warning("COHERE_API_KEY 未设置或为默认值，使用普通双路检索")
-                return await self._build_vector_search_section(user_message)
-
-            import asyncio
 
             tk = await _retrieval_top_k()
             n_long = await _context_max_longterm_count()
-            logger.debug(f"开始并行检索，查询: '{user_message[:50]}...'")
+            candidate_cap = await _rerank_candidate_size()
+
+            # 1) 构建 rerank query（从最近对话拼接）
+            rerank_query = await _build_rerank_query(session_id, user_message)
+            if not rerank_query.strip():
+                rerank_query = user_message
+            logger.debug("rerank query (%d chars): %s", len(rerank_query), rerank_query[:100])
+
+            # 2) 并行双路检索
+            import asyncio
             loop = asyncio.get_event_loop()
             lt_where = chroma_where_longterm_summary_types(user_message)
             lt_types = longterm_allowed_summary_types(user_message)
@@ -1713,80 +1888,144 @@ class ContextBuilder:
                 None, partial(search_memory, user_message, tk, lt_where)
             )
             bm25_future = loop.run_in_executor(
-                None,
-                partial(
-                    search_bm25,
-                    user_message,
-                    tk,
-                    lt_types,
-                ),
+                None, partial(search_bm25, user_message, tk, lt_types)
             )
             vector_results, bm25_results = await asyncio.gather(vector_future, bm25_future)
-
             logger.debug(
-                f"并行检索完成，向量结果: {len(vector_results)} 条，BM25 结果: {len(bm25_results)} 条"
+                "并行检索完成，向量: %d 条，BM25: %d 条",
+                len(vector_results), len(bm25_results),
             )
 
+            # 3) 去重合并
             all_results = _merge_vector_bm25_dedupe(
-                vector_results, bm25_results, max(1, 2 * tk)
+                vector_results, bm25_results, candidate_cap
             )
-
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
                 return ""
 
-            logger.debug(f"调用 Reranker（全量候选语义分），文档: {len(all_results)} 条")
-            reranked_results = await rerank(
-                user_message, all_results, top_n=len(all_results)
-            )
-            if not reranked_results:
-                logger.debug("Reranker 未返回结果，使用双路候选进入融合与 MMR")
-                reranked_results = all_results
+            # 4) 调用 SiliconFlow Rerank
+            rerank_ok = False
+            timeout = await _rerank_timeout_sec()
+            enabled = await _rerank_enabled()
 
-            fused = fuse_rerank_with_time_decay(
-                reranked_results,
-                await _starred_boost_factor_value(),
+            if enabled:
+                try:
+                    docs = [(c.get("text") or "") for c in all_results]
+                    raw = await sf_rerank(
+                        rerank_query, all_results, timeout=timeout
+                    )
+                    rerank_ok = True
+                    logger.debug("Rerank 成功，候选 %d 条有分数", len(all_results))
+                except RerankFallbackException as e:
+                    logger.warning("Rerank 降级: %s", e)
+                except Exception as e:
+                    logger.warning("Rerank 异常: %s", e)
+
+            if not rerank_ok:
+                # 降级：走旧的 fuse_rerank_with_time_decay
+                logger.info("降级到旧的 fuse_rerank_with_time_decay 路径")
+                fused = fuse_rerank_with_time_decay(
+                    all_results, await _starred_boost_factor_value()
+                )
+                fused = _hydrate_candidate_embeddings(fused)
+                top_results = apply_mmr(fused, await _mmr_lambda_value(), n_long)
+                self._last_longterm_results = list(top_results)
+                return self._format_longterm_section(top_results, len(all_results), "降级精排")
+
+            # 5) 阈值过滤（用 rerank 纯语义分，不混入加权）
+            score_floor = await _rerank_score_floor()
+            starred_floor = await _rerank_starred_floor()
+            passed = []
+            for c in all_results:
+                rs = c.get("rerank_score", 0.0)
+                if _is_starred(c.get("metadata") or {}):
+                    if rs >= starred_floor:
+                        passed.append(c)
+                else:
+                    if rs >= score_floor:
+                        passed.append(c)
+            logger.debug(
+                "阈值过滤: %d → %d (floor=%.2f, starred_floor=%.2f)",
+                len(all_results), len(passed), score_floor, starred_floor,
             )
-            fused = _hydrate_candidate_embeddings(fused)
-            top_results = apply_mmr(fused, await _mmr_lambda_value(), n_long)
+            if not passed:
+                logger.debug("阈值过滤后无候选，返回空")
+                self._last_longterm_results = []
+                return ""
+
+            # 6) 加权阶段：final_score = rerank_score * starred_boost * time_decay
+            now_ts = time.time()
+            starred_boost = await _starred_boost_factor_value()
+            for c in passed:
+                md = c.get("metadata") or {}
+                rs = c.get("rerank_score", 0.0)
+                et = md.get("event_type", "")
+                hl = await _half_life_by_event_type(et)
+                boost = starred_boost if _is_starred(md) else 1.0
+                # starred 不衰减
+                if _is_starred(md):
+                    td = 1.0
+                else:
+                    td = _time_decay_factor(md, hl, now_ts)
+                c["fusion_score"] = rs * boost * td
+
+            passed.sort(key=lambda x: x.get("fusion_score", 0.0), reverse=True)
+
+            # 7) MMR 多样性筛选
+            passed = _hydrate_candidate_embeddings(passed)
+            top_results = apply_mmr(passed, await _mmr_lambda_value(), n_long)
             self._last_longterm_results = list(top_results)
 
-            sections = []
-            for i, result in enumerate(top_results):
-                text = (result.get("text") or "").strip()
-                doc_id = result.get("id") or ""
-                metadata = result.get("metadata") or {}
-                fusion = float(result.get("fusion_score", 0.0))
-                retrieval_method = result.get("retrieval_method", "unknown")
-                date = metadata.get("date", "未知日期")
-                summary_type = metadata.get("summary_type", "未知类型")
-                session_id = metadata.get("session_id", "未知会话")
-                if "_" in str(session_id):
-                    parts = str(session_id).split("_")
-                    if len(parts) >= 2:
-                        display_session = f"用户{parts[0][:4]}...频道{parts[1][:4]}..."
-                    else:
-                        display_session = str(session_id)[:20]
-                else:
-                    display_session = str(session_id)[:20]
-                method_label = "向量" if retrieval_method == "vector" else "关键词"
-                body = f"[uid:{doc_id}] {text}"
-                sections.append(
-                    f"### 相关记忆 {i+1} ({method_label}检索，综合分: {fusion:.4f})\n"
-                    f"日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{body}"
-                )
-
-            vector_section = "\n\n".join(sections)
-            vector_section += (
-                f"\n\n<!-- 精排：语义×0.8+时间衰减×0.2 后经 MMR，自 {len(all_results)} 条候选取 {len(top_results)} 条 -->"
-            )
-            return f"# 相关长期记忆（精排结果）\n\n{vector_section}"
+            return self._format_longterm_section(top_results, len(all_results), "Rerank精排")
 
         except Exception as e:
-            logger.warning(f"构建向量检索部分失败（异步）: {e}")  # 可恢复/已兜底，降为 warning
+            logger.warning("构建向量检索部分失败（异步）: %s", e)
             self._last_longterm_results = []
-            logger.warning("异步检索失败，回退到同步检索")
+            logger.warning("回退到同步检索")
             return await self._build_vector_search_section(user_message)
+
+    def _format_longterm_section(
+        self, results: List[Dict[str, Any]], total_candidates: int, label: str
+    ) -> str:
+        """格式化长期记忆注入段落。"""
+        if not results:
+            return ""
+
+        sections = []
+        for i, result in enumerate(results):
+            text = (result.get("text") or "").strip()
+            doc_id = result.get("id") or ""
+            metadata = result.get("metadata") or {}
+            fusion = float(result.get("fusion_score", 0.0))
+            rerank_sc = result.get("rerank_score")
+            retrieval_method = result.get("retrieval_method", "unknown")
+            date = metadata.get("date", "未知日期")
+            summary_type = metadata.get("summary_type", "未知类型")
+            session_id_meta = metadata.get("session_id", "未知会话")
+            if "_" in str(session_id_meta):
+                parts = str(session_id_meta).split("_")
+                if len(parts) >= 2:
+                    display_session = f"用户{parts[0][:4]}...频道{parts[1][:4]}..."
+                else:
+                    display_session = str(session_id_meta)[:20]
+            else:
+                display_session = str(session_id_meta)[:20]
+            method_label = "向量" if retrieval_method == "vector" else "关键词"
+            score_info = f"综合分:{fusion:.4f}"
+            if rerank_sc is not None:
+                score_info += f" rerank:{rerank_sc:.4f}"
+            body = f"[uid:{doc_id}] {text}"
+            sections.append(
+                f"### 相关记忆 {i+1} ({method_label}检索，{score_info})\n"
+                f"日期: {date} | 类型: {summary_type} | 来源: {display_session}\n{body}"
+            )
+
+        vector_section = "\n\n".join(sections)
+        vector_section += (
+            f"\n\n<!-- {label}：自 {total_candidates} 条候选取 {len(results)} 条 -->"
+        )
+        return f"# 相关长期记忆（{label}结果）\n\n{vector_section}"
     
     async def _build_recent_messages_section(self, session_id: str, exclude_message_id: Optional[int] = None) -> List[Dict[str, Any]]:
         """
