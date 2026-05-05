@@ -142,8 +142,8 @@ const CONFIG_METADATA = [
   },
   {
     key: 'context_max_daily_summaries',
-    name: '每日小传注入条数',
-    description: 'Context 中纳入的 summary_type=daily 条数',
+    name: '每日小传注入天数',
+    description: 'Context 中纳入最近多少天的 summary_type=daily',
     hint: '注入最近几天的今日小传作为背景',
     min: 1,
     max: 90,

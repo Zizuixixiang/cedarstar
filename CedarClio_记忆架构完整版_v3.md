@@ -22,7 +22,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `buffer_delay` | 消息缓冲延迟 |
 | `chunk_threshold` | 微批摘要阈值 |
 | `short_term_limit` | 最近原文消息条数 |
-| `context_max_daily_summaries` | Context 中 daily 摘要条数 |
+| `context_max_daily_summaries` | Context 中纳入最近 N 天的 daily 摘要 |
 | `context_max_longterm` | Context 中长期记忆注入条数 |
 | `event_split_max` | Step 4 单日事件拆分上限 |
 | `mmr_lambda` | 长期记忆 MMR 相关性权重 |
@@ -150,7 +150,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 
 长期记忆召回完成后，系统会检查命中的 `daily_event` 日期：
 
-- 最近 `context_max_daily_summaries` 条 daily 已通过常规 daily 通道注入，不重复补充
+- 最近 `context_max_daily_summaries` 天的 daily 已通过常规 daily 通道注入，不重复补充
 - 对近期窗口外的命中日期按召回事件数分组
 - 优先选择命中数不少于 `archived_daily_min_hits` 的日期
 - 不足时按该日期召回事件最高分补足

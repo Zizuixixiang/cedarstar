@@ -7,7 +7,7 @@ Context 构建模块。
 3. memory_cards：查询 memory_cards 表中 is_active=1 的所有记录，按维度格式化后拼入
 4. relationship_timeline：条数见 `relationship_timeline_limit`（库内选取），注入 Context 时按 created_at 正序排列
 5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，经 SiliconFlow Rerank 精排、阈值过滤、event_type 分级时间衰减、MMR 多样性筛选后注入 `context_max_longterm` 条
-6. daily summary：`context_max_daily_summaries`（优先）或环境变量决定条数，倒序取后翻为正序拼入
+6. daily summary：`context_max_daily_summaries`（优先）或环境变量决定最近 N 天，倒序取后翻为正序拼入
 7. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
 8. 最近消息：`short_term_limit`（优先）或环境变量决定条数，再正序排列后拼入
 
@@ -359,7 +359,7 @@ async def _summarized_overlap_limit() -> int:
 
 
 async def _context_max_daily_summaries_limit() -> int:
-    """每日小传注入条数：优先 config 表 context_max_daily_summaries，否则环境变量 CONTEXT_MAX_DAILY_SUMMARIES。"""
+    """每日小传注入天数：优先 config 表 context_max_daily_summaries，否则环境变量 CONTEXT_MAX_DAILY_SUMMARIES。"""
     try:
         raw = await get_database().get_config("context_max_daily_summaries")
         if raw is not None and str(raw).strip() != "":
@@ -1577,7 +1577,7 @@ class ContextBuilder:
         """
         构建 daily summary 部分。
         
-        查询 summaries 表中 summary_type='daily'，按 created_at 倒序取若干条（见 _context_max_daily_summaries_limit），
+        查询 summaries 表中 summary_type='daily'，按内容日取最近 N 天（见 _context_max_daily_summaries_limit），
         然后在代码中将其翻转为正序（按时间从老到新）。
         
         Returns:

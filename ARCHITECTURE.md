@@ -24,7 +24,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `buffer_delay` | 消息缓冲延迟 |
 | `chunk_threshold` | 微批摘要阈值 |
 | `short_term_limit` | 最近原文消息条数 |
-| `context_max_daily_summaries` | Context 中 daily 摘要条数 |
+| `context_max_daily_summaries` | Context 中纳入最近 N 天的 daily 摘要 |
 | `context_max_longterm` | Context 中长期记忆注入条数 |
 | `event_split_max` | Step 4 单日事件拆分上限 |
 | `mmr_lambda` | 长期记忆 MMR 相关性权重 |

@@ -2151,13 +2151,17 @@ class MessageDatabase:
     async def get_recent_daily_summaries(
         self, limit: int = 5, session_id: Optional[str] = None
     ) -> List[Dict[str, Any]]:
-        """获取最近的每日摘要；传 session_id 时仅取当前会话。"""
-        params: List[Any] = []
+        """Fetch daily summaries from the recent N calendar days; filter by session_id when given."""
+        days = max(1, min(int(limit or 1), 100))
+        today = _dt.datetime.now(_dt.timezone(_dt.timedelta(hours=8))).date()
+        start_day = today - _dt.timedelta(days=days - 1)
+        params: List[Any] = [start_day, today]
         where = "WHERE summary_type = 'daily'"
+        day_expr = "COALESCE(source_date::date, created_at::date)"
+        where += f" AND {day_expr} BETWEEN $1::date AND $2::date"
         if session_id:
             params.append(session_id)
             where += f" AND session_id = ${len(params)}"
-        params.append(limit)
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
@@ -2165,8 +2169,7 @@ class MessageDatabase:
                        created_at, summary_type, source_date, is_group, is_starred
                 FROM summaries
                 {where}
-                ORDER BY created_at DESC
-                LIMIT ${len(params)}
+                ORDER BY {day_expr} DESC, created_at DESC
                 """,
                 *params,
             )
@@ -2184,7 +2187,12 @@ class MessageDatabase:
             }
             for r in rows
         ]
-        logger.debug("获取最近每日摘要: count=%s", len(summaries))
+        logger.debug(
+            "Fetch recent %s daily-summary days: session=%s count=%s",
+            days,
+            session_id or "*",
+            len(summaries),
+        )
         return summaries
 
     async def get_today_chunk_summaries(
