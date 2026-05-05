@@ -1587,28 +1587,27 @@ class ContextBuilder:
             self._last_daily_summary_ids = []
             daily_summaries = await get_recent_daily_summaries(
                 limit=await _context_max_daily_summaries_limit(),
-                session_id=session_id,
             )
-            
+
             if not daily_summaries:
                 return ""
-            
+
             # 翻转为正序（最旧的在前）
             daily_summaries.reverse()
             self._last_daily_summary_ids = [
                 int(s["id"]) for s in daily_summaries if s.get("id") is not None
             ]
-            
+
             sections = []
             for summary in daily_summaries:
-                # 格式化创建时间
-                created_at = summary['created_at']
-                if created_at:
+                # 优先用 source_date（摘要实际代表的日期），兜底 created_at
+                raw_date = summary.get('source_date') or summary.get('created_at')
+                if raw_date:
                     try:
-                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
+                        dt = datetime.fromisoformat(str(raw_date).replace('Z', '+00:00'))
                         formatted_date = dt.strftime("%Y-%m-%d")
-                    except:
-                        formatted_date = created_at.split(' ')[0] if ' ' in created_at else created_at
+                    except Exception:
+                        formatted_date = str(raw_date)[:10]
                 else:
                     formatted_date = "未知日期"
                 
@@ -1640,7 +1639,6 @@ class ContextBuilder:
             recent_limit = await _context_max_daily_summaries_limit()
             recent_daily = await get_recent_daily_summaries(
                 limit=recent_limit,
-                session_id=session_id,
             )
             recent_dates = set()
             for row in recent_daily:
@@ -1688,9 +1686,6 @@ class ContextBuilder:
             sections = []
             for day in selected_days:
                 rows = await db.get_daily_summaries_by_date(day)
-                if session_id:
-                    scoped = [r for r in rows if r.get("session_id") == session_id]
-                    rows = scoped or rows
                 if not rows:
                     continue
                 for row in rows[:1]:
