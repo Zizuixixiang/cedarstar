@@ -445,7 +445,13 @@ class TelegramBot:
             "",
             text,
         )
-        text = re.sub(r"\[voice\].*?\[/voice\]", "", text, flags=re.DOTALL)
+        voice_tag = r"(?:voice|语音)(?:\s*\+\s*(?:voice|语音))*"
+        text = re.sub(
+            rf"\[\s*{voice_tag}\s*\].*?\[\s*/\s*{voice_tag}\s*\]",
+            "",
+            text,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
         return text
 
     async def _send_text_near_base(

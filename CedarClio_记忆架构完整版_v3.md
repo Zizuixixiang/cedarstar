@@ -218,7 +218,7 @@ Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被
 
 ### 4.3 AI 自主活动（Idle Activity）
 
-进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`，助手消息会写入 `messages` 且内容前缀为 `【自主活动】`，并更新 `idle_activity_last_triggered_at`。
+进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`，助手消息会写入 `messages` 且内容前缀为 `【自主活动】`，并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。
 
 ## 五、微批与日终跑批
 

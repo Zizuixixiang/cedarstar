@@ -322,7 +322,7 @@ export default function Observability() {
   const [filter, setFilter] = useState('')
   const [recentPage, setRecentPage] = useState(1)
   const [toolPage, setToolPage] = useState(1)
-  const recentPageSize = 8
+  const recentPageSize = 5
   const toolPageSize = 10
   const loadSeqRef = useRef(0)
 

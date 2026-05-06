@@ -1194,6 +1194,32 @@ class MessageDatabase:
         )
         return int(eid)
 
+    async def bind_tool_execution_turn_to_assistant_message(
+        self,
+        *,
+        session_id: str,
+        turn_id: str,
+        assistant_message_id: int,
+    ) -> int:
+        """将同一 tool turn 下的记录回填到指定 assistant_message_id。"""
+        async with self.pool.acquire() as conn:
+            status = await conn.execute(
+                """
+                UPDATE tool_executions
+                SET assistant_message_id = $3
+                WHERE session_id = $1
+                  AND turn_id = $2
+                  AND assistant_message_id IS NULL
+                """,
+                str(session_id),
+                str(turn_id),
+                int(assistant_message_id),
+            )
+        try:
+            return int(str(status).split()[-1])
+        except Exception:
+            return 0
+
     async def cleanup_tool_executions(self, days: int = 7) -> int:
         """清理超过 N 天的工具执行记录。"""
         async with self.pool.acquire() as conn:

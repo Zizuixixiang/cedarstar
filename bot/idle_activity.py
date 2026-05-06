@@ -213,7 +213,7 @@ async def trigger_idle_activity(telegram_bot_instance, db) -> None:
     sent = await tg_bot.send_message(chat_id=chat_id, text=reply_text)
     msg_id = getattr(sent, "message_id", None)
     db_content = f"【自主活动】{reply_text}"
-    await save_message(
+    assistant_message_row_id = await save_message(
         role="assistant",
         content=db_content,
         session_id=session_id,
@@ -224,5 +224,17 @@ async def trigger_idle_activity(telegram_bot_instance, db) -> None:
         platform=Platform.TELEGRAM,
         thinking=(outcome.response.thinking or "").strip() or None,
     )
+    if outcome.tool_turn_id:
+        updated = await db.bind_tool_execution_turn_to_assistant_message(
+            session_id=session_id,
+            turn_id=outcome.tool_turn_id,
+            assistant_message_id=assistant_message_row_id,
+        )
+        logger.info(
+            "[idle] tool executions linked: turn_id=%s assistant_message_id=%s rows=%s",
+            outcome.tool_turn_id,
+            assistant_message_row_id,
+            updated,
+        )
     await db.set_config("idle_activity_last_triggered_at", datetime.now(timezone.utc).isoformat())
 

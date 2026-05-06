@@ -2455,6 +2455,7 @@ class LutopiaToolLoopOutcome(NamedTuple):
     response: LLMResponse
     aggregated_assistant_text: str
     behavior_appendix: str
+    tool_turn_id: str
 
 
 async def complete_with_lutopia_tool_loop(
@@ -2589,6 +2590,7 @@ async def complete_with_lutopia_tool_loop(
                     last,
                     "\n".join(round_texts),
                     build_lutopia_internal_memory_appendix(tool_pairs),
+                    tool_turn_id,
                 )
             piece = (last.content or "").strip()
             if piece:
@@ -2727,6 +2729,7 @@ async def complete_with_lutopia_tool_loop(
         fin,
         "\n".join(round_texts),
         build_lutopia_internal_memory_appendix(tool_pairs),
+        tool_turn_id,
     )
 
 
