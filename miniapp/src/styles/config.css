@@ -224,6 +224,70 @@
   flex-wrap: nowrap;
 }
 
+.config-controls--idle-card {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.config-idle-inline-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.9rem;
+  color: var(--text-main);
+  font-weight: 500;
+}
+
+.config-idle-inline-toggle input {
+  width: 16px;
+  height: 16px;
+}
+
+.config-idle-select {
+  height: 36px;
+  min-width: 132px;
+  border: 2px solid var(--industrial-border-color);
+  background: var(--surface);
+  color: var(--text-main);
+  font-family: monospace;
+  font-size: 0.82rem;
+  padding: 0 8px;
+}
+
+.config-idle-threshold {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.config-idle-threshold input {
+  width: 72px;
+  height: 36px;
+  border: 2px solid var(--industrial-border-color);
+  background: var(--surface);
+  color: var(--text-main);
+  text-align: center;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
+.config-idle-threshold span {
+  color: var(--text-sub);
+  font-size: 0.82rem;
+}
+
+.config-idle-hours input {
+  width: 68px;
+  height: 36px;
+  border: 2px solid var(--industrial-border-color);
+  background: var(--surface);
+  color: var(--text-main);
+  text-align: center;
+  font-family: monospace;
+  font-size: 0.9rem;
+}
+
 /* MAX_CHARS 可能三位数，略加宽数字区 */
 .config-number-input--telegram {
   width: 52px;

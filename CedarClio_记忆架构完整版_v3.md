@@ -36,6 +36,12 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `retrieval_top_k` | 向量 / BM25 各路召回数 |
 | `telegram_max_chars` | Telegram 分段最大字数 |
 | `telegram_max_msg` | Telegram 分段最大条数 |
+| `idle_activity_enabled` | 是否启用 AI 自主活动（true/false） |
+| `idle_activity_level` | 自主活动概率档位：low/mid/high（0.3/0.6/1.0） |
+| `idle_activity_threshold_min` | 距离用户最后发言达到多少分钟后才有资格触发 |
+| `idle_activity_cooldown_min` | 两次自主活动之间最小间隔（分钟） |
+| `idle_activity_start_hour` | 自主活动允许开始小时（东八区，0-23） |
+| `idle_activity_end_hour` | 自主活动允许结束小时（东八区，0-23） |
 | `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
 | `rerank_enabled` | 是否启用 SiliconFlow Rerank 精排，默认 true |
 | `rerank_candidate_size` | rerank 候选集大小上限，默认 50 |
@@ -209,6 +215,10 @@ Context 中的 chunk 摘要只注入 `archived_by IS NULL` 的记录。已经被
 - X (Twitter)（11 个工具：发推、点赞、回复、搜索、时间线、关注/取关、粉丝列表等，共享每日配额）
 
 工具口播提示由 system suffix 注入，确保模型在调用工具前先说一句自然口语。
+
+### 4.3 AI 自主活动（Idle Activity）
+
+进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`，助手消息会写入 `messages` 且内容前缀为 `【自主活动】`，并更新 `idle_activity_last_triggered_at`。
 
 ## 五、微批与日终跑批
 

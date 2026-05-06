@@ -320,7 +320,9 @@ export default function Observability() {
   const [tools, setTools] = useState([])
   const [loading, setLoading] = useState(true)
   const [filter, setFilter] = useState('')
+  const [recentPage, setRecentPage] = useState(1)
   const [toolPage, setToolPage] = useState(1)
+  const recentPageSize = 8
   const toolPageSize = 10
   const loadSeqRef = useRef(0)
 
@@ -355,6 +357,7 @@ export default function Observability() {
       if (loadSeqRef.current === seq) {
         setUsage(usageWithTodayRecent)
         setTools(normalizedTools)
+        setRecentPage(1)
         setToolPage(1)
       }
     } finally {
@@ -380,6 +383,10 @@ export default function Observability() {
   const toolTotalPages = Math.max(1, Math.ceil(visibleTools.length / toolPageSize))
   const currentToolPage = Math.min(toolPage, toolTotalPages)
   const pagedTools = visibleTools.slice((currentToolPage - 1) * toolPageSize, currentToolPage * toolPageSize)
+  const recentRows = usage?.recent || []
+  const recentTotalPages = Math.max(1, Math.ceil(recentRows.length / recentPageSize))
+  const currentRecentPage = Math.min(recentPage, recentTotalPages)
+  const pagedRecentRows = recentRows.slice((currentRecentPage - 1) * recentPageSize, currentRecentPage * recentPageSize)
 
   return (
     <div className="observability-page">
@@ -438,11 +445,20 @@ export default function Observability() {
           <h2>最近调用（今日）</h2>
         </div>
         <div className="recent-calls">
-          {(usage?.recent || []).length === 0 ? (
+          {recentRows.length === 0 ? (
             <div className="obs-empty">暂无 token usage 记录</div>
-          ) : (usage?.recent || []).map((row) => (
+          ) : pagedRecentRows.map((row) => (
             <RecentUsageRow key={row.id} row={row} />
           ))}
+        </div>
+        <div className="obs-pagination">
+          <button type="button" disabled={currentRecentPage <= 1} onClick={() => setRecentPage((p) => Math.max(1, p - 1))}>
+            上一页
+          </button>
+          <span>{currentRecentPage} / {recentTotalPages}</span>
+          <button type="button" disabled={currentRecentPage >= recentTotalPages} onClick={() => setRecentPage((p) => Math.min(recentTotalPages, p + 1))}>
+            下一页
+          </button>
         </div>
       </section>
 

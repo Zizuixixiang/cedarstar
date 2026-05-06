@@ -265,6 +265,23 @@ async def run_fastapi_server():
         raise
 
 
+async def schedule_idle_activity_check(bot):
+    """AI 自主活动检查器：每 10 分钟检查一次。"""
+    logger = logging.getLogger(__name__)
+    logger.info("idle activity scheduler started")
+    while True:
+        await asyncio.sleep(10 * 60)
+        logger.info("idle activity scheduler tick")
+        try:
+            from memory.database import get_database
+            from bot.idle_activity import check_and_trigger
+
+            db = get_database()
+            await check_and_trigger(bot, db)
+        except Exception as e:
+            logger.error(f"idle activity check failed: {e}")
+
+
 async def main_async():
     """
     异步主函数。
@@ -316,6 +333,14 @@ async def main_async():
         )
 
         await setup_telegram_webhook_app()
+        # Telegram webhook bot 实例在模块级变量里，初始化完成后再启动 idle 检查任务。
+        from bot import telegram_bot as telegram_bot_module
+
+        telegram_bot_instance = getattr(telegram_bot_module, "_webhook_telegram_bot", None)
+        if telegram_bot_instance is not None:
+            asyncio.create_task(schedule_idle_activity_check(telegram_bot_instance))
+        else:
+            logger.warning("Telegram bot 实例未就绪，跳过 idle activity scheduler 启动")
 
         try:
             # 并行启动任务

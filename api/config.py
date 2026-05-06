@@ -58,6 +58,12 @@ DEFAULT_CONFIG = {
     "group_chat_interject_enabled": 0,
     "group_chat_interject_probability": 0.2,
     "x_daily_read_limit": 100,
+    "idle_activity_enabled": "false",
+    "idle_activity_level": "mid",
+    "idle_activity_threshold_min": 10,
+    "idle_activity_cooldown_min": 120,
+    "idle_activity_start_hour": 8,
+    "idle_activity_end_hour": 23,
 
     "tts_enabled": 0,
     "tts_speed": 0.95,
@@ -119,6 +125,9 @@ async def _load_config_from_db() -> Dict[str, Any]:
                         config[key] = float(value)
                 except (ValueError, TypeError):
                     pass  # 保持默认值
+            else:
+                # 字符串配置（如 idle_activity_enabled / idle_activity_level）直接回填
+                config[key] = str(value)
     
     return config
 
@@ -208,6 +217,12 @@ async def update_config(new_config: Dict[str, Any]):
                 try:
                     if key == "event_split_max":
                         config[key] = max(1, min(15, int(value)))
+                    elif key == "idle_activity_threshold_min":
+                        config[key] = max(1, min(1440, int(value)))
+                    elif key == "idle_activity_cooldown_min":
+                        config[key] = max(1, min(1440, int(value)))
+                    elif key in ("idle_activity_start_hour", "idle_activity_end_hour"):
+                        config[key] = max(0, min(23, int(value)))
                     else:
                         config[key] = int(value)
                     updated = True
@@ -226,7 +241,13 @@ async def update_config(new_config: Dict[str, Any]):
                 except (ValueError, TypeError):
                     pass  # 忽略无效值
             else:
-                config[key] = value
+                if key == "idle_activity_enabled":
+                    config[key] = "true" if str(value).strip().lower() in ("1", "true", "yes", "on") else "false"
+                elif key == "idle_activity_level":
+                    lv = str(value).strip().lower()
+                    config[key] = lv if lv in ("low", "mid", "high") else "mid"
+                else:
+                    config[key] = value
                 updated = True
     
     if updated:

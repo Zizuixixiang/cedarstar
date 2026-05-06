@@ -55,6 +55,12 @@ const DEFAULT_CONFIG = {
   group_chat_max_rounds: 3,
   group_chat_interject_enabled: 0,
   group_chat_interject_probability: 0.2,
+  idle_activity_enabled: 'false',
+  idle_activity_level: 'mid',
+  idle_activity_threshold_min: 10,
+  idle_activity_cooldown_min: 120,
+  idle_activity_start_hour: 8,
+  idle_activity_end_hour: 23,
 
   tts_enabled: 0,
   tts_speed: 0.95,
@@ -355,6 +361,7 @@ function Config() {
   const [toast, setToast] = useState(null); // { message, type }
   const [showConfirm, setShowConfirm] = useState(false);
   const [savingTelegramKey, setSavingTelegramKey] = useState(null);
+  const [isSavingIdleCard, setIsSavingIdleCard] = useState(false);
 
   // 显示 toast
   const showToast = useCallback((message, type = 'success') => {
@@ -519,6 +526,85 @@ function Config() {
       showToast('网络错误', 'error');
     } finally {
       setSavingTelegramKey(null);
+    }
+  };
+
+  // 自主活动配置：局部更新 state，点击保存此项后批量提交
+  const handleIdleToggle = (checked) => {
+    setConfig((prev) => ({ ...prev, idle_activity_enabled: checked ? 'true' : 'false' }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleIdleLevelChange = (level) => {
+    const v = ['low', 'mid', 'high'].includes(level) ? level : 'mid';
+    setConfig((prev) => ({ ...prev, idle_activity_level: v }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleIdleIntChange = (key, rawValue, min, max) => {
+    // 输入时不强制钳制，避免“默认 1 难以覆盖”的输入体验
+    if (rawValue === '') {
+      setConfig((prev) => ({ ...prev, [key]: '' }));
+      setHasUnsavedChanges(true);
+      return;
+    }
+    if (!/^\d+$/.test(String(rawValue))) return;
+    setConfig((prev) => ({ ...prev, [key]: Number(rawValue) }));
+    setHasUnsavedChanges(true);
+  };
+
+  const handleIdleIntBlur = (key, rawValue, min, max, fallback) => {
+    const n = Number(rawValue);
+    const normalized = Number.isNaN(n)
+      ? fallback
+      : Math.max(min, Math.min(max, Math.trunc(n)));
+    setConfig((prev) => ({ ...prev, [key]: normalized }));
+  };
+
+  const saveIdleActivityCard = async () => {
+    if (!config || isSavingIdleCard) return;
+    setIsSavingIdleCard(true);
+    try {
+      const payload = {
+        idle_activity_enabled:
+          String(config.idle_activity_enabled || '').toLowerCase() === 'true' ? 'true' : 'false',
+        idle_activity_level: ['low', 'mid', 'high'].includes(config.idle_activity_level)
+          ? config.idle_activity_level
+          : 'mid',
+        idle_activity_threshold_min: Math.max(
+          1,
+          Math.min(1440, Math.trunc(Number(config.idle_activity_threshold_min)))
+        ),
+        idle_activity_cooldown_min: Math.max(
+          1,
+          Math.min(1440, Math.trunc(Number(config.idle_activity_cooldown_min)))
+        ),
+        idle_activity_start_hour: Math.max(
+          0,
+          Math.min(23, Math.trunc(Number(config.idle_activity_start_hour)))
+        ),
+        idle_activity_end_hour: Math.max(
+          0,
+          Math.min(23, Math.trunc(Number(config.idle_activity_end_hour)))
+        ),
+      };
+      const response = await apiFetch('/api/config/config', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        showToast('✓ 自主活动配置已保存', 'success');
+        await fetchConfig();
+      } else {
+        showToast(data.message || '保存失败', 'error');
+      }
+    } catch (error) {
+      console.error('保存自主活动配置失败:', error);
+      showToast('网络错误', 'error');
+    } finally {
+      setIsSavingIdleCard(false);
     }
   };
 
@@ -726,6 +812,83 @@ function Config() {
               />
               <span style={{ fontSize: '0.95rem', color: '#374151', fontWeight: 500 }}>允许插话</span>
             </label>
+          </div>
+        </div>
+        <hr className="config-divider" />
+
+        <div className="config-item">
+          <div className="config-info">
+            <div className="config-name">自主活动</div>
+            <div className="config-desc">长时间无人发言时触发一次 AI 自主活动。</div>
+            <div className="config-hint">频率档位只影响“每次检查命中率”，阈值和间隔均可手动输入。</div>
+          </div>
+          <div className="config-controls config-controls--idle-card">
+            <label className="config-idle-inline-toggle">
+              <input
+                type="checkbox"
+                checked={String(config.idle_activity_enabled || '').toLowerCase() === 'true'}
+                onChange={(e) => handleIdleToggle(e.target.checked)}
+              />
+              <span>启用</span>
+            </label>
+            <select
+              className="config-idle-select"
+              value={['low', 'mid', 'high'].includes(config.idle_activity_level) ? config.idle_activity_level : 'mid'}
+              onChange={(e) => handleIdleLevelChange(e.target.value)}
+            >
+              <option value="low">低（命中率 0.3）</option>
+              <option value="mid">中（命中率 0.6）</option>
+              <option value="high">高（命中率 1.0）</option>
+            </select>
+            <div className="config-idle-threshold">
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={config.idle_activity_threshold_min}
+                onChange={(e) => handleIdleIntChange('idle_activity_threshold_min', e.target.value, 1, 1440)}
+                onBlur={(e) => handleIdleIntBlur('idle_activity_threshold_min', e.target.value, 1, 1440, 10)}
+              />
+              <span>触发阈值(分钟)</span>
+            </div>
+            <div className="config-idle-threshold">
+              <input
+                type="number"
+                min={1}
+                max={1440}
+                value={config.idle_activity_cooldown_min}
+                onChange={(e) => handleIdleIntChange('idle_activity_cooldown_min', e.target.value, 1, 1440)}
+                onBlur={(e) => handleIdleIntBlur('idle_activity_cooldown_min', e.target.value, 1, 1440, 120)}
+              />
+              <span>活动间隔(分钟)</span>
+            </div>
+            <div className="config-idle-hours">
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={config.idle_activity_start_hour}
+                onChange={(e) => handleIdleIntChange('idle_activity_start_hour', e.target.value, 0, 23)}
+                onBlur={(e) => handleIdleIntBlur('idle_activity_start_hour', e.target.value, 0, 23, 8)}
+              />
+              <span>~</span>
+              <input
+                type="number"
+                min={0}
+                max={23}
+                value={config.idle_activity_end_hour}
+                onChange={(e) => handleIdleIntChange('idle_activity_end_hour', e.target.value, 0, 23)}
+                onBlur={(e) => handleIdleIntBlur('idle_activity_end_hour', e.target.value, 0, 23, 23)}
+              />
+            </div>
+            <button
+              type="button"
+              className="config-btn-secondary config-btn-telegram-inline-save"
+              onClick={saveIdleActivityCard}
+              disabled={isSavingIdleCard}
+            >
+              {isSavingIdleCard ? '保存中…' : '保存此项'}
+            </button>
           </div>
         </div>
         <hr className="config-divider" />

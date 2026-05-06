@@ -658,6 +658,13 @@ async def migrate_database_schema(conn) -> None:
             ("group_chat_max_rounds", "3"),
             ("group_chat_interject_enabled", "0"),
             ("group_chat_interject_probability", "0.2"),
+            # AI 自主活动（Idle Activity）默认配置
+            ("idle_activity_enabled", "false"),
+            ("idle_activity_level", "mid"),
+            ("idle_activity_threshold_min", "10"),
+            ("idle_activity_cooldown_min", "120"),
+            ("idle_activity_start_hour", "8"),
+            ("idle_activity_end_hour", "23"),
             ("external_chunk_max_chars", "2000"),
             ("x_daily_read_limit", "100"),
             ("tts_enabled", "false"),
