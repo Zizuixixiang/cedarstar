@@ -1,0 +1,163 @@
+.tools-page {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  width: 100%;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+.tools-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px;
+}
+
+.tools-title-wrap h1 {
+  margin: 0;
+  font-size: 1.45rem;
+}
+
+.tools-kicker {
+  margin: 0 0 6px;
+  font-size: 0.75rem;
+  letter-spacing: 0.08em;
+  color: #6b7280;
+}
+
+.tools-refresh-btn,
+.tools-link-btn {
+  border: 1px solid #d1d5db;
+  background: #fff;
+  border-radius: 10px;
+  padding: 8px 14px;
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: none;
+  color: #111827;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  white-space: nowrap;
+  min-width: 120px;
+}
+
+.tools-link-btn.ghost {
+  background: #f9fafb;
+}
+
+.tools-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  background: #fff;
+  padding: 16px;
+}
+
+.tools-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.tools-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+}
+
+.tools-muted {
+  margin: 0;
+  color: #6b7280;
+  font-size: 0.86rem;
+}
+
+.tools-switch-list,
+.tools-config-list,
+.tools-exec-list {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tools-switch-row,
+.tools-exec-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.tools-config-row {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.tools-status {
+  font-size: 0.78rem;
+  border-radius: 999px;
+  padding: 2px 8px;
+}
+
+.tools-status.on {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.tools-status.off {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.tools-usage-line {
+  font-size: 0.95rem;
+}
+
+.tools-config-label {
+  color: #374151;
+}
+
+.tools-config-value {
+  color: #111827;
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tools-exec-row .name {
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.tools-exec-row .meta {
+  color: #6b7280;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+  text-align: right;
+}
+
+.tools-error {
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.tools-loading {
+  color: #6b7280;
+}
