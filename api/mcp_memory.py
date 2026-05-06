@@ -13,11 +13,13 @@ MCP Memory Server — SSE transport at /mcp/memory/{token}/sse。
 """
 
 import asyncio
+import hashlib
 import json
 import logging
 import os
 import re
-from datetime import datetime, timedelta, timezone
+import uuid
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from starlette.requests import Request
@@ -30,15 +32,17 @@ logger = logging.getLogger(__name__)
 # 环境变量
 # ---------------------------------------------------------------------------
 
-_MCP_READ_TOKEN = (os.environ.get("MCP_WEB_READ_TOKEN") or "").strip()
-_MCP_WRITE_TOKEN = (os.environ.get("MCP_WEB_WRITE_TOKEN") or "").strip()
+_MCP_WEB_READ_TOKEN = (os.environ.get("MCP_WEB_READ_TOKEN") or "").strip()
+_MCP_WEB_WRITE_TOKEN = (os.environ.get("MCP_WEB_WRITE_TOKEN") or "").strip()
+_MCP_API_READ_TOKEN = (os.environ.get("MCP_API_READ_TOKEN") or "").strip()
+_MCP_API_ADMIN_TOKEN = (os.environ.get("MCP_API_TOKEN") or "").strip()
 
 # ---------------------------------------------------------------------------
 # 鉴权 ASGI 中间件（URL 内嵌 token）
 # ---------------------------------------------------------------------------
 
 # 匹配完整路径：/mcp/memory/{token}/sse 或 /mcp/memory/{token}/messages/
-_TOKEN_PATH_RE = re.compile(r"^/mcp/memory/([a-f0-9]{32,128})(/sse|/messages/)$")
+_TOKEN_PATH_RE = re.compile(r"^/mcp/memory/([^/]{8,256})(/sse|/messages/)$")
 
 
 class MCPAuthMiddleware:
@@ -73,6 +77,7 @@ class MCPAuthMiddleware:
                 await _audit("__auth__", "__auth__", {"reason": "invalid_url_token"}, "error", "invalid url token")
                 return await Response(status_code=404)(scope, receive, send)
             scope["mcp_scope"] = resolved
+            scope["mcp_token_hash"] = _hash_token(token)
             # 保留原始路径供 uvicorn access log 使用（含 token，由日志过滤器脱敏）
             scope["mcp_original_path"] = path
             # 重写路径 + root_path，使 MCP server 生成的 messages URL 包含 token
@@ -86,11 +91,19 @@ class MCPAuthMiddleware:
         return await Response(status_code=404)(scope, receive, send)
 
 
+def _hash_token(token: str) -> str:
+    return hashlib.sha256((token or "").encode("utf-8")).hexdigest()
+
+
 def _resolve_scope(token: str) -> Optional[str]:
-    if _MCP_WRITE_TOKEN and token == _MCP_WRITE_TOKEN:
-        return "write"
-    if _MCP_READ_TOKEN and token == _MCP_READ_TOKEN:
-        return "read"
+    if _MCP_WEB_READ_TOKEN and token == _MCP_WEB_READ_TOKEN:
+        return "web_read"
+    if _MCP_WEB_WRITE_TOKEN and token == _MCP_WEB_WRITE_TOKEN:
+        return "web_write"
+    if _MCP_API_READ_TOKEN and token == _MCP_API_READ_TOKEN:
+        return "api_read"
+    if _MCP_API_ADMIN_TOKEN and token == _MCP_API_ADMIN_TOKEN:
+        return "api_admin"
     return None
 
 
@@ -104,6 +117,7 @@ async def _audit(
     arguments: Optional[Dict[str, Any]] = None,
     result_status: str = "success",
     error_message: Optional[str] = None,
+    approval_id: Optional[str] = None,
 ) -> None:
     try:
         from memory.database import insert_mcp_audit_log
@@ -113,6 +127,7 @@ async def _audit(
             arguments=arguments,
             result_status=result_status,
             error_message=error_message,
+            approval_id=approval_id,
         )
     except Exception as e:
         logger.error("审计日志写入失败: %s", e)
@@ -122,16 +137,141 @@ async def _audit(
 # FastMCP 实例 + 工具注册
 # ---------------------------------------------------------------------------
 
+from mcp import types as mcp_types
 from mcp.server.fastmcp import FastMCP
 
 mcp = FastMCP(
     "memory",
     instructions=(
         "CedarClio 记忆系统 MCP Server。"
-        "提供 7 个读工具和 1 个写工具（add_external_chunk）。"
-        "add_external_chunk 仅在用户明确说出「整理这个窗口」「写进记忆库」「存进去」等显式指令时调用。"
+        "读工具可用于查询长期记忆、摘要、记忆卡片、时效状态、关系时间线和人设。"
+        "add_external_chunk 仅在用户明确要求「整理这个窗口」「写进记忆库」「存进去」等时调用。"
+        "api_admin scope 下的 update_memory_card / update_temporal_state / update_relationship_timeline_entry / update_persona_field "
+        "都不会直接修改数据，只会创建 pending approval。"
+        "调用 update_* 前，先用读工具确认精确目标：id / persona_id / dimension / field_name。"
+        "update_temporal_state 只改 content，不要传 expires_at。"
+        "update_persona_field 的 field_name 只能是 char_identity / char_personality / char_speech_style / char_redlines / char_appearance / char_relationships / char_nsfw。"
+        "看到 pending 返回后，应告诉用户 approval_id，并说明需要在 Mini App 待审批页或 Telegram 通知中审批后才会生效。"
     ),
 )
+# ---------------------------------------------------------------------------
+# Scope and approval helpers
+# ---------------------------------------------------------------------------
+
+READ_TOOL_SCOPES = ["web_read", "web_write", "api_read", "api_admin"]
+WEB_WRITE_SCOPES = ["web_write"]
+API_ADMIN_SCOPES = ["api_admin"]
+UPDATE_PERSONA_FIELD_WHITELIST = {
+    "char_identity",
+    "char_personality",
+    "char_speech_style",
+    "char_redlines",
+    "char_appearance",
+    "char_relationships",
+    "char_nsfw",
+}
+PENDING_APPROVAL_MESSAGE = (
+    "\u7b49\u5f85\u5ba1\u6279\uff0c\u5ba1\u6279\u7ed3\u679c\u5c06\u901a\u8fc7 Telegram \u901a\u77e5"
+)
+
+
+def _json(data: Dict[str, Any]) -> str:
+    return json.dumps(data, ensure_ascii=False, default=str)
+
+
+def _jsonable_value(value: Any) -> Any:
+    if isinstance(value, (datetime, date)):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return value
+
+
+def _record_to_dict(record: Any) -> Dict[str, Any]:
+    if not record:
+        return {}
+    return {key: _jsonable_value(value) for key, value in dict(record).items()}
+
+
+def _current_request_scope() -> Dict[str, Any]:
+    try:
+        request = mcp.get_context().request_context.request
+        return getattr(request, "scope", {}) or {}
+    except Exception:
+        return {}
+
+
+def _current_mcp_scope() -> Optional[str]:
+    return _current_request_scope().get("mcp_scope")
+
+
+def _current_token_hash() -> Optional[str]:
+    return _current_request_scope().get("mcp_token_hash")
+
+
+def _required_scopes_for_tool_info(tool_info: Any) -> List[str]:
+    fn = getattr(tool_info, "fn", None)
+    required = getattr(fn, "_required_scopes", None)
+    if required is None:
+        return API_ADMIN_SCOPES
+    return list(required)
+
+
+def _tool_allowed_for_scope(tool_info: Any, scope: Optional[str]) -> bool:
+    return bool(scope and scope in _required_scopes_for_tool_info(tool_info))
+
+
+def _arguments_hash(tool_name: str, arguments: Dict[str, Any]) -> str:
+    payload = tool_name + json.dumps(arguments or {}, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def _queue_pending_update(
+    tool_name: str,
+    arguments: Dict[str, Any],
+    before_snapshot: Dict[str, Any],
+    after_preview: Dict[str, Any],
+) -> str:
+    from memory.database import (
+        find_duplicate_pending,
+        insert_mcp_audit_log,
+        insert_pending_approval,
+    )
+
+    arg_hash = _arguments_hash(tool_name, arguments)
+    duplicate = await find_duplicate_pending(tool_name, arg_hash)
+    if duplicate:
+        return _json({
+            "status": "pending",
+            "approval_id": duplicate.get("id"),
+            "expires_at": duplicate.get("expires_at"),
+            "message": PENDING_APPROVAL_MESSAGE,
+        })
+
+    expires_at = datetime.now(timezone.utc) + timedelta(hours=24)
+    approval_id = await insert_pending_approval(
+        tool_name=tool_name,
+        arguments=arguments,
+        arguments_hash=arg_hash,
+        before_snapshot=before_snapshot,
+        after_preview=after_preview,
+        requested_by_token_hash=_current_token_hash(),
+        expires_at=expires_at,
+    )
+    await insert_mcp_audit_log(
+        token_scope=_current_mcp_scope() or "unknown",
+        tool_name=tool_name,
+        arguments=arguments,
+        result_status="pending",
+        approval_id=approval_id,
+    )
+    return _json({
+        "status": "pending",
+        "approval_id": approval_id,
+        "expires_at": expires_at.isoformat(),
+        "message": PENDING_APPROVAL_MESSAGE,
+    })
+
 
 
 @mcp.tool()
@@ -488,5 +628,208 @@ async def add_external_chunk(content: str, as_of_date: Optional[str] = None) -> 
 # 构建挂载用的 ASGI app：auth middleware + MCP SSE
 # 导出给 main.py: app.mount("/mcp/memory", mcp_sse_app)
 # ---------------------------------------------------------------------------
+
+
+@mcp.tool()
+async def update_memory_card(persona_id: str, dimension: str, content: str) -> str:
+    """提交记忆卡片内容更新审批。
+
+    使用时机：需要改写某个角色/persona 的某个记忆维度时。
+    persona_id 按现有数据库映射为 memory_cards.character_id；dimension 必须与已有记忆卡片维度匹配。
+    本工具只创建 pending approval，不会立刻生效。返回 approval_id 后等待 Mini App/Telegram 审批。
+    """
+    try:
+        from memory.database import get_database
+
+        db = get_database()
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, user_id, character_id, dimension, content,
+                       updated_at, source_message_id, is_active
+                FROM memory_cards
+                WHERE character_id = $1 AND dimension = $2 AND is_active = 1
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                str(persona_id),
+                str(dimension),
+            )
+        if not row:
+            return _json({"success": False, "error": "memory_card not found"})
+        before = _record_to_dict(row)
+        after = {**before, "content": str(content)}
+        return await _queue_pending_update(
+            "update_memory_card",
+            {"persona_id": str(persona_id), "dimension": str(dimension), "content": str(content)},
+            before,
+            after,
+        )
+    except Exception as e:
+        logger.error("update_memory_card failed: %s", e)
+        return _json({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def update_temporal_state(id: str, content: str) -> str:
+    """提交时效状态内容更新审批。
+
+    参数 id 是 temporal_states.id；content 会写入 state_content。
+    仅允许修改 content/state_content，不接受、不应尝试传 expires_at。
+    本工具只创建 pending approval，审批通过后才生效。
+    """
+    try:
+        from memory.database import get_database
+
+        db = get_database()
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, state_content, action_rule, expire_at, is_active, created_at
+                FROM temporal_states
+                WHERE id = $1
+                """,
+                str(id),
+            )
+        if not row:
+            return _json({"success": False, "error": "temporal_state not found"})
+        before = _record_to_dict(row)
+        after = {**before, "state_content": str(content)}
+        return await _queue_pending_update(
+            "update_temporal_state",
+            {"id": str(id), "content": str(content)},
+            before,
+            after,
+        )
+    except Exception as e:
+        logger.error("update_temporal_state failed: %s", e)
+        return _json({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def update_relationship_timeline_entry(id: str, content: str) -> str:
+    """提交关系时间线条目内容更新审批。
+
+    参数 id 是 relationship_timeline.id；content 会写入 relationship_timeline.content。
+    调用前应先用 get_relationship_timeline 找到精确条目。
+    本工具只创建 pending approval，审批通过后才生效。
+    """
+    try:
+        from memory.database import get_database
+
+        db = get_database()
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, created_at, event_type, content, source_summary_id
+                FROM relationship_timeline
+                WHERE id = $1
+                """,
+                str(id),
+            )
+        if not row:
+            return _json({"success": False, "error": "relationship_timeline entry not found"})
+        before = _record_to_dict(row)
+        after = {**before, "content": str(content)}
+        return await _queue_pending_update(
+            "update_relationship_timeline_entry",
+            {"id": str(id), "content": str(content)},
+            before,
+            after,
+        )
+    except Exception as e:
+        logger.error("update_relationship_timeline_entry failed: %s", e)
+        return _json({"success": False, "error": str(e)})
+
+
+@mcp.tool()
+async def update_persona_field(persona_id: int, field_name: str, content: str) -> str:
+    """提交人设字段更新审批。
+
+    persona_id 是 persona_configs.id。field_name 只允许：
+    char_identity / char_personality / char_speech_style / char_redlines / char_appearance / char_relationships / char_nsfw。
+    field_name 不在白名单时会直接返回 error。
+    本工具只创建 pending approval，审批通过后才生效。
+    """
+    try:
+        field = str(field_name or "").strip()
+        if field not in UPDATE_PERSONA_FIELD_WHITELIST:
+            return _json({"success": False, "error": "field_name not allowed"})
+
+        from memory.database import get_database
+
+        db = get_database()
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM persona_configs WHERE id = $1", int(persona_id))
+        if not row:
+            return _json({"success": False, "error": "persona not found"})
+        before = _record_to_dict(row)
+        after = {**before, field: str(content)}
+        return await _queue_pending_update(
+            "update_persona_field",
+            {"persona_id": int(persona_id), "field_name": field, "content": str(content)},
+            before,
+            after,
+        )
+    except Exception as e:
+        logger.error("update_persona_field failed: %s", e)
+        return _json({"success": False, "error": str(e)})
+
+
+def _assign_tool_scopes() -> None:
+    for fn in (
+        search_memories,
+        get_recent_summaries,
+        get_memory_cards,
+        get_temporal_states,
+        get_relationship_timeline,
+        get_persona,
+        get_context_trace,
+    ):
+        fn._required_scopes = READ_TOOL_SCOPES
+    add_external_chunk._required_scopes = WEB_WRITE_SCOPES
+    for fn in (
+        update_memory_card,
+        update_temporal_state,
+        update_relationship_timeline_entry,
+        update_persona_field,
+    ):
+        fn._required_scopes = API_ADMIN_SCOPES
+
+
+async def _filtered_list_tools() -> List[mcp_types.Tool]:
+    current_scope = _current_mcp_scope()
+    tools: List[mcp_types.Tool] = []
+    for info in mcp._tool_manager.list_tools():
+        if not _tool_allowed_for_scope(info, current_scope):
+            continue
+        tools.append(
+            mcp_types.Tool(
+                name=info.name,
+                title=info.title,
+                description=info.description,
+                inputSchema=info.parameters,
+                outputSchema=info.output_schema,
+                annotations=info.annotations,
+                icons=info.icons,
+                _meta=info.meta,
+            )
+        )
+    return tools
+
+
+async def _filtered_call_tool(name: str, arguments: Dict[str, Any]) -> Any:
+    tool_info = mcp._tool_manager.get_tool(name)
+    current_scope = _current_mcp_scope()
+    if tool_info is not None and not _tool_allowed_for_scope(tool_info, current_scope):
+        payload = {"error": "forbidden"}
+        await _audit(current_scope or "unknown", name, arguments, "error", "forbidden")
+        return ([mcp_types.TextContent(type="text", text=_json(payload))], payload)
+    return await mcp.call_tool(name, arguments or {})
+
+
+_assign_tool_scopes()
+mcp._mcp_server.list_tools()(_filtered_list_tools)
+mcp._mcp_server.call_tool(validate_input=False)(_filtered_call_tool)
 
 mcp_sse_app = MCPAuthMiddleware(mcp.sse_app())

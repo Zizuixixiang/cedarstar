@@ -2184,8 +2184,14 @@ class LLMInterface:
             nm = fn.get("name")
             if nm:
                 slot["name"] = str(nm)
+                logger.info("[tool_call_delta] idx=%s name=%s tc_keys=%s", idx, nm, sorted(tc.keys()))
             arg = fn.get("arguments")
             if arg is not None and arg != "":
+                logger.info(
+                    "[tool_call_delta] idx=%s arg_chunk=%r",
+                    idx,
+                    (arg if isinstance(arg, str) else str(arg))[:200],
+                )
                 slot["arguments"] = (slot["arguments"] or "") + (
                     arg if isinstance(arg, str) else str(arg)
                 )
@@ -2296,11 +2302,21 @@ class LLMInterface:
 
         # delta 未流式拼接出 tool_calls 时，用末次出现的 message.tool_calls（与 OpenAI 末包语义一致）
         if not tc_by_index and last_msg_tool_calls:
+            logger.info(
+                "[tool_calls_fallback] using last_msg_tool_calls count=%d sample=%r",
+                len(last_msg_tool_calls),
+                str(last_msg_tool_calls[0])[:400] if last_msg_tool_calls else "",
+            )
             for i, tc_item in enumerate(last_msg_tool_calls):
                 if isinstance(tc_item, dict):
                     merged_tc = dict(tc_item)
                     merged_tc["index"] = merged_tc.get("index", i)
                     _merge_tool_call_delta(merged_tc)
+        if tc_by_index:
+            logger.info(
+                "[tool_calls_assembled] %s",
+                {k: dict(v) for k, v in tc_by_index.items()},
+            )
 
         content_str = "".join(full_content)
         thinking_str = "".join(full_thinking).strip() or None
@@ -2469,6 +2485,16 @@ async def complete_with_lutopia_tool_loop(
         save_tool_execution_record,
         tool_result_for_model,
     )
+    from tools.memory_tools import (
+        OPENAI_MEMORY_TOOLS,
+        execute_memory_search,
+        execute_memory_get_summaries,
+        execute_memory_get_cards,
+        execute_memory_get_temporal_states,
+        execute_memory_get_relationship_timeline,
+        execute_memory_get_approval_status,
+        execute_memory_update_request,
+    )
     from tools.prompts import (
         OPENAI_SEARCH_TOOLS,
         OPENAI_WEATHER_TOOLS,
@@ -2484,6 +2510,8 @@ async def complete_with_lutopia_tool_loop(
 
     tools_list: List[Dict[str, Any]] = []
     suffix_keys: List[str] = []
+    tools_list.extend(OPENAI_MEMORY_TOOLS)
+    suffix_keys.append("memory")
     if llm.enable_lutopia:
         tools_list.extend(OPENAI_LUTOPIA_TOOLS)
         suffix_keys.append("lutopia")
@@ -2501,6 +2529,11 @@ async def complete_with_lutopia_tool_loop(
         suffix_keys.append("x")
     tools_payload: Optional[List[Dict[str, Any]]] = (
         tools_list if tools_list else None
+    )
+    logger.info(
+        "tool_loop tools=[%s] suffix_keys=%s",
+        ", ".join(t.get("function", {}).get("name", "?") for t in tools_list),
+        suffix_keys,
     )
 
     work = copy.deepcopy(messages)
@@ -2612,6 +2645,48 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_d3 = {}
                     result_str = await execute_search_function_call(nm, args_d3)
+                elif nm == "memory_search":
+                    try:
+                        args_mem: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_mem = {}
+                    result_str = await execute_memory_search(args_mem)
+                elif nm == "memory_get_summaries":
+                    try:
+                        args_ms: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_ms = {}
+                    result_str = await execute_memory_get_summaries(args_ms)
+                elif nm == "memory_get_cards":
+                    try:
+                        args_mc: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_mc = {}
+                    result_str = await execute_memory_get_cards(args_mc)
+                elif nm == "memory_get_temporal_states":
+                    try:
+                        args_mt: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_mt = {}
+                    result_str = await execute_memory_get_temporal_states(args_mt)
+                elif nm == "memory_get_relationship_timeline":
+                    try:
+                        args_mr: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_mr = {}
+                    result_str = await execute_memory_get_relationship_timeline(args_mr)
+                elif nm == "memory_get_approval_status":
+                    try:
+                        args_ma: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_ma = {}
+                    result_str = await execute_memory_get_approval_status(args_ma)
+                elif nm == "memory_update_request":
+                    try:
+                        args_mem_update: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_mem_update = {}
+                    result_str = await execute_memory_update_request(args_mem_update)
                 elif nm in (
                     "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
                     "reply_tweet", "search_tweets", "get_timeline", "get_user",

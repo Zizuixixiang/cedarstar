@@ -297,8 +297,9 @@ async def main_async():
         asyncio.create_task(log_flusher_task())
 
         # 启动日终跑批定时调度器（读取数据库 daily_batch_hour 配置）
-        from memory.daily_batch import schedule_daily_batch
+        from memory.daily_batch import schedule_daily_batch, schedule_expire_stale_approvals
         asyncio.create_task(schedule_daily_batch())
+        asyncio.create_task(schedule_expire_stale_approvals())
 
         # 任一 Bot 开始收消息前，阻塞重建 BM25 索引（与 Chroma 全量对齐；无文档时为空索引，不抛错）
         logger.info("重建 BM25 内存索引（memory.bm25_retriever.refresh_index）...")

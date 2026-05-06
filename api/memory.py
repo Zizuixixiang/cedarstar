@@ -8,6 +8,8 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
 import datetime
+import hashlib
+import json
 import logging
 import uuid
 
@@ -61,8 +63,520 @@ class SummaryStarPatch(BaseModel):
     is_starred: bool
 
 
+class ApprovalRejectRequest(BaseModel):
+    note: str = ""
+
+
+class ApprovalRequest(BaseModel):
+    tool_name: str
+    arguments: Dict[str, Any]
+
+
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict:
     return {"success": success, "data": data, "message": message}
+
+
+APPROVAL_PERSONA_FIELD_WHITELIST = {
+    "char_identity",
+    "char_personality",
+    "char_speech_style",
+    "char_redlines",
+    "char_appearance",
+    "char_relationships",
+    "char_nsfw",
+}
+
+APPROVAL_ALLOWED_TOOL_NAMES = {
+    "update_memory_card",
+    "update_temporal_state",
+    "update_relationship_timeline_entry",
+    "update_persona_field",
+    "update_summary",
+    "create_relationship_timeline_entry",
+    "create_temporal_state",
+}
+
+
+def _rowcount_from_status(status: str) -> int:
+    try:
+        return int(str(status).split()[-1])
+    except (IndexError, ValueError):
+        return 0
+
+
+def _ensure_dict(value: Any) -> Dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except json.JSONDecodeError:
+            return {}
+    return {}
+
+
+def _approval_arg_content(approval: Dict[str, Any]) -> str:
+    args = _ensure_dict(approval.get("arguments"))
+    after = _ensure_dict(approval.get("after_preview"))
+    value = args.get("content")
+    if value is None:
+        value = after.get("content")
+    if value is None:
+        value = after.get("state_content")
+    if value is None:
+        raise ValueError("approval content is missing")
+    return str(value)
+
+
+def _short_text(value: Any, limit: int = 160) -> str:
+    text = str(value or "").replace("\n", " ").strip()
+    if len(text) <= limit:
+        return text
+    return text[:limit] + "..."
+
+
+def _approval_change_summary(approval: Dict[str, Any]) -> str:
+    args = _ensure_dict(approval.get("arguments"))
+    tool_name = str(approval.get("tool_name") or "")
+    content = _short_text(args.get("content", ""))
+    if tool_name == "update_persona_field":
+        return f"{args.get('field_name')}: {content}"
+    if tool_name == "update_memory_card":
+        return f"{args.get('dimension')}: {content}"
+    if tool_name == "update_temporal_state":
+        return f"{args.get('id')}: {content}"
+    if tool_name == "update_relationship_timeline_entry":
+        return f"{args.get('id')}: {content}"
+    return content
+
+
+def _approval_notification_text(approval: Dict[str, Any], status_text: str, note: str = "") -> str:
+    lines = [
+        f"\u5de5\u5177\u540d: {approval.get('tool_name')}",
+        f"\u4fee\u6539\u5185\u5bb9\u6458\u8981: {_approval_change_summary(approval)}",
+        f"\u72b6\u6001: {status_text}",
+    ]
+    if note:
+        lines.append(f"\u62d2\u7edd\u7406\u7531: {note}")
+    return "\n".join(lines)
+
+
+_TOOL_ACTION_LABELS = {
+    "update_memory_card": "更新记忆卡片",
+    "update_temporal_state": "更新时效状态",
+    "update_relationship_timeline_entry": "更新关系时间线",
+    "update_persona_field": "更新人设字段",
+    "update_summary": "更新摘要",
+    "create_relationship_timeline_entry": "新增关系时间线条目",
+    "create_temporal_state": "新增时效状态",
+}
+
+
+def _natural_target_part(approval: Dict[str, Any]) -> str:
+    args = _ensure_dict(approval.get("arguments"))
+    tool_name = str(approval.get("tool_name") or "")
+    if tool_name == "update_memory_card":
+        dim = str(args.get("dimension") or "").strip()
+        return f"({dim})" if dim else ""
+    if tool_name == "update_persona_field":
+        field = str(args.get("field_name") or "").strip()
+        return f"({field})" if field else ""
+    if tool_name == "create_relationship_timeline_entry":
+        ev = str(args.get("event_type") or "").strip()
+        return f"({ev})" if ev else ""
+    return ""
+
+
+def _compose_approval_resolution_phrase(
+    approval: Dict[str, Any],
+    decision: str,
+    note: str = "",
+) -> str:
+    """生成自然语言的审批结果短语，用于 Telegram 推送和写入 messages 表。"""
+    tool_name = str(approval.get("tool_name") or "")
+    action = _TOOL_ACTION_LABELS.get(tool_name, tool_name or "记忆更新")
+    label = f"{action}{_natural_target_part(approval)}"
+    args = _ensure_dict(approval.get("arguments"))
+    content = _short_text(args.get("content"), 120)
+    if decision == "approved":
+        if content:
+            return f"南杉同意了你「{label}」的申请，已生效。\n内容：{content}"
+        return f"南杉同意了你「{label}」的申请，已生效。"
+    if decision == "rejected":
+        note_text = (note or "").strip()
+        if note_text:
+            return f"南杉拒绝了你「{label}」的申请。\n理由：{_short_text(note_text, 200)}"
+        return f"南杉拒绝了你「{label}」的申请。"
+    return f"你「{label}」的申请状态：{decision}"
+
+
+async def _resolve_approval_target() -> Optional[Dict[str, str]]:
+    """解析审批结果应该推送到的目标会话。
+
+    优先用 ``.env`` 里的 ``TELEGRAM_MAIN_USER_CHAT_ID``；未配置时回退到 messages 表
+    最近一条 telegram 用户消息推断出来的 session_id（CedarClio 单用户场景下足够稳定）。
+    返回 ``{"session_id": ..., "chat_id": ..., "platform": "telegram"}`` 或 ``None``。
+    """
+    try:
+        from config import Platform as _Platform, config as _cfg
+
+        raw = _cfg.TELEGRAM_MAIN_USER_CHAT_ID
+        chat_id = (raw or "").strip() if raw else ""
+        if chat_id:
+            return {
+                "session_id": f"telegram_{chat_id}",
+                "chat_id": chat_id,
+                "platform": _Platform.TELEGRAM,
+            }
+
+        from memory.database import get_database
+
+        db = get_database()
+        async with db.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT session_id
+                FROM messages
+                WHERE platform = 'telegram'
+                  AND session_id LIKE 'telegram_%'
+                  AND role = 'user'
+                ORDER BY id DESC
+                LIMIT 1
+                """
+            )
+        if row and row["session_id"]:
+            sid = str(row["session_id"])
+            if sid.startswith("telegram_"):
+                cid = sid[len("telegram_"):]
+                if cid:
+                    return {
+                        "session_id": sid,
+                        "chat_id": cid,
+                        "platform": _Platform.TELEGRAM,
+                    }
+    except Exception as e:
+        logger.warning("resolve approval target failed: %s", e)
+    return None
+
+
+async def _send_approval_resolution_to_chat(text: str, target: Dict[str, str]) -> None:
+    """把审批结果发到目标 telegram chat（直接传 chat_id，不依赖主用户环境变量）。"""
+    try:
+        from bot.telegram_notify import send_telegram_text_to_chat
+
+        await send_telegram_text_to_chat(target.get("chat_id"), text)
+    except Exception as e:
+        logger.warning("send approval resolution to chat failed: %s", e)
+
+
+async def _persist_approval_system_message(text: str, target: Dict[str, str]) -> None:
+    """把审批结果作为系统通知写入 messages 表，让 AI 在下一轮上下文里读到。"""
+    try:
+        from memory.database import save_message
+
+        session_id = target.get("session_id") or ""
+        platform = target.get("platform") or "telegram"
+        if not session_id:
+            logger.debug("approval system message skipped: empty session_id")
+            return
+        await save_message(
+            role="user",
+            content=f"[系统通知] {text}",
+            session_id=session_id,
+            user_id="system",
+            platform=platform,
+        )
+    except Exception as e:
+        logger.warning("persist approval system message failed: %s", e)
+
+
+
+
+def _jsonable_approval_value(value: Any) -> Any:
+    if isinstance(value, (datetime.datetime, datetime.date)):
+        return value.isoformat()
+    if isinstance(value, uuid.UUID):
+        return str(value)
+    return value
+
+
+def _record_to_plain_dict(record: Any) -> Dict[str, Any]:
+    if not record:
+        return {}
+    return {key: _jsonable_approval_value(value) for key, value in dict(record).items()}
+
+
+def _approval_request_hash(tool_name: str, arguments: Dict[str, Any]) -> str:
+    payload = str(tool_name) + json.dumps(arguments or {}, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+async def _build_pending_approval_preview(conn, tool_name: str, arguments: Dict[str, Any]) -> tuple[Dict[str, Any], Dict[str, Any]]:
+    args = arguments if isinstance(arguments, dict) else {}
+    content = args.get("content")
+    if content is None:
+        raise ValueError("content is required")
+    content = str(content)
+
+    if tool_name == "update_memory_card":
+        persona_id = str(args.get("persona_id") or "").strip()
+        dimension = str(args.get("dimension") or "").strip()
+        if not persona_id or not dimension:
+            raise ValueError("persona_id and dimension are required")
+        row = await conn.fetchrow(
+            """
+            SELECT id, user_id, character_id, dimension, content,
+                   updated_at, source_message_id, is_active
+            FROM memory_cards
+            WHERE character_id = $1 AND dimension = $2 AND is_active = 1
+            ORDER BY updated_at DESC
+            LIMIT 1
+            """,
+            persona_id,
+            dimension,
+        )
+        if not row:
+            raise ValueError("memory_card not found")
+        before = _record_to_plain_dict(row)
+        return before, {**before, "content": content}
+
+    if tool_name == "update_temporal_state":
+        state_id = str(args.get("id") or "").strip()
+        if not state_id:
+            raise ValueError("id is required")
+        row = await conn.fetchrow(
+            """
+            SELECT id, state_content, action_rule, expire_at, is_active, created_at
+            FROM temporal_states
+            WHERE id = $1
+            """,
+            state_id,
+        )
+        if not row:
+            raise ValueError("temporal_state not found")
+        before = _record_to_plain_dict(row)
+        return before, {**before, "state_content": content}
+
+    if tool_name == "update_relationship_timeline_entry":
+        entry_id = str(args.get("id") or "").strip()
+        if not entry_id:
+            raise ValueError("id is required")
+        row = await conn.fetchrow(
+            """
+            SELECT id, created_at, event_type, content, source_summary_id
+            FROM relationship_timeline
+            WHERE id = $1
+            """,
+            entry_id,
+        )
+        if not row:
+            raise ValueError("relationship_timeline entry not found")
+        before = _record_to_plain_dict(row)
+        return before, {**before, "content": content}
+
+    if tool_name == "update_persona_field":
+        field = str(args.get("field_name") or "").strip()
+        if field not in APPROVAL_PERSONA_FIELD_WHITELIST:
+            raise ValueError("field_name not allowed")
+        persona_id = args.get("persona_id")
+        if persona_id is None or str(persona_id).strip() == "":
+            raise ValueError("persona_id is required")
+        row = await conn.fetchrow("SELECT * FROM persona_configs WHERE id = $1", int(persona_id))
+        if not row:
+            raise ValueError("persona not found")
+        before = _record_to_plain_dict(row)
+        return before, {**before, field: content}
+
+    if tool_name == "update_summary":
+        summary_id = args.get("id")
+        if summary_id is None:
+            raise ValueError("id is required")
+        row = await conn.fetchrow(
+            "SELECT id, session_id, summary_text, summary_type, source_date FROM summaries WHERE id = $1",
+            int(summary_id),
+        )
+        if not row:
+            raise ValueError("summary not found")
+        before = _record_to_plain_dict(row)
+        return before, {**before, "summary_text": content}
+
+    if tool_name == "create_relationship_timeline_entry":
+        event_type = str(args.get("event_type") or "").strip()
+        if not event_type:
+            raise ValueError("event_type is required")
+        before = {}
+        after = {"event_type": event_type, "content": content, "source_summary_id": args.get("source_summary_id")}
+        return before, after
+
+    if tool_name == "create_temporal_state":
+        before = {}
+        after = {"state_content": content, "action_rule": args.get("action_rule"), "expire_at": args.get("expire_at")}
+        return before, after
+
+    raise ValueError(f"unsupported approval tool: {tool_name}")
+
+
+async def _create_pending_approval_from_request(tool_name: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    from memory.database import (
+        find_duplicate_pending,
+        get_database,
+        insert_mcp_audit_log,
+        insert_pending_approval,
+    )
+
+    name = str(tool_name or "").strip()
+    if name not in APPROVAL_ALLOWED_TOOL_NAMES:
+        logger.error(
+            "approval rejected: tool_name not allowed, tool_name=%s, allowed=%s",
+            name,
+            sorted(APPROVAL_ALLOWED_TOOL_NAMES),
+        )
+        raise ValueError("tool_name not allowed")
+    args = arguments if isinstance(arguments, dict) else {}
+    arg_hash = _approval_request_hash(name, args)
+    duplicate = await find_duplicate_pending(name, arg_hash)
+    if duplicate:
+        return {
+            "status": "pending",
+            "approval_id": duplicate.get("id"),
+            "expires_at": duplicate.get("expires_at"),
+            "duplicate": True,
+        }
+
+    db = get_database()
+    expires_at = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=24)
+    async with db.pool.acquire() as conn:
+        before, after = await _build_pending_approval_preview(conn, name, args)
+    approval_id = await insert_pending_approval(
+        tool_name=name,
+        arguments=args,
+        arguments_hash=arg_hash,
+        before_snapshot=before,
+        after_preview=after,
+        requested_by_token_hash="internal_ai_tool",
+        expires_at=expires_at,
+    )
+    await insert_mcp_audit_log(
+        token_scope="internal_ai_tool",
+        tool_name=name,
+        arguments=args,
+        result_status="pending",
+        approval_id=approval_id,
+    )
+    return {
+        "status": "pending",
+        "approval_id": approval_id,
+        "expires_at": expires_at.isoformat(),
+        "duplicate": False,
+    }
+
+async def _send_approval_notification(text: str) -> None:
+    try:
+        from bot.telegram_notify import send_telegram_main_user_text
+
+        await send_telegram_main_user_text(text)
+    except Exception as e:
+        logger.warning("approval telegram notification failed: %s", e)
+
+
+async def _apply_approved_update(conn, approval: Dict[str, Any]) -> Dict[str, Any]:
+    tool_name = str(approval.get("tool_name") or "")
+    args = _ensure_dict(approval.get("arguments"))
+    before = _ensure_dict(approval.get("before_snapshot"))
+    content = _approval_arg_content(approval)
+
+    if tool_name == "update_memory_card":
+        card_id = before.get("id")
+        if card_id is None:
+            raise ValueError("memory card id is missing")
+        status = await conn.execute(
+            "UPDATE memory_cards SET content = $1, updated_at = NOW() WHERE id = $2",
+            content,
+            int(card_id),
+        )
+        rows = _rowcount_from_status(status)
+        if rows <= 0:
+            raise ValueError("memory card not found")
+        return {"rows": rows, "target": "memory_cards", "id": card_id}
+
+    if tool_name == "update_temporal_state":
+        state_id = args.get("id") or before.get("id")
+        if not state_id:
+            raise ValueError("temporal state id is missing")
+        status = await conn.execute(
+            "UPDATE temporal_states SET state_content = $1 WHERE id = $2",
+            content,
+            str(state_id),
+        )
+        rows = _rowcount_from_status(status)
+        if rows <= 0:
+            raise ValueError("temporal state not found")
+        return {"rows": rows, "target": "temporal_states", "id": str(state_id)}
+
+    if tool_name == "update_relationship_timeline_entry":
+        entry_id = args.get("id") or before.get("id")
+        if not entry_id:
+            raise ValueError("relationship timeline id is missing")
+        status = await conn.execute(
+            "UPDATE relationship_timeline SET content = $1 WHERE id = $2",
+            content,
+            str(entry_id),
+        )
+        rows = _rowcount_from_status(status)
+        if rows <= 0:
+            raise ValueError("relationship timeline entry not found")
+        return {"rows": rows, "target": "relationship_timeline", "id": str(entry_id)}
+
+    if tool_name == "update_persona_field":
+        field = str(args.get("field_name") or "").strip()
+        if field not in APPROVAL_PERSONA_FIELD_WHITELIST:
+            raise ValueError("field_name not allowed")
+        persona_id = args.get("persona_id") or before.get("id")
+        if persona_id is None:
+            raise ValueError("persona id is missing")
+        status = await conn.execute(
+            f"UPDATE persona_configs SET {field} = $1, updated_at = NOW() WHERE id = $2",
+            content,
+            int(persona_id),
+        )
+        rows = _rowcount_from_status(status)
+        if rows <= 0:
+            raise ValueError("persona not found")
+        return {"rows": rows, "target": "persona_configs", "id": int(persona_id), "field": field}
+
+    if tool_name == "update_summary":
+        summary_id = args.get("id") or before.get("id")
+        if summary_id is None:
+            raise ValueError("summary id is missing")
+        from memory.database import update_summary_by_id
+        ok = await update_summary_by_id(int(summary_id), content)
+        if not ok:
+            raise ValueError("summary not found")
+        return {"rows": 1, "target": "summaries", "id": int(summary_id)}
+
+    if tool_name == "create_relationship_timeline_entry":
+        from memory.database import insert_relationship_timeline_event
+        event_type = str(args.get("event_type") or "").strip()
+        if not event_type:
+            raise ValueError("event_type is required")
+        entry_id = await insert_relationship_timeline_event(
+            event_type=event_type,
+            content=content,
+            source_summary_id=str(args.get("source_summary_id") or "").strip() or None,
+        )
+        return {"rows": 1, "target": "relationship_timeline", "id": entry_id}
+
+    if tool_name == "create_temporal_state":
+        from memory.database import insert_temporal_state
+        state_id = await insert_temporal_state(
+            state_content=content,
+            action_rule=str(args.get("action_rule") or "").strip() or None,
+            expire_at=str(args.get("expire_at") or "").strip() or None,
+        )
+        return {"rows": 1, "target": "temporal_states", "id": state_id}
+
+    raise ValueError(f"unsupported approval tool: {tool_name}")
 
 
 def _is_chroma_doc_id_missing(chroma_doc_id: Any) -> bool:
@@ -246,11 +760,13 @@ async def list_summaries(
     summary_type: Optional[str] = None,
     source_date_from: Optional[str] = None,
     source_date_to: Optional[str] = None,
+    days: Optional[int] = None,
     context_only: bool = False,
+    starred_only: bool = False,
     page: int = 1,
     page_size: int = 20,
 ):
-    """分页列出 summaries；可选按 summary_type、source_date 区间（起止 YYYY-MM-DD，可只填一侧）过滤。"""
+    """分页列出 summaries；可选按 summary_type、source_date 区间或最近 N 天过滤。"""
     from memory.database import get_summaries_filtered
 
     st = (summary_type or "").strip() or None
@@ -259,6 +775,9 @@ async def list_summaries(
 
     d_from = (source_date_from or "").strip() or None
     d_to = (source_date_to or "").strip() or None
+    if days and days > 0 and not d_from and not d_to:
+        from datetime import date as _date, timedelta
+        d_from = (_date.today() - timedelta(days=days - 1)).isoformat()
 
     try:
         if context_only:
@@ -330,6 +849,7 @@ async def list_summaries(
                 summary_type=st,
                 source_date_from=d_from,
                 source_date_to=d_to,
+                starred_only=starred_only,
             )
     except ValueError as e:
         return create_response(False, None, str(e))
@@ -426,14 +946,40 @@ async def get_longterm_memories(
     page_size: int = 20,
     summary_type: Optional[str] = None,
     context_only: bool = False,
+    query: Optional[str] = None,
+    top_k: int = 5,
 ):
-    """从 ChromaDB 分页拉取长期记忆全量；可选按 metadata.summary_type 过滤。"""
-    from memory.vector_store import get_vector_store
+    """List long-term memories; run vector search when query is provided."""
+    from memory.vector_store import get_vector_store, search_memory
 
     try:
         vs = get_vector_store()
         st = (summary_type or "").strip() or None
         where = {"summary_type": st} if st else None
+        q = (query or "").strip()
+        if q:
+            k = max(1, min(int(top_k or page_size or 5), 20))
+            rows = search_memory(q, top_k=k, where=where)
+            items = []
+            for r in rows:
+                meta = dict(r.get("metadata") or {})
+                items.append(
+                    {
+                        "chroma_doc_id": r.get("id"),
+                        "content": r.get("text") or "",
+                        "score": r.get("score"),
+                        "summary_type": meta.get("summary_type"),
+                        "date": meta.get("date"),
+                        "source": meta.get("source"),
+                        "is_starred": bool(meta.get("is_starred")),
+                        "source_chunk_ids": meta.get("source_chunk_ids"),
+                    }
+                )
+            return create_response(
+                True,
+                {"items": items, "total": len(items), "query": q, "top_k": k},
+                "memory search completed",
+            )
 
         trace_ids: List[str] = []
         if context_only:
@@ -721,12 +1267,12 @@ async def delete_longterm_memory(chroma_doc_id: str):
 
 
 @router.get("/temporal-states")
-async def list_temporal_states():
-    """列出全部 temporal_states（含已停用），按 created_at 倒序。"""
+async def list_temporal_states(days: Optional[int] = None):
+    """列出全部 temporal_states（含已停用），按 created_at 倒序。可选 days 过滤最近 N 天。"""
     from memory.database import list_temporal_states_all
 
     try:
-        rows = await list_temporal_states_all()
+        rows = await list_temporal_states_all(days=days)
         return create_response(True, rows, "获取时效状态成功")
     except Exception as e:
         logger.error(f"获取时效状态失败: {e}")
@@ -801,13 +1347,190 @@ async def soft_delete_temporal_state(state_id: str):
 
 
 @router.get("/relationship-timeline")
-async def list_relationship_timeline_all():
-    """全部关系时间线，按 created_at 倒序。"""
+async def list_relationship_timeline_all(days: Optional[int] = None):
+    """全部关系时间线，按 created_at 倒序。可选 days 过滤最近 N 天。"""
     from memory.database import list_relationship_timeline_all_desc
 
     try:
-        rows = await list_relationship_timeline_all_desc()
+        rows = await list_relationship_timeline_all_desc(days=days)
         return create_response(True, rows, "获取关系时间线成功")
     except Exception as e:
         logger.error(f"获取关系时间线失败: {e}")
         return create_response(False, None, f"获取关系时间线失败: {str(e)}")
+
+# ==========================================
+# Pending approvals
+# ==========================================
+
+
+@router.post("/approvals/request")
+async def request_approval(body: ApprovalRequest):
+    """Create a pending memory update approval from the internal AI tool loop."""
+    try:
+        args = body.arguments if isinstance(body.arguments, dict) else {}
+        logger.info(
+            "approval request received tool_name=%s arg_keys=%s arguments=%s",
+            body.tool_name,
+            sorted(args.keys()),
+            args,
+        )
+        data = await _create_pending_approval_from_request(body.tool_name, body.arguments or {})
+        if not data.get("duplicate"):
+            await _send_approval_notification(
+                "\u5de5\u5177\u540d: "
+                + str(body.tool_name)
+                + "\n\u72b6\u6001: \u5f85\u5ba1\u6279\napproval_id: "
+                + str(data.get("approval_id"))
+            )
+        return create_response(
+            True,
+            {
+                "status": data.get("status", "pending"),
+                "approval_id": data.get("approval_id"),
+                "expires_at": data.get("expires_at"),
+            },
+            "approval requested",
+        )
+    except Exception as e:
+        logger.error("request approval failed: %s", e)
+        return create_response(False, None, f"request approval failed: {str(e)}")
+
+
+
+@router.get("/approvals")
+async def list_approvals(status: Optional[str] = None, limit: Optional[int] = None):
+    """List approval records, optionally filtered by status and capped by limit.
+
+    省略 ``limit`` 时返回全部（保持 Mini App 一次拉满的行为）；传 ``limit`` 时按
+    ``created_at DESC`` 截断，最大 100。
+    """
+    from memory.database import expire_stale_approvals, list_pending_approvals
+
+    capped: Optional[int] = None
+    if limit is not None:
+        try:
+            capped = max(1, min(int(limit), 100))
+        except (TypeError, ValueError):
+            capped = None
+    try:
+        await expire_stale_approvals()
+        rows = await list_pending_approvals(status=status, limit=capped)
+        return create_response(True, rows, "approvals loaded")
+    except Exception as e:
+        logger.error("list approvals failed: %s", e)
+        return create_response(False, None, f"list approvals failed: {str(e)}")
+
+
+@router.get("/approvals/{approval_id}")
+async def get_approval(approval_id: str):
+    """Return a single approval record by id."""
+    from memory.database import expire_stale_approvals, get_pending_approval
+
+    try:
+        await expire_stale_approvals()
+        row = await get_pending_approval(approval_id)
+        if not row:
+            return create_response(False, None, "approval not found")
+        return create_response(True, row, "approval loaded")
+    except Exception as e:
+        logger.error("get approval failed approval_id=%s: %s", approval_id, e)
+        return create_response(False, None, f"get approval failed: {str(e)}")
+
+
+@router.post("/approvals/{approval_id}/approve")
+async def approve_approval(approval_id: str):
+    """Approve a pending MCP memory update and apply it in one transaction."""
+    from memory.database import (
+        get_database,
+        get_pending_approval,
+        insert_mcp_audit_log,
+        resolve_approval,
+    )
+
+    db = get_database()
+    approval: Optional[Dict[str, Any]] = None
+    applied: Optional[Dict[str, Any]] = None
+    try:
+        async with db.pool.acquire() as conn:
+            async with conn.transaction():
+                approval = await get_pending_approval(approval_id, conn=conn)
+                if not approval:
+                    return create_response(False, None, "approval not found")
+                if approval.get("status") != "pending":
+                    return create_response(False, approval, "approval is not pending")
+                applied = await _apply_approved_update(conn, approval)
+                await resolve_approval(approval_id, "approved", conn=conn)
+                await insert_mcp_audit_log(
+                    token_scope="approval_api",
+                    tool_name=str(approval.get("tool_name") or ""),
+                    arguments=_ensure_dict(approval.get("arguments")),
+                    result_status="success",
+                    approval_id=approval_id,
+                    conn=conn,
+                )
+    except Exception as e:
+        logger.error("approve approval failed approval_id=%s: %s", approval_id, e)
+        return create_response(False, None, f"approve failed: {str(e)}")
+
+    phrase = _compose_approval_resolution_phrase(approval or {}, "approved")
+    target = await _resolve_approval_target()
+    if target:
+        await _send_approval_resolution_to_chat(phrase, target)
+        await _persist_approval_system_message(phrase, target)
+    else:
+        logger.warning("approval approved but no target chat resolved, phrase=%s", phrase)
+    return create_response(
+        True,
+        {"approval_id": approval_id, "status": "approved", "applied": applied},
+        "approval approved",
+    )
+
+
+@router.post("/approvals/{approval_id}/reject")
+async def reject_approval(approval_id: str, body: ApprovalRejectRequest):
+    """Reject a pending MCP memory update."""
+    from memory.database import (
+        get_database,
+        get_pending_approval,
+        insert_mcp_audit_log,
+        resolve_approval,
+    )
+
+    note = str(body.note or "").strip()
+    db = get_database()
+    approval: Optional[Dict[str, Any]] = None
+    try:
+        async with db.pool.acquire() as conn:
+            async with conn.transaction():
+                approval = await get_pending_approval(approval_id, conn=conn)
+                if not approval:
+                    return create_response(False, None, "approval not found")
+                if approval.get("status") != "pending":
+                    return create_response(False, approval, "approval is not pending")
+                await resolve_approval(approval_id, "rejected", note=note, conn=conn)
+                await insert_mcp_audit_log(
+                    token_scope="approval_api",
+                    tool_name=str(approval.get("tool_name") or ""),
+                    arguments=_ensure_dict(approval.get("arguments")),
+                    result_status="rejected",
+                    error_message=note or None,
+                    approval_id=approval_id,
+                    conn=conn,
+                )
+    except Exception as e:
+        logger.error("reject approval failed approval_id=%s: %s", approval_id, e)
+        return create_response(False, None, f"reject failed: {str(e)}")
+
+    phrase = _compose_approval_resolution_phrase(approval or {}, "rejected", note)
+    target = await _resolve_approval_target()
+    if target:
+        await _send_approval_resolution_to_chat(phrase, target)
+        await _persist_approval_system_message(phrase, target)
+    else:
+        logger.warning("approval rejected but no target chat resolved, phrase=%s", phrase)
+    return create_response(
+        True,
+        {"approval_id": approval_id, "status": "rejected"},
+        "approval rejected",
+    )
+

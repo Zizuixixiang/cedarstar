@@ -2109,6 +2109,9 @@ class TelegramBot:
         cur_messages = copy.deepcopy(messages)
         tools_list: List[Dict[str, Any]] = []
         suffix_keys: List[str] = []
+        from tools.memory_tools import OPENAI_MEMORY_TOOLS
+        tools_list.extend(OPENAI_MEMORY_TOOLS)
+        suffix_keys.append("memory")
         if llm.enable_lutopia:
             tools_list.extend(OPENAI_LUTOPIA_TOOLS)
             suffix_keys.append("lutopia")
@@ -2256,6 +2259,12 @@ class TelegramBot:
         except json.JSONDecodeError:
             # get_weather 等返回自然语言而非 JSON 时视为成功（有内容即可）
             ok = bool((result_json or "").strip())
+        if not ok:
+            logger.warning(
+                "[notify_tool_after] tool failure tool_name=%s result_json=%s",
+                tool_name,
+                (result_json or "")[:800],
+            )
         text = f"✅ 已调用{disp}" if ok else f"❌ {disp}调用失败"
         if len(text) > 4096:
             suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
@@ -2985,6 +2994,16 @@ class TelegramBot:
                 or bool(getattr(llm, "enable_search_tool", False))
                 or bool(getattr(llm, "enable_x_tool", False))
             ) and not llm._use_anthropic_messages_api()
+            logger.info(
+                "oral=%s lutopia=%s weather=%s weibo=%s search=%s x=%s anthropic=%s",
+                oral,
+                getattr(llm, "enable_lutopia", False),
+                getattr(llm, "enable_weather_tool", False),
+                getattr(llm, "enable_weibo_tool", False),
+                getattr(llm, "enable_search_tool", False),
+                getattr(llm, "enable_x_tool", False),
+                llm._use_anthropic_messages_api(),
+            )
             context = await build_context(
                 session_id,
                 content,

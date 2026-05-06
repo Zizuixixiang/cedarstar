@@ -109,7 +109,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 - `source_chunk_ids`：JSONB，记录 Step 4 事件由哪些 chunk 合并而来。
 - `is_starred`：事件是否收藏，来源 chunk 任一被收藏则为 true。
-- `source_date`：DATE，可空。记录事件对应的业务日期，由 MCP 外部写入时通过 `as_of_date` 传入。
+- `source_date`：DATE，可空。记录事件对应的业务日期。内部日终 Step 4 事件按 `batch_date` 写入；MCP 外部写入事件按 `as_of_date`（未传则当天）写入。
 - `theme`：VARCHAR(32)，事件主题标签（如 daily_life、work_career、milestone 等），由 Step 4b 生成。
 - `entities`：JSONB 数组，事件涉及的命名实体（最多 5 个），由 Step 4b 生成。
 - `emotion`：VARCHAR(32)，事件情绪标签（如 happy、sad、anxious 等），由 Step 4b 生成。
@@ -251,7 +251,7 @@ Step 4 的事件拆分遵循：
 - 4a/4b 单次 LLM 调用均使用 600 秒超时，重试次数为 3 次
 - 若全部 4b 分组失败，则使用默认事件继续，默认值为 `score=5`、`arousal=0.1`
 
-Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `longterm_memories.source_chunk_ids`，并根据来源 chunk 的 `is_starred` 汇总出事件的 `is_starred`。
+Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `longterm_memories.source_chunk_ids`，并根据来源 chunk 的 `is_starred` 汇总出事件的 `is_starred`。同时，Step 4 写入 Chroma metadata 时会同步带上 `date` 与 `source_date`（均为当日 `batch_date`），供长期记忆列表日期显示与远古 daily 补充逻辑统一使用。
 
 ## 六、记忆召回策略
 
@@ -308,11 +308,17 @@ Config 页管理运行参数，包括：
 
 Memory 页管理记忆卡片、长期记忆和 summaries。summaries 列表支持对 chunk 点星收藏，收藏状态会通过 `PATCH /api/memory/summaries/{id}/star` 同步到引用该 chunk 的长期事件与 Chroma metadata。
 
+长期记忆列表日期显示口径来自 Chroma metadata：优先 `date`，缺失时回退 `last_access_ts`。因此日期修复应优先保证 Chroma metadata 完整，再考虑 PostgreSQL 镜像字段。
+
 Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 - summaries 调用 `GET /api/memory/summaries?context_only=true`，按最近一次 Context trace 中的 summary id 返回实际注入条目；可继续按 `summary_type` 限定 chunk / daily。
 - 长期记忆调用 `GET /api/memory/longterm?context_only=true`，按最近一次 Context trace 中的 Chroma doc id 返回实际注入条目；可继续按 `summary_type` 限定类型。
 - 前端用蓝色”本轮”标签标记最近一次 context 实际注入的摘要和长期记忆。
+
+### 7.4 待审批
+
+待审批页（`/approvals`）展示来自内部记忆工具写入操作与 MCP `api_admin` 管理写入工具的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。
 
 ## 八、MCP Memory Server
 
@@ -331,16 +337,18 @@ POST 消息路径由 MCP server 在 SSE 连接建立时自动下发（`event: en
 
 Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（GitHub issue #112），仅支持无认证或 OAuth 2.1 + DCR。因此采用 URL 内嵌 token 方案：
 
-- token 格式：64 字符十六进制字符串（`[a-f0-9]{64}`），由环境变量 `MCP_WEB_READ_TOKEN` 和 `MCP_WEB_WRITE_TOKEN` 配置
-- 匹配 read token → 绑定 read scope（7 个只读工具）
-- 匹配 write token → 绑定 write scope（7 个只读工具 + 1 个写入工具，同时拥有 read 权限）
+- token 格式：8–256 字符（`[^/]{8,256}`），通过环境变量配置
+- 匹配 `MCP_WEB_READ_TOKEN` → 绑定 `web_read` scope（7 个只读工具）
+- 匹配 `MCP_WEB_WRITE_TOKEN` → 绑定 `web_write` scope（7 个只读工具 + `add_external_chunk`）
+- 匹配 `MCP_API_READ_TOKEN` → 绑定 `api_read` scope（7 个只读工具）
+- 匹配 `MCP_API_TOKEN` → 绑定 `api_admin` scope（7 个只读工具 + 4 个管理写入工具）
 - 都不匹配 → 返回 404（非 401，避免攻击者通过响应码判断 token 存在性）
 
 中间件鉴权通过后，将 `scope[“root_path”]` 设为 `/mcp/memory/{token}`，使 MCP server 在 SSE `endpoint` 事件中自动构造含 token 的 messages URL：`/mcp/memory/{token}/messages/?session_id=xxx`。客户端后续 POST 请求自然携带 token，无需额外处理。
 
 ### 8.2 工具清单
 
-**读工具（7 个，read scope 可用）：**
+**读工具（所有 scope 可用）：**
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
@@ -352,7 +360,7 @@ Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（Git
 | `get_persona` | persona_id | 获取单个人设配置详情 |
 | `get_context_trace` | 无 | 最近一次 context 构建时实际注入的摘要和长期记忆清单 |
 
-**写工具（1 个，write scope 可用）：**
+**写工具（`web_write` scope）：**
 
 | 工具 | 参数 | 说明 |
 |---|---|---|
@@ -372,16 +380,110 @@ Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（Git
 | 列 | 类型 | 说明 |
 |---|---|---|
 | `id` | SERIAL | 主键 |
-| `token_scope` | VARCHAR(32) | read / write / `__auth__`（鉴权失败时） |
+| `token_scope` | VARCHAR(32) | web_read / web_write / api_read / api_admin / `__auth__`（鉴权失败时） |
 | `tool_name` | VARCHAR(64) | 工具名称，鉴权失败时为 `__auth__` |
 | `arguments` | JSONB | 工具调用参数 |
 | `result_status` | VARCHAR(32) | success / error |
 | `error_message` | TEXT | 错误信息（成功时为 NULL） |
+| `approval_id` | UUID | 关联 pending_approvals 表（管理写入工具有值） |
 | `called_at` | TIMESTAMPTZ | 调用时间，默认 NOW() |
 
 ### 8.4 日志脱敏
 
 uvicorn access log 中的完整 URL 路径（含 token）由 `_RedactMcpTokenFilter` 自动替换为 `***`，防止 token 泄露到日志文件。中间件鉴权通过后会将 `scope[“path”]` 重写为内部路径（`/sse` 或 `/messages/`），原始路径保存在 `scope[“mcp_original_path”]` 中。
+
+### 8.5 审批系统
+
+MCP `api_admin` scope 的写入工具与内部记忆工具的写入操作均通过 `pending_approvals` 表排队，需用户在 Mini App “待审批”页确认后才生效。
+
+`pending_approvals` 表：
+
+| 列 | 类型 | 说明 |
+|---|---|---|
+| `id` | UUID | 主键，默认 gen_random_uuid() |
+| `tool_name` | VARCHAR(64) | 操作名称 |
+| `arguments` | JSONB | 操作参数 |
+| `arguments_hash` | VARCHAR(128) | 参数哈希，用于去重 |
+| `before_snapshot` | JSONB | 修改前快照 |
+| `after_preview` | JSONB | 修改后预览 |
+| `requested_by_token_hash` | VARCHAR(128) | 请求来源 token 哈希 |
+| `status` | VARCHAR(32) | pending / approved / rejected / expired |
+| `created_at` | TIMESTAMPTZ | 创建时间 |
+| `expires_at` | TIMESTAMPTZ | 过期时间 |
+| `resolved_at` | TIMESTAMPTZ | 处理时间 |
+| `resolution_note` | TEXT | 处理备注 |
+
+审批 API 端点：
+
+| 端点 | 说明 |
+|---|---|
+| `GET /api/approvals` | 列出审批记录，可按 `status` 过滤；可选 `limit`（1–100，省略则返回全部，Mini App 不传 limit 一次拉满） |
+| `GET /api/approvals/{id}` | 单条审批详情（同时挂在 `/api/memory/approvals/{id}` 别名下），用于 `memory_get_approval_status` 工具回查 |
+| `POST /api/approvals/request` | 创建审批请求（内部工具写入入口） |
+| `POST /api/approvals/{id}/approve` | 批准 |
+| `POST /api/approvals/{id}/reject` | 拒绝，可附带 note |
+
+MCP `api_admin` scope 额外提供 4 个管理写入工具（均走审批）：
+
+| 工具 | 说明 |
+|---|---|
+| `update_memory_card` | 修改七维记忆卡片，参数：persona_id, dimension, content |
+| `update_temporal_state` | 修改时效状态，参数：id, content |
+| `update_relationship_timeline_entry` | 修改关系时间线条目，参数：id, content |
+| `update_persona_field` | 修改人设字段，参数：persona_id, field_name, content |
+
+过期清理：`schedule_expire_stale_approvals()` 每小时自动将超时的 pending 记录标记为 expired。
+
+**审批结果回执（approve / reject 后的实时通知）：**
+
+`approve_approval` / `reject_approval` 处理完事务后会调用 `_resolve_approval_target()` 解析推送目标：优先读取 `.env` 中的 `TELEGRAM_MAIN_USER_CHAT_ID`，未配置时回退到 `messages` 表中最近一条 telegram 用户消息的 `session_id`（CedarClio 单用户场景下足够稳定）。解析到 target 后做两件事：
+
+1. **Telegram 聊天框推送**：通过 `bot.telegram_notify.send_telegram_text_to_chat(chat_id, text)` 发送一条自然语言系统通知，文本由 `_compose_approval_resolution_phrase` 组装，例如「南杉同意了你「更新记忆卡片(preferences)」的申请，已生效。\n内容：xxx」或「南杉拒绝了你「新增关系时间线条目(milestone)」的申请。\n理由：xxx」。
+2. **写入 messages 表**：以 `role='user'`、`user_id='system'`、`platform='telegram'` 持久化一条 `[系统通知] {phrase}` 的消息，让 AI 在下一轮 `context_builder` 取最近未摘要消息时直接看到审批结果。
+
+工具名 → 中文动作标签由 `_TOOL_ACTION_LABELS` 维护（与 Mini App 待审批页 `TOOL_LABELS` 对齐），目标维度/字段在短语中以 `(dimension)` / `(field_name)` / `(event_type)` 形式呈现。
+
+为避免 `[系统通知]` 行污染 chunk / daily 摘要，`memory/micro_batch.py` 的 chunk 摘要 prompt 与 `memory/daily_batch.py` 的两处日终小传 prompt 都加了硬约束，要求摘要 LLM 把 `[系统通知]` 开头的行视为元事件回执：必要时用客观第三方表述（如「南杉确认/驳回了某条记忆更新申请」），不得作为对话引语，且与正文话题无关时整体省略。
+
+### 8.6 内部记忆工具（OpenAI Function Calling）
+
+除了 MCP SSE 端点外，记忆系统还通过 OpenAI Function Calling 格式暴露给 Telegram/Discord 的工具循环（`_telegram_stream_thinking_and_reply_with_lutopia` / `complete_with_lutopia_tool_loop`）。内部工具通过 `httpx` 调用本地 REST API（`http://127.0.0.1:8001/api`），不经过 MCP SSE。
+
+定义文件：`tools/memory_tools.py`
+
+**读取工具（6 个，无条件加载）：**
+
+| 工具 | 参数 | 说明 | 对应 API |
+|---|---|---|---|
+| `memory_search` | query, top_k=5 | 向量+BM25 双路召回搜索长期记忆 | `GET /api/memory/longterm` |
+| `memory_get_summaries` | date, days, summary_type, starred_only, page, page_size | 分页查询 chunk 和日摘要，支持收藏过滤 | `GET /api/memory/summaries` |
+| `memory_get_cards` | character_id, dimension（带 7 个枚举约束）, limit=50 | 查询七维记忆卡片 | `GET /api/memory/cards` |
+| `memory_get_temporal_states` | days | 查询时效状态，可按天数过滤 | `GET /api/memory/temporal-states` |
+| `memory_get_relationship_timeline` | days | 查询关系时间线，可按天数过滤 | `GET /api/memory/relationship-timeline` |
+| `memory_get_approval_status` | approval_id（单条精查）/ status / limit（默认 10，最大 100） | 查询自己提交的审批的当前状态，配合「[系统通知] 南杉同意/拒绝了你「xxx」的申请」回执回查 | `GET /api/memory/approvals[/{id}]` |
+
+**写入工具（1 个，走审批）：**
+
+`memory_update_request` 嵌套结构 `{tool_name, arguments}`，工具描述里列出全部 7 个候选 `tool_name` 及其 enum 约束（`dimension` / `field_name` / `event_type` 必须使用规定的英文枚举值，不能用中文，不能自创）：
+
+| tool_name | 参数 | 说明 |
+|---|---|---|
+| `update_memory_card` | persona_id, dimension, content | 修改七维记忆卡片 |
+| `update_temporal_state` | id, content | 修改时效状态 |
+| `update_relationship_timeline_entry` | id, content | 修改关系时间线条目 |
+| `update_persona_field` | persona_id, field_name, content | 修改人设字段（field_name ∈ char_identity / char_personality / char_speech_style / char_redlines / char_appearance / char_relationships / char_nsfw） |
+| `update_summary` | id, content | 修改摘要正文 |
+| `create_relationship_timeline_entry` | event_type, content, source_summary_id? | 新增关系时间线条目（event_type ∈ milestone / emotional_shift / conflict / daily_warmth） |
+| `create_temporal_state` | content, action_rule?, expire_at? | 新增时效状态（expire_at: ISO 8601） |
+
+写入操作均通过 `POST /api/approvals/request` 创建 pending approval，需用户在 Mini App 待审批页确认后才生效。审批通过后由 `_apply_approved_update` 执行实际写入；audit/Telegram 通知 + `[系统通知]` 回执见 8.5。
+
+模型流式返回的 `arguments` JSON 偶尔会缺末尾右括号，`tools/lutopia.py` 的 `_safe_load_tool_args` 会自动补齐 `}` / `]`、解析失败时记 WARNING（防止旧实现里 `except json.JSONDecodeError: args = {}` 静默吞掉参数）；`execute_memory_update_request` 还会检测「字段被拍平到顶层」的错误形态，返回带格式示例的错误文本引导模型下一轮自修。
+
+dispatch 代码位于：
+- `llm/llm_interface.py` → `complete_with_lutopia_tool_loop`
+- `bot/telegram_bot.py` → `_telegram_stream_thinking_and_reply_with_lutopia`
+- `tools/lutopia.py` → `append_tool_exchange_to_messages`
 
 ## 九、外部写入（External Chunk）
 
@@ -396,7 +498,7 @@ uvicorn access log 中的完整 URL 路径（含 token）由 `_RedactMcpTokenFil
 - `source`：VARCHAR(32)，默认 `internal`。MCP 外部写入的 chunk 标记为 `claude_web`。
 - `external_events_generated`：BOOLEAN，默认 FALSE。标记该 chunk 的事件已在 `add_external_chunk` 时由 LLM 预生成并写入 ChromaDB + longterm_memories，日终跑批不应重复聚类。
 
-外部 chunk 的事件 `summary_type` 为 `app_event`（非 `daily_event`），以区分日终跑批产出的事件。`longterm_memories` 同步记录 `source_date` 以支持历史补录。
+外部 chunk 的事件 `summary_type` 为 `app_event`（非 `daily_event`），以区分日终跑批产出的事件。`longterm_memories` 与 Chroma metadata 都会同步记录 `source_date`，以支持历史补录与召回日期口径统一。
 
 ### 9.3 日终跑批 Step 4 处理
 

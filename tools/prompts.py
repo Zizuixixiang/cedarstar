@@ -35,6 +35,24 @@ WEIBO_HOT_TOOL_DIRECTIVE = (
     "或判断引入热搜能让回答更生动时，可自由调用。避免在无关的严肃提问（如写代码）中强行插入。禁止每轮都调用。"
 )
 
+MEMORY_TOOL_DIRECTIVE = (
+    "【Memory记忆工具】\n"
+    "读取工具（可自由调用）：\n"
+    "- memory_search：向量+BM25 检索长期记忆\n"
+    "- memory_get_summaries：查询 chunk 和日摘要，可按日期/类型/收藏过滤\n"
+    "- memory_get_cards：查询七维记忆卡片，可按角色和维度过滤\n"
+    "- memory_get_temporal_states：查询时效状态，可按天数过滤\n"
+    "- memory_get_relationship_timeline：查询关系时间线，可按天数过滤\n"
+    "- memory_get_approval_status：查询自己提交的审批的当前状态，可传 approval_id 查单条或省略列出最近\n"
+    "写入工具（需审批）：\n"
+    "- memory_update_request：提交修改或新增审批，支持 tool_name：\n"
+    "  update_memory_card（修改七维卡片）、update_temporal_state（修改时效状态）、\n"
+    "  update_relationship_timeline_entry（修改关系时间线）、update_persona_field（修改人设字段）、\n"
+    "  update_summary（修改摘要）、create_relationship_timeline_entry（新增关系时间线）、\n"
+    "  create_temporal_state（新增时效状态）。\n"
+    "请求需经用户在 Mini App 确认后才会生效。审批被同意/拒绝时聊天里会出现『[系统通知] 南杉同意/拒绝了你「xxx」的申请』，看到通知就知道结果了，不必再追问；如需主动复查可调用 memory_get_approval_status。禁止每轮都调用。"
+)
+
 SEARCH_TOOL_DIRECTIVE = (
     "你可以调用 web_search 进行联网检索。当需要最新资讯、补充细节、或避免瞎编时均可主动调用，"
     "不必等用户明确要求；简单常识无需搜索。禁止每轮都调用。"
@@ -307,6 +325,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
 ]
 
 TOOL_DIRECTIVES: Dict[str, str] = {
+    "memory": MEMORY_TOOL_DIRECTIVE,
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
     "weather": WEATHER_TOOL_DIRECTIVE,
     "weibo": WEIBO_HOT_TOOL_DIRECTIVE,

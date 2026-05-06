@@ -95,6 +95,7 @@ try:
         cleanup_tool_executions,
         increment_daily_batch_retry_count,
         reset_daily_batch_retry_count,
+        expire_stale_approvals,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
@@ -130,6 +131,7 @@ except ImportError:
         cleanup_tool_executions,
         increment_daily_batch_retry_count,
         reset_daily_batch_retry_count,
+        expire_stale_approvals,
     )
 
 # 设置日志
@@ -962,6 +964,7 @@ class DailyBatchProcessor:
 - 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
 - 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
 - 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
+- 若材料中残留以「[系统通知]」开头的字样（审批结果回执之类的元事件），不要当对话引语处理；与正文话题相关时用客观第三方表述（如"南杉确认/驳回了某条记忆更新申请"），无关时整体省略。
 {today_content}
 今日小传（中文）："""
 
@@ -1041,6 +1044,7 @@ class DailyBatchProcessor:
 - 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
 - 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
 - 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
+- 若材料中残留以「[系统通知]」开头的字样（审批结果回执之类的元事件），不要当对话引语处理；与正文话题相关时用客观第三方表述（如"南杉确认/驳回了某条记忆更新申请"），无关时整体省略。
 {today_content}
 今日小传（中文）:"""
             
@@ -2577,6 +2581,7 @@ arousal:
                 eid = build_daily_event_doc_id(batch_date, idx)
                 em = {
                     "date": batch_date,
+                    "source_date": str(batch_date),
                     "session_id": daily_summary.get('session_id', 'daily_batch'),
                     "summary_type": "daily_event",
                     "score": int(event_score),
@@ -2725,6 +2730,19 @@ async def schedule_daily_batch():
             logger.error(f"日终跑批调度器错误: {e}")
             # 发生错误时等待5分钟再重试
             await asyncio.sleep(300)
+
+
+async def schedule_expire_stale_approvals():
+    """Expire stale pending approvals once per hour."""
+    logger.info("pending approval expiration scheduler started")
+    while True:
+        try:
+            expired = await expire_stale_approvals()
+            if expired:
+                logger.info("expired %s stale pending approvals", expired)
+        except Exception as e:
+            logger.error("pending approval expiration scheduler error: %s", e)
+        await asyncio.sleep(3600)
 
 
 def trigger_daily_batch_manual(batch_date: Optional[str] = None) -> bool:

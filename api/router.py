@@ -8,7 +8,7 @@ from fastapi import APIRouter
 from api import autonomous, observability, peer, sensor, weather
 from api.dashboard import router as dashboard_router
 from api.persona import router as persona_router
-from api.memory import router as memory_router
+from api.memory import approve_approval, list_approvals, reject_approval, request_approval, router as memory_router
 from api.history import router as history_router
 from api.logs import router as logs_router
 from api.config import router as config_router
@@ -30,3 +30,9 @@ api_router.include_router(peer.router, prefix="/peer", tags=["peer"])
 api_router.include_router(autonomous.router, prefix="/autonomous", tags=["autonomous"])
 api_router.include_router(sensor.router, prefix="/sensor", tags=["sensor"])
 api_router.include_router(weather.router, prefix="/weather", tags=["weather"])
+
+# Top-level approval aliases for Mini App: /api/approvals
+api_router.add_api_route("/approvals", list_approvals, methods=["GET"], tags=["memory approvals"])
+api_router.add_api_route("/approvals/request", request_approval, methods=["POST"], tags=["memory approvals"])
+api_router.add_api_route("/approvals/{approval_id}/approve", approve_approval, methods=["POST"], tags=["memory approvals"])
+api_router.add_api_route("/approvals/{approval_id}/reject", reject_approval, methods=["POST"], tags=["memory approvals"])

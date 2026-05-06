@@ -13,6 +13,7 @@ import {
   SlidersHorizontal,
   KeyRound,
   Activity,
+  ClipboardCheck,
 } from 'lucide-react'
 import Dashboard from './pages/Dashboard.jsx'
 import Persona from './pages/Persona.jsx'
@@ -22,6 +23,7 @@ import Logs from './pages/Logs.jsx'
 import Config from './pages/Config.jsx'
 import Settings from './pages/Settings.jsx'
 import Observability from './pages/Observability.jsx'
+import Approvals from './pages/Approvals.jsx'
 
 /**
  * 导航菜单配置
@@ -31,6 +33,7 @@ export const navItems = [
   { Icon: LayoutDashboard, text: '控制台概览', path: '/' },
   { Icon: UserCircle, text: '人设与参数', path: '/persona' },
   { Icon: BookMarked, text: '记忆日记本', path: '/memory' },
+  { Icon: ClipboardCheck, text: '待审批', path: '/approvals' },
   { Icon: HistoryIcon, text: '时光机历史', path: '/history' },
   { Icon: ScrollText, text: '系统日志', path: '/logs' },
   { Icon: SlidersHorizontal, text: '助手配置', path: '/config', dividerBefore: true },
@@ -45,6 +48,7 @@ export const routes = [
   { path: '/', element: <Dashboard /> },
   { path: '/persona', element: <Persona /> },
   { path: '/memory', element: <Memory /> },
+  { path: '/approvals', element: <Approvals /> },
   { path: '/history', element: <History /> },
   { path: '/logs', element: <Logs /> },
   { path: '/config', element: <Config /> },

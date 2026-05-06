@@ -20,6 +20,15 @@ import httpx
 
 from memory.database import get_database
 
+from tools.memory_tools import (
+    execute_memory_search,
+    execute_memory_get_summaries,
+    execute_memory_get_cards,
+    execute_memory_get_temporal_states,
+    execute_memory_get_relationship_timeline,
+    execute_memory_get_approval_status,
+    execute_memory_update_request,
+)
 from tools.search import execute_search_function_call
 from tools.weather import execute_weather_function_call
 from tools.weibo import execute_weibo_function_call
@@ -642,6 +651,50 @@ async def create_lutopia_mcp_session() -> AsyncIterator[Optional[Any]]:
             yield session
 
 
+def _safe_load_tool_args(arg: str, tool_name: str) -> Dict[str, Any]:
+    """容错地把 OpenAI tool_call 的 arguments 字符串解析成 dict。
+
+    模型流式输出 JSON 时偶尔会在收尾处漏 ``}`` 或 ``]``（GLM-5.1 已观测到），
+    此处先按原样解析，失败再用括号差补齐重试。任何失败都打 WARNING，绝不
+    再静默吞成 ``{}``。
+    """
+    s = arg if isinstance(arg, str) else ""
+    if not s.strip():
+        return {}
+    try:
+        v = json.loads(s)
+        return v if isinstance(v, dict) else {}
+    except json.JSONDecodeError as e1:
+        miss_brace = max(0, s.count("{") - s.count("}"))
+        miss_bracket = max(0, s.count("[") - s.count("]"))
+        if miss_brace or miss_bracket:
+            patched = s + ("}" * miss_brace) + ("]" * miss_bracket)
+            try:
+                v = json.loads(patched)
+                logger.warning(
+                    "[tool_args repair] tool=%s padded missing brackets brace=%d bracket=%d",
+                    tool_name,
+                    miss_brace,
+                    miss_bracket,
+                )
+                return v if isinstance(v, dict) else {}
+            except json.JSONDecodeError as e2:
+                logger.warning(
+                    "[tool_args parse fail after repair] tool=%s err=%s arg=%r",
+                    tool_name,
+                    e2,
+                    s[:500],
+                )
+                return {}
+        logger.warning(
+            "[tool_args parse fail] tool=%s err=%s arg=%r",
+            tool_name,
+            e1,
+            s[:500],
+        )
+        return {}
+
+
 async def append_tool_exchange_to_messages(
     messages: List[Dict[str, Any]],
     assistant_text: str,
@@ -697,33 +750,42 @@ async def append_tool_exchange_to_messages(
             arg = json.dumps(arg if arg is not None else {}, ensure_ascii=False)
         if on_tool_start:
             await on_tool_start(nm)
-        if nm == "get_weather":
-            try:
-                args_d: Dict[str, Any] = json.loads(arg or "{}")
-            except json.JSONDecodeError:
-                args_d = {}
+        if nm == "memory_search":
+            args_mem = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_search(args_mem)
+        elif nm == "memory_get_summaries":
+            args_ms = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_get_summaries(args_ms)
+        elif nm == "memory_get_cards":
+            args_mc = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_get_cards(args_mc)
+        elif nm == "memory_get_temporal_states":
+            args_mt = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_get_temporal_states(args_mt)
+        elif nm == "memory_get_relationship_timeline":
+            args_mr = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_get_relationship_timeline(args_mr)
+        elif nm == "memory_get_approval_status":
+            args_ma = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_get_approval_status(args_ma)
+        elif nm == "memory_update_request":
+            args_mem_up = _safe_load_tool_args(arg, nm)
+            out = await execute_memory_update_request(args_mem_up)
+        elif nm == "get_weather":
+            args_d = _safe_load_tool_args(arg, nm)
             out = await execute_weather_function_call(nm, args_d)
         elif nm == "get_weibo_hot":
-            try:
-                args_wb: Dict[str, Any] = json.loads(arg or "{}")
-            except json.JSONDecodeError:
-                args_wb = {}
+            args_wb = _safe_load_tool_args(arg, nm)
             out = await execute_weibo_function_call(nm, args_wb)
         elif nm == "web_search":
-            try:
-                args_ws: Dict[str, Any] = json.loads(arg or "{}")
-            except json.JSONDecodeError:
-                args_ws = {}
+            args_ws = _safe_load_tool_args(arg, nm)
             out = await execute_search_function_call(nm, args_ws)
         elif nm in (
             "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
             "reply_tweet", "search_tweets", "get_timeline", "get_user",
             "follow_user", "unfollow_user", "get_followers",
         ):
-            try:
-                args_xx: Dict[str, Any] = json.loads(arg or "{}")
-            except json.JSONDecodeError:
-                args_xx = {}
+            args_xx = _safe_load_tool_args(arg, nm)
             from tools.x_tool import execute_x_function_call
             out = await execute_x_function_call(nm, args_xx)
         else:

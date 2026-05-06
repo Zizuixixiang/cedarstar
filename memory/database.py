@@ -33,9 +33,11 @@ _IMAGE_CAPTION_FALLBACKS_MARK_SUMMARIZED = frozenset(
 # ---------------------------------------------------------------------------
 
 def _norm(v: Any) -> Any:
-    """将 asyncpg 返回的 datetime/date 对象转为 ISO 字符串，保持上层兼容。"""
+    """Normalize asyncpg scalar values for API responses."""
     if isinstance(v, (_dt.datetime, _dt.date)):
         return v.isoformat()
+    if isinstance(v, uuid.UUID):
+        return str(v)
     return v
 
 
@@ -65,6 +67,26 @@ def _r(record) -> Dict[str, Any]:
 def _rows(records) -> List[Dict[str, Any]]:
     """asyncpg Record 列表 → List[dict]。"""
     return [_r(rec) for rec in records]
+
+
+def _json_load_if_needed(v: Any) -> Any:
+    """Decode JSONB values only when asyncpg returns strings."""
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except json.JSONDecodeError:
+            return v
+    return v
+
+
+def _approval_row(record) -> Dict[str, Any]:
+    """Convert a pending_approvals record into a plain dict."""
+    if not record:
+        return {}
+    item = _r(record)
+    for key in ("arguments", "before_snapshot", "after_preview"):
+        item[key] = _json_load_if_needed(item.get(key))
+    return item
 
 
 def _rowcount(status: str) -> int:
@@ -104,7 +126,7 @@ async def _summaries_ensure_source_column(conn) -> None:
 
 
 async def _ensure_mcp_audit_log_table(conn) -> None:
-    """创建 mcp_audit_log 表（幂等）。"""
+    """Ensure the MCP audit log table exists."""
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS mcp_audit_log (
             id SERIAL PRIMARY KEY,
@@ -113,14 +135,60 @@ async def _ensure_mcp_audit_log_table(conn) -> None:
             arguments JSONB,
             result_status VARCHAR(32),
             error_message TEXT,
+            approval_id UUID,
             called_at TIMESTAMPTZ DEFAULT NOW()
         )
     """)
     await conn.execute(
+        "ALTER TABLE mcp_audit_log ADD COLUMN IF NOT EXISTS approval_id UUID"
+    )
+    await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_mcp_audit_log_called_at "
         "ON mcp_audit_log (called_at)"
     )
-    logger.debug("mcp_audit_log 表检查完成")
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mcp_audit_log_approval_id "
+        "ON mcp_audit_log (approval_id) WHERE approval_id IS NOT NULL"
+    )
+    logger.debug("mcp_audit_log table checked")
+
+
+async def _ensure_pending_approvals_table(conn) -> None:
+    """Ensure the pending approval queue table exists."""
+    await conn.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS pending_approvals (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            tool_name VARCHAR(64),
+            arguments JSONB,
+            arguments_hash VARCHAR(128),
+            before_snapshot JSONB,
+            after_preview JSONB,
+            requested_by_token_hash VARCHAR(128),
+            status VARCHAR(32) DEFAULT 'pending',
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            expires_at TIMESTAMPTZ,
+            resolved_at TIMESTAMPTZ NULL,
+            resolution_note TEXT NULL
+        )
+    """)
+    await conn.execute(
+        "ALTER TABLE pending_approvals ADD COLUMN IF NOT EXISTS arguments_hash VARCHAR(128)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pending_approvals_status_created "
+        "ON pending_approvals (status, created_at DESC)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pending_approvals_duplicate "
+        "ON pending_approvals (tool_name, arguments_hash, created_at DESC) "
+        "WHERE status = 'pending'"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pending_approvals_expires "
+        "ON pending_approvals (expires_at) WHERE status = 'pending'"
+    )
+    logger.debug("pending_approvals table checked")
 
 
 async def _summaries_ensure_archive_columns(conn) -> None:
@@ -460,6 +528,7 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_group_chat_state_table(conn)
     await _ensure_model_favorites_table(conn)
     await _ensure_mcp_audit_log_table(conn)
+    await _ensure_pending_approvals_table(conn)
 
     await conn.execute(
         "ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT"
@@ -885,6 +954,177 @@ class MessageDatabase:
                 await migrate_database_schema(conn)
 
         logger.debug("数据库表初始化完成")
+
+    # ------------------------------------------------------------------
+    # pending_approvals
+    # ------------------------------------------------------------------
+
+    async def insert_pending_approval(
+        self,
+        *,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        before_snapshot: Optional[Dict[str, Any]],
+        after_preview: Optional[Dict[str, Any]],
+        requested_by_token_hash: Optional[str],
+        arguments_hash: Optional[str] = None,
+        expires_at: Optional[_dt.datetime] = None,
+        conn=None,
+    ) -> str:
+        """Insert a pending approval and return its id."""
+        exp = expires_at or (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=24))
+
+        async def _insert(conn_obj) -> str:
+            row_id = await conn_obj.fetchval(
+                """
+                INSERT INTO pending_approvals (
+                    tool_name, arguments, arguments_hash, before_snapshot, after_preview,
+                    requested_by_token_hash, status, expires_at
+                )
+                VALUES ($1, $2::jsonb, $3, $4::jsonb, $5::jsonb, $6, 'pending', $7)
+                RETURNING id
+                """,
+                str(tool_name),
+                json.dumps(arguments or {}, ensure_ascii=False),
+                arguments_hash,
+                json.dumps(before_snapshot, ensure_ascii=False) if before_snapshot is not None else None,
+                json.dumps(after_preview, ensure_ascii=False) if after_preview is not None else None,
+                requested_by_token_hash,
+                exp,
+            )
+            return str(row_id)
+
+        if conn is not None:
+            return await _insert(conn)
+        async with self.pool.acquire() as acquired:
+            return await _insert(acquired)
+
+    async def get_pending_approval(self, approval_id: str, conn=None) -> Optional[Dict[str, Any]]:
+        """Return a pending approval by id."""
+        async def _get(conn_obj):
+            row = await conn_obj.fetchrow(
+                """
+                SELECT id, tool_name, arguments, arguments_hash, before_snapshot, after_preview,
+                       requested_by_token_hash, status, created_at, expires_at,
+                       resolved_at, resolution_note
+                FROM pending_approvals
+                WHERE id = $1::uuid
+                """,
+                str(approval_id),
+            )
+            return _approval_row(row) if row else None
+
+        if conn is not None:
+            return await _get(conn)
+        async with self.pool.acquire() as acquired:
+            return await _get(acquired)
+
+    async def list_pending_approvals(
+        self,
+        status: Optional[str] = None,
+        limit: Optional[int] = None,
+    ) -> List[Dict[str, Any]]:
+        """List approvals, optionally filtered by status, optionally limited."""
+        try:
+            lim = int(limit) if limit is not None else 0
+        except (TypeError, ValueError):
+            lim = 0
+        if lim <= 0:
+            limit_clause = ""
+            params: List[Any] = []
+        else:
+            limit_clause = " LIMIT $%d" % (2 if status else 1)
+            params = [int(lim)]
+
+        base_select = (
+            "SELECT id, tool_name, arguments, arguments_hash, before_snapshot, after_preview, "
+            "requested_by_token_hash, status, created_at, expires_at, "
+            "resolved_at, resolution_note FROM pending_approvals"
+        )
+
+        async with self.pool.acquire() as conn:
+            if status:
+                rows = await conn.fetch(
+                    f"{base_select} WHERE status = $1 ORDER BY created_at DESC{limit_clause}",
+                    str(status),
+                    *params,
+                )
+            else:
+                rows = await conn.fetch(
+                    f"{base_select} ORDER BY created_at DESC{limit_clause}",
+                    *params,
+                )
+        return [_approval_row(r) for r in rows]
+
+    async def resolve_approval(
+        self,
+        approval_id: str,
+        status: str,
+        note: Optional[str] = None,
+        conn=None,
+    ) -> bool:
+        """Resolve an approval and stamp resolution metadata."""
+        async def _resolve(conn_obj) -> bool:
+            result = await conn_obj.execute(
+                """
+                UPDATE pending_approvals
+                SET status = $2, resolved_at = NOW(), resolution_note = $3
+                WHERE id = $1::uuid
+                """,
+                str(approval_id),
+                str(status),
+                note,
+            )
+            return _rowcount(result) > 0
+
+        if conn is not None:
+            return await _resolve(conn)
+        async with self.pool.acquire() as acquired:
+            return await _resolve(acquired)
+
+    async def find_duplicate_pending(
+        self, tool_name: str, arguments_hash: str
+    ) -> Optional[Dict[str, Any]]:
+        """Find a pending approval with the same hash in the last 24 hours."""
+        if not arguments_hash:
+            return None
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, tool_name, arguments, arguments_hash, before_snapshot, after_preview,
+                       requested_by_token_hash, status, created_at, expires_at,
+                       resolved_at, resolution_note
+                FROM pending_approvals
+                WHERE tool_name = $1
+                  AND arguments_hash = $2
+                  AND status = 'pending'
+                  AND created_at >= NOW() - INTERVAL '24 hours'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                str(tool_name),
+                str(arguments_hash),
+            )
+        return _approval_row(row) if row else None
+
+    async def expire_stale_approvals(self) -> int:
+        """Expire pending approvals whose deadline has passed."""
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE pending_approvals
+                SET status = 'expired',
+                    resolved_at = NOW(),
+                    resolution_note = COALESCE(resolution_note, 'expired')
+                WHERE status = 'pending'
+                  AND expires_at IS NOT NULL
+                  AND expires_at < NOW()
+                """
+            )
+        n = _rowcount(result)
+        if n:
+            logger.info("expire_stale_approvals: marked %s approvals expired", n)
+        return n
 
     # ------------------------------------------------------------------
     # tool_executions
@@ -1778,6 +2018,7 @@ class MessageDatabase:
         source_date_to_str: Optional[str] = None,
         source_filter: Optional[str] = None,
         only_unarchived: bool = False,
+        starred_only: bool = False,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         分页查询 summaries；可选 summary_type（chunk/daily）、内容日区间（起止 YYYY-MM-DD，可只填一侧）。
@@ -1826,6 +2067,9 @@ class MessageDatabase:
 
         if only_unarchived:
             conds.append("archived_by IS NULL")
+
+        if starred_only:
+            conds.append("is_starred = TRUE")
 
         # 筛选日：优先 source_date 日历日；旧数据 source_date 为空时用 created_at::date，否则仅有 source_date 时选不到
         day_expr = "COALESCE(source_date::date, created_at::date)"
@@ -2909,15 +3153,22 @@ class MessageDatabase:
             for r in rows
         ]
 
-    async def list_temporal_states_all(self) -> List[Dict[str, Any]]:
-        """全部 temporal_states，按 created_at 倒序（管理端）。"""
+    async def list_temporal_states_all(self, days: Optional[int] = None) -> List[Dict[str, Any]]:
+        """全部 temporal_states，按 created_at 倒序（管理端）。可选 days 过滤最近 N 天。"""
+        conds = "TRUE"
+        params: List[Any] = []
+        if days is not None and days > 0:
+            params.append(days)
+            conds = f"created_at >= NOW() - (${len(params)}::int || ' days')::interval"
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT id, state_content, action_rule, expire_at, is_active, created_at
                 FROM temporal_states
+                WHERE {conds}
                 ORDER BY created_at DESC
-                """
+                """,
+                *params,
             )
         return [
             {
@@ -3020,15 +3271,22 @@ class MessageDatabase:
                 is_active,
             )
 
-    async def list_relationship_timeline_all_desc(self) -> List[Dict[str, Any]]:
-        """全部 relationship_timeline，按 created_at 倒序。"""
+    async def list_relationship_timeline_all_desc(self, days: Optional[int] = None) -> List[Dict[str, Any]]:
+        """全部 relationship_timeline，按 created_at 倒序。可选 days 过滤最近 N 天。"""
+        conds = "TRUE"
+        params: List[Any] = []
+        if days is not None and days > 0:
+            params.append(days)
+            conds = f"created_at >= NOW() - (${len(params)}::int || ' days')::interval"
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT id, created_at, event_type, content, source_summary_id
                 FROM relationship_timeline
+                WHERE {conds}
                 ORDER BY created_at DESC
-                """
+                """,
+                *params,
             )
         return [
             {
@@ -4678,6 +4936,7 @@ async def get_summaries_filtered(
     source_date_to: Optional[str] = None,
     source_filter: Optional[str] = None,
     only_unarchived: bool = False,
+    starred_only: bool = False,
 ) -> Tuple[List[Dict[str, Any]], int]:
     return await get_database().get_summaries_filtered(
         page=page,
@@ -4687,6 +4946,7 @@ async def get_summaries_filtered(
         source_date_to_str=source_date_to,
         source_filter=source_filter,
         only_unarchived=only_unarchived,
+        starred_only=starred_only,
     )
 
 
@@ -4763,8 +5023,8 @@ async def get_recent_relationship_timeline(limit: int = 3) -> List[Dict[str, Any
     return await get_database().get_recent_relationship_timeline(limit)
 
 
-async def list_temporal_states_all() -> List[Dict[str, Any]]:
-    return await get_database().list_temporal_states_all()
+async def list_temporal_states_all(days: Optional[int] = None) -> List[Dict[str, Any]]:
+    return await get_database().list_temporal_states_all(days=days)
 
 
 async def update_temporal_state(
@@ -4800,8 +5060,8 @@ async def save_temporal_state(
     )
 
 
-async def list_relationship_timeline_all_desc() -> List[Dict[str, Any]]:
-    return await get_database().list_relationship_timeline_all_desc()
+async def list_relationship_timeline_all_desc(days: Optional[int] = None) -> List[Dict[str, Any]]:
+    return await get_database().list_relationship_timeline_all_desc(days=days)
 
 
 async def insert_relationship_timeline_event(
@@ -4957,29 +5217,92 @@ async def cleanup_tool_executions(days: int = 7) -> int:
     return await get_database().cleanup_tool_executions(days)
 
 
+async def insert_pending_approval(
+    *,
+    tool_name: str,
+    arguments: Dict[str, Any],
+    before_snapshot: Optional[Dict[str, Any]],
+    after_preview: Optional[Dict[str, Any]],
+    requested_by_token_hash: Optional[str],
+    arguments_hash: Optional[str] = None,
+    expires_at: Optional[_dt.datetime] = None,
+    conn=None,
+) -> str:
+    return await get_database().insert_pending_approval(
+        tool_name=tool_name,
+        arguments=arguments,
+        before_snapshot=before_snapshot,
+        after_preview=after_preview,
+        requested_by_token_hash=requested_by_token_hash,
+        arguments_hash=arguments_hash,
+        expires_at=expires_at,
+        conn=conn,
+    )
+
+
+async def get_pending_approval(approval_id: str, conn=None) -> Optional[Dict[str, Any]]:
+    return await get_database().get_pending_approval(approval_id, conn=conn)
+
+
+async def list_pending_approvals(
+    status: Optional[str] = None,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    return await get_database().list_pending_approvals(status=status, limit=limit)
+
+
+async def resolve_approval(
+    approval_id: str, status: str, note: Optional[str] = None, conn=None
+) -> bool:
+    return await get_database().resolve_approval(
+        approval_id, status, note=note, conn=conn
+    )
+
+
+async def find_duplicate_pending(
+    tool_name: str, arguments_hash: str
+) -> Optional[Dict[str, Any]]:
+    return await get_database().find_duplicate_pending(tool_name, arguments_hash)
+
+
+async def expire_stale_approvals() -> int:
+    return await get_database().expire_stale_approvals()
+
+
 async def insert_mcp_audit_log(
     token_scope: str,
     tool_name: str,
     arguments: Optional[Dict[str, Any]] = None,
     result_status: str = "success",
     error_message: Optional[str] = None,
+    approval_id: Optional[str] = None,
+    conn=None,
 ) -> int:
-    """写入 MCP 审计日志，返回插入 ID。"""
-    db = get_database()
-    async with db.pool.acquire() as conn:
-        row_id = await conn.fetchval(
+    """Insert an MCP audit log row and return its id."""
+
+    async def _insert(conn_obj) -> int:
+        row_id = await conn_obj.fetchval(
             """
-            INSERT INTO mcp_audit_log (token_scope, tool_name, arguments, result_status, error_message)
-            VALUES ($1, $2, $3::jsonb, $4, $5)
+            INSERT INTO mcp_audit_log (
+                token_scope, tool_name, arguments, result_status, error_message, approval_id
+            )
+            VALUES ($1, $2, $3::jsonb, $4, $5, $6::uuid)
             RETURNING id
             """,
             token_scope,
             tool_name,
-            json.dumps(arguments, ensure_ascii=False) if arguments else None,
+            json.dumps(arguments, ensure_ascii=False) if arguments is not None else None,
             result_status,
             error_message,
+            str(approval_id) if approval_id else None,
         )
-    return int(row_id)
+        return int(row_id)
+
+    if conn is not None:
+        return await _insert(conn)
+    db = get_database()
+    async with db.pool.acquire() as acquired:
+        return await _insert(acquired)
 
 
 async def get_token_observability_stats(

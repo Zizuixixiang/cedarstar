@@ -7,29 +7,19 @@ from __future__ import annotations
 
 import logging
 import traceback
+from typing import Any
 
 from config import config
 
 logger = logging.getLogger(__name__)
 
 
-async def send_telegram_main_user_text(text: str) -> None:
-    """
-    向 ``TELEGRAM_MAIN_USER_CHAT_ID`` 发送纯文本（无 parse_mode）。
-    未配置 token 或 chat_id 时静默跳过。
-    """
+async def _send_telegram_text_with_token(chat_id: int, text: str) -> None:
+    """底层发送：用 ``TELEGRAM_BOT_TOKEN`` 给指定 chat 发纯文本。"""
     token = (config.TELEGRAM_BOT_TOKEN or "").strip()
-    raw_chat = config.TELEGRAM_MAIN_USER_CHAT_ID
-    chat_id_s = (raw_chat or "").strip() if raw_chat else ""
-    if not token or not chat_id_s:
-        logger.debug("跳过 Telegram 告警：未配置 TELEGRAM_BOT_TOKEN 或 TELEGRAM_MAIN_USER_CHAT_ID")
+    if not token:
+        logger.debug("跳过 Telegram 发送：未配置 TELEGRAM_BOT_TOKEN")
         return
-    try:
-        chat_id = int(chat_id_s)
-    except ValueError:
-        logger.warning("TELEGRAM_MAIN_USER_CHAT_ID 非法，跳过告警: %r", chat_id_s)
-        return
-
     try:
         from telegram import Bot
         from telegram.request import HTTPXRequest
@@ -52,4 +42,37 @@ async def send_telegram_main_user_text(text: str) -> None:
         finally:
             await bot.shutdown()
     except Exception as e:
-        logger.warning("Telegram 告警发送失败: %s", e)
+        logger.warning("Telegram 发送失败 chat_id=%s: %s", chat_id, e)
+
+
+async def send_telegram_main_user_text(text: str) -> None:
+    """
+    向 ``TELEGRAM_MAIN_USER_CHAT_ID`` 发送纯文本（无 parse_mode）。
+    未配置 token 或 chat_id 时静默跳过。
+    """
+    raw_chat = config.TELEGRAM_MAIN_USER_CHAT_ID
+    chat_id_s = (raw_chat or "").strip() if raw_chat else ""
+    if not chat_id_s:
+        logger.debug("跳过 Telegram 告警：未配置 TELEGRAM_MAIN_USER_CHAT_ID")
+        return
+    try:
+        chat_id = int(chat_id_s)
+    except ValueError:
+        logger.warning("TELEGRAM_MAIN_USER_CHAT_ID 非法，跳过告警: %r", chat_id_s)
+        return
+    await _send_telegram_text_with_token(chat_id, text)
+
+
+async def send_telegram_text_to_chat(chat_id: Any, text: str) -> None:
+    """
+    向**指定** chat 发送纯文本，不依赖 ``TELEGRAM_MAIN_USER_CHAT_ID``。
+    用于审批回执等需要发到具体用户的场景。
+    """
+    if chat_id is None or str(chat_id).strip() == "":
+        return
+    try:
+        cid = int(str(chat_id).strip())
+    except ValueError:
+        logger.warning("send_telegram_text_to_chat: chat_id 非法 %r", chat_id)
+        return
+    await _send_telegram_text_with_token(cid, text)
