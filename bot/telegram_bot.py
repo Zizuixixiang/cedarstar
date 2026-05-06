@@ -193,6 +193,26 @@ def _split_telegram_body_parts(text: str) -> List[str]:
     return [p.strip() for p in norm.split("|||") if p.strip()]
 
 
+def _sanitize_tts_voice_text(text: str) -> str:
+    """
+    语音兜底清洗：
+    - 去掉任意中英文括号及其内部内容（含动作描述）。
+    - 保留 <#x#> 停顿标签，供 TTS 使用。
+    """
+    if not text:
+        return ""
+    out = str(text)
+    # 处理嵌套括号：循环替换直到稳定
+    for _ in range(32):
+        nxt = re.sub(r"\([^()]*\)", "", out)
+        nxt = re.sub(r"（[^（）]*）", "", nxt)
+        if nxt == out:
+            break
+        out = nxt
+    out = re.sub(r"\s+", " ", out).strip()
+    return out
+
+
 class _BufferGenResult(NamedTuple):
     """缓冲生成结果：是否已落库用户行决定是否再写助手行。"""
 
@@ -467,6 +487,8 @@ class TelegramBot:
 
         # 只去 HTML 标签，保留 TTS 停顿标记 <#1.5#>
         clean_text = re.sub(r"<(?!(?:#[\d.]+#))[a-zA-Z/][^>]*>", "", full_text).strip()
+        # 兜底：语音内容中强制移除括号与括号内文本（包括中文全角括号）
+        clean_text = _sanitize_tts_voice_text(clean_text)
         if not clean_text:
             return False
 

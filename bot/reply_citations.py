@@ -22,7 +22,10 @@ _USED_UID_FWC_PATTERN = re.compile(r"【used:([^】]*)】")
 # 单括号 [used:uid]（勿与 [[used:…]] 重叠：后者整段先被另一规则去掉）
 _USED_UID_SINGLE_RE = re.compile(r"(?<!\[)\[used:([^\]]+)\](?!\])")
 _MEME_MARKER_PATTERN = re.compile(r"\[meme:([^\]]*)\]")
-_VOICE_MARKER_PATTERN = re.compile(r"\[voice\](.*?)(?:\[/voice\]|(?=\[voice\])|$)", re.DOTALL)
+_VOICE_MARKER_PATTERN = re.compile(
+    r"\[(?:voice|语音)\](.*?)(?:\[/\s*(?:voice|语音)\]|(?=\[(?:voice|语音)\])|(?=\|\|\|)|(?=\[meme:)|(?=\n)|$)",
+    re.DOTALL | re.IGNORECASE,
+)
 # 与 `|||` 一起作为顺序分隔：`re.split` 捕获组会保留分隔符
 _MEME_OR_TRIPLE_PIPE_SPLIT_RE = re.compile(r"(\[meme:[^\]]*\]|\|\|\|)")
 # Telegram 允许的块级标签：仅在闭合块外按换行拆段（单 \\n 与连续空行均切分）
@@ -358,6 +361,10 @@ def parse_telegram_segments_with_memes(
     if not isinstance(reply_text, str):
         return [], ""
     raw = reply_text.replace("｜｜｜", "|||")
+    # 统一语音标签写法，确保后续 voice 片段提取稳定：
+    # - [VOICE] / [语音] / [/语音] / [/VOICE] -> [voice] / [/voice]
+    raw = re.sub(r"\[\s*语音\s*\]", "[voice]", raw, flags=re.IGNORECASE)
+    raw = re.sub(r"\[\s*/\s*语音\s*\]", "[/voice]", raw, flags=re.IGNORECASE)
     if not raw.strip():
         return [], ""
 
