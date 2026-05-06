@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 from typing import Any, Dict, List
 
 import httpx
@@ -18,7 +19,23 @@ from config import config
 
 logger = logging.getLogger(__name__)
 
-MEMORY_API_BASE_URL = "http://127.0.0.1:8001/api"
+def _default_memory_api_base_url() -> str:
+    """
+    Resolve local memory API base URL from env (no hardcoded service port).
+    Priority:
+    1) MEMORY_API_BASE_URL
+    2) http://127.0.0.1:${PORT}/api
+    """
+    configured = (os.getenv("MEMORY_API_BASE_URL") or "").strip()
+    if configured:
+        return configured.rstrip("/")
+    port = (os.getenv("PORT") or "8000").strip()
+    if not port.isdigit():
+        port = "8000"
+    return f"http://127.0.0.1:{port}/api"
+
+
+MEMORY_API_BASE_URL = _default_memory_api_base_url()
 MEMORY_TOOL_TIMEOUT = 10.0
 
 # ---------------------------------------------------------------------------
