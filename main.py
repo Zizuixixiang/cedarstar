@@ -299,6 +299,8 @@ async def main_async():
         # 验证配置
         logger.info("验证配置...")
         validate_config()
+        # 启动即 fail-loud：未配置 DEFAULT_CHARACTER_ID 直接抛异常退出。
+        _ = config.DEFAULT_CHARACTER_ID
 
         # 初始化 PostgreSQL 连接池（必须在启动任何 Bot 或 LLM 组件之前完成）
         from memory.database import initialize_database
@@ -314,8 +316,13 @@ async def main_async():
         asyncio.create_task(log_flusher_task())
 
         # 启动日终跑批定时调度器（读取数据库 daily_batch_hour 配置）
-        from memory.daily_batch import schedule_daily_batch, schedule_expire_stale_approvals
+        from memory.daily_batch import (
+            schedule_daily_batch,
+            schedule_expire_stale_approvals,
+            schedule_pocket_money_jobs,
+        )
         asyncio.create_task(schedule_daily_batch())
+        asyncio.create_task(schedule_pocket_money_jobs())
         asyncio.create_task(schedule_expire_stale_approvals())
 
         # 任一 Bot 开始收消息前，阻塞重建 BM25 索引（与 Chroma 全量对齐；无文档时为空索引，不抛错）

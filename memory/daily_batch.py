@@ -19,6 +19,7 @@ import subprocess
 import sys
 import os
 import re
+from decimal import Decimal
 from datetime import datetime, date, time, timedelta
 from typing import List, Dict, Any, Optional, Tuple, NamedTuple
 from uuid import uuid4
@@ -42,6 +43,7 @@ from llm.llm_interface import (
 )
 from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display_names
 from tools.lutopia import strip_lutopia_internal_memory_blocks
+from api.stream import EventType, publish_event
 
 # 导入向量存储函数
 try:
@@ -96,6 +98,9 @@ try:
         increment_daily_batch_retry_count,
         reset_daily_batch_retry_count,
         expire_stale_approvals,
+        run_daily_pocket_money_job,
+        upsert_pocket_money_job_log,
+        list_incomplete_pocket_money_job_dates_in_range,
     )
 except ImportError:
     # 如果相对导入失败，尝试绝对导入
@@ -132,6 +137,9 @@ except ImportError:
         increment_daily_batch_retry_count,
         reset_daily_batch_retry_count,
         expire_stale_approvals,
+        run_daily_pocket_money_job,
+        upsert_pocket_money_job_log,
+        list_incomplete_pocket_money_job_dates_in_range,
     )
 
 # 设置日志
@@ -2729,6 +2737,84 @@ async def schedule_daily_batch():
         except Exception as e:
             logger.error(f"日终跑批调度器错误: {e}")
             # 发生错误时等待5分钟再重试
+            await asyncio.sleep(300)
+
+
+POCKET_MONEY_JOB_TYPE = "daily_pocket_money"
+
+
+async def _run_single_pocket_money_job(job_date: str) -> bool:
+    try:
+        await upsert_pocket_money_job_log(
+            job_date=job_date,
+            job_type=POCKET_MONEY_JOB_TYPE,
+            status="pending",
+            error_message=None,
+        )
+        balance = await run_daily_pocket_money_job(
+            job_date=job_date,
+            job_type=POCKET_MONEY_JOB_TYPE,
+        )
+        await publish_event(
+            EventType.STATUS_UPDATE,
+            {"pocketMoney": float(balance)},
+        )
+        logger.info("零花钱日任务执行成功 job_date=%s balance=%s", job_date, balance)
+        return True
+    except Exception as e:
+        logger.error("零花钱日任务执行失败 job_date=%s: %s", job_date, e)
+        await upsert_pocket_money_job_log(
+            job_date=job_date,
+            job_type=POCKET_MONEY_JOB_TYPE,
+            status="failed",
+            error_message=str(e)[:1000],
+        )
+        return False
+
+
+async def schedule_pocket_money_jobs():
+    """
+    每天东八区 00:00 执行零花钱日任务，并补跑最近 7 天未完成日期。
+
+    未完成定义：
+    - 当天无任何 job_log 记录
+    - 存在 job_log 但 status 不是 success（failed / pending）
+    """
+    logger.info("零花钱定时调度器启动")
+    while True:
+        try:
+            now = datetime.now(TIMEZONE)
+            target_time = now.replace(hour=0, minute=0, second=0, microsecond=0)
+            if now >= target_time:
+                target_time += timedelta(days=1)
+            wait_seconds = (target_time - now).total_seconds()
+            logger.info(
+                "下一次零花钱任务将在 %s 执行，等待 %.0f 秒",
+                target_time.strftime("%Y-%m-%d %H:%M:%S"),
+                wait_seconds,
+            )
+            await asyncio.sleep(wait_seconds)
+
+            wake = datetime.now(TIMEZONE)
+            today_d = wake.date()
+            today_s = today_d.isoformat()
+            window_start_s = (today_d - timedelta(days=6)).isoformat()
+            pending_dates = await list_incomplete_pocket_money_job_dates_in_range(
+                window_start_s,
+                today_s,
+                POCKET_MONEY_JOB_TYPE,
+            )
+            if pending_dates:
+                logger.info(
+                    "零花钱补跑：最近7天内未完成 %s 天，顺序 %s",
+                    len(pending_dates),
+                    pending_dates,
+                )
+            for d in pending_dates:
+                await _run_single_pocket_money_job(d)
+            await asyncio.sleep(60)
+        except Exception as e:
+            logger.error("零花钱调度器错误: %s", e)
             await asyncio.sleep(300)
 
 

@@ -12,8 +12,11 @@ import json
 import logging
 import datetime as _dt
 import uuid
+from decimal import Decimal, ROUND_DOWN
 from datetime import date
 from typing import List, Dict, Any, Optional, Tuple
+
+from config import config
 
 logger = logging.getLogger(__name__)
 
@@ -529,6 +532,70 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_model_favorites_table(conn)
     await _ensure_mcp_audit_log_table(conn)
     await _ensure_pending_approvals_table(conn)
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS transactions (
+            id BIGSERIAL PRIMARY KEY,
+            character_id TEXT NOT NULL,
+            amount NUMERIC(16, 2) NOT NULL,
+            type VARCHAR(16) NOT NULL,
+            income_category VARCHAR(64),
+            expense_category VARCHAR(64),
+            love_sub_category VARCHAR(64),
+            note TEXT,
+            timestamp TIMESTAMP NOT NULL DEFAULT NOW(),
+            balance_after NUMERIC(16, 2) NOT NULL,
+            requested_by_ai BOOLEAN NOT NULL DEFAULT FALSE,
+            pending_approval_id BIGINT
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pocket_money_config (
+            character_id TEXT PRIMARY KEY,
+            monthly_allowance NUMERIC(16, 2) NOT NULL DEFAULT 0,
+            next_month_allowance NUMERIC(16, 2),
+            annual_interest_rate NUMERIC(8, 6) NOT NULL DEFAULT 0,
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS pocket_money_job_log (
+            id BIGSERIAL PRIMARY KEY,
+            job_date DATE NOT NULL,
+            job_type VARCHAR(32) NOT NULL,
+            character_id TEXT NOT NULL,
+            status VARCHAR(16) NOT NULL,
+            executed_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            error_message TEXT,
+            UNIQUE(job_date, job_type, character_id)
+        )
+        """
+    )
+    await conn.execute(
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS character_id TEXT"
+    )
+    await conn.execute(
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS requested_by_ai BOOLEAN NOT NULL DEFAULT FALSE"
+    )
+    await conn.execute(
+        "ALTER TABLE transactions ADD COLUMN IF NOT EXISTS pending_approval_id BIGINT"
+    )
+    await conn.execute(
+        "ALTER TABLE pocket_money_config ADD COLUMN IF NOT EXISTS character_id TEXT"
+    )
+    await conn.execute(
+        "ALTER TABLE pocket_money_job_log ADD COLUMN IF NOT EXISTS character_id TEXT"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_transactions_character_ts ON transactions (character_id, timestamp DESC)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_pocket_money_job_log_character_date ON pocket_money_job_log (character_id, job_date)"
+    )
 
     await conn.execute(
         "ALTER TABLE meme_pack ADD COLUMN IF NOT EXISTS description TEXT"
@@ -729,6 +796,18 @@ class MessageDatabase:
 
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
+
+    @staticmethod
+    def _default_character_id() -> str:
+        return config.DEFAULT_CHARACTER_ID
+
+    @staticmethod
+    def _money(v: Any) -> Decimal:
+        return Decimal(str(v or 0)).quantize(Decimal("0.01"), rounding=ROUND_DOWN)
+
+    @staticmethod
+    def _rate(v: Any) -> Decimal:
+        return Decimal(str(v or 0))
 
     async def init_pool(self, dsn: str) -> None:
         """
@@ -3035,6 +3114,386 @@ class MessageDatabase:
                 "已将 %s 条超窗未完成的 daily_batch_log 标记为 expired, skipped", n
             )
         return n
+
+    # ------------------------------------------------------------------
+    # pocket money
+    # ------------------------------------------------------------------
+
+    async def get_current_pocket_money_balance(self) -> Decimal:
+        character_id = self._default_character_id()
+        async with self.pool.acquire() as conn:
+            val = await conn.fetchval(
+                """
+                SELECT balance_after
+                FROM transactions
+                WHERE character_id = $1
+                ORDER BY timestamp DESC, id DESC
+                LIMIT 1
+                """,
+                character_id,
+            )
+        return self._money(val)
+
+    async def get_pocket_money_config(self) -> Dict[str, Any]:
+        character_id = self._default_character_id()
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT character_id, monthly_allowance, next_month_allowance,
+                       annual_interest_rate, updated_at
+                FROM pocket_money_config
+                WHERE character_id = $1
+                """,
+                character_id,
+            )
+            if not row:
+                await conn.execute(
+                    """
+                    INSERT INTO pocket_money_config
+                        (character_id, monthly_allowance, next_month_allowance, annual_interest_rate, updated_at)
+                    VALUES ($1, 0, NULL, 0, NOW())
+                    ON CONFLICT (character_id) DO NOTHING
+                    """,
+                    character_id,
+                )
+                row = await conn.fetchrow(
+                    """
+                    SELECT character_id, monthly_allowance, next_month_allowance,
+                           annual_interest_rate, updated_at
+                    FROM pocket_money_config
+                    WHERE character_id = $1
+                    """,
+                    character_id,
+                )
+        item = _r(row)
+        item["monthly_allowance"] = float(self._money(item.get("monthly_allowance")))
+        item["next_month_allowance"] = (
+            None
+            if item.get("next_month_allowance") is None
+            else float(self._money(item.get("next_month_allowance")))
+        )
+        item["annual_interest_rate"] = float(self._rate(item.get("annual_interest_rate")))
+        return item
+
+    async def update_pocket_money_config(
+        self,
+        *,
+        monthly_allowance: Optional[Decimal] = None,
+        annual_interest_rate: Optional[Decimal] = None,
+    ) -> Dict[str, Any]:
+        character_id = self._default_character_id()
+        await self.get_pocket_money_config()
+        async with self.pool.acquire() as conn:
+            if monthly_allowance is not None:
+                await conn.execute(
+                    """
+                    UPDATE pocket_money_config
+                    SET next_month_allowance = $1, updated_at = NOW()
+                    WHERE character_id = $2
+                    """,
+                    self._money(monthly_allowance),
+                    character_id,
+                )
+            if annual_interest_rate is not None:
+                await conn.execute(
+                    """
+                    UPDATE pocket_money_config
+                    SET annual_interest_rate = $1, updated_at = NOW()
+                    WHERE character_id = $2
+                    """,
+                    self._rate(annual_interest_rate),
+                    character_id,
+                )
+        return await self.get_pocket_money_config()
+
+    async def create_pocket_money_transaction(
+        self,
+        *,
+        amount: Decimal,
+        tx_type: str,
+        income_category: Optional[str] = None,
+        expense_category: Optional[str] = None,
+        love_sub_category: Optional[str] = None,
+        note: Optional[str] = None,
+        timestamp_iso: Optional[str] = None,
+        requested_by_ai: bool = False,
+        pending_approval_id: Optional[int] = None,
+    ) -> Dict[str, Any]:
+        character_id = self._default_character_id()
+        amt = self._money(amount)
+        now_ts = _dt.datetime.now()
+        ts = now_ts
+        if timestamp_iso:
+            ts = _dt.datetime.fromisoformat(str(timestamp_iso).replace("Z", "+00:00"))
+            if ts.tzinfo is not None:
+                ts = _pg_timestamp_naive_shanghai(ts)
+        current = await self.get_current_pocket_money_balance()
+        if tx_type == "income":
+            balance_after = current + amt
+        elif tx_type == "expense":
+            balance_after = current - amt
+        else:
+            raise ValueError("tx_type must be income or expense")
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO transactions (
+                    character_id, amount, type, income_category, expense_category, love_sub_category,
+                    note, timestamp, balance_after, requested_by_ai, pending_approval_id
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+                RETURNING id, character_id, amount, type, income_category, expense_category, love_sub_category,
+                          note, timestamp, balance_after, requested_by_ai, pending_approval_id
+                """,
+                character_id,
+                amt,
+                tx_type,
+                income_category,
+                expense_category,
+                love_sub_category,
+                note,
+                ts,
+                self._money(balance_after),
+                bool(requested_by_ai),
+                pending_approval_id,
+            )
+        item = _r(row)
+        item["amount"] = float(self._money(item.get("amount")))
+        item["balance_after"] = float(self._money(item.get("balance_after")))
+        return item
+
+    async def list_pocket_money_transactions(self, *, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        character_id = self._default_character_id()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, character_id, amount, type, income_category, expense_category, love_sub_category,
+                       note, timestamp, balance_after, requested_by_ai, pending_approval_id
+                FROM transactions
+                WHERE character_id = $1
+                ORDER BY timestamp DESC, id DESC
+                LIMIT $2 OFFSET $3
+                """,
+                character_id,
+                max(1, int(limit)),
+                max(0, int(offset)),
+            )
+        items = _rows(rows)
+        for it in items:
+            it["amount"] = float(self._money(it.get("amount")))
+            it["balance_after"] = float(self._money(it.get("balance_after")))
+        return items
+
+    async def _recompute_transaction_balances_for_character(self, character_id: str) -> Decimal:
+        running = Decimal("0.00")
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, amount, type
+                FROM transactions
+                WHERE character_id = $1
+                ORDER BY timestamp ASC, id ASC
+                """,
+                character_id,
+            )
+            for row in rows:
+                amount = self._money(row["amount"])
+                if row["type"] == "income":
+                    running += amount
+                else:
+                    running -= amount
+                await conn.execute(
+                    "UPDATE transactions SET balance_after = $1 WHERE id = $2",
+                    self._money(running),
+                    row["id"],
+                )
+        return self._money(running)
+
+    async def delete_pocket_money_transaction(self, tx_id: int) -> Tuple[bool, Decimal]:
+        character_id = self._default_character_id()
+        async with self.pool.acquire() as conn:
+            deleted = await conn.fetchval(
+                """
+                DELETE FROM transactions
+                WHERE id = $1 AND character_id = $2
+                RETURNING id
+                """,
+                int(tx_id),
+                character_id,
+            )
+        if not deleted:
+            return False, await self.get_current_pocket_money_balance()
+        new_balance = await self._recompute_transaction_balances_for_character(character_id)
+        return True, new_balance
+
+    async def upsert_pocket_money_job_log(
+        self,
+        *,
+        job_date: str,
+        job_type: str,
+        status: str,
+        error_message: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        character_id = self._default_character_id()
+        dt_val = _dt.datetime.strptime(job_date, "%Y-%m-%d").date()
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO pocket_money_job_log (
+                    job_date, job_type, character_id, status, executed_at, error_message
+                )
+                VALUES ($1, $2, $3, $4, NOW(), $5)
+                ON CONFLICT (job_date, job_type, character_id) DO UPDATE SET
+                    status = EXCLUDED.status,
+                    executed_at = NOW(),
+                    error_message = EXCLUDED.error_message
+                RETURNING id, job_date, job_type, character_id, status, executed_at, error_message
+                """,
+                dt_val,
+                job_type,
+                character_id,
+                status,
+                error_message,
+            )
+        return _r(row)
+
+    async def list_incomplete_pocket_money_job_dates_in_range(
+        self, start_date: str, end_date: str, job_type: str
+    ) -> List[str]:
+        character_id = self._default_character_id()
+        dt_start = _dt.datetime.strptime(start_date, "%Y-%m-%d").date()
+        dt_end = _dt.datetime.strptime(end_date, "%Y-%m-%d").date()
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                WITH days AS (
+                    SELECT dd::date AS d
+                    FROM generate_series($1::date, $2::date, interval '1 day') AS dd
+                )
+                SELECT days.d AS job_date
+                FROM days
+                LEFT JOIN pocket_money_job_log j
+                       ON j.job_date = days.d
+                      AND j.job_type = $3
+                      AND j.character_id = $4
+                WHERE j.id IS NULL OR j.status <> 'success'
+                ORDER BY days.d ASC
+                """,
+                dt_start,
+                dt_end,
+                job_type,
+                character_id,
+            )
+        return [_norm(r["job_date"]) for r in rows]
+
+    async def run_daily_pocket_money_job(self, *, job_date: str, job_type: str = "daily_pocket_money") -> Decimal:
+        character_id = self._default_character_id()
+        dt_job = _dt.datetime.strptime(job_date, "%Y-%m-%d").date()
+        dt_job_ts = _dt.datetime.combine(dt_job, _dt.time.min)
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    """
+                    INSERT INTO pocket_money_config
+                        (character_id, monthly_allowance, next_month_allowance, annual_interest_rate, updated_at)
+                    VALUES ($1, 0, NULL, 0, NOW())
+                    ON CONFLICT (character_id) DO NOTHING
+                    """,
+                    character_id,
+                )
+                cfg = await conn.fetchrow(
+                    """
+                    SELECT monthly_allowance, next_month_allowance, annual_interest_rate
+                    FROM pocket_money_config
+                    WHERE character_id = $1
+                    FOR UPDATE
+                    """,
+                    character_id,
+                )
+
+                bal_val = await conn.fetchval(
+                    """
+                    SELECT balance_after
+                    FROM transactions
+                    WHERE character_id = $1
+                    ORDER BY timestamp DESC, id DESC
+                    LIMIT 1
+                    """,
+                    character_id,
+                )
+                balance = self._money(bal_val)
+                annual_rate = self._rate(cfg["annual_interest_rate"])
+                interest = self._money((balance * annual_rate) / Decimal("365"))
+
+                if interest > 0:
+                    balance = self._money(balance + interest)
+                    await conn.execute(
+                        """
+                        INSERT INTO transactions (
+                            character_id, amount, type, income_category, expense_category, love_sub_category,
+                            note, timestamp, balance_after, requested_by_ai, pending_approval_id
+                        )
+                        VALUES ($1, $2, 'income', 'interest', NULL, NULL, $3, $4, $5, FALSE, NULL)
+                        """,
+                        character_id,
+                        interest,
+                        "daily pocket money interest",
+                        dt_job_ts,
+                        balance,
+                    )
+
+                if dt_job.day == 1:
+                    monthly = self._money(cfg["monthly_allowance"])
+                    next_month = (
+                        None
+                        if cfg["next_month_allowance"] is None
+                        else self._money(cfg["next_month_allowance"])
+                    )
+                    allowance = next_month if next_month is not None else monthly
+                    if allowance > 0:
+                        balance = self._money(balance + allowance)
+                        await conn.execute(
+                            """
+                            INSERT INTO transactions (
+                                character_id, amount, type, income_category, expense_category, love_sub_category,
+                                note, timestamp, balance_after, requested_by_ai, pending_approval_id
+                            )
+                            VALUES ($1, $2, 'income', 'allowance', NULL, NULL, $3, $4, $5, FALSE, NULL)
+                            """,
+                            character_id,
+                            allowance,
+                            "monthly allowance",
+                            dt_job_ts + _dt.timedelta(seconds=1),
+                            balance,
+                        )
+                    if next_month is not None:
+                        await conn.execute(
+                            """
+                            UPDATE pocket_money_config
+                            SET monthly_allowance = next_month_allowance,
+                                next_month_allowance = NULL,
+                                updated_at = NOW()
+                            WHERE character_id = $1
+                            """,
+                            character_id,
+                        )
+
+                await conn.execute(
+                    """
+                    INSERT INTO pocket_money_job_log (
+                        job_date, job_type, character_id, status, executed_at, error_message
+                    )
+                    VALUES ($1, $2, $3, 'success', NOW(), NULL)
+                    ON CONFLICT (job_date, job_type, character_id) DO UPDATE SET
+                        status = EXCLUDED.status,
+                        executed_at = NOW(),
+                        error_message = NULL
+                    """,
+                    dt_job,
+                    job_type,
+                    character_id,
+                )
+        return balance
 
     # ------------------------------------------------------------------
     # temporal_states / relationship_timeline
@@ -5354,6 +5813,85 @@ async def list_recent_tool_executions(
 
 async def get_recent_image_messages(session_id: str, limit: int = 5) -> List[Dict[str, Any]]:
     return await get_database().get_recent_image_messages(session_id, limit)
+
+
+async def get_current_pocket_money_balance() -> Decimal:
+    return await get_database().get_current_pocket_money_balance()
+
+
+async def get_pocket_money_config() -> Dict[str, Any]:
+    return await get_database().get_pocket_money_config()
+
+
+async def update_pocket_money_config(
+    *,
+    monthly_allowance: Optional[Decimal] = None,
+    annual_interest_rate: Optional[Decimal] = None,
+) -> Dict[str, Any]:
+    return await get_database().update_pocket_money_config(
+        monthly_allowance=monthly_allowance,
+        annual_interest_rate=annual_interest_rate,
+    )
+
+
+async def create_pocket_money_transaction(
+    *,
+    amount: Decimal,
+    tx_type: str,
+    income_category: Optional[str] = None,
+    expense_category: Optional[str] = None,
+    love_sub_category: Optional[str] = None,
+    note: Optional[str] = None,
+    timestamp_iso: Optional[str] = None,
+    requested_by_ai: bool = False,
+    pending_approval_id: Optional[int] = None,
+) -> Dict[str, Any]:
+    return await get_database().create_pocket_money_transaction(
+        amount=amount,
+        tx_type=tx_type,
+        income_category=income_category,
+        expense_category=expense_category,
+        love_sub_category=love_sub_category,
+        note=note,
+        timestamp_iso=timestamp_iso,
+        requested_by_ai=requested_by_ai,
+        pending_approval_id=pending_approval_id,
+    )
+
+
+async def list_pocket_money_transactions(*, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+    return await get_database().list_pocket_money_transactions(limit=limit, offset=offset)
+
+
+async def delete_pocket_money_transaction(tx_id: int) -> Tuple[bool, Decimal]:
+    return await get_database().delete_pocket_money_transaction(tx_id)
+
+
+async def upsert_pocket_money_job_log(
+    *,
+    job_date: str,
+    job_type: str,
+    status: str,
+    error_message: Optional[str] = None,
+) -> Dict[str, Any]:
+    return await get_database().upsert_pocket_money_job_log(
+        job_date=job_date,
+        job_type=job_type,
+        status=status,
+        error_message=error_message,
+    )
+
+
+async def list_incomplete_pocket_money_job_dates_in_range(
+    start_date: str, end_date: str, job_type: str
+) -> List[str]:
+    return await get_database().list_incomplete_pocket_money_job_dates_in_range(
+        start_date, end_date, job_type
+    )
+
+
+async def run_daily_pocket_money_job(*, job_date: str, job_type: str = "daily_pocket_money") -> Decimal:
+    return await get_database().run_daily_pocket_money_job(job_date=job_date, job_type=job_type)
 
 
 # ---------------------------------------------------------------------------
