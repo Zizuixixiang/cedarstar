@@ -441,7 +441,7 @@ function Persona() {
         }
         // 加载 X 每日配额
         try {
-          const cfgRes = await apiFetch('/api/config');
+          const cfgRes = await apiFetch('/api/config/config');
           const cfg = await cfgRes.json();
           if (cfg?.success && cfg?.data?.x_daily_read_limit != null) {
             const v = Number(cfg.data.x_daily_read_limit) || 100;
@@ -567,7 +567,7 @@ function Persona() {
         setSavedForm({ ...form });
         // 保存 X 每日配额到 config 表
         try {
-          await apiFetch('/api/config', {
+          await apiFetch('/api/config/config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ x_daily_read_limit: xDailyReadLimit }),
