@@ -1180,6 +1180,25 @@ class MessageDatabase:
         if sender_norm not in {"user", "clio", "sirius"}:
             raise ValueError(f"invalid sender: {sender}")
         async with pool.acquire() as conn:
+            if sender_norm == "user":
+                # 防止同一用户消息在短时间内被不同链路重复写入共享表（例如原始入站与缓冲回写）。
+                # 仅对 sender=user 生效，窗口尽量小，避免误伤真实重复发言。
+                existed = await conn.fetchval(
+                    """
+                    SELECT id
+                    FROM shared_group_messages
+                    WHERE chat_id = $1
+                      AND sender = 'user'
+                      AND content = $2
+                      AND created_at >= NOW() - INTERVAL '2 seconds'
+                    ORDER BY created_at ASC
+                    LIMIT 1
+                    """,
+                    str(chat_id),
+                    str(content or ""),
+                )
+                if existed is not None:
+                    return int(existed)
             row = await conn.fetchrow(
                 """
                 INSERT INTO shared_group_messages (
