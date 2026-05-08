@@ -1966,6 +1966,8 @@ class TelegramBot:
         sse: _TelegramSseRound,
         base_message,
         bot,
+        *,
+        had_pre_tool_text: bool = False,
     ) -> _TelegramStreamOutcome:
         """定稿思维链 + 发送正文，组装缓冲 outcome。"""
         chat_id = base_message.chat.id
@@ -2047,7 +2049,7 @@ class TelegramBot:
             body_for_db = "[表情包]"
 
         sent_something = bool(
-            has_text_seg or (think_plain or "").strip() or meme_sent
+            has_text_seg or (think_plain or "").strip() or meme_sent or had_pre_tool_text
         )
         # 以下仅 Telegram 提示：不入库。落库正文只来自 outcome.body_for_db（模型/分段结果），见 _flush_buffered_messages。
         if done_payload is not None and not sent_something:
@@ -2170,6 +2172,47 @@ class TelegramBot:
         lutopia_stream_exec_log: List[Tuple[str, str, str]] = []
         lutopia_stream_turn_id = uuid.uuid4().hex
 
+        def _trim_overlap_with_pre_tool_segments(
+            final_text: str,
+        ) -> str:
+            """
+            若最终收尾文本前缀与已发送口播尾部重复，则裁掉重复前缀。
+            仅做行级精确匹配，避免误删有价值的新信息。
+            """
+            if not pre_tool_segments:
+                return final_text
+            final = (final_text or "").strip()
+            if not final:
+                return final_text
+
+            def _norm_lines(text: str) -> List[str]:
+                out: List[str] = []
+                for ln in text.splitlines():
+                    s = " ".join((ln or "").strip().split())
+                    if s:
+                        out.append(s)
+                return out
+
+            pre_text = "\n".join(s for s in pre_tool_segments if (s or "").strip())
+            pre_lines = _norm_lines(pre_text)
+            final_lines = _norm_lines(final)
+            if not pre_lines or not final_lines:
+                return final_text
+
+            max_overlap = min(len(pre_lines), len(final_lines))
+            overlap = 0
+            for k in range(max_overlap, 0, -1):
+                if pre_lines[-k:] == final_lines[:k]:
+                    overlap = k
+                    break
+            if overlap <= 0:
+                return final_text
+            # 只重叠 1 行时保守些：避免删掉常见开场句导致语义突兀。
+            if overlap == 1 and len(final_lines) > 1:
+                return final_text
+            trimmed = "\n".join(final_lines[overlap:]).strip()
+            return trimmed
+
         def _merge_stream_outcome(outcome: _TelegramStreamOutcome) -> _TelegramStreamOutcome:
             merged_parts = [p for p in pre_tool_segments if p.strip()]
             if outcome.body_for_db.strip():
@@ -2248,14 +2291,20 @@ class TelegramBot:
                         user_message_id=user_message_id,
                     )
                     continue
+                trimmed_raw = _trim_overlap_with_pre_tool_segments(sse.raw_content or "")
+                if trimmed_raw != (sse.raw_content or ""):
+                    sse = sse._replace(raw_content=trimmed_raw)
                 outcome = await self._telegram_finalize_sse_round_outcome(
-                    sse, base_message, bot
+                    sse, base_message, bot, had_pre_tool_text=bool(pre_tool_segments)
                 )
                 return _merge_stream_outcome(outcome)
             assert sse is not None
             logger.warning("Lutopia 工具轮次已达上限（8），按末轮 SSE 结果收尾")
+            trimmed_raw = _trim_overlap_with_pre_tool_segments(sse.raw_content or "")
+            if trimmed_raw != (sse.raw_content or ""):
+                sse = sse._replace(raw_content=trimmed_raw)
             outcome = await self._telegram_finalize_sse_round_outcome(
-                sse, base_message, bot
+                sse, base_message, bot, had_pre_tool_text=bool(pre_tool_segments)
             )
             return _merge_stream_outcome(outcome)
 
