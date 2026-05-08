@@ -832,7 +832,6 @@ class TelegramBot:
         if not content:
             return True
         db = get_database()
-        other_name = getattr(sender, "username", None) or getattr(sender, "first_name", None) or "other_bot"
         await db.insert_shared_group_message(
             chat_id=str(message.chat.id),
             sender=self._shared_sender_peer(),
@@ -842,67 +841,8 @@ class TelegramBot:
             vision_processed=1,
         )
 
-        if await db.get_config("group_chat_silent_mode", "0") == "1":
-            return True
-        max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
-        round_count = await db.get_group_chat_round_count(str(message.chat.id))
-        if round_count >= max_rounds:
-            return True
-
-        me_username = (getattr(me, "username", "") or "").lower() if me else ""
-        mentioned = bool(me_username and f"@{me_username}" in content.lower())
-        interject = False
-        if not mentioned:
-            try:
-                prob = float(await db.get_config("group_chat_interject_probability", "0.2") or 0.2)
-            except (TypeError, ValueError):
-                prob = 0.2
-            interject = random.random() < max(0.0, min(1.0, prob))
-        if not mentioned and not interject:
-            return True
-
-        delta = 1 if mentioned else 2
-        if round_count + delta > max_rounds:
-            return True
-        new_round_count = await db.increment_group_chat_round_count(str(message.chat.id), delta)
-        prompt = (
-            f"[另一名助手 {other_name} 的发言]：{content}\n\n"
-            "请自然接话，避免重复对方内容。"
-        )
-        gen = await self._generate_reply_from_buffer(
-            session_id=session_id,
-            combined_raw=prompt,
-            combined_content=prompt,
-            user_id=str(getattr(sender, "id", "unknown")),
-            chat_id=str(message.chat.id),
-            message_id=str(message.message_id),
-            buffer_messages=[{
-                "message": message,
-                "context": context,
-                "user_id": str(getattr(sender, "id", "unknown")),
-                "message_id": str(message.message_id),
-            }],
-            base_message=message,
-            bot=context.bot,
-            persist_user=False,
-        )
-        if gen.persist_assistant and gen.reply.strip():
-            assistant_mid = gen.assistant_message_id or f"ai_{message.message_id}"
-            await save_message(
-                session_id=session_id,
-                role="assistant",
-                content=gen.reply,
-                user_id=str(getattr(sender, "id", "unknown")),
-                channel_id=str(message.chat.id),
-                message_id=assistant_mid,
-                character_id=gen.character_id,
-                platform=Platform.TELEGRAM,
-                thinking=gen.thinking,
-            )
-            await self._relay_group_assistant_message(
-                chat_id=str(message.chat.id),
-                round_count=new_round_count,
-            )
+        # 只记录另一 bot 的群聊发言，不再从 bot->bot 消息链路直接触发接话。
+        # 群聊多 bot 轮次统一由「用户消息」与「peer signal」驱动，避免 @ 提及与分段文本叠加后轮次失控。
         return True
 
     async def handle_peer_group_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -2595,11 +2535,14 @@ class TelegramBot:
                         ),
                     )
                     if session_id.startswith("telegram_group_"):
+                        shared_tg_message_id = str(
+                            getattr(base_message, "message_id", message_id)
+                        )
                         await get_database().insert_shared_group_message(
                             chat_id=chat_id,
                             sender="user",
                             content=combined_raw,
-                            tg_message_id=message_id,
+                            tg_message_id=shared_tg_message_id,
                             platform=Platform.TELEGRAM,
                             media_type=media_t,
                             vision_processed=0 if has_img else 1,
