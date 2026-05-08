@@ -408,7 +408,14 @@ class TelegramBot:
     def _shared_sender_self() -> str:
         """根据当前实例默认角色推断共享表 sender（clio/sirius）。"""
         cid = str(getattr(config, "DEFAULT_CHARACTER_ID", "") or "").strip().lower()
-        return "clio" if cid == "clio" else "sirius"
+        if cid in {"clio", "1"}:
+            return "clio"
+        if cid in {"sirius", "2"}:
+            return "sirius"
+        app_id = str(getattr(config, "TELEGRAM_GROUP_PEER_RELAY_APP_ID", "") or "").strip().lower()
+        if app_id in {"clio", "cedarclio"}:
+            return "clio"
+        return "sirius"
 
     @classmethod
     def _shared_sender_peer(cls) -> str:
@@ -469,6 +476,13 @@ class TelegramBot:
             "",
             text,
             flags=re.DOTALL | re.IGNORECASE,
+        )
+        # 清理残留或拼写异常的语音标签（如 [/vooice]），避免群聊正文出现标记噪音
+        text = re.sub(
+            r"\[\s*/?\s*(?:v+o+i+c+e+|语音)(?:\s*\+\s*(?:v+o+i+c+e+|语音))*\s*\]",
+            "",
+            text,
+            flags=re.IGNORECASE,
         )
         return text
 
@@ -837,7 +851,7 @@ class TelegramBot:
         me_username = (getattr(me, "username", "") or "").lower() if me else ""
         mentioned = bool(me_username and f"@{me_username}" in content.lower())
         interject = False
-        if not mentioned and await db.get_config("group_chat_interject_enabled", "0") == "1":
+        if not mentioned:
             try:
                 prob = float(await db.get_config("group_chat_interject_probability", "0.2") or 0.2)
             except (TypeError, ValueError):
@@ -900,31 +914,28 @@ class TelegramBot:
         if not chat_id:
             return {"status": "ignored_empty"}
         round_count_raw = payload.get("round_count")
-        if round_count_raw is not None:
-            db = get_database()
-            if await db.get_config("group_chat_silent_mode", "0") == "1":
-                return {"status": "signal_silent"}
-            max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
-            try:
-                round_count = int(round_count_raw)
-            except (TypeError, ValueError):
-                round_count = await db.get_group_chat_round_count(chat_id)
-            if round_count >= max_rounds:
-                return {"status": "signal_round_limited"}
-            app = getattr(self, "application", None)
-            bot_obj = getattr(app, "bot", None) if app is not None else None
-            if bot_obj is None:
-                return {"status": "signal_no_bot"}
-            if round_count + 1 > max_rounds:
-                return {"status": "signal_round_limited"}
-            new_round_count = await db.increment_group_chat_round_count(chat_id, 1)
-            return await self._handle_peer_group_signal_reply(
-                chat_id=chat_id,
-                bot_obj=bot_obj,
-                new_round_count=new_round_count,
-            )
-
-        return {"status": "ignored_legacy_payload"}
+        db = get_database()
+        if await db.get_config("group_chat_silent_mode", "0") == "1":
+            return {"status": "signal_silent"}
+        max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
+        try:
+            round_count = int(round_count_raw)
+        except (TypeError, ValueError):
+            round_count = await db.get_group_chat_round_count(chat_id)
+        if round_count >= max_rounds:
+            return {"status": "signal_round_limited"}
+        app = getattr(self, "application", None)
+        bot_obj = getattr(app, "bot", None) if app is not None else None
+        if bot_obj is None:
+            return {"status": "signal_no_bot"}
+        if round_count + 1 > max_rounds:
+            return {"status": "signal_round_limited"}
+        new_round_count = await db.increment_group_chat_round_count(chat_id, 1)
+        return await self._handle_peer_group_signal_reply(
+            chat_id=chat_id,
+            bot_obj=bot_obj,
+            new_round_count=new_round_count,
+        )
 
     async def _handle_peer_group_signal_reply(
         self,

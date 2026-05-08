@@ -31,11 +31,6 @@ async def get_messages(
     mt = (type or "").strip().lower()
     if mt not in {"private", "group"}:
         return create_response(False, None, "type 仅支持 private 或 group")
-    if mt == "private" and not (session_id or "").strip():
-        return create_response(False, None, "type=private 时必须提供 session_id")
-    if mt == "group" and not (chat_id or "").strip():
-        return create_response(False, None, "type=group 时必须提供 chat_id")
-
     db = get_database()
     try:
         result = await db.get_messages_by_type(

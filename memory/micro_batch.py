@@ -483,13 +483,15 @@ async def process_micro_batch(session_id: str) -> None:
             end_message_id=end_message_id,
             summary_type="chunk",
             source_date=chunk_day,
-            is_group=1 if str(session_id).startswith("telegram_-") else 0,
+            is_group=1 if str(session_id).startswith("telegram_group_") else 0,
         )
         
         logger.info(f"摘要保存成功，ID: {summary_id}, 会话: {session_id}")
         
         # 4. 标记消息为已摘要
-        updated_count = await mark_messages_as_summarized_by_ids(message_ids)
+        updated_count = await mark_messages_as_summarized_by_ids(
+            message_ids, session_id=session_id
+        )
         
         logger.info(f"微批处理完成，会话: {session_id}, 摘要ID: {summary_id}, 标记消息: {updated_count} 条")
         _consecutive_chunk_failures = 0

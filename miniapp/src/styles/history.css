@@ -114,6 +114,37 @@
   box-shadow: var(--history-tab-active-shadow);
 }
 
+/* 私聊/群聊切换用独立配色，避免和平台筛选视觉打架 */
+.message-type-tabs .tab-button {
+  background: #d9e4f7;
+  border: 2px solid #1f3f66;
+  color: #183a63;
+  box-shadow: 2px 2px 0 #1f3f66;
+}
+
+.message-type-tabs .tab-button.active {
+  background: #1f4f8e;
+  color: #ffffff;
+  border-color: #183a63;
+  box-shadow: 3px 3px 0 #163557;
+}
+
+.message-type-tabs .tab-button:hover:not(.active):not(.disabled) {
+  background: #c9d9f2;
+  color: #183a63;
+}
+
+.message-type-tabs .tab-button.active:hover {
+  background: #1f4f8e;
+  color: #ffffff;
+  border-color: #183a63;
+  box-shadow: 3px 3px 0 #163557;
+}
+
+.message-type-tabs .tab-button.active:active {
+  box-shadow: 2px 2px 0 #163557;
+}
+
 .tab-button.active:hover {
   background: var(--history-moss-deep);
   color: #ffffff;

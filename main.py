@@ -18,7 +18,7 @@ import os
 from datetime import datetime
 from pathlib import Path
 import pytz
-from fastapi import Depends, FastAPI, HTTPException, Response
+from fastapi import Depends, FastAPI, HTTPException, Response, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.security import APIKeyHeader
@@ -68,9 +68,21 @@ app.include_router(telegram_webhook_router)
 API_KEY_HEADER = APIKeyHeader(name="X-Cedarstar-Token", auto_error=False)
 
 
-async def verify_token(token: str | None = Depends(API_KEY_HEADER)):
+async def verify_token(
+    request: Request,
+    token: str | None = Depends(API_KEY_HEADER),
+):
     # 与 .env 中值比对时 strip，避免行尾空格/换行导致与前端构建进 bundle 的 token 不一致
-    if (token or "").strip() != (config.MINIAPP_TOKEN or "").strip():
+    token_norm = (token or "").strip()
+    miniapp_token = (config.MINIAPP_TOKEN or "").strip()
+    if token_norm == miniapp_token:
+        return
+    # peer relay 走独立共享 token，避免强依赖 MINIAPP_TOKEN 一致
+    if request.url.path.startswith("/api/peer/"):
+        relay_token = (config.TELEGRAM_GROUP_PEER_RELAY_TOKEN or "").strip()
+        if relay_token and token_norm == relay_token:
+            return
+    if token_norm != miniapp_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 

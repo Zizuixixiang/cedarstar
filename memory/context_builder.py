@@ -2123,11 +2123,10 @@ class ContextBuilder:
                             }
                         )
                     else:
-                        who = "Clio" if sender == "clio" else "Sirius"
                         out.append(
                             {
                                 "role": "assistant",
-                                "content": f"[群聊助手 {who}]：{strip_lutopia_behavior_appendix(content)}",
+                                "content": strip_lutopia_behavior_appendix(content),
                             }
                         )
                 return out

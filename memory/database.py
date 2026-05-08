@@ -421,7 +421,8 @@ async def _ensure_shared_group_messages_table(conn) -> None:
             sender TEXT NOT NULL CHECK (sender IN ('user', 'clio', 'sirius')),
             content TEXT NOT NULL DEFAULT '',
             tg_message_id TEXT NOT NULL,
-            is_summarized INTEGER NOT NULL DEFAULT 0,
+            is_summarized_clio INTEGER NOT NULL DEFAULT 0,
+            is_summarized_sirius INTEGER NOT NULL DEFAULT 0,
             created_at TIMESTAMP DEFAULT NOW(),
             platform TEXT,
             thinking TEXT,
@@ -435,6 +436,32 @@ async def _ensure_shared_group_messages_table(conn) -> None:
     await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_shared_group_messages_chat_created "
         "ON shared_group_messages (chat_id, created_at)"
+    )
+    await conn.execute(
+        "ALTER TABLE shared_group_messages ADD COLUMN IF NOT EXISTS is_summarized_clio INTEGER NOT NULL DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE shared_group_messages ADD COLUMN IF NOT EXISTS is_summarized_sirius INTEGER NOT NULL DEFAULT 0"
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'shared_group_messages'
+                  AND column_name = 'is_summarized'
+            ) THEN
+                UPDATE shared_group_messages
+                SET is_summarized_clio = COALESCE(is_summarized_clio, is_summarized, 0),
+                    is_summarized_sirius = COALESCE(is_summarized_sirius, is_summarized, 0);
+            END IF;
+        END $$;
+        """
+    )
+    await conn.execute(
+        "ALTER TABLE shared_group_messages DROP COLUMN IF EXISTS is_summarized"
     )
 
 
@@ -826,6 +853,35 @@ class MessageDatabase:
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
         self.shared_group_pool: Optional[asyncpg.Pool] = None
+        self._shared_group_pool_warned = False
+
+    @staticmethod
+    def _is_group_session(session_id: Optional[str]) -> bool:
+        return str(session_id or "").startswith("telegram_group_")
+
+    @staticmethod
+    def _group_chat_id_from_session(session_id: str) -> str:
+        return str(session_id)[len("telegram_group_") :]
+
+    @staticmethod
+    def _shared_summary_actor() -> str:
+        app_name = str(getattr(config, "APP_NAME", "") or "").strip().lower()
+        if app_name in {"clio", "cedarclio"}:
+            return "clio"
+        if app_name in {"sirius", "cedarstar"}:
+            return "sirius"
+        relay_id = (
+            str(getattr(config, "TELEGRAM_GROUP_PEER_RELAY_APP_ID", "") or "")
+            .strip()
+            .lower()
+        )
+        if relay_id in {"clio", "cedarclio"}:
+            return "clio"
+        return "sirius"
+
+    @classmethod
+    def _shared_summary_column(cls) -> str:
+        return f"is_summarized_{cls._shared_summary_actor()}"
 
     @staticmethod
     def _default_character_id() -> str:
@@ -1077,6 +1133,11 @@ class MessageDatabase:
             return self.shared_group_pool
         dsn = os.getenv("SHARED_GROUP_DB_URL", "").strip()
         if not dsn:
+            if not self._shared_group_pool_warned:
+                logger.warning(
+                    "未配置 SHARED_GROUP_DB_URL：群聊共享表不可用（跨实例互通会失效）"
+                )
+                self._shared_group_pool_warned = True
             return None
         self.shared_group_pool = await asyncpg.create_pool(
             dsn=dsn,
@@ -1112,10 +1173,10 @@ class MessageDatabase:
             row = await conn.fetchrow(
                 """
                 INSERT INTO shared_group_messages (
-                    chat_id, sender, content, tg_message_id, is_summarized,
+                    chat_id, sender, content, tg_message_id, is_summarized_clio, is_summarized_sirius,
                     platform, thinking, media_type, image_caption, vision_processed
                 )
-                VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)
+                VALUES ($1, $2, $3, $4, 0, 0, $5, $6, $7, $8, $9)
                 ON CONFLICT (chat_id, tg_message_id, sender) DO NOTHING
                 RETURNING id
                 """,
@@ -1138,10 +1199,11 @@ class MessageDatabase:
         pool = await self._ensure_shared_group_pool()
         if pool is None:
             return []
+        summary_col = self._shared_summary_column()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
-                SELECT id, chat_id, sender, content, tg_message_id, is_summarized,
+                f"""
+                SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized,
                        created_at, platform, thinking, media_type, image_caption, vision_processed
                 FROM shared_group_messages
                 WHERE chat_id = $1
@@ -1160,13 +1222,14 @@ class MessageDatabase:
         pool = await self._ensure_shared_group_pool()
         if pool is None:
             return []
+        summary_col = self._shared_summary_column()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
-                SELECT id, chat_id, sender, content, tg_message_id, is_summarized,
+                f"""
+                SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized,
                        created_at, platform, thinking, media_type, image_caption, vision_processed
                 FROM shared_group_messages
-                WHERE chat_id = $1 AND is_summarized = 0
+                WHERE chat_id = $1 AND {summary_col} = 0
                 ORDER BY created_at DESC
                 LIMIT $2
                 """,
@@ -1184,13 +1247,14 @@ class MessageDatabase:
         pool = await self._ensure_shared_group_pool()
         if pool is None:
             return []
+        summary_col = self._shared_summary_column()
         async with pool.acquire() as conn:
             rows = await conn.fetch(
-                """
-                SELECT id, chat_id, sender, content, tg_message_id, is_summarized,
+                f"""
+                SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized,
                        created_at, platform, thinking, media_type, image_caption, vision_processed
                 FROM shared_group_messages
-                WHERE chat_id = $1 AND is_summarized = 1
+                WHERE chat_id = $1 AND {summary_col} = 1
                 ORDER BY created_at DESC
                 LIMIT $2
                 """,
@@ -1200,6 +1264,45 @@ class MessageDatabase:
         out = [_r(r) for r in rows]
         out.reverse()
         return out
+
+    async def get_unsummarized_shared_group_count(self, chat_id: str) -> int:
+        """读取共享群聊当前实例视角的未摘要条数。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return 0
+        summary_col = self._shared_summary_column()
+        async with pool.acquire() as conn:
+            count = await conn.fetchval(
+                f"""
+                SELECT COUNT(*)
+                FROM shared_group_messages
+                WHERE chat_id = $1 AND {summary_col} = 0 AND vision_processed = 1
+                """,
+                str(chat_id),
+            )
+        return int(count or 0)
+
+    async def mark_shared_group_messages_as_summarized_by_ids(
+        self, chat_id: str, message_ids: List[int]
+    ) -> int:
+        """按消息 ID 列表标记共享群聊消息为已摘要（当前实例列）。"""
+        if not message_ids:
+            return 0
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return 0
+        summary_col = self._shared_summary_column()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                f"""
+                UPDATE shared_group_messages
+                SET {summary_col} = 1
+                WHERE chat_id = $1 AND id = ANY($2::bigint[])
+                """,
+                str(chat_id),
+                [int(i) for i in message_ids],
+            )
+        return _rowcount(result)
 
     # ------------------------------------------------------------------
     # pending_approvals
@@ -1861,11 +1964,13 @@ class MessageDatabase:
         kw = (keyword or "").strip()
 
         if mt == "private":
-            if not session_id:
-                raise ValueError("private 类型必须提供 session_id")
-            conditions: List[str] = ["session_id = $1"]
-            params: List[Any] = [str(session_id)]
-            idx = 2
+            conditions: List[str] = []
+            params: List[Any] = []
+            idx = 1
+            if session_id:
+                conditions.append(f"session_id = ${idx}")
+                params.append(str(session_id))
+                idx += 1
             if kw:
                 conditions.append(
                     f"(COALESCE(content, '') ILIKE ${idx} OR COALESCE(thinking, '') ILIKE ${idx})"
@@ -1880,7 +1985,7 @@ class MessageDatabase:
                 conditions.append(f"created_at::date <= ${idx}")
                 params.append(date_to)
                 idx += 1
-            where_clause = "WHERE " + " AND ".join(conditions)
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             async with self.pool.acquire() as conn:
                 total = await conn.fetchval(
                     f"SELECT COUNT(*) FROM messages {where_clause}", *params
@@ -1917,14 +2022,17 @@ class MessageDatabase:
             return {"total": int(total or 0), "items": items}
 
         if mt == "group":
-            if not chat_id:
-                raise ValueError("group 类型必须提供 chat_id")
             pool = await self._ensure_shared_group_pool()
             if pool is None:
-                return {"total": 0, "items": []}
-            conditions = ["chat_id = $1"]
-            params = [str(chat_id)]
-            idx = 2
+                raise ValueError("未配置 SHARED_GROUP_DB_URL，无法查询群聊共享消息")
+            summary_col = self._shared_summary_column()
+            conditions: List[str] = []
+            params: List[Any] = []
+            idx = 1
+            if chat_id:
+                conditions.append(f"chat_id = ${idx}")
+                params.append(str(chat_id))
+                idx += 1
             if kw:
                 conditions.append(f"COALESCE(content, '') ILIKE ${idx}")
                 params.append(f"%{kw}%")
@@ -1937,7 +2045,7 @@ class MessageDatabase:
                 conditions.append(f"created_at::date <= ${idx}")
                 params.append(date_to)
                 idx += 1
-            where_clause = "WHERE " + " AND ".join(conditions)
+            where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
             async with pool.acquire() as conn:
                 total = await conn.fetchval(
                     f"SELECT COUNT(*) FROM shared_group_messages {where_clause}",
@@ -1946,7 +2054,7 @@ class MessageDatabase:
                 offset = (page - 1) * page_size
                 rows = await conn.fetch(
                     f"""
-                    SELECT id, sender, content, tg_message_id, is_summarized, created_at,
+                    SELECT id, sender, content, tg_message_id, {summary_col} AS is_summarized, created_at,
                            platform, thinking, media_type, image_caption, vision_processed
                     FROM shared_group_messages
                     {where_clause}
@@ -2713,10 +2821,24 @@ class MessageDatabase:
         )
         return updated_count
 
-    async def mark_messages_as_summarized_by_ids(self, message_ids: List[int]) -> int:
+    async def mark_messages_as_summarized_by_ids(
+        self, message_ids: List[int], session_id: Optional[str] = None
+    ) -> int:
         """根据消息 ID 列表批量标记消息为已摘要。"""
         if not message_ids:
             return 0
+        if self._is_group_session(session_id):
+            chat_id = self._group_chat_id_from_session(str(session_id))
+            updated = await self.mark_shared_group_messages_as_summarized_by_ids(
+                chat_id, message_ids
+            )
+            logger.debug(
+                "批量标记共享群聊消息为已摘要: chat_id=%s, count=%s, ids=%s...",
+                chat_id,
+                updated,
+                message_ids[:5],
+            )
+            return updated
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 "UPDATE messages SET is_summarized = 1 WHERE id = ANY($1::int[])",
@@ -2730,6 +2852,11 @@ class MessageDatabase:
 
     async def get_unsummarized_count_by_session(self, session_id: str) -> int:
         """获取指定会话中未摘要且视觉已处理的消息数量。"""
+        if self._is_group_session(session_id):
+            chat_id = self._group_chat_id_from_session(session_id)
+            count = await self.get_unsummarized_shared_group_count(chat_id)
+            logger.debug("共享群会话 %s 未摘要消息数量: %s", session_id, count)
+            return count
         async with self.pool.acquire() as conn:
             count = await conn.fetchval(
                 """
@@ -2747,6 +2874,29 @@ class MessageDatabase:
         self, session_id: str, limit: int = 50
     ) -> List[Dict[str, Any]]:
         """获取指定会话中最早的未摘要消息列表（vision_processed=1）。"""
+        if self._is_group_session(session_id):
+            chat_id = self._group_chat_id_from_session(session_id)
+            shared_rows = await self.get_unsummarized_shared_group_messages(
+                chat_id, limit=limit
+            )
+            messages = [
+                {
+                    "id": int(r["id"]),
+                    "role": "user"
+                    if str(r.get("sender") or "").strip().lower() == "user"
+                    else "assistant",
+                    "content": r.get("content"),
+                    "created_at": r.get("created_at"),
+                    "session_id": session_id,
+                    "user_id": str(chat_id),
+                    "channel_id": str(chat_id),
+                    "character_id": str(r.get("sender") or ""),
+                }
+                for r in shared_rows
+                if int(r.get("vision_processed") or 0) == 1
+            ]
+            logger.debug("获取共享群会话 %s 的未摘要消息: %s 条", session_id, len(messages))
+            return messages
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -3094,6 +3244,32 @@ class MessageDatabase:
         self, session_id: str, limit: int = 5
     ) -> List[Dict[str, Any]]:
         """获取指定会话中最新的已摘要消息列表，用于 chunk→正常对话衔接。"""
+        if self._is_group_session(session_id):
+            chat_id = self._group_chat_id_from_session(session_id)
+            shared_rows = await self.get_recent_summarized_shared_group_messages(
+                chat_id,
+                limit=max(1, int(limit)),
+            )
+            messages = [
+                {
+                    "id": int(r["id"]),
+                    "role": "user"
+                    if str(r.get("sender") or "").strip().lower() == "user"
+                    else "assistant",
+                    "content": r.get("content"),
+                    "created_at": r.get("created_at"),
+                    "session_id": session_id,
+                    "user_id": str(chat_id),
+                    "channel_id": str(chat_id),
+                    "media_type": r.get("media_type"),
+                    "image_caption": r.get("image_caption"),
+                    "vision_processed": r.get("vision_processed"),
+                    "character_id": str(r.get("sender") or ""),
+                    "platform_file_id": None,
+                }
+                for r in shared_rows
+            ]
+            return messages
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 """
@@ -5912,8 +6088,12 @@ async def reset_daily_batch_retry_count(batch_date: str) -> None:
     await get_database().reset_daily_batch_retry_count(batch_date)
 
 
-async def mark_messages_as_summarized_by_ids(message_ids: List[int]) -> int:
-    return await get_database().mark_messages_as_summarized_by_ids(message_ids)
+async def mark_messages_as_summarized_by_ids(
+    message_ids: List[int], session_id: Optional[str] = None
+) -> int:
+    return await get_database().mark_messages_as_summarized_by_ids(
+        message_ids, session_id=session_id
+    )
 
 
 async def get_unsummarized_count_by_session(session_id: str) -> int:

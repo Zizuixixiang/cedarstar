@@ -8,10 +8,12 @@
 import os
 import re
 from typing import Optional
+from pathlib import Path
+from urllib.parse import urlparse, urlunparse
 from dotenv import load_dotenv
 
 # 加载 .env 文件
-load_dotenv()
+load_dotenv(dotenv_path=Path(__file__).resolve().parent / ".env")
 
 
 class Config:
@@ -238,7 +240,18 @@ class Config:
         if not raw:
             return []
         parts = re.split(r"[;,]", raw)
-        return [p.strip() for p in parts if p.strip()]
+        urls: list[str] = []
+        for p in parts:
+            u = (p or "").strip()
+            if not u:
+                continue
+            parsed = urlparse(u)
+            path = (parsed.path or "").strip()
+            if path in {"", "/"}:
+                parsed = parsed._replace(path="/api/peer/group-message")
+                u = urlunparse(parsed)
+            urls.append(u)
+        return urls
 
     @property
     def TELEGRAM_GROUP_PEER_RELAY_TOKEN(self) -> str:

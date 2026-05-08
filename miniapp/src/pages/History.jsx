@@ -10,6 +10,10 @@ import { useHorizontalDragScroll } from '../useHorizontalDragScroll';
 import './../styles/history.css';
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
+const MESSAGE_TYPE_OPTIONS = [
+  { value: 'private', label: '私聊' },
+  { value: 'group', label: '群聊' },
+];
 
 function parseShanghaiDateTime(value) {
   if (value instanceof Date) return value;
@@ -32,9 +36,12 @@ function formatShanghaiDateKey(date) {
   return `${get('year')}-${get('month')}-${get('day')}`;
 }
 
-const MESSAGE_TYPE_OPTIONS = [
-  { value: 'private', label: '私聊' },
-  { value: 'group', label: '群聊' },
+// 平台选项
+const PLATFORM_OPTIONS = [
+  { value: '', label: '全部' },
+  { value: 'telegram', label: 'Telegram' },
+  { value: 'discord', label: 'Discord' },
+  { value: 'rikkahub', label: 'RikkaHub', disabled: true }
 ];
 
 // 日期快捷选项
@@ -69,6 +76,19 @@ function Toast({ message, type = 'info', onClose }) {
   );
 }
 
+/**
+ * 平台标签组件
+ */
+function PlatformTag({ platform }) {
+  if (platform === 'telegram') {
+    return <span className="platform-tag telegram">Telegram</span>;
+  } else if (platform === 'discord') {
+    return <span className="platform-tag discord">Discord</span>;
+  } else {
+    return <span className="platform-tag">未知平台</span>;
+  }
+}
+
 function senderMeta(sender) {
   const s = String(sender || '').toLowerCase();
   if (s === 'clio') return { emoji: '🐱', label: 'Clio' };
@@ -100,12 +120,14 @@ function highlightText(text, keyword) {
 /**
  * 消息气泡组件
  */
-function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
+function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId, messageType }) {
   const [expanded, setExpanded] = useState(false);
   const [thinkingExpanded, setThinkingExpanded] = useState(false);
 
-  const isUser = message.sender === 'user';
-  const isAssistant = message.sender !== 'user';
+  const isUser = messageType === 'group'
+    ? String(message.sender || '').toLowerCase() === 'user'
+    : message.role === 'user';
+  const isAssistant = !isUser;
   const busy = actionBusyId === message.id;
   const who = senderMeta(message.sender);
 
@@ -136,7 +158,11 @@ function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
   return (
     <div className={`message-bubble ${isUser ? 'user' : 'assistant'}`}>
       <div className="message-header">
-        <span className="platform-tag">{who.emoji} {who.label}</span>
+        {messageType === 'group' ? (
+          <span className="platform-tag">{who.emoji} {who.label}</span>
+        ) : (
+          <PlatformTag platform={message.platform} />
+        )}
         <span className="time-text">{formatTime(message.created_at)}</span>
       </div>
 
@@ -173,7 +199,7 @@ function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId }) {
         </>
       )}
 
-      {message.editable ? (
+      {messageType === 'private' ? (
         <div className={`message-toolbar ${isUser ? 'align-end' : 'align-start'}`}>
           <button
             type="button"
@@ -270,9 +296,8 @@ function History() {
   const [toasts, setToasts] = useState([]);
 
   // 筛选状态 - 用 ref 保存最新值供 loadHistory 使用
+  const [selectedPlatform, setSelectedPlatform] = useState('');
   const [messageType, setMessageType] = useState('private');
-  const [privateSessionId, setPrivateSessionId] = useState('');
-  const [groupChatId, setGroupChatId] = useState('');
   const [searchKeyword, setSearchKeyword] = useState('');
   const [dateRangeOption, setDateRangeOption] = useState('7');
   const [customDateFrom, setCustomDateFrom] = useState('');
@@ -290,7 +315,6 @@ function History() {
 
   // 防抖引用
   const searchTimeoutRef = useRef(null);
-  const idFilterTimeoutRef = useRef(null);
   // 标记是否已完成初始化（防止搜索防抖 effect 在挂载时多触发一次请求）
   const mountedRef = useRef(false);
   // 递增序号：丢弃过期的 fetch 响应，避免关键词与列表不一致（例如先返回无关键词的旧请求）
@@ -311,8 +335,7 @@ function History() {
   // isInit: 是否为初次加载（决定用骨架屏还是局部遮罩）
   const fetchHistory = useCallback(async ({
     type,
-    sessionId,
-    chatId,
+    platform,
     keyword,
     dateOption,
     dateFrom,
@@ -335,21 +358,8 @@ function History() {
         page_size: pageSz.toString()
       });
 
-      params.append('type', type);
-      if (type === 'private') {
-        if (!sessionId.trim()) {
-          setMessages([]);
-          setTotalItems(0);
-          return;
-        }
-        params.append('session_id', sessionId.trim());
-      } else {
-        if (!chatId.trim()) {
-          setMessages([]);
-          setTotalItems(0);
-          return;
-        }
-        params.append('chat_id', chatId.trim());
+      if ((type || 'private') === 'private' && platform) {
+        params.append('platform', platform);
       }
 
       if (keyword.trim()) {
@@ -366,7 +376,13 @@ function History() {
 
       console.log('API请求参数:', params.toString());
 
-      const response = await apiFetch(`/api/messages?${params}`);
+      let response;
+      if ((type || 'private') === 'group') {
+        params.append('type', 'group');
+        response = await apiFetch(`/api/messages?${params}`);
+      } else {
+        response = await apiFetch(`/api/history?${params}`);
+      }
       if (!response.ok) {
         throw new Error('获取对话历史失败');
       }
@@ -378,17 +394,17 @@ function History() {
       }
 
       if (data.success) {
-        const items = data.data?.items || [];
-        setMessages(
-          items.map((item) => ({
-            ...item,
-            sender: String(item.sender || '').toLowerCase() || 'user',
-            editable: type === 'private',
-          }))
-        );
-        setTotalItems(data.data?.total || 0);
+        console.log('API响应数据:', data.data?.messages?.length || 0, '条消息');
+        if ((type || 'private') === 'group') {
+          const items = data.data?.items || [];
+          setMessages(items);
+          setTotalItems(data.data?.total || 0);
+        } else {
+          setMessages(data.data?.messages || []);
+          setTotalItems(data.data?.total || 0);
+        }
 
-        if (keyword.trim() && items.length === 0) {
+        if (keyword.trim() && data.data?.messages?.length === 0) {
           addToast(`未找到包含"${keyword}"的对话记录`, 'info');
         }
       } else {
@@ -414,8 +430,7 @@ function History() {
   useEffect(() => {
     fetchHistory({
       type: messageType,
-      sessionId: privateSessionId,
-      chatId: groupChatId,
+      platform: selectedPlatform,
       keyword: searchKeyword,
       dateOption: dateRangeOption,
       dateFrom: customDateFrom,
@@ -445,8 +460,7 @@ function History() {
       setCurrentPage(1);
       fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: dateRangeOption,
         dateFrom: customDateFrom,
@@ -464,51 +478,13 @@ function History() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchKeyword]);
 
-  useEffect(() => {
-    if (!mountedRef.current) {
-      return;
-    }
-    if (idFilterTimeoutRef.current) {
-      clearTimeout(idFilterTimeoutRef.current);
-    }
-    idFilterTimeoutRef.current = setTimeout(() => {
-      setCurrentPage(1);
-      fetchHistory({
-        type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
-        keyword: searchKeyword,
-        dateOption: dateRangeOption,
-        dateFrom: customDateFrom,
-        dateTo: customDateTo,
-        page: 1,
-        pageSz: pageSize,
-      });
-    }, 300);
-    return () => {
-      if (idFilterTimeoutRef.current) {
-        clearTimeout(idFilterTimeoutRef.current);
-      }
-    };
-  }, [
-    messageType,
-    privateSessionId,
-    groupChatId,
-    fetchHistory,
-    searchKeyword,
-    dateRangeOption,
-    customDateFrom,
-    customDateTo,
-    pageSize,
-  ]);
-
-  const handleMessageTypeChange = (nextType) => {
-    setMessageType(nextType);
+  // 平台切换
+  const handlePlatformChange = (platform) => {
+    setSelectedPlatform(platform);
     setCurrentPage(1);
     fetchHistory({
-      type: nextType,
-      sessionId: privateSessionId,
-      chatId: groupChatId,
+      type: messageType,
+      platform,
       keyword: searchKeyword,
       dateOption: dateRangeOption,
       dateFrom: customDateFrom,
@@ -526,8 +502,7 @@ function History() {
     if (option !== 'custom') {
       fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: option,
         dateFrom: customDateFrom,
@@ -545,8 +520,7 @@ function History() {
       setCurrentPage(1);
       fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: 'custom',
         dateFrom: date,
@@ -564,8 +538,7 @@ function History() {
       setCurrentPage(1);
       fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: 'custom',
         dateFrom: customDateFrom,
@@ -583,8 +556,7 @@ function History() {
       setCurrentPage(newPage);
       fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: dateRangeOption,
         dateFrom: customDateFrom,
@@ -603,8 +575,7 @@ function History() {
       setCurrentPage(newPage);
       fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: dateRangeOption,
         dateFrom: customDateFrom,
@@ -622,8 +593,7 @@ function History() {
     setCurrentPage(1);
     fetchHistory({
       type: messageType,
-      sessionId: privateSessionId,
-      chatId: groupChatId,
+      platform: selectedPlatform,
       keyword: searchKeyword,
       dateOption: dateRangeOption,
       dateFrom: customDateFrom,
@@ -641,8 +611,7 @@ function History() {
     setCurrentPage(tp);
     fetchHistory({
       type: messageType,
-      sessionId: privateSessionId,
-      chatId: groupChatId,
+      platform: selectedPlatform,
       keyword: searchKeyword,
       dateOption: dateRangeOption,
       dateFrom: customDateFrom,
@@ -668,7 +637,7 @@ function History() {
     setActionBusyId(editingMessage.id);
     try {
       const payload = { content: editContent };
-      if (editingMessage.sender !== 'user') {
+      if (editingMessage.role === 'assistant') {
         payload.thinking = editThinking;
       }
       const res = await apiFetch(`/api/history/${editingMessage.id}`, {
@@ -683,8 +652,7 @@ function History() {
       setEditingMessage(null);
       await fetchHistory({
         type: messageType,
-        sessionId: privateSessionId,
-        chatId: groupChatId,
+        platform: selectedPlatform,
         keyword: searchKeyword,
         dateOption: dateRangeOption,
         dateFrom: customDateFrom,
@@ -704,9 +672,7 @@ function History() {
     editThinking,
     addToast,
     fetchHistory,
-    messageType,
-    privateSessionId,
-    groupChatId,
+    selectedPlatform,
     searchKeyword,
     dateRangeOption,
     customDateFrom,
@@ -734,8 +700,7 @@ function History() {
         setCurrentPage(nextPage);
         await fetchHistory({
           type: messageType,
-          sessionId: privateSessionId,
-          chatId: groupChatId,
+          platform: selectedPlatform,
           keyword: searchKeyword,
           dateOption: dateRangeOption,
           dateFrom: customDateFrom,
@@ -755,9 +720,7 @@ function History() {
       totalItems,
       pageSize,
       currentPage,
-      messageType,
-      privateSessionId,
-      groupChatId,
+      selectedPlatform,
       searchKeyword,
       dateRangeOption,
       customDateFrom,
@@ -811,7 +774,7 @@ function History() {
               onChange={e => setEditContent(e.target.value)}
               disabled={!!actionBusyId}
             />
-            {editingMessage.sender !== 'user' && (
+            {editingMessage.role === 'assistant' && (
               <>
                 <label className="history-modal-label" htmlFor="history-edit-thinking">
                   思维链
@@ -851,15 +814,29 @@ function History() {
       {/* 筛选栏 */}
       <div className="filter-bar">
         <div className="filter-controls-row">
-          {/* 私聊/群聊切换 */}
           <div className="filter-group">
             <div className="filter-label">会话类型</div>
-            <div className="platform-tabs" ref={platformTabsRef}>
+            <div className="platform-tabs message-type-tabs">
               {MESSAGE_TYPE_OPTIONS.map(option => (
                 <button
                   key={option.value}
                   className={`tab-button ${messageType === option.value ? 'active' : ''}`}
-                  onClick={() => handleMessageTypeChange(option.value)}
+                  onClick={() => {
+                    setMessages([]);
+                    setTotalItems(0);
+                    setMessageType(option.value);
+                    setCurrentPage(1);
+                    fetchHistory({
+                      type: option.value,
+                      platform: selectedPlatform,
+                      keyword: searchKeyword,
+                      dateOption: dateRangeOption,
+                      dateFrom: customDateFrom,
+                      dateTo: customDateTo,
+                      page: 1,
+                      pageSz: pageSize
+                    });
+                  }}
                 >
                   {option.label}
                 </button>
@@ -867,22 +844,24 @@ function History() {
             </div>
           </div>
 
-          <div className="filter-group">
-            <div className="filter-label">{messageType === 'private' ? '私聊 Session ID' : '群聊 Chat ID'}</div>
-            <input
-              type="text"
-              className="history-search-input"
-              placeholder={messageType === 'private' ? '输入 session_id' : '输入 chat_id'}
-              value={messageType === 'private' ? privateSessionId : groupChatId}
-              onChange={(e) => {
-                if (messageType === 'private') {
-                  setPrivateSessionId(e.target.value);
-                } else {
-                  setGroupChatId(e.target.value);
-                }
-                setCurrentPage(1);
-              }}
-            />
+          {/* 平台切换 */}
+          <div className="filter-group" style={{ display: messageType === 'private' ? '' : 'none' }}>
+            <div className="filter-label">平台</div>
+            <div className="platform-tabs" ref={platformTabsRef}>
+              {PLATFORM_OPTIONS.map(option => (
+                <button
+                  key={option.value}
+                  className={`tab-button ${
+                    selectedPlatform === option.value ? 'active' : ''
+                  } ${option.disabled ? 'disabled' : ''}`}
+                  onClick={() => !option.disabled && handlePlatformChange(option.value)}
+                  disabled={option.disabled}
+                >
+                  {option.label}
+                  {option.disabled && ' (即将支持)'}
+                </button>
+              ))}
+            </div>
           </div>
 
           {/* 关键词搜索 */}
@@ -954,13 +933,23 @@ function History() {
               <EmptyState />
             ) : (
               messages.map(message => (
-                <div key={message.id} className={`message-row ${message.sender === 'user' ? 'user-row' : 'assistant-row'}`}>
+                <div
+                  key={`${messageType}-${message.id}`}
+                  className={`message-row ${
+                    (messageType === 'group'
+                      ? String(message.sender || '').toLowerCase() === 'user'
+                      : message.role === 'user')
+                      ? 'user-row'
+                      : 'assistant-row'
+                  }`}
+                >
                   <MessageBubble
                     message={message}
                     keyword={searchKeyword}
                     onEdit={handleOpenEdit}
                     onDelete={handleDeleteMessage}
                     actionBusyId={actionBusyId}
+                    messageType={messageType}
                   />
                 </div>
               ))
