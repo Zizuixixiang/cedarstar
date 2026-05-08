@@ -362,6 +362,8 @@ function Config() {
   const [showConfirm, setShowConfirm] = useState(false);
   const [savingTelegramKey, setSavingTelegramKey] = useState(null);
   const [isSavingIdleCard, setIsSavingIdleCard] = useState(false);
+  const [stardewAutoplay, setStardewAutoplay] = useState(false);
+  const [stardewSaving, setStardewSaving] = useState(false);
 
   // 显示 toast
   const showToast = useCallback((message, type = 'success') => {
@@ -407,6 +409,24 @@ function Config() {
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await apiFetch('/api/stardew/autoplay');
+        const data = await res.json();
+        if (!cancelled && data.success && data.data != null) {
+          setStardewAutoplay(!!data.data.enabled);
+        }
+      } catch {
+        /* 忽略首次拉取失败，按钮仍可尝试写入 */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // 处理配置变更（自动 clamp 到范围）
   const roundToStep = (num, step) => {
@@ -605,6 +625,31 @@ function Config() {
       showToast('网络错误', 'error');
     } finally {
       setIsSavingIdleCard(false);
+    }
+  };
+
+  const toggleStardewAutoplay = async () => {
+    if (stardewSaving) return;
+    const next = !stardewAutoplay;
+    setStardewSaving(true);
+    try {
+      const response = await apiFetch('/api/stardew/autoplay', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        setStardewAutoplay(!!data.data?.enabled);
+        showToast('已保存', 'success');
+      } else {
+        showToast(data.message || '保存失败', 'error');
+      }
+    } catch (error) {
+      console.error('星露谷模式切换失败:', error);
+      showToast('网络错误', 'error');
+    } finally {
+      setStardewSaving(false);
     }
   };
 
@@ -889,6 +934,16 @@ function Config() {
             >
               {isSavingIdleCard ? '保存中…' : '保存此项'}
             </button>
+            <div className="config-stardew-toggle-wrap">
+              <button
+                type="button"
+                className={`config-offline-toggle ${stardewAutoplay ? 'is-on' : ''}`}
+                onClick={toggleStardewAutoplay}
+                disabled={stardewSaving}
+              >
+                {stardewSaving ? '…' : '星露谷模式'}
+              </button>
+            </div>
           </div>
         </div>
         <hr className="config-divider" />

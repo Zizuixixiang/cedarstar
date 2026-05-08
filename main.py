@@ -266,12 +266,27 @@ async def run_fastapi_server():
 
 
 async def schedule_idle_activity_check(bot):
-    """AI 自主活动检查器：每 10 分钟检查一次。"""
+    """AI 自主活动检查器：默认每 10 分钟触发一次检查；星露谷模式开启时每 3 分钟。"""
     logger = logging.getLogger(__name__)
     logger.info("idle activity scheduler started")
     while True:
-        await asyncio.sleep(10 * 60)
-        logger.info("idle activity scheduler tick")
+        interval_sec = 10 * 60
+        stardew_scheduler = False
+        try:
+            from memory.database import get_database
+
+            raw = await get_database().get_config("stardew_autoplay", "false")
+            stardew_scheduler = str(raw or "").strip().lower() in {"1", "true", "yes", "on"}
+            if stardew_scheduler:
+                interval_sec = 250
+        except Exception as e:
+            logger.warning(f"idle scheduler read stardew_autoplay failed, fallback 600s: {e}")
+        await asyncio.sleep(interval_sec)
+        logger.info(
+            "idle activity scheduler tick (interval=%ss stardew_autoplay=%s)",
+            interval_sec,
+            stardew_scheduler,
+        )
         try:
             from memory.database import get_database
             from bot.idle_activity import check_and_trigger

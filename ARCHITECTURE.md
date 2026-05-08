@@ -46,6 +46,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `idle_activity_cooldown_min` | 两次自主活动之间最小间隔（分钟） |
 | `idle_activity_start_hour` | 自主活动允许开始小时（东八区，0-23） |
 | `idle_activity_end_hour` | 自主活动允许结束小时（东八区，0-23） |
+| `stardew_autoplay` | 星露谷自动模式：为 true 时 idle 调度每 3 分钟触发，`check_and_trigger` 跳过普通 idle 条件并注入 `[STARDEW_AUTO]` 虚拟用户句；助手回复中含 `[STARDEW_STOP]` 时自动写回 false |
 | `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
 | `rerank_enabled` | 是否启用 SiliconFlow Rerank 精排，默认 true |
 | `rerank_candidate_size` | rerank 候选集大小上限，默认 50 |
@@ -322,7 +323,7 @@ Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `l
 
 ## 7. Mini App 与配置管理
 
-Settings 页管理 API 配置，Config 页管理运行参数，包括缓冲延迟、摘要阈值、最近原文条数与 Telegram 分段参数。
+Settings 页管理 API 配置，Config 页管理运行参数，包括缓冲延迟、摘要阈值、最近原文条数与 Telegram 分段参数。助手配置页「自主活动」区块提供「星露谷模式」闸刀按钮，读写 `config.stardew_autoplay`，对应接口 `GET/POST /api/stardew/autoplay`。
 
 Memory 页的 summaries 列表支持对 chunk 点星收藏；收藏状态会通过 `PATCH /api/memory/summaries/{id}/star` 同步到引用该 chunk 的长期事件与 Chroma metadata。
 

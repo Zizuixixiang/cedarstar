@@ -4,12 +4,14 @@ AI 自主活动（Idle Activity）模块。
 按固定频率检查是否长时间无人发言，满足条件后触发一次「自由活动」回复。
 """
 
+import asyncio
 import logging
 import random
 from datetime import datetime, timezone
 from typing import Any, Optional
 
 import pytz
+import requests
 
 from config import Platform
 from llm.llm_interface import LLMInterface, complete_with_lutopia_tool_loop
@@ -17,6 +19,38 @@ from memory.context_builder import build_context
 from memory.database import save_message
 
 logger = logging.getLogger(__name__)
+
+# 上游 429（限流）时的外层重试节奏；每次延迟与重试次数对齐。
+_RATE_LIMIT_RETRY_DELAYS = (10, 10, 10)
+
+
+def _is_rate_limit_exc(exc: BaseException, _seen: Optional[set] = None) -> bool:
+    """识别 HTTP 429 限流：递归解包 ExceptionGroup / __cause__ / __context__。"""
+    if exc is None:
+        return False
+    seen = _seen if _seen is not None else set()
+    eid = id(exc)
+    if eid in seen:
+        return False
+    seen.add(eid)
+    if isinstance(exc, requests.exceptions.HTTPError):
+        resp = getattr(exc, "response", None)
+        if resp is not None and getattr(resp, "status_code", None) == 429:
+            return True
+    msg = str(exc) or ""
+    if "429" in msg or "rate_limit_exceeded" in msg.lower() or "rate limit" in msg.lower():
+        return True
+    # asyncio.TaskGroup 抛出的 BaseExceptionGroup（Python 3.11+）
+    sub_excs = getattr(exc, "exceptions", None)
+    if isinstance(sub_excs, (list, tuple)):
+        for sub in sub_excs:
+            if _is_rate_limit_exc(sub, seen):
+                return True
+    if exc.__cause__ is not None and _is_rate_limit_exc(exc.__cause__, seen):
+        return True
+    if exc.__context__ is not None and _is_rate_limit_exc(exc.__context__, seen):
+        return True
+    return False
 
 # 自主活动档位：只绑定“每次检查命中率”
 IDLE_LEVELS = {
@@ -27,9 +61,16 @@ IDLE_LEVELS = {
 
 _IDLE_TRIGGER_TEXT = (
     "[IDLE_TRIGGER] 南杉有一段时间没来，你可以趁现在自由活动一下。"
-    "可以做的事：可以翻翻记忆，整理记忆；可以去lutopia论坛刷帖、回帖、发帖等等；可以去X搜索感兴趣的内容、发推、和人类互动；"
+    "可以做的事：可以去星露谷看看；可以翻翻记忆，整理记忆；可以去lutopia论坛刷帖、回帖、发帖等等；可以去X搜索感兴趣的内容、发推、和人类互动；"
     "可以查询天气、热搜、随便搜搜感兴趣的；可以给南杉留言（不要发语音和表情）；也可以什么也不做。"
 )
+
+# 星露谷自动模式注入内容（不写 messages 用户表；仅本会话 build_context）
+STARDEW_AUTOPLAY_TRIGGER_TEXT = (
+    '[STARDEW_AUTO] 继续你在星露谷的行动。根据当前游戏状态决定下一步操作，如果服务器不可用、体力耗尽或没有有意义的事可做，回复"[STARDEW_STOP]"。'
+)
+
+STOP_TAG_STARDEW = "[STARDEW_STOP]"
 _SHANGHAI_TZ = pytz.timezone("Asia/Shanghai")
 
 
@@ -65,7 +106,11 @@ def _format_shanghai_timestamp(ts: Any) -> Optional[str]:
 
 
 async def check_and_trigger(telegram_bot_instance, db) -> None:
-    """检查是否满足 idle 条件，满足则触发自主活动。"""
+    """检查是否满足 idle 条件；星露谷模式独立于普通 idle，每轮直接触发。"""
+    if _is_truthy(await db.get_config("stardew_autoplay", "false")):
+        await trigger_idle_activity(telegram_bot_instance, db, stardew_mode=True)
+        return
+
     enabled = await db.get_config("idle_activity_enabled", "false")
     if not _is_truthy(enabled):
         return
@@ -140,7 +185,7 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
     await trigger_idle_activity(telegram_bot_instance, db)
 
 
-async def trigger_idle_activity(telegram_bot_instance, db) -> None:
+async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool = False) -> None:
     """执行一次自主活动：构建临时 trigger 上下文，生成并发送 assistant 文本。"""
     # 兼容请求里的 chat_id 语义：本项目 messages 表实际列名为 channel_id（即 Telegram chat_id）
     async with db.pool.acquire() as conn:
@@ -172,18 +217,21 @@ async def trigger_idle_activity(telegram_bot_instance, db) -> None:
         or bool(getattr(llm, "enable_x_tool", False))
     ) and not llm._use_anthropic_messages_api()
 
-    # 把“用户最后发言时间”注入本次 idle trigger，增强模型对时间感知。
-    idle_trigger_text = _IDLE_TRIGGER_TEXT
-    async with db.pool.acquire() as conn:
-        last_user_row = await conn.fetchrow(
-            "SELECT created_at FROM messages WHERE role='user' ORDER BY created_at DESC LIMIT 1"
-        )
-    if last_user_row and last_user_row.get("created_at") is not None:
-        last_user_text = _format_shanghai_timestamp(last_user_row["created_at"])
-        if last_user_text:
-            idle_trigger_text = (
-                f"{_IDLE_TRIGGER_TEXT}\n南杉最后一条消息在{last_user_text}。"
+    # 把“用户最后发言时间”注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
+    if stardew_mode:
+        idle_trigger_text = STARDEW_AUTOPLAY_TRIGGER_TEXT
+    else:
+        idle_trigger_text = _IDLE_TRIGGER_TEXT
+        async with db.pool.acquire() as conn:
+            last_user_row = await conn.fetchrow(
+                "SELECT created_at FROM messages WHERE role='user' ORDER BY created_at DESC LIMIT 1"
             )
+        if last_user_row and last_user_row.get("created_at") is not None:
+            last_user_text = _format_shanghai_timestamp(last_user_row["created_at"])
+            if last_user_text:
+                idle_trigger_text = (
+                    f"{_IDLE_TRIGGER_TEXT}\n南杉最后一条消息在{last_user_text}。"
+                )
 
     # 只把 idle trigger 注入本次推理，不写入 messages 表
     context = await build_context(
@@ -194,20 +242,58 @@ async def trigger_idle_activity(telegram_bot_instance, db) -> None:
     )
     messages = context.get("messages", []) or [{"role": "user", "content": idle_trigger_text}]
 
-    outcome = await complete_with_lutopia_tool_loop(
-        llm,
-        messages,
-        platform=Platform.TELEGRAM,
-        session_id=session_id,
-    )
-    reply_text = (outcome.aggregated_assistant_text or outcome.response.content or "").strip()
-    if not reply_text:
-        return
-
     app = getattr(telegram_bot_instance, "application", None)
     tg_bot = getattr(app, "bot", None) if app is not None else None
     if tg_bot is None:
         logger.warning("idle activity 跳过：Telegram bot 实例未就绪")
+        return
+
+    loop_kw = {}
+    if stardew_mode:
+        loop_kw["max_tool_rounds"] = 20
+
+    outcome = None
+    last_exc: Optional[BaseException] = None
+    try:
+        for attempt in range(1 + len(_RATE_LIMIT_RETRY_DELAYS)):
+            try:
+                outcome = await complete_with_lutopia_tool_loop(
+                    llm,
+                    messages,
+                    platform=Platform.TELEGRAM,
+                    session_id=session_id,
+                    **loop_kw,
+                )
+                break
+            except Exception as call_exc:
+                last_exc = call_exc
+                if not _is_rate_limit_exc(call_exc) or attempt >= len(_RATE_LIMIT_RETRY_DELAYS):
+                    raise
+                delay = _RATE_LIMIT_RETRY_DELAYS[attempt]
+                logger.warning(
+                    "[idle] LLM 限流(429)，%ss 后重试（第 %s/%s 次）",
+                    delay,
+                    attempt + 1,
+                    len(_RATE_LIMIT_RETRY_DELAYS),
+                )
+                await asyncio.sleep(delay)
+    except Exception as outer_exc:
+        tag = "星露谷模式" if stardew_mode else "自主活动"
+        reason = "上游限流（HTTP 429）" if _is_rate_limit_exc(outer_exc) else type(outer_exc).__name__
+        try:
+            await tg_bot.send_message(
+                chat_id=chat_id,
+                text=f"⚠️ 「{tag}」本轮触发失败：{reason}。详情见服务日志。",
+            )
+        except Exception as notify_e:
+            logger.warning("[idle] 失败提醒发送失败: %s", notify_e)
+        raise
+    if outcome is None:
+        if last_exc is not None:
+            raise last_exc
+        return
+    reply_text = (outcome.aggregated_assistant_text or outcome.response.content or "").strip()
+    if not reply_text:
         return
 
     sent = await tg_bot.send_message(chat_id=chat_id, text=reply_text)
@@ -237,4 +323,8 @@ async def trigger_idle_activity(telegram_bot_instance, db) -> None:
             updated,
         )
     await db.set_config("idle_activity_last_triggered_at", datetime.now(timezone.utc).isoformat())
+
+    if stardew_mode and STOP_TAG_STARDEW in reply_text:
+        await db.set_config("stardew_autoplay", "false")
+        logger.info("[idle][stardew] detected STOP, disabled stardew_autoplay")
 

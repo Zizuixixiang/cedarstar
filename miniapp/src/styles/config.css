@@ -288,6 +288,13 @@
   font-size: 0.9rem;
 }
 
+/* 自主活动卡片内：星露谷模式（单独闸刀，换行右对齐） */
+.config-stardew-toggle-wrap {
+  flex-basis: 100%;
+  display: flex;
+  justify-content: flex-end;
+}
+
 /* MAX_CHARS 可能三位数，略加宽数字区 */
 .config-number-input--telegram {
   width: 52px;
