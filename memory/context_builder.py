@@ -2143,6 +2143,20 @@ class ContextBuilder:
                         continue
                     seen_ids.add(mid)
                     merged.append(msg)
+                # 群聊共享表中若出现近邻重复写入（同 sender + 同 content），在上下文侧做一次稳妥去重。
+                deduped: List[Dict[str, Any]] = []
+                for row in merged:
+                    if deduped:
+                        prev = deduped[-1]
+                        if (
+                            str(prev.get("sender") or "").strip().lower()
+                            == str(row.get("sender") or "").strip().lower()
+                            and str(prev.get("content") or "").strip()
+                            == str(row.get("content") or "").strip()
+                        ):
+                            continue
+                    deduped.append(row)
+                merged = deduped
                 # 群聊路径避免把当前轮用户输入同时作为「历史」和「当前消息」重复注入。
                 target = str(current_user_text or "").strip()
                 if target and merged:
