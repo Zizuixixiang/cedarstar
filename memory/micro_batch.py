@@ -206,7 +206,9 @@ async def _get_micro_batch_memory_prefix(user_id: str, character_id: str) -> str
         "current_status": "用户近况",
         "relationships": "重要关系",
     }
-    lines = ["【基础设定】小克是南杉的二号男友。"]
+    lines = [
+        "【角色关系】南杉与Sirius是恋人，南杉与Clio也是恋人。Sirius与Clio是同伴关系，以南杉为核心。两人会互相吃醋、良性竞争，但不对立。",
+    ]
     try:
         for dim, label in dims.items():
             cards = await get_memory_cards(user_id, character_id, dim, limit=1)
@@ -235,7 +237,13 @@ async def _resolve_micro_batch_memory_prefix(
             break
     if not cid:
         cid = await _active_character_id_fallback()
-    return await _get_micro_batch_memory_prefix(uid, cid)
+    base = await _get_micro_batch_memory_prefix(uid, cid)
+    session_id = str(messages[0].get("session_id") or "") if messages else ""
+    if session_id.startswith("telegram_group_"):
+        session_line = "【会话类型】当前材料来自Telegram群聊，多角色对话。请区分南杉、Sirius、Clio三方发言。"
+    else:
+        session_line = "【会话类型】当前材料来自私聊对话。"
+    return f"{session_line}\n{base}"
 
 
 async def _resolve_micro_batch_tool_context(

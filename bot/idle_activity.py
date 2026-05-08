@@ -191,12 +191,20 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
 
 async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool = False) -> None:
     """执行一次自主活动：构建临时 trigger 上下文，生成并发送 assistant 文本。"""
-    # 兼容请求里的 chat_id 语义：本项目 messages 表实际列名为 channel_id（即 Telegram chat_id）
+    # 仅允许发给私聊：session_id 必须是 telegram_<chat_id>，排除 telegram_group_<chat_id>。
     async with db.pool.acquire() as conn:
         chat_row = await conn.fetchrow(
-            "SELECT channel_id FROM messages ORDER BY created_at DESC LIMIT 1"
+            """
+            SELECT channel_id
+            FROM messages
+            WHERE session_id LIKE 'telegram_%'
+              AND session_id NOT LIKE 'telegram_group_%'
+            ORDER BY created_at DESC
+            LIMIT 1
+            """
         )
     if not chat_row or not chat_row["channel_id"]:
+        logger.info("idle activity 跳过：未找到可发送的私聊会话")
         return
 
     chat_id_str = str(chat_row["channel_id"])

@@ -17,6 +17,7 @@ from decimal import Decimal, ROUND_DOWN
 from datetime import date
 from typing import List, Dict, Any, Optional, Tuple
 
+from dotenv import dotenv_values
 from config import config
 
 logger = logging.getLogger(__name__)
@@ -1132,6 +1133,15 @@ class MessageDatabase:
         if self.shared_group_pool is not None:
             return self.shared_group_pool
         dsn = os.getenv("SHARED_GROUP_DB_URL", "").strip()
+        if not dsn:
+            env_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                ".env",
+            )
+            try:
+                dsn = str(dotenv_values(env_path).get("SHARED_GROUP_DB_URL") or "").strip()
+            except Exception:
+                dsn = ""
         if not dsn:
             if not self._shared_group_pool_warned:
                 logger.warning(

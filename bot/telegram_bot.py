@@ -80,6 +80,7 @@ from memory.database import (
     VISION_FAIL_CAPTION_TIMEOUT,
     get_assistant_content_for_platform_message_id,
     get_recent_image_messages,
+    initialize_database,
     get_database,
     save_message,
 )
@@ -906,6 +907,10 @@ class TelegramBot:
 
     async def handle_peer_group_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
         """接收另一实例通过 HTTP relay 发来的群聊信号。"""
+        db = get_database()
+        if getattr(db, "pool", None) is None:
+            await initialize_database()
+            db = get_database()
         sender_app_id = str(payload.get("sender_app_id") or "").strip()
         if sender_app_id and sender_app_id == config.TELEGRAM_GROUP_PEER_RELAY_APP_ID:
             return {"status": "ignored_self"}
@@ -914,7 +919,6 @@ class TelegramBot:
         if not chat_id:
             return {"status": "ignored_empty"}
         round_count_raw = payload.get("round_count")
-        db = get_database()
         if await db.get_config("group_chat_silent_mode", "0") == "1":
             return {"status": "signal_silent"}
         max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)

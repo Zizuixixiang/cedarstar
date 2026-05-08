@@ -594,13 +594,21 @@ class DailyBatchProcessor:
             self._batch_user_id = "default_user"
             self._batch_char_id = default_cid
 
-    async def _memory_context_prefix(self) -> str:
+    async def _memory_context_prefix(self, session_id: Optional[str] = None) -> str:
         """注入 current_status / relationships 激活卡与关系锚点，供小模型对齐语义。"""
         dims = {
             "current_status": "用户近况",
             "relationships": "重要关系",
         }
-        lines = ["【基础设定】小克是南杉的二号男友。"]
+        if str(session_id or "").startswith("telegram_group_"):
+            lines = [
+                "【会话类型】当前材料来自Telegram群聊，多角色对话。请区分南杉、Sirius、Clio三方发言。",
+            ]
+        else:
+            lines = ["【会话类型】当前材料来自私聊对话。"]
+        lines.append(
+            "【角色关系】南杉与Sirius是恋人，南杉与Clio也是恋人。Sirius与Clio是同伴关系，以南杉为核心。两人会互相吃醋、良性竞争，但不对立。"
+        )
         try:
             for dim, label in dims.items():
                 cards = await get_memory_cards(
@@ -981,8 +989,6 @@ class DailyBatchProcessor:
                     sid = str(summary.get("session_id") or "daily_batch")
                     grouped.setdefault(sid, []).append(summary)
 
-                memory_prefix = await self._memory_context_prefix()
-
                 def _display_session(session_id: str) -> str:
                     if "_" in session_id:
                         parts = session_id.split("_")
@@ -992,6 +998,7 @@ class DailyBatchProcessor:
 
                 saved_count = 0
                 for session_id, session_chunks in grouped.items():
+                    memory_prefix = await self._memory_context_prefix(session_id)
                     today_content = ""
                     if self._settled_temporal_snippets:
                         today_content += "# 本日已结算的时效状态（客观回顾）\n\n"
@@ -2197,17 +2204,33 @@ content 强制要求：
         """Step 4a - 只聚类 chunk id；失败时每个 chunk 单独成组。"""
         valid_ids = [int(c["id"]) for c in chunks]
         valid_id_set = set(valid_ids)
-        chunk_lines = []
+        private_lines: List[str] = []
+        group_lines: List[str] = []
         for c in chunks:
-            chunk_lines.append(
+            line = (
                 f"- chunk_id={c['id']}\n"
                 f"{strip_lutopia_internal_memory_blocks(str(c.get('summary_text') or ''))}"
             )
+            sid = str(c.get("session_id") or "")
+            if sid.startswith("telegram_group_"):
+                group_lines.append(line)
+            else:
+                private_lines.append(line)
+        section_lines: List[str] = []
+        if private_lines:
+            section_lines.append("【私聊】")
+            section_lines.extend(private_lines)
+        if group_lines:
+            if section_lines:
+                section_lines.append("")
+            section_lines.append("【群聊】")
+            section_lines.extend(group_lines)
+        chunk_input = "\n".join(section_lines)
         prompt = self._persona_dialogue_prefix() + f"""【任务】
 以下是今天按时间顺序的对话片段摘要。请只根据语义主题把 chunk_id 聚类：同一事件/话题放在同一组，不同事件/话题分开。
 
 【输入】
-{chr(10).join(chunk_lines)}
+{chunk_input}
 
 【要求】
 - 只返回 JSON 数组，不要解释、不要 Markdown、不要其他文字

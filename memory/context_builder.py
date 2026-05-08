@@ -1129,7 +1129,7 @@ class ContextBuilder:
             vector_search_section = await self._build_vector_search_section(user_message)
             archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(session_id)
-            chunk_summaries_section = await self._build_chunk_summaries_section()
+            chunk_summaries_section = await self._build_chunk_summaries_section(session_id)
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
                 "context chunk section preview: session=%s chunk_section_len=%s tail=%r",
@@ -1139,7 +1139,11 @@ class ContextBuilder:
             )
             
             # 6. 获取最近消息
-            recent_messages_section = await self._build_recent_messages_section(session_id, exclude_message_id)
+            recent_messages_section = await self._build_recent_messages_section(
+                session_id,
+                exclude_message_id,
+                current_user_text=user_message,
+            )
             
             # 7. 添加当前用户消息
             cut = (
@@ -1302,7 +1306,7 @@ class ContextBuilder:
             vector_search_section = await self._build_vector_search_section_async(user_message, session_id)
             archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(session_id)
-            chunk_summaries_section = await self._build_chunk_summaries_section()
+            chunk_summaries_section = await self._build_chunk_summaries_section(session_id)
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
                 "context chunk section preview async: session=%s chunk_section_len=%s tail=%r",
@@ -1312,7 +1316,11 @@ class ContextBuilder:
             )
             
             # 6. 获取最近消息
-            recent_messages_section = await self._build_recent_messages_section(session_id, exclude_message_id)
+            recent_messages_section = await self._build_recent_messages_section(
+                session_id,
+                exclude_message_id,
+                current_user_text=user_message,
+            )
             
             # 7. 添加当前用户消息
             cut = (
@@ -1708,7 +1716,7 @@ class ContextBuilder:
             self._last_archived_daily_summary_ids = []
             return ""
     
-    async def _build_chunk_summaries_section(self) -> str:
+    async def _build_chunk_summaries_section(self, session_id: str) -> str:
         """
         构建 chunk summary 部分。
         
@@ -1739,7 +1747,8 @@ class ContextBuilder:
                 int(s["id"]) for s in chunk_summaries if s.get("id") is not None
             ]
             
-            sections = []
+            private_sections: List[str] = []
+            group_sections: List[str] = []
             for summary in chunk_summaries:
                 # 格式化创建时间
                 created_at = summary['created_at']
@@ -1763,8 +1772,32 @@ class ContextBuilder:
                 else:
                     display_session = session_id[:20]
                 
-                sections.append(f"### {formatted_time} [来自: {display_session}]\n{summary['summary_text']}")
-            
+                item = f"### {formatted_time} [来自: {display_session}]\n{summary['summary_text']}"
+                sid = str(summary.get("session_id") or "")
+                if sid.startswith("telegram_group_"):
+                    group_sections.append(item)
+                else:
+                    private_sections.append(item)
+
+            sections: List[str] = []
+            current_is_group = str(session_id or "").startswith("telegram_group_")
+            if current_is_group:
+                # 群聊会话：把私聊块放前，群聊块贴近末尾
+                if private_sections:
+                    sections.append("## 私聊摘要")
+                    sections.append("\n\n".join(private_sections))
+                if group_sections:
+                    sections.append("## 群聊摘要")
+                    sections.append("\n\n".join(group_sections))
+            else:
+                # 私聊会话：把群聊块放前，私聊块贴近末尾
+                if group_sections:
+                    sections.append("## 群聊摘要")
+                    sections.append("\n\n".join(group_sections))
+                if private_sections:
+                    sections.append("## 私聊摘要")
+                    sections.append("\n\n".join(private_sections))
+
             if sections:
                 chunk_section = "\n\n".join(sections)
                 from datetime import timezone, timedelta
@@ -2072,7 +2105,12 @@ class ContextBuilder:
         )
         return f"# 相关长期记忆（{label}结果）\n\n{vector_section}"
     
-    async def _build_recent_messages_section(self, session_id: str, exclude_message_id: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def _build_recent_messages_section(
+        self,
+        session_id: str,
+        exclude_message_id: Optional[int] = None,
+        current_user_text: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """
         构建最近消息部分。
         
@@ -2105,6 +2143,15 @@ class ContextBuilder:
                         continue
                     seen_ids.add(mid)
                     merged.append(msg)
+                # 群聊路径避免把当前轮用户输入同时作为「历史」和「当前消息」重复注入。
+                target = str(current_user_text or "").strip()
+                if target and merged:
+                    last = merged[-1]
+                    if (
+                        str(last.get("sender") or "").strip().lower() == "user"
+                        and str(last.get("content") or "").strip() == target
+                    ):
+                        merged.pop()
                 if not merged:
                     return []
                 out: List[Dict[str, Any]] = []
