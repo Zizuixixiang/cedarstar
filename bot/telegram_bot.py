@@ -1428,6 +1428,29 @@ class TelegramBot:
         parts = _split_telegram_body_parts(cleaned_with_separators)
         logger.debug("Telegram 正文分段: 非空段数=%s", len(parts))
         body_for_db = "\n".join(parts)
+        chat_type = getattr(getattr(base_message, "chat", None), "type", "")
+        if chat_type in ("group", "supergroup"):
+            # 群聊禁用正文分段发送：统一裁剪为单条，避免两 bot 文本交错放大“刷屏感”。
+            max_chars = 600
+            try:
+                raw_max = await get_database().get_config(
+                    "group_chat_max_message_chars", "600"
+                )
+                max_chars = int(raw_max or 600)
+            except Exception:
+                max_chars = 600
+            max_chars = max(120, min(3800, max_chars))
+            one_text = body_for_db.strip()
+            if len(one_text) > max_chars:
+                one_text = one_text[: max_chars - 1].rstrip() + "…"
+            if not one_text:
+                return "", None
+            stack = "".join(traceback.format_stack())
+            logging.warning(f"send called from: {stack}")
+            sent = await self._send_text_near_base(
+                base_message, bot, one_text, parse_mode="HTML"
+            )
+            return one_text, str(sent.message_id)
         out_chunks: List[str] = []
         for seg in parts:
             out_chunks.extend(self._telegram_html_body_chunks(seg))
@@ -2658,12 +2681,20 @@ class TelegramBot:
                             f"后 {current_count} 张为用户本轮刚发的图片。]"
                         )
                         text_for_llm = ((text_for_llm or combined_content or "").strip() + history_hint).strip()
+            is_group_session = session_id.startswith("telegram_group_")
+            context_user_content = combined_content
+            if is_group_session:
+                context_user_content = (
+                    f"{combined_content}\n\n"
+                    "[系统提示：当前是群聊。请尽量一次性输出完整回复，"
+                    "避免主动拆成多条短句；以自然段组织即可。]"
+                ).strip()
             context = await build_context(
                 session_id,
-                combined_content,
+                context_user_content,
                 images=llm_images,
                 llm_user_text=text_for_llm or None,
-                telegram_segment_hint=True,
+                telegram_segment_hint=not is_group_session,
                 tool_oral_coaching=oral,
                 exclude_message_id=user_row_id if 'user_row_id' in locals() else None,
             )
