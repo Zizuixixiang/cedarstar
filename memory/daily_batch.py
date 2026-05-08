@@ -929,6 +929,50 @@ class DailyBatchProcessor:
         Step 2 - 生成今日小传（prompt 开头附带 Step 1 结算的时效事件）。
         """
         try:
+            async def _summarized_overlap_limit() -> int:
+                try:
+                    raw = await get_database().get_config("summarized_overlap_limit")
+                    if raw is not None and str(raw).strip() != "":
+                        return max(0, min(20, int(str(raw).strip())))
+                except (TypeError, ValueError):
+                    pass
+                except Exception as e:
+                    logger.debug("读取 summarized_overlap_limit 失败，使用默认 5: %s", e)
+                return 5
+
+            async def _build_overlap_section_for_session(session_id: str) -> str:
+                limit = await _summarized_overlap_limit()
+                if limit <= 0:
+                    return ""
+                db = get_database()
+                rows: List[Dict[str, Any]]
+                if str(session_id).startswith("telegram_group_"):
+                    chat_id = str(session_id)[len("telegram_group_") :]
+                    rows = await db.get_recent_summarized_shared_group_messages(
+                        chat_id, limit=limit
+                    )
+                else:
+                    rows = await db.get_recent_summarized_messages_desc(
+                        session_id, limit=limit
+                    )
+                if not rows:
+                    return ""
+                lines: List[str] = []
+                for row in rows:
+                    content = str(row.get("content") or "").strip()
+                    if not content:
+                        continue
+                    sender = str(row.get("sender") or "").strip().lower()
+                    role = str(row.get("role") or "").strip().lower()
+                    if sender == "user" or role == "user":
+                        who = "南杉"
+                    else:
+                        who = "小克"
+                    lines.append(f"- {who}: {content}")
+                if not lines:
+                    return ""
+                return "# 摘要衔接（已摘要消息）\n\n" + "\n".join(lines) + "\n\n"
+
             chunk_summaries = await get_today_chunk_summaries(batch_date)
 
             if chunk_summaries:
@@ -955,6 +999,7 @@ class DailyBatchProcessor:
                             today_content += f"- {line}\n"
                         today_content += "\n"
 
+                    today_content += await _build_overlap_section_for_session(session_id)
                     today_content += "# 今日对话摘要\n\n"
                     for summary in session_chunks:
                         summary_text = strip_lutopia_internal_memory_blocks(
@@ -1002,7 +1047,7 @@ class DailyBatchProcessor:
                         end_message_id=0,
                         summary_type="daily",
                         source_date=date.fromisoformat(batch_date),
-                        is_group=1 if str(session_id).startswith("telegram_-") else 0,
+                        is_group=1 if str(session_id).startswith("telegram_group_") else 0,
                     )
                     await archive_chunk_summaries_by_daily(
                         batch_date,

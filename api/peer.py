@@ -14,13 +14,8 @@ router = APIRouter()
 
 class PeerGroupMessage(BaseModel):
     sender_app_id: str
-    sender_bot_id: Optional[str] = None
-    sender_name: Optional[str] = None
     chat_id: str
-    message_id: str
-    content: str
-    character_id: Optional[str] = None
-    thinking: Optional[str] = None
+    round_count: Optional[int] = None
 
 
 @router.post("/group-message")

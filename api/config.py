@@ -34,6 +34,7 @@ DEFAULT_CONFIG = {
     "short_term_limit": 40,
     "buffer_delay": 5,
     "chunk_threshold": 50,
+    "group_chunk_threshold": 30,
     "context_max_daily_summaries": 5,
     "context_max_chunk_summaries": 8,
     "context_max_longterm": 3,

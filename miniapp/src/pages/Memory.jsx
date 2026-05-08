@@ -1711,7 +1711,7 @@ function Memory() {
       }
     }
   }, [summariesPage, summaryKindFilter, summariesContextOnly, summariesDateFrom, summariesDateTo, addToast]);
-  
+
   useEffect(() => {
     if (activeTab === 'summaries' || activeTab === 'longterm') {
       loadContextTrace();
@@ -2578,6 +2578,7 @@ function Memory() {
           </button>
         </div>
       )}
+
     </div>
   );
 }

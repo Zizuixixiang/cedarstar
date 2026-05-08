@@ -7,6 +7,7 @@ from fastapi import APIRouter
 
 from api import autonomous, observability, peer, pocket_money, sensor, stream, weather
 from api import stardew
+from api.messages import router as messages_router
 from api.dashboard import router as dashboard_router
 from api.persona import router as persona_router
 from api.memory import approve_approval, list_approvals, reject_approval, request_approval, router as memory_router
@@ -23,6 +24,7 @@ api_router.include_router(dashboard_router, prefix="/dashboard", tags=["控制�
 api_router.include_router(persona_router, prefix="/persona", tags=["人设配置"])
 api_router.include_router(memory_router, prefix="/memory", tags=["记忆管理"])
 api_router.include_router(history_router, prefix="/history", tags=["对话历史"])
+api_router.include_router(messages_router, prefix="/messages", tags=["消息记录"])
 api_router.include_router(logs_router, prefix="/logs", tags=["日志"])
 api_router.include_router(config_router, prefix="/config", tags=["助手配置"])
 api_router.include_router(settings_router, prefix="/settings", tags=["设置"])

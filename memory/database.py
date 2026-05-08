@@ -10,6 +10,7 @@ await initialize_database()。
 import asyncpg
 import json
 import logging
+import os
 import datetime as _dt
 import uuid
 from decimal import Decimal, ROUND_DOWN
@@ -410,6 +411,33 @@ async def _ensure_group_chat_state_table(conn) -> None:
     """)
 
 
+async def _ensure_shared_group_messages_table(conn) -> None:
+    """共享群聊消息表（部署在共享 PG 实例）。"""
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS shared_group_messages (
+            id BIGSERIAL PRIMARY KEY,
+            chat_id TEXT NOT NULL,
+            sender TEXT NOT NULL CHECK (sender IN ('user', 'clio', 'sirius')),
+            content TEXT NOT NULL DEFAULT '',
+            tg_message_id TEXT NOT NULL,
+            is_summarized INTEGER NOT NULL DEFAULT 0,
+            created_at TIMESTAMP DEFAULT NOW(),
+            platform TEXT,
+            thinking TEXT,
+            media_type TEXT,
+            image_caption TEXT,
+            vision_processed INTEGER DEFAULT 1,
+            UNIQUE(chat_id, tg_message_id, sender)
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_shared_group_messages_chat_created "
+        "ON shared_group_messages (chat_id, created_at)"
+    )
+
+
 async def _ensure_model_favorites_table(conn) -> None:
     """Mini App API 配置页使用的按供应商收藏模型表。"""
     await conn.execute("""
@@ -725,6 +753,7 @@ async def migrate_database_schema(conn) -> None:
             ("group_chat_max_rounds", "3"),
             ("group_chat_interject_enabled", "0"),
             ("group_chat_interject_probability", "0.2"),
+            ("group_chunk_threshold", "30"),
             # AI 自主活动（Idle Activity）默认配置
             ("idle_activity_enabled", "false"),
             ("idle_activity_level", "mid"),
@@ -796,6 +825,7 @@ class MessageDatabase:
 
     def __init__(self):
         self.pool: Optional[asyncpg.Pool] = None
+        self.shared_group_pool: Optional[asyncpg.Pool] = None
 
     @staticmethod
     def _default_character_id() -> str:
@@ -1040,6 +1070,136 @@ class MessageDatabase:
                 await migrate_database_schema(conn)
 
         logger.debug("数据库表初始化完成")
+
+    async def _ensure_shared_group_pool(self) -> Optional[asyncpg.Pool]:
+        """懒加载共享群聊库连接池；未配置 SHARED_GROUP_DB_URL 时返回 None。"""
+        if self.shared_group_pool is not None:
+            return self.shared_group_pool
+        dsn = os.getenv("SHARED_GROUP_DB_URL", "").strip()
+        if not dsn:
+            return None
+        self.shared_group_pool = await asyncpg.create_pool(
+            dsn=dsn,
+            min_size=1,
+            max_size=3,
+            server_settings={"TimeZone": "Asia/Shanghai"},
+        )
+        async with self.shared_group_pool.acquire() as conn:
+            await _ensure_shared_group_messages_table(conn)
+        return self.shared_group_pool
+
+    async def insert_shared_group_message(
+        self,
+        *,
+        chat_id: str,
+        sender: str,
+        content: str,
+        tg_message_id: str,
+        platform: Optional[str] = None,
+        thinking: Optional[str] = None,
+        media_type: Optional[str] = None,
+        image_caption: Optional[str] = None,
+        vision_processed: int = 1,
+    ) -> Optional[int]:
+        """写入共享群聊消息；命中唯一键冲突时返回 None。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return None
+        sender_norm = str(sender or "").strip().lower()
+        if sender_norm not in {"user", "clio", "sirius"}:
+            raise ValueError(f"invalid sender: {sender}")
+        async with pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO shared_group_messages (
+                    chat_id, sender, content, tg_message_id, is_summarized,
+                    platform, thinking, media_type, image_caption, vision_processed
+                )
+                VALUES ($1, $2, $3, $4, 0, $5, $6, $7, $8, $9)
+                ON CONFLICT (chat_id, tg_message_id, sender) DO NOTHING
+                RETURNING id
+                """,
+                str(chat_id),
+                sender_norm,
+                str(content or ""),
+                str(tg_message_id),
+                platform,
+                thinking,
+                media_type,
+                image_caption,
+                int(vision_processed),
+            )
+        return int(row["id"]) if row else None
+
+    async def get_recent_shared_group_messages(
+        self, chat_id: str, limit: int = 40
+    ) -> List[Dict[str, Any]]:
+        """读取共享群聊最近消息（倒序）。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return []
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, chat_id, sender, content, tg_message_id, is_summarized,
+                       created_at, platform, thinking, media_type, image_caption, vision_processed
+                FROM shared_group_messages
+                WHERE chat_id = $1
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                str(chat_id),
+                max(1, int(limit)),
+            )
+        return [_r(r) for r in rows]
+
+    async def get_unsummarized_shared_group_messages(
+        self, chat_id: str, limit: int = 40
+    ) -> List[Dict[str, Any]]:
+        """读取共享群聊最近未摘要消息（正序）。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return []
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, chat_id, sender, content, tg_message_id, is_summarized,
+                       created_at, platform, thinking, media_type, image_caption, vision_processed
+                FROM shared_group_messages
+                WHERE chat_id = $1 AND is_summarized = 0
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                str(chat_id),
+                max(1, int(limit)),
+            )
+        out = [_r(r) for r in rows]
+        out.reverse()
+        return out
+
+    async def get_recent_summarized_shared_group_messages(
+        self, chat_id: str, limit: int = 5
+    ) -> List[Dict[str, Any]]:
+        """读取共享群聊最近已摘要消息（正序），用于摘要衔接。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return []
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, chat_id, sender, content, tg_message_id, is_summarized,
+                       created_at, platform, thinking, media_type, image_caption, vision_processed
+                FROM shared_group_messages
+                WHERE chat_id = $1 AND is_summarized = 1
+                ORDER BY created_at DESC
+                LIMIT $2
+                """,
+                str(chat_id),
+                max(1, int(limit)),
+            )
+        out = [_r(r) for r in rows]
+        out.reverse()
+        return out
 
     # ------------------------------------------------------------------
     # pending_approvals
@@ -1676,6 +1836,147 @@ class MessageDatabase:
             total, page, page_size, platform, keyword,
         )
         return {"total": total, "messages": messages}
+
+    async def get_messages_by_type(
+        self,
+        *,
+        message_type: str,
+        page: int = 1,
+        page_size: int = 20,
+        keyword: Optional[str] = None,
+        date_from: Optional[str] = None,
+        date_to: Optional[str] = None,
+        session_id: Optional[str] = None,
+        chat_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """按 private/group 查询消息记录（分页 + 日期范围 + 关键词）。"""
+        if isinstance(date_from, str) and date_from.strip():
+            date_from = date.fromisoformat(date_from)
+        if isinstance(date_to, str) and date_to.strip():
+            date_to = date.fromisoformat(date_to)
+        page = max(1, int(page))
+        page_size = max(1, min(100, int(page_size)))
+
+        mt = str(message_type or "").strip().lower()
+        kw = (keyword or "").strip()
+
+        if mt == "private":
+            if not session_id:
+                raise ValueError("private 类型必须提供 session_id")
+            conditions: List[str] = ["session_id = $1"]
+            params: List[Any] = [str(session_id)]
+            idx = 2
+            if kw:
+                conditions.append(
+                    f"(COALESCE(content, '') ILIKE ${idx} OR COALESCE(thinking, '') ILIKE ${idx})"
+                )
+                params.append(f"%{kw}%")
+                idx += 1
+            if date_from:
+                conditions.append(f"created_at::date >= ${idx}")
+                params.append(date_from)
+                idx += 1
+            if date_to:
+                conditions.append(f"created_at::date <= ${idx}")
+                params.append(date_to)
+                idx += 1
+            where_clause = "WHERE " + " AND ".join(conditions)
+            async with self.pool.acquire() as conn:
+                total = await conn.fetchval(
+                    f"SELECT COUNT(*) FROM messages {where_clause}", *params
+                )
+                offset = (page - 1) * page_size
+                rows = await conn.fetch(
+                    f"""
+                    SELECT id, role, content, thinking, platform, created_at,
+                           session_id, message_id, character_id
+                    FROM messages
+                    {where_clause}
+                    ORDER BY created_at DESC
+                    LIMIT ${idx} OFFSET ${idx + 1}
+                    """,
+                    *params,
+                    page_size,
+                    offset,
+                )
+            items = [
+                {
+                    "id": r["id"],
+                    "sender": "user" if str(r["role"] or "") == "user" else "assistant",
+                    "role": r["role"],
+                    "content": r["content"],
+                    "thinking": r["thinking"],
+                    "platform": r["platform"],
+                    "created_at": _norm(r["created_at"]),
+                    "session_id": r["session_id"],
+                    "tg_message_id": r["message_id"],
+                    "character_id": r["character_id"],
+                }
+                for r in rows
+            ]
+            return {"total": int(total or 0), "items": items}
+
+        if mt == "group":
+            if not chat_id:
+                raise ValueError("group 类型必须提供 chat_id")
+            pool = await self._ensure_shared_group_pool()
+            if pool is None:
+                return {"total": 0, "items": []}
+            conditions = ["chat_id = $1"]
+            params = [str(chat_id)]
+            idx = 2
+            if kw:
+                conditions.append(f"COALESCE(content, '') ILIKE ${idx}")
+                params.append(f"%{kw}%")
+                idx += 1
+            if date_from:
+                conditions.append(f"created_at::date >= ${idx}")
+                params.append(date_from)
+                idx += 1
+            if date_to:
+                conditions.append(f"created_at::date <= ${idx}")
+                params.append(date_to)
+                idx += 1
+            where_clause = "WHERE " + " AND ".join(conditions)
+            async with pool.acquire() as conn:
+                total = await conn.fetchval(
+                    f"SELECT COUNT(*) FROM shared_group_messages {where_clause}",
+                    *params,
+                )
+                offset = (page - 1) * page_size
+                rows = await conn.fetch(
+                    f"""
+                    SELECT id, sender, content, tg_message_id, is_summarized, created_at,
+                           platform, thinking, media_type, image_caption, vision_processed
+                    FROM shared_group_messages
+                    {where_clause}
+                    ORDER BY created_at DESC
+                    LIMIT ${idx} OFFSET ${idx + 1}
+                    """,
+                    *params,
+                    page_size,
+                    offset,
+                )
+            items = [
+                {
+                    "id": r["id"],
+                    "sender": r["sender"],
+                    "content": r["content"],
+                    "thinking": r["thinking"],
+                    "platform": r["platform"],
+                    "created_at": _norm(r["created_at"]),
+                    "chat_id": str(chat_id),
+                    "tg_message_id": r["tg_message_id"],
+                    "is_summarized": bool(r["is_summarized"]),
+                    "media_type": r["media_type"],
+                    "image_caption": r["image_caption"],
+                    "vision_processed": int(r["vision_processed"] or 0),
+                }
+                for r in rows
+            ]
+            return {"total": int(total or 0), "items": items}
+
+        raise ValueError("type 仅支持 private 或 group")
 
     async def update_message_by_id(
         self,

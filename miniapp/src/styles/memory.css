@@ -1927,6 +1927,7 @@ h2.memory-tab-header__title,
   padding-bottom: var(--card-padding);
 }
 
+
 .memory-container .memory-item .summary-record-actions .action-button,
 .memory-container .memory-item .summary-record-actions .delete-button,
 .memory-container .memory-item .summary-record-actions .card-view-full-link {

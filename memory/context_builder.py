@@ -611,7 +611,7 @@ async def _build_rerank_query(session_id: str, current_message: str) -> str:
             continue
         if role == "user":
             parts.append(f"南杉: {content}")
-        elif role in ("assistant", "assistant_other"):
+        elif role == "assistant":
             parts.append(f"小克: {content}")
 
     # 加当前消息
@@ -2086,6 +2086,52 @@ class ContextBuilder:
             List[Dict[str, Any]]: 消息列表，每条消息包含 role 和 content（纯文本）
         """
         try:
+            if str(session_id).startswith("telegram_group_"):
+                chat_id = str(session_id)[len("telegram_group_") :]
+                db = get_database()
+                recent_unsummarized = await db.get_unsummarized_shared_group_messages(
+                    chat_id,
+                    limit=await _short_term_recent_message_limit(),
+                )
+                summarized_overlap = await db.get_recent_summarized_shared_group_messages(
+                    chat_id,
+                    limit=await _summarized_overlap_limit(),
+                )
+                merged: List[Dict[str, Any]] = []
+                seen_ids = set()
+                for msg in summarized_overlap + recent_unsummarized:
+                    mid = msg.get("id")
+                    if mid in seen_ids:
+                        continue
+                    seen_ids.add(mid)
+                    merged.append(msg)
+                if not merged:
+                    return []
+                out: List[Dict[str, Any]] = []
+                for row in merged:
+                    sender = str(row.get("sender") or "").strip().lower()
+                    content = str(row.get("content") or "")
+                    if not content:
+                        continue
+                    if sender == "user":
+                        out.append(
+                            {
+                                "role": "user",
+                                "content": inject_user_sent_at_into_llm_content(
+                                    content, row.get("created_at")
+                                ),
+                            }
+                        )
+                    else:
+                        who = "Clio" if sender == "clio" else "Sirius"
+                        out.append(
+                            {
+                                "role": "assistant",
+                                "content": f"[群聊助手 {who}]：{strip_lutopia_behavior_appendix(content)}",
+                            }
+                        )
+                return out
+
             recent_messages = await get_unsummarized_messages_desc(
                 session_id,
                 limit=await _short_term_recent_message_limit(),
@@ -2122,11 +2168,7 @@ class ContextBuilder:
                         "image_caption": msg.get("image_caption"),
                     }
                 )
-                if msg_role == "assistant_other":
-                    other_name = (msg.get("character_id") or "未知助手")
-                    text = strip_lutopia_behavior_appendix(text)
-                    text = f"[另一名助手 {other_name} 的发言]：{text}"
-                elif role == "assistant":
+                if role == "assistant":
                     text = strip_lutopia_behavior_appendix(text)
                 else:
                     text = inject_user_sent_at_into_llm_content(

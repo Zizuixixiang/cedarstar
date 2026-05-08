@@ -134,16 +134,25 @@ async def _record_consecutive_chunk_llm_failure(reason: str) -> None:
     _consecutive_chunk_failures = 0
 
 
-async def _micro_batch_threshold() -> int:
-    """微批触发条数：优先 config 表 chunk_threshold，否则环境变量 MICRO_BATCH_THRESHOLD。"""
+def _is_group_session(session_id: Optional[str]) -> bool:
+    return str(session_id or "").startswith("telegram_group_")
+
+
+async def _micro_batch_threshold(session_id: Optional[str] = None) -> int:
+    """微批触发条数：群聊优先 group_chunk_threshold，缺省回退 chunk_threshold。"""
     try:
-        raw = await get_database().get_config("chunk_threshold")
+        db = get_database()
+        raw = None
+        if _is_group_session(session_id):
+            raw = await db.get_config("group_chunk_threshold")
+        if raw is None or str(raw).strip() == "":
+            raw = await db.get_config("chunk_threshold")
         if raw is not None and str(raw).strip() != "":
             return max(1, int(str(raw).strip()))
     except (ValueError, TypeError):
         pass
     except Exception as e:
-        logger.debug("读取 chunk_threshold 失败，使用环境变量: %s", e)
+        logger.debug("读取微批阈值失败，使用环境变量: %s", e)
     return config.MICRO_BATCH_THRESHOLD
 
 
@@ -399,7 +408,7 @@ async def check_and_process_micro_batch(session_id: str) -> bool:
 
         # 获取未摘要消息数量（仅 vision_processed=1，避免未出视觉档案的行进入微批）
         unsummarized_count = await get_unsummarized_count_by_session(session_id)
-        threshold = await _micro_batch_threshold()
+        threshold = await _micro_batch_threshold(session_id)
         
         logger.debug(f"会话 {session_id} 未摘要消息数量: {unsummarized_count}, 阈值: {threshold}")
         
@@ -435,7 +444,7 @@ async def process_micro_batch(session_id: str) -> None:
     try:
         await expire_stale_vision_pending(minutes=5)
         char_name, user_name = await fetch_active_persona_display_names()
-        threshold = await _micro_batch_threshold()
+        threshold = await _micro_batch_threshold(session_id)
 
         # 1. 获取最早的未摘要消息（vision_processed=1）
         messages = await get_unsummarized_messages_by_session(session_id, limit=threshold)

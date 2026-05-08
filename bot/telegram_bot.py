@@ -20,6 +20,7 @@ import requests
 import uuid
 import random
 import re
+from datetime import datetime
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
 # 添加当前目录到 Python 路径，确保可以导入本地模块
@@ -396,6 +397,23 @@ class TelegramBot:
             "on",
         )
 
+    @staticmethod
+    def _session_id_for_chat(chat_id: Any, chat_type: str) -> str:
+        chat_id_s = str(chat_id)
+        if chat_type in ("group", "supergroup"):
+            return f"telegram_group_{chat_id_s}"
+        return f"telegram_{chat_id_s}"
+
+    @staticmethod
+    def _shared_sender_self() -> str:
+        """根据当前实例默认角色推断共享表 sender（clio/sirius）。"""
+        cid = str(getattr(config, "DEFAULT_CHARACTER_ID", "") or "").strip().lower()
+        return "clio" if cid == "clio" else "sirius"
+
+    @classmethod
+    def _shared_sender_peer(cls) -> str:
+        return "sirius" if cls._shared_sender_self() == "clio" else "clio"
+
     async def _should_ignore_group_user_mention(
         self, context: ContextTypes.DEFAULT_TYPE, message
     ) -> bool:
@@ -554,38 +572,17 @@ class TelegramBot:
         self,
         *,
         chat_id: str,
-        message_id: str,
-        content: str,
-        character_id: Optional[str] = None,
-        thinking: Optional[str] = None,
+        round_count: int,
     ) -> None:
         urls = config.TELEGRAM_GROUP_PEER_RELAY_URLS
         token = config.TELEGRAM_GROUP_PEER_RELAY_TOKEN
-        body = (content or "").strip()
-        if not urls or not token or not body:
+        if not urls or not token:
             return
         payload = {
             "sender_app_id": config.TELEGRAM_GROUP_PEER_RELAY_APP_ID,
-            "sender_name": config.APP_NAME,
             "chat_id": str(chat_id),
-            "message_id": str(message_id),
-            "content": body,
-            "character_id": character_id,
-            "thinking": thinking,
+            "round_count": max(0, int(round_count)),
         }
-        try:
-            app = getattr(self, "application", None)
-            bot_obj = getattr(app, "bot", None) if app is not None else None
-            if bot_obj is not None:
-                me = await bot_obj.get_me()
-                payload["sender_bot_id"] = str(getattr(me, "id", "") or "")
-                payload["sender_name"] = (
-                    getattr(me, "username", None)
-                    or getattr(me, "first_name", None)
-                    or config.APP_NAME
-                )
-        except Exception as e:
-            logger.debug("peer relay 读取当前 bot 信息失败，继续发送: %s", exc_detail(e))
 
         headers = {
             "Content-Type": "application/json",
@@ -613,23 +610,6 @@ class TelegramBot:
 
         asyncio.create_task(asyncio.to_thread(_post_all))
 
-    async def _recent_assistant_other_content_exists(
-        self, session_id: str, content: str, *, limit: int = 12
-    ) -> bool:
-        target = (content or "").strip()
-        if not target:
-            return False
-        try:
-            rows = await get_database().get_recent_messages(session_id, limit=limit)
-        except Exception as e:
-            logger.debug("读取近期 assistant_other 去重窗口失败: %s", exc_detail(e))
-            return False
-        return any(
-            str(row.get("role") or "") == "assistant_other"
-            and str(row.get("content") or "").strip() == target
-            for row in rows
-        )
-    
     async def start_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """
         处理 /start 命令。
@@ -703,7 +683,8 @@ class TelegramBot:
         """
         # 获取会话ID
         chat_id = update.effective_chat.id
-        session_id = f"telegram_{chat_id}"
+        chat_type = getattr(update.effective_chat, "type", "")
+        session_id = self._session_id_for_chat(chat_id, chat_type)
         
         # 清除对话历史（在数据库中标记为已摘要）
         from memory.database import get_database
@@ -719,7 +700,8 @@ class TelegramBot:
         if not update.message:
             return
         chat_id = update.effective_chat.id
-        session_id = f"telegram_{chat_id}"
+        chat_type = getattr(update.effective_chat, "type", "")
+        session_id = self._session_id_for_chat(chat_id, chat_type)
         await update.message.reply_text("好的，请发送需要重新识别的贴纸")
         pending_rescan.add(session_id)
         await _schedule_rescan_timeout(context.bot, session_id, chat_id)
@@ -755,7 +737,9 @@ class TelegramBot:
         if not update.message:
             return
         message = update.message
-        session_id = f"telegram_{message.chat.id}"
+        session_id = self._session_id_for_chat(
+            message.chat.id, getattr(message.chat, "type", "")
+        )
         if await self._handle_group_bot_message(update, context, message, session_id):
             return
         if await self._should_ignore_group_user_mention(context, message):
@@ -792,6 +776,14 @@ class TelegramBot:
 
         logger.info(f"收到 Telegram 消息: chat_id={chat_id}, user_id={user_id}, 内容长度={len(content)}")
         if getattr(message.chat, "type", "") in ("group", "supergroup"):
+            await get_database().insert_shared_group_message(
+                chat_id=str(chat_id),
+                sender="user",
+                content=content,
+                tg_message_id=str(message_id),
+                platform=Platform.TELEGRAM,
+                vision_processed=1,
+            )
             await get_database().set_group_chat_round_count(str(chat_id), 0)
         logger.info(
             "[TG路径追踪] 入口 handle_message(纯文本) session_id=%s -> MessageBuffer.add_to_buffer；"
@@ -825,21 +817,15 @@ class TelegramBot:
         if not content:
             return True
         db = get_database()
-        if await self._recent_assistant_other_content_exists(session_id, content):
-            return True
         other_name = getattr(sender, "username", None) or getattr(sender, "first_name", None) or "other_bot"
-        await save_message(
-            session_id=session_id,
-            role="assistant_other",
+        await db.insert_shared_group_message(
+            chat_id=str(message.chat.id),
+            sender=self._shared_sender_peer(),
             content=content,
-            user_id=str(getattr(sender, "id", "unknown")),
-            channel_id=str(message.chat.id),
-            message_id=str(message.message_id),
-            character_id=other_name,
+            tg_message_id=str(message.message_id),
             platform=Platform.TELEGRAM,
             vision_processed=1,
         )
-        asyncio.create_task(trigger_micro_batch_check(session_id))
 
         if await db.get_config("group_chat_silent_mode", "0") == "1":
             return True
@@ -863,7 +849,7 @@ class TelegramBot:
         delta = 1 if mentioned else 2
         if round_count + delta > max_rounds:
             return True
-        await db.increment_group_chat_round_count(str(message.chat.id), delta)
+        new_round_count = await db.increment_group_chat_round_count(str(message.chat.id), delta)
         prompt = (
             f"[另一名助手 {other_name} 的发言]：{content}\n\n"
             "请自然接话，避免重复对方内容。"
@@ -900,130 +886,105 @@ class TelegramBot:
             )
             await self._relay_group_assistant_message(
                 chat_id=str(message.chat.id),
-                message_id=assistant_mid,
-                content=gen.reply,
-                character_id=gen.character_id,
-                thinking=gen.thinking,
+                round_count=new_round_count,
             )
         return True
 
     async def handle_peer_group_message(self, payload: Dict[str, Any]) -> Dict[str, Any]:
-        """接收另一实例通过 HTTP relay 发来的群聊助手消息。"""
+        """接收另一实例通过 HTTP relay 发来的群聊信号。"""
         sender_app_id = str(payload.get("sender_app_id") or "").strip()
         if sender_app_id and sender_app_id == config.TELEGRAM_GROUP_PEER_RELAY_APP_ID:
             return {"status": "ignored_self"}
 
-        content = str(payload.get("content") or "").strip()
         chat_id = str(payload.get("chat_id") or "").strip()
-        source_message_id = str(payload.get("message_id") or "").strip()
-        if not content or not chat_id or not source_message_id:
+        if not chat_id:
             return {"status": "ignored_empty"}
-
-        session_id = f"telegram_{chat_id}"
-        peer_message_id = f"peer_{sender_app_id or 'unknown'}_{source_message_id}"
-        db = get_database()
-        if await db.message_exists(session_id, peer_message_id):
-            return {"status": "duplicate"}
-        if await self._recent_assistant_other_content_exists(session_id, content):
-            return {"status": "duplicate_content"}
-
-        other_name = (
-            str(payload.get("sender_name") or "").strip()
-            or str(payload.get("character_id") or "").strip()
-            or sender_app_id
-            or "other_bot"
-        )
-        await save_message(
-            session_id=session_id,
-            role="assistant_other",
-            content=content,
-            user_id=str(payload.get("sender_bot_id") or sender_app_id or "peer"),
-            channel_id=chat_id,
-            message_id=peer_message_id,
-            character_id=other_name,
-            platform=Platform.TELEGRAM,
-            vision_processed=1,
-        )
-        asyncio.create_task(trigger_micro_batch_check(session_id))
-
-        if await db.get_config("group_chat_silent_mode", "0") == "1":
-            return {"status": "saved_silent"}
-        max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
-        round_count = await db.get_group_chat_round_count(chat_id)
-        if round_count >= max_rounds:
-            return {"status": "saved_round_limited"}
-
-        app = getattr(self, "application", None)
-        bot_obj = getattr(app, "bot", None) if app is not None else None
-        if bot_obj is None:
-            return {"status": "saved_no_bot"}
-        try:
-            me = await bot_obj.get_me()
-            me_username = (getattr(me, "username", "") or "").lower()
-        except Exception as e:
-            logger.warning("peer relay 获取当前 bot 信息失败: %s", exc_detail(e))
-            me_username = ""
-
-        mentioned = bool(me_username and f"@{me_username}" in content.lower())
-        interject = False
-        if not mentioned and await db.get_config("group_chat_interject_enabled", "0") == "1":
+        round_count_raw = payload.get("round_count")
+        if round_count_raw is not None:
+            db = get_database()
+            if await db.get_config("group_chat_silent_mode", "0") == "1":
+                return {"status": "signal_silent"}
+            max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
             try:
-                prob = float(await db.get_config("group_chat_interject_probability", "0.2") or 0.2)
+                round_count = int(round_count_raw)
             except (TypeError, ValueError):
-                prob = 0.2
-            interject = random.random() < max(0.0, min(1.0, prob))
-        if not mentioned and not interject:
-            return {"status": "saved_no_reply"}
+                round_count = await db.get_group_chat_round_count(chat_id)
+            if round_count >= max_rounds:
+                return {"status": "signal_round_limited"}
+            app = getattr(self, "application", None)
+            bot_obj = getattr(app, "bot", None) if app is not None else None
+            if bot_obj is None:
+                return {"status": "signal_no_bot"}
+            if round_count + 1 > max_rounds:
+                return {"status": "signal_round_limited"}
+            new_round_count = await db.increment_group_chat_round_count(chat_id, 1)
+            return await self._handle_peer_group_signal_reply(
+                chat_id=chat_id,
+                bot_obj=bot_obj,
+                new_round_count=new_round_count,
+            )
 
-        delta = 1 if mentioned else 2
-        if round_count + delta > max_rounds:
-            return {"status": "saved_round_limited"}
-        await db.increment_group_chat_round_count(chat_id, delta)
+        return {"status": "ignored_legacy_payload"}
 
-        prompt = (
-            f"[另一名助手 {other_name} 的发言]：{content}\n\n"
-            "请自然接话，避免重复对方内容。"
-        )
+    async def _handle_peer_group_signal_reply(
+        self,
+        *,
+        chat_id: str,
+        bot_obj,
+        new_round_count: int,
+    ) -> Dict[str, Any]:
+        """收到 peer signal 后，基于共享群聊上下文触发本端回复。"""
+        session_id = self._session_id_for_chat(chat_id, "group")
+        prompt = "[群聊接话信号] 请基于最新群聊上下文自然接话，避免重复前文。"
         fake_message = _SendOnlyTelegramMessage(bot_obj, int(chat_id))
+        signal_mid = f"peer_signal_{int(datetime.now().timestamp())}"
         gen = await self._generate_reply_from_buffer(
             session_id=session_id,
             combined_raw=prompt,
             combined_content=prompt,
-            user_id=str(payload.get("sender_bot_id") or sender_app_id or "peer"),
+            user_id="peer_signal",
             chat_id=chat_id,
-            message_id=peer_message_id,
+            message_id=signal_mid,
             buffer_messages=[{
                 "message": fake_message,
                 "context": None,
-                "user_id": str(payload.get("sender_bot_id") or sender_app_id or "peer"),
-                "message_id": peer_message_id,
+                "user_id": "peer_signal",
+                "message_id": signal_mid,
             }],
             base_message=fake_message,
             bot=bot_obj,
             persist_user=False,
         )
-        if gen.persist_assistant and gen.reply.strip():
-            assistant_mid = gen.assistant_message_id or f"ai_{peer_message_id}"
-            await save_message(
-                session_id=session_id,
-                role="assistant",
-                content=gen.reply,
-                user_id=str(payload.get("sender_bot_id") or sender_app_id or "peer"),
-                channel_id=chat_id,
-                message_id=assistant_mid,
-                character_id=gen.character_id,
-                platform=Platform.TELEGRAM,
-                thinking=gen.thinking,
-            )
-            await self._relay_group_assistant_message(
-                chat_id=chat_id,
-                message_id=assistant_mid,
-                content=gen.reply,
-                character_id=gen.character_id,
-                thinking=gen.thinking,
-            )
-            return {"status": "saved_replied"}
-        return {"status": "saved_reply_empty"}
+        if not (gen.persist_assistant and gen.reply.strip()):
+            return {"status": "signal_reply_empty"}
+
+        assistant_mid = gen.assistant_message_id or f"ai_{signal_mid}"
+        await save_message(
+            session_id=session_id,
+            role="assistant",
+            content=gen.reply,
+            user_id="peer_signal",
+            channel_id=chat_id,
+            message_id=assistant_mid,
+            character_id=gen.character_id,
+            platform=Platform.TELEGRAM,
+            thinking=gen.thinking,
+        )
+        db = get_database()
+        await db.insert_shared_group_message(
+            chat_id=chat_id,
+            sender=self._shared_sender_self(),
+            content=gen.reply,
+            tg_message_id=assistant_mid,
+            platform=Platform.TELEGRAM,
+            thinking=gen.thinking,
+            vision_processed=1,
+        )
+        await self._relay_group_assistant_message(
+            chat_id=chat_id,
+            round_count=new_round_count,
+        )
+        return {"status": "signal_replied"}
 
     async def _handle_photo_message(
         self,
@@ -1035,7 +996,7 @@ class TelegramBot:
         chat_id = message.chat.id
         user_id = message.from_user.id
         message_id = message.message_id
-        session_id = f"telegram_{chat_id}"
+        session_id = self._session_id_for_chat(chat_id, getattr(message.chat, "type", ""))
         self._message_buffer.begin_heavy(session_id)
         photo = message.photo[-1]
         caption = (message.caption or "").strip()
@@ -1108,7 +1069,7 @@ class TelegramBot:
         chat_id = message.chat.id
         user_id = message.from_user.id
         message_id = message.message_id
-        session_id = f"telegram_{chat_id}"
+        session_id = self._session_id_for_chat(chat_id, getattr(message.chat, "type", ""))
         voice = message.voice
         oversized = "[语音] 文件过大，跳过转录"
         fail = TRANSCRIBE_FAIL_USER_CONTENT
@@ -1278,7 +1239,7 @@ class TelegramBot:
         chat_id = message.chat.id
         user_id = message.from_user.id
         message_id = message.message_id
-        session_id = f"telegram_{chat_id}"
+        session_id = self._session_id_for_chat(chat_id, getattr(message.chat, "type", ""))
         sticker = message.sticker
         fid = sticker.file_unique_id
 
@@ -2618,6 +2579,16 @@ class TelegramBot:
                             combined_raw
                         ),
                     )
+                    if session_id.startswith("telegram_group_"):
+                        await get_database().insert_shared_group_message(
+                            chat_id=chat_id,
+                            sender="user",
+                            content=combined_raw,
+                            tg_message_id=message_id,
+                            platform=Platform.TELEGRAM,
+                            media_type=media_t,
+                            vision_processed=0 if has_img else 1,
+                        )
                 if has_img and user_row_id:
                     schedule_generate_image_caption(
                         user_row_id,
@@ -3015,12 +2986,20 @@ class TelegramBot:
                 thinking=gen.thinking,
             )
             if self._is_group_message(base_message):
+                db = get_database()
+                await db.insert_shared_group_message(
+                    chat_id=str(base_message.chat.id),
+                    sender=self._shared_sender_self(),
+                    content=gen.reply,
+                    tg_message_id=assistant_mid,
+                    platform=Platform.TELEGRAM,
+                    thinking=gen.thinking,
+                    vision_processed=1,
+                )
+                current_round = await db.get_group_chat_round_count(str(base_message.chat.id))
                 await self._relay_group_assistant_message(
                     chat_id=str(base_message.chat.id),
-                    message_id=assistant_mid,
-                    content=gen.reply,
-                    character_id=gen.character_id,
-                    thinking=gen.thinking,
+                    round_count=current_round,
                 )
         if gen.reply and not gen.assistant_message_id:
             try:
@@ -3285,7 +3264,7 @@ class TelegramBot:
         if not label:
             return
         chat_id = mr.chat.id
-        session_id = f"telegram_{chat_id}"
+        session_id = self._session_id_for_chat(chat_id, getattr(mr.chat, "type", ""))
         raw = await get_assistant_content_for_platform_message_id(
             session_id, str(mr.message_id)
         )
