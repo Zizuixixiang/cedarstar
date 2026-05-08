@@ -67,7 +67,11 @@ _IDLE_TRIGGER_TEXT = (
 
 # 星露谷自动模式注入内容（不写 messages 用户表；仅本会话 build_context）
 STARDEW_AUTOPLAY_TRIGGER_TEXT = (
-    '[STARDEW_AUTO] 继续你在星露谷的行动。根据当前游戏状态决定下一步操作，如果服务器不可用、体力耗尽或没有有意义的事可做，回复"[STARDEW_STOP]"。'
+    "[STARDEW_AUTO] 继续你在星露谷的行动。根据当前游戏状态决定下一步操作。\n"
+    '仅在以下情况整条回复以 "[STARDEW_STOP]" 结尾：服务器不可用、体力耗尽，'
+    "或当前没有任何有意义的事可做。\n"
+    '若工具轮次耗尽但任务尚未完成，不要发送 "[STARDEW_STOP]"——'
+    "简短交代当前进度即可，下一轮（约 4 分钟后）会自动继续。"
 )
 
 STOP_TAG_STARDEW = "[STARDEW_STOP]"
