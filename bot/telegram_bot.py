@@ -381,8 +381,23 @@ class TelegramBot:
             flush_callback=self._flush_buffered_messages,
             log=logger,
         )
+        # 群聊触发去重：避免同一消息/信号在短时间内被重复处理导致重复调用 LLM。
+        self._group_user_seen: Dict[str, float] = {}
+        self._group_peer_seen: Dict[str, float] = {}
+        self._group_seen_ttl_sec: float = 20.0
         
         logger.info("Telegram 机器人初始化完成")
+
+    def _mark_group_seen(self, bucket: Dict[str, float], key: str) -> bool:
+        """返回 True 表示首次命中；False 表示短时间内重复。"""
+        now = time.time()
+        expired = [k for k, ts in bucket.items() if now - ts > self._group_seen_ttl_sec]
+        for k in expired:
+            bucket.pop(k, None)
+        if key in bucket:
+            return False
+        bucket[key] = now
+        return True
 
     @staticmethod
     def _is_group_message(message) -> bool:
@@ -791,6 +806,10 @@ class TelegramBot:
 
         logger.info(f"收到 Telegram 消息: chat_id={chat_id}, user_id={user_id}, 内容长度={len(content)}")
         if getattr(message.chat, "type", "") in ("group", "supergroup"):
+            user_seen_key = f"{chat_id}:{message_id}"
+            if not self._mark_group_seen(self._group_user_seen, user_seen_key):
+                logger.info("群聊用户消息重复触发已忽略: %s", user_seen_key)
+                return
             await get_database().insert_shared_group_message(
                 chat_id=str(chat_id),
                 sender="user",
@@ -807,7 +826,16 @@ class TelegramBot:
         )
 
         # 将消息添加到缓冲区
-        await self._add_to_buffer(update, context, session_id, message, content, user_id, message_id)
+        await self._add_to_buffer(
+            update,
+            context,
+            session_id,
+            message,
+            content,
+            user_id,
+            message_id,
+            shared_user_persisted=getattr(message.chat, "type", "") in ("group", "supergroup"),
+        )
 
     async def _handle_group_bot_message(
         self,
@@ -912,6 +940,9 @@ class TelegramBot:
         if not chat_id:
             return {"status": "ignored_empty"}
         round_count_raw = payload.get("round_count")
+        peer_seen_key = f"{chat_id}:{sender_app_id}:{round_count_raw}"
+        if not self._mark_group_seen(self._group_peer_seen, peer_seen_key):
+            return {"status": "signal_duplicate_ignored"}
         if await db.get_config("group_chat_silent_mode", "0") == "1":
             return {"status": "signal_silent"}
         max_rounds = int(await db.get_config("group_chat_max_rounds", "3") or 3)
@@ -942,6 +973,25 @@ class TelegramBot:
         new_round_count: int,
     ) -> Dict[str, Any]:
         """收到 peer signal 后，基于共享群聊上下文触发本端回复。"""
+        db = get_database()
+        recent = await db.get_recent_shared_group_messages(chat_id, limit=1)
+        if not recent:
+            return {"status": "signal_no_recent_message"}
+        last = recent[0]
+        last_sender = str(last.get("sender") or "").strip().lower()
+        # peer signal 仅在「对端 bot 的最新发言明确 @到当前 bot」时才接话，
+        # 避免用户触发后的首轮回复 + peer 信号再次拉起第二次同质回复。
+        if last_sender != self._shared_sender_peer():
+            return {"status": "signal_last_not_peer"}
+        try:
+            me = await bot_obj.get_me()
+        except Exception:
+            me = None
+        me_username = (getattr(me, "username", "") or "").strip().lower()
+        last_content = str(last.get("content") or "")
+        if not (me_username and f"@{me_username}" in last_content.lower()):
+            return {"status": "signal_peer_not_mention_me"}
+
         session_id = self._session_id_for_chat(chat_id, "group")
         prompt = "[群聊接话信号] 请基于最新群聊上下文自然接话，避免重复前文。"
         fake_message = _SendOnlyTelegramMessage(bot_obj, int(chat_id))
@@ -1551,13 +1601,44 @@ class TelegramBot:
         first_mid: Optional[str] = None
         meme_any = False
         voice_any = False
-        for i, (kind, payload) in enumerate(segments):
+        is_group = base_message is not None and self._is_group_message(base_message)
+        seg_i = 0
+        n_seg = len(segments)
+        while seg_i < n_seg:
+            kind, payload = segments[seg_i]
             logger.info(
-                f"[segment_debug] 发送第{i + 1}段 type={kind} "
-                f"len={len(payload or '')} preview={repr((payload or '')[:50])}"
+                "[segment_debug] 发送第%s段 type=%s len=%s preview=%r",
+                seg_i + 1,
+                kind,
+                len(payload or ""),
+                (payload or "")[:50],
             )
+            if kind == "text" and is_group:
+                # 群聊 _telegram_send_body_segments 只合并段内 |||；无 ||| 时解析器会按换行拆成多段 text，
+                # 若逐段 send_message 会连发多条、内容易重叠（如复述用户），与「单条群聊回复」设计相悖。
+                acc: List[str] = []
+                while seg_i < n_seg and segments[seg_i][0] == "text":
+                    piece = str(segments[seg_i][1] or "")
+                    if piece.strip():
+                        acc.append(piece.strip())
+                    seg_i += 1
+                merged = "\n".join(acc).strip()
+                if merged:
+                    logger.info(
+                        "[segment_debug] 群聊合并连续 text 段 inner=%s out_len=%s",
+                        len(acc),
+                        len(merged),
+                    )
+                    _, mid = await self._telegram_send_body_segments(
+                        base_message, merged, bot=bot
+                    )
+                    if first_mid is None and mid:
+                        first_mid = mid
+                    await asyncio.sleep(0.25)
+                continue
             if kind == "text":
                 t = (payload or "").strip()
+                seg_i += 1
                 if not t:
                     continue
                 if base_message is not None:
@@ -1572,6 +1653,7 @@ class TelegramBot:
                     first_mid = mid
                 await asyncio.sleep(0.25)
             elif kind == "meme":
+                seg_i += 1
                 sent, mid = await self._telegram_send_one_meme(
                     bot, chat_id, payload
                 )
@@ -1581,6 +1663,7 @@ class TelegramBot:
                         first_mid = mid
                     await asyncio.sleep(0.3)
             elif kind == "voice":
+                seg_i += 1
                 v = (payload or "").strip()
                 if not v:
                     continue
@@ -1590,6 +1673,8 @@ class TelegramBot:
                 if sent:
                     voice_any = True
                 await asyncio.sleep(0.25)
+            else:
+                seg_i += 1
 
         return first_mid, meme_any, voice_any
 
@@ -2199,9 +2284,15 @@ class TelegramBot:
                     break
             if overlap <= 0:
                 return final_text
-            # 只重叠 1 行时保守些：避免删掉常见开场句导致语义突兀。
+            # 只重叠 1 行时：私聊保守保留（避免误删常见开场句）。
+            # 群聊口播已通过 _telegram_lutopia_send_partial_user_text 发出，若不裁切则收尾正文
+            # 首行与口播末行在 Telegram 上重复一整句（常见为复述用户）。
             if overlap == 1 and len(final_lines) > 1:
-                return final_text
+                if not (
+                    base_message is not None
+                    and self._is_group_message(base_message)
+                ):
+                    return final_text
             trimmed = "\n".join(final_lines[overlap:]).strip()
             return trimmed
 
@@ -2611,18 +2702,28 @@ class TelegramBot:
                         ),
                     )
                     if session_id.startswith("telegram_group_"):
-                        shared_tg_message_id = str(
-                            getattr(base_message, "message_id", message_id)
+                        already_persisted_shared_user = any(
+                            bool(m.get("shared_user_persisted"))
+                            for m in (buffer_messages or [])
                         )
-                        await get_database().insert_shared_group_message(
-                            chat_id=chat_id,
-                            sender="user",
-                            content=combined_raw,
-                            tg_message_id=shared_tg_message_id,
-                            platform=Platform.TELEGRAM,
-                            media_type=media_t,
-                            vision_processed=0 if has_img else 1,
-                        )
+                        if already_persisted_shared_user:
+                            logger.info(
+                                "群聊用户消息已在入口写入共享表，跳过缓冲链二次写入: session_id=%s",
+                                session_id,
+                            )
+                        else:
+                            shared_tg_message_id = str(
+                                getattr(base_message, "message_id", message_id)
+                            )
+                            await get_database().insert_shared_group_message(
+                                chat_id=chat_id,
+                                sender="user",
+                                content=combined_raw,
+                                tg_message_id=shared_tg_message_id,
+                                platform=Platform.TELEGRAM,
+                                media_type=media_t,
+                                vision_processed=0 if has_img else 1,
+                            )
                 if has_img and user_row_id:
                     schedule_generate_image_caption(
                         user_row_id,
@@ -2689,14 +2790,26 @@ class TelegramBot:
                     "[系统提示：当前是群聊。请尽量一次性输出完整回复，"
                     "避免主动拆成多条短句；以自然段组织即可。]"
                 ).strip()
+            grp_skip_ids: Optional[List[str]] = None
+            if is_group_session and buffer_messages:
+                _mids: List[str] = []
+                for bm in buffer_messages:
+                    _mid = bm.get("message_id")
+                    if _mid is not None:
+                        _mids.append(str(_mid))
+                grp_skip_ids = _mids or None
             context = await build_context(
                 session_id,
                 context_user_content,
                 images=llm_images,
                 llm_user_text=text_for_llm or None,
-                telegram_segment_hint=not is_group_session,
+                telegram_segment_hint=True,
                 tool_oral_coaching=oral,
                 exclude_message_id=user_row_id if 'user_row_id' in locals() else None,
+                # 与 shared_group_messages / save_message 正文一致的是 combined_raw（无引用回复前缀）；
+                # combined_content 含 LLM 用前缀时会导致短期去重失效。
+                short_term_dedup_user_text=combined_raw if is_group_session else None,
+                group_recent_skip_tg_message_ids=grp_skip_ids,
             )
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
@@ -2932,6 +3045,7 @@ class TelegramBot:
         *,
         from_voice: bool = False,
         from_sticker: bool = False,
+        shared_user_persisted: bool = False,
     ):
         """
         将消息添加到缓冲区，并启动/重置缓冲定时器。
@@ -2962,6 +3076,7 @@ class TelegramBot:
                 "message_id": message_id,
                 "from_voice": from_voice,
                 "from_sticker": from_sticker,
+                "shared_user_persisted": shared_user_persisted,
                 "timestamp": asyncio.get_event_loop().time(),
             },
         )

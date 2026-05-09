@@ -19,7 +19,7 @@ import math
 import re
 import time
 from functools import partial
-from typing import Any, Dict, List, Mapping, Optional, Tuple, Union
+from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
 from datetime import datetime
 
 from config import config
@@ -1089,6 +1089,8 @@ class ContextBuilder:
         telegram_segment_hint: bool = False,
         tool_oral_coaching: bool = False,
         exclude_message_id: Optional[int] = None,
+        short_term_dedup_user_text: Optional[str] = None,
+        group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         """
         构建完整的对话上下文。
@@ -1110,6 +1112,8 @@ class ContextBuilder:
             llm_user_text: 对话模型用纯文本（有图片时建议传入）
             telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径）
             tool_oral_coaching: 为 True 时在 system 末尾追加 Lutopia 工具「口播」引导（与启用 tools 的请求对齐）
+            short_term_dedup_user_text: 若 user_message 含额外系统缀文（如群聊提示），可传与 shared_group_messages.content 一致的文本（Telegram 缓冲路径下即 combined_raw），用于短期历史去重
+            group_recent_skip_tg_message_ids: 群聊缓冲合并本轮涉及的 Telegram message_id，用于从短期历史尾部剥离对应 user 行（多句合并时 combined_raw 无法与单行 content 相等）
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -1139,10 +1143,17 @@ class ContextBuilder:
             )
             
             # 6. 获取最近消息
+            _dedup = (
+                short_term_dedup_user_text
+                if short_term_dedup_user_text is not None
+                and str(short_term_dedup_user_text).strip()
+                else user_message
+            )
             recent_messages_section = await self._build_recent_messages_section(
                 session_id,
                 exclude_message_id,
-                current_user_text=user_message,
+                current_user_text=_dedup,
+                group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
             )
             
             # 7. 添加当前用户消息
@@ -1263,6 +1274,8 @@ class ContextBuilder:
         telegram_segment_hint: bool = False,
         tool_oral_coaching: bool = False,
         exclude_message_id: Optional[int] = None,
+        short_term_dedup_user_text: Optional[str] = None,
+        group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
     ) -> Dict[str, Any]:
         """
         异步构建完整的对话上下文（支持 Reranker）。
@@ -1316,10 +1329,17 @@ class ContextBuilder:
             )
             
             # 6. 获取最近消息
+            _dedup_async = (
+                short_term_dedup_user_text
+                if short_term_dedup_user_text is not None
+                and str(short_term_dedup_user_text).strip()
+                else user_message
+            )
             recent_messages_section = await self._build_recent_messages_section(
                 session_id,
                 exclude_message_id,
-                current_user_text=user_message,
+                current_user_text=_dedup_async,
+                group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
             )
             
             # 7. 添加当前用户消息
@@ -2110,6 +2130,7 @@ class ContextBuilder:
         session_id: str,
         exclude_message_id: Optional[int] = None,
         current_user_text: Optional[str] = None,
+        group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
     ) -> List[Dict[str, Any]]:
         """
         构建最近消息部分。
@@ -2157,15 +2178,38 @@ class ContextBuilder:
                             continue
                     deduped.append(row)
                 merged = deduped
+                # 缓冲合并多句时：共享表多行、本轮 combined_raw 一行，无法用整段正文与单行比对。
+                # 用本轮涉及的 Telegram message_id 从尾部剥离对应 user 行。
+                skip_tg = set()
+                if group_recent_skip_tg_message_ids:
+                    for _tid in group_recent_skip_tg_message_ids:
+                        _s = str(_tid).strip()
+                        if _s:
+                            skip_tg.add(_s)
+                # 不能只从尾部弹：双 bot 时「未摘要」里最后一条常是上一位助手的回复，
+                # 本轮用户行在倒数位置，尾部循环会误判为已剥离而保留重复。
+                if skip_tg and merged:
+                    merged = [
+                        row
+                        for row in merged
+                        if not (
+                            str(row.get("sender") or "").strip().lower() == "user"
+                            and str(row.get("tg_message_id") or "").strip() in skip_tg
+                        )
+                    ]
                 # 群聊路径避免把当前轮用户输入同时作为「历史」和「当前消息」重复注入。
+                # 从尾部连续移除与本轮正文一致的用户行（共享表里偶发多条同文重复时也能收掉）。
                 target = str(current_user_text or "").strip()
                 if target and merged:
-                    last = merged[-1]
-                    if (
-                        str(last.get("sender") or "").strip().lower() == "user"
-                        and str(last.get("content") or "").strip() == target
-                    ):
-                        merged.pop()
+                    while merged:
+                        last = merged[-1]
+                        if (
+                            str(last.get("sender") or "").strip().lower() == "user"
+                            and str(last.get("content") or "").strip() == target
+                        ):
+                            merged.pop()
+                        else:
+                            break
                 if not merged:
                     return []
                 out: List[Dict[str, Any]] = []
@@ -2394,7 +2438,9 @@ async def build_context(
     llm_user_text: Optional[str] = None,
     telegram_segment_hint: bool = False,
     tool_oral_coaching: bool = False,
-        exclude_message_id: Optional[int] = None,
+    exclude_message_id: Optional[int] = None,
+    short_term_dedup_user_text: Optional[str] = None,
+    group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
 ) -> Dict[str, Any]:
     """
     构建对话上下文的便捷函数。
@@ -2419,6 +2465,8 @@ async def build_context(
         telegram_segment_hint=telegram_segment_hint,
         tool_oral_coaching=tool_oral_coaching,
         exclude_message_id=exclude_message_id,
+        short_term_dedup_user_text=short_term_dedup_user_text,
+        group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
     )
 
 
