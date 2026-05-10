@@ -285,7 +285,7 @@ Telegram 私聊启用 TTS 后，助手回复会追发一条语音消息（MiniMa
 
 ### 5.1 微批摘要
 
-未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**：`session_id` 以 `telegram_group_` 开头时使用群聊专用任务说明（多角色、话题主线、区分助手人设），否则使用私聊专用说明；`[系统通知]` 行处理与字数要求两套共用（`_build_chunk_summary_user_prompt`）。同会话上一条未归档 chunk 摘要会以“仅供衔接、不重复归纳”的块注入当前 prompt，帮助摘要承接上下文。工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。上下文侧会额外保留少量已摘要消息作为过渡窗口。
+未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**：`session_id` 以 `telegram_group_` 开头时使用群聊专用任务说明（多角色、话题主线、区分助手人设），否则使用私聊专用说明；`[系统通知]` 行处理与字数要求两套共用（`_build_chunk_summary_user_prompt`）。同会话上一条未归档 chunk 摘要会以“仅供衔接、不重复归纳”的块注入当前 prompt，帮助摘要承接上下文。工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护，避免多处文案漂移。上下文侧会额外保留少量已摘要消息作为过渡窗口。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后不删除 chunk，而是写入 `archived_by=<daily_id>` 标记归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 

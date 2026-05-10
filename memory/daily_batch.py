@@ -48,6 +48,7 @@ from memory.shanghai_dt import (
 )
 from tools.lutopia import strip_lutopia_internal_memory_blocks
 from api.stream import EventType, publish_event
+from memory.prompt_background import CEDAR_PROJECT_BACKGROUND
 
 # 导入向量存储函数
 try:
@@ -148,16 +149,6 @@ except ImportError:
 
 # 设置日志
 logger = logging.getLogger(__name__)
-
-CEDAR_PROJECT_BACKGROUND = """【背景】
-本对话来自私人AI陪伴项目CedarStar/CedarClio。
-- 南杉：项目创建者
-- Clio（小克）：基于Claude/GLM的AI伴侣，猫系，南杉的恋人
-- Sirius：基于Gemini的AI伴侣，犬系，南杉的恋人
-- CedarStar/CedarClio：主系统，含记忆/对话/Mini App等模块
-其他相关人物：xiao_ke和Cipherd（繁星老师的小机）、yan_Oct（金老师/越越的小机）、
-guanlan（祸祸/小欢老师的小机）、Ash（Lutopia论坛创始人橙子老师的小机）。
-摘要时遇到以上名称，按此关系理解，不做额外解释。"""
 
 # ---------------------------------------------------------------------------
 # Step 4b 事件标签 enum 常量
@@ -1743,7 +1734,9 @@ class DailyBatchProcessor:
         fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
 
         if dimension in ("current_status", "preferences"):
-            prompt = self._persona_dialogue_prefix() + f"""你是专业的记忆整理助手，将「既有记忆卡片」与「今日新增摘要」合并为可长期存储的记忆内容。
+            prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+
+你是专业的记忆整理助手，将「既有记忆卡片」与「今日新增摘要」合并为可长期存储的记忆内容。
 该维度（{dimension_label}）记录用户当前生活状态或个人偏好。
 输出 JSON 两个字段：
 - merged：整合后的新卡片正文；单张不超过 1000 字；去重、语义连贯；全文禁止使用「今天」「最近」等模糊相对时间词；纯段落文本，无列表、无编号。
@@ -1791,7 +1784,9 @@ class DailyBatchProcessor:
             "- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；\n"
         )
 
-        prompt = self._persona_dialogue_prefix() + f"""你是专业的记忆整理助手，负责将「既有记忆卡片」与「今日新增摘要」进行高质量合并，输出稳定、精炼、可长期存储的记忆内容。
+        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+
+你是专业的记忆整理助手，负责将「既有记忆卡片」与「今日新增摘要」进行高质量合并，输出稳定、精炼、可长期存储的记忆内容。
 合并规则：
 - 去除重复信息，将新内容自然整合到原有记忆中，保持语义连贯。
 - 单张记忆卡片总字数**严格不超过 1000 字**，内容过长时自动提炼核心、精简合并，不得超字数。
@@ -1840,7 +1835,9 @@ class DailyBatchProcessor:
         sl = self.summary_llm
         base = int(getattr(sl, "max_tokens", 500) or 500)
         mt = min(512, max(base, 256))
-        prompt = f"""将下面这段已过期的状态描述改写为历史陈述，格式固定为：
+        prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+
+将下面这段已过期的状态描述改写为历史陈述，格式固定为：
 
 [已被覆盖的旧状态 · 记录于 {batch_date}] + 过去时陈述正文
 
@@ -2401,7 +2398,9 @@ content 强制要求：
         _emotions_str = " / ".join(EVENT_EMOTIONS)
         _types_str = " / ".join(EVENT_TYPES)
 
-        prompt = self._persona_dialogue_prefix() + f"""【任务】
+        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+
+【任务】
 请把下面同一事件/话题下的对话片段摘要合并成一条长期记忆事件，并评估长期保留价值、情绪强度，以及主题标签。
 
 【输入】

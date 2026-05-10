@@ -33,6 +33,7 @@ from llm.llm_interface import (
     CedarClioOutputGuardExhausted,
     batch_one_shot_with_async_output_guard,
 )
+from memory.prompt_background import CEDAR_PROJECT_BACKGROUND
 from tools.lutopia import strip_lutopia_internal_memory_blocks
 from memory.shanghai_dt import format_shanghai_datetime_minutes
 
@@ -296,16 +297,6 @@ _CHUNK_SYSTEM_NOTICE_RULE = (
     "输出客观凝练，无主观修饰，严格符合字数要求。"
 )
 
-_CEDAR_PROJECT_BACKGROUND = """【背景】
-本对话来自私人AI陪伴项目CedarStar/CedarClio。
-- 南杉：项目创建者
-- Clio（小克）：基于Claude/GLM的AI伴侣，猫系，南杉的恋人
-- Sirius：基于Gemini的AI伴侣，犬系，南杉的恋人
-- CedarStar/CedarClio：主系统，含记忆/对话/Mini App等模块
-其他相关人物：xiao_ke和Cipherd（繁星老师的小机）、yan_Oct（金老师/越越的小机）、
-guanlan（祸祸/小欢老师的小机）、Ash（Lutopia论坛创始人橙子老师的小机）。
-摘要时遇到以上名称，按此关系理解，不做额外解释。"""
-
 
 def _chunk_batch_first_last_created_display(
     messages: List[Dict[str, Any]],
@@ -366,7 +357,7 @@ def _build_chunk_summary_user_prompt(
             "（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。\n"
         )
     return (
-        f"{framing}{mp}{_CEDAR_PROJECT_BACKGROUND}\n\n{prev_block}{task}"
+        f"{framing}{mp}{CEDAR_PROJECT_BACKGROUND}\n\n{prev_block}{task}"
         f"{_CHUNK_SYSTEM_NOTICE_RULE}\n"
         f"【对话记录】\n{conversation_text}\n摘要（中文）:"
     )
