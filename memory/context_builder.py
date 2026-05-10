@@ -725,6 +725,30 @@ async def format_telegram_reply_segment_hint() -> str:
     )
 
 
+async def format_telegram_group_segment_directive() -> str:
+    """
+    群聊：对模型的**硬写作要求**（分段、字数、条数）；数值来自 ``group_chat_max_message_chars``。
+    发送端不按字数截断，故必须由模型自律遵守下列规则。
+    """
+    db = get_database()
+    raw = await db.get_config("group_chat_max_message_chars", "600")
+    try:
+        n = int(str(raw).strip() or "600")
+    except ValueError:
+        n = 600
+    n = max(10, min(3800, n))
+    return (
+        "\n\n"
+        "【Telegram 群聊 · 分段死规定（必须遵守）】\n"
+        "以下由你自律执行；系统不会在发送端按字数截断或补省略号，违反会直接表现为超长单条或刷屏。\n\n"
+        f"1) **必须分段**：除极短寒暄外，**禁止**把整轮回答写成不换行的一整块。在段落、话题或语气自然停顿处用**单个换行**拆成多条气泡。\n"
+        f"2) **每段长度**：每一行（换行分隔出的每一段）正文不得超过约 **{n}** 字；若将超出，**必须**在该上限之前主动换行续写，不得硬顶到一句无停顿的长文。\n"
+        "3) **条数上限**：同一轮助手回复**最多 3 段**（即正文里**至多使用 2 次换行**拆成三段）；内容再多也**必须**压缩、合并或删减到三段以内发出，不得拆成更多行。\n"
+        "4) **禁止**为凑字数在句子中间机械切断；**禁止**用 ||| 在群聊拆成大量短条；群聊以换行为主，||| 仅在确有必要时用。\n"
+        "5) 上文「Telegram 排版」里针对私聊的 ||| 条数/每段字数是另一套规则；**群聊以本段为最高优先级**。"
+    )
+
+
 def _created_at_timestamp_for_sort(created_at: Any) -> float:
     """用于 relationship_timeline 等按时间正序排序；无法解析时置 0（排在最前）。"""
     if not created_at:
@@ -1146,7 +1170,7 @@ class ContextBuilder:
                 len(chunk_summaries_section or ""),
                 (chunk_summaries_section or "")[-500:],
             )
-            
+
             # 6. 获取最近消息
             _dedup = (
                 short_term_dedup_user_text
@@ -1160,7 +1184,7 @@ class ContextBuilder:
                 current_user_text=_dedup,
                 group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
             )
-            
+
             # 7. 添加当前用户消息
             cut = (
                 llm_user_text
@@ -1168,7 +1192,7 @@ class ContextBuilder:
                 else user_message
             )
             current_user_message = self._build_current_user_message(cut, images)
-            
+
             # 组装完整的 system prompt
             full_system_prompt = self._assemble_full_system_prompt(
                 system_prompt,
@@ -1186,6 +1210,12 @@ class ContextBuilder:
                 full_system_prompt.append(
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
+                if str(session_id).startswith("telegram_group_"):
+                    full_system_prompt.append(
+                        _cache_text_block(
+                            await format_telegram_group_segment_directive(), cache=False
+                        )
+                    )
 
             if str(session_id).startswith("telegram_group_"):
                 full_system_prompt.append(
@@ -1351,7 +1381,7 @@ class ContextBuilder:
                 current_user_text=_dedup_async,
                 group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
             )
-            
+
             # 7. 添加当前用户消息
             cut = (
                 llm_user_text
@@ -1359,7 +1389,7 @@ class ContextBuilder:
                 else user_message
             )
             current_user_message = self._build_current_user_message(cut, images)
-            
+
             # 组装完整的 system prompt
             full_system_prompt = self._assemble_full_system_prompt(
                 system_prompt,
@@ -1377,6 +1407,12 @@ class ContextBuilder:
                 full_system_prompt.append(
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
+                if str(session_id).startswith("telegram_group_"):
+                    full_system_prompt.append(
+                        _cache_text_block(
+                            await format_telegram_group_segment_directive(), cache=False
+                        )
+                    )
 
             if str(session_id).startswith("telegram_group_"):
                 full_system_prompt.append(

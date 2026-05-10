@@ -199,10 +199,10 @@ def _split_telegram_body_parts(text: str) -> List[str]:
 _GROUP_CHAT_MAX_OUTGOING_MESSAGES = 3
 
 
-def _group_chat_newline_send_segments(body_for_db: str, max_chars: int) -> List[str]:
+def _group_chat_newline_send_segments(body_for_db: str) -> List[str]:
     """
     群聊按换行拆成若干段，至多 ``_GROUP_CHAT_MAX_OUTGOING_MESSAGES`` 段；
-    超过时前几段独立、余下合并为末段。每段按 max_chars 截断（末字 …）。
+    超过时前几段独立、余下合并为末段。不在此处按字数截断（分段与字数由 system prompt 强制要求模型自律）。
     """
     raw = (body_for_db or "").strip()
     if not raw:
@@ -215,14 +215,7 @@ def _group_chat_newline_send_segments(body_for_db: str, max_chars: int) -> List[
         merged = lines
     else:
         merged = lines[: cap - 1] + ["\n".join(lines[cap - 1 :])]
-    out: List[str] = []
-    for block in merged:
-        one = (block or "").strip()
-        if len(one) > max_chars:
-            one = one[: max_chars - 1].rstrip() + "…"
-        if one:
-            out.append(one)
-    return out
+    return [b.strip() for b in merged if (b or "").strip()]
 
 
 def _sanitize_tts_voice_text(text: str) -> str:
@@ -1532,28 +1525,13 @@ class TelegramBot:
         body_for_db = "\n".join(parts)
         chat_type = getattr(getattr(base_message, "chat", None), "type", "")
         if chat_type in ("group", "supergroup"):
-            # 群聊：按换行拆成至多 3 条发送；每条字数由 group_chat_max_message_chars 配置。
-            max_chars = 600
-            try:
-                raw_max = await get_database().get_config(
-                    "group_chat_max_message_chars", "600"
-                )
-                max_chars = int(raw_max or 600)
-            except (TypeError, ValueError):
-                max_chars = 600
-            max_chars = max(10, min(3800, max_chars))
-            line_blocks = _group_chat_newline_send_segments(body_for_db, max_chars)
+            # 群聊：按换行拆成至多 3 个逻辑段，每段经 HTML 切分后逐条发出；不在发送端按字数截断。
+            line_blocks = _group_chat_newline_send_segments(body_for_db)
             if not line_blocks:
                 return "", None
             out_chunks: List[str] = []
-            cap = _GROUP_CHAT_MAX_OUTGOING_MESSAGES
             for block in line_blocks:
-                for chunk in self._telegram_html_body_chunks(block):
-                    if len(out_chunks) >= cap:
-                        break
-                    out_chunks.append(chunk)
-                if len(out_chunks) >= cap:
-                    break
+                out_chunks.extend(self._telegram_html_body_chunks(block))
             first_mid: Optional[str] = None
             for i, chunk in enumerate(out_chunks):
                 stack = "".join(traceback.format_stack())
