@@ -251,7 +251,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 4.3 AI 自主活动（Idle Activity）
 
-进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`，助手消息会写入 `messages` 且内容前缀为 `【自主活动】`，并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标仅允许私聊会话（`session_id LIKE 'telegram_%' AND NOT LIKE 'telegram_group_%'`），群聊不会被自主活动主动触发。
+进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`，助手消息会写入 `messages` 且内容前缀为 `【自主活动】`，并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
 额外支持「星露谷自动模式」：
 
@@ -263,7 +263,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前会注入会话类型与关系锚点（私聊/群聊、南杉-Sirius/Clio 关系约束）；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 
@@ -492,7 +492,7 @@ MCP `api_admin` scope 额外提供 4 个管理写入工具（均走审批）：
 
 工具名 → 中文动作标签由 `_TOOL_ACTION_LABELS` 维护（与 Mini App 待审批页 `TOOL_LABELS` 对齐），目标维度/字段在短语中以 `(dimension)` / `(field_name)` / `(event_type)` 形式呈现。
 
-为避免 `[系统通知]` 行污染 chunk / daily 摘要，`memory/micro_batch.py` 的 chunk 摘要 prompt 与 `memory/daily_batch.py` 的两处日终小传 prompt 都加了硬约束，要求摘要 LLM 把 `[系统通知]` 开头的行视为元事件回执：必要时用客观第三方表述（如「南杉确认/驳回了某条记忆更新申请」），不得作为对话引语，且与正文话题无关时整体省略。
+为避免 `[系统通知]` 行污染 chunk / daily 摘要，`memory/micro_batch.py` 的 chunk 摘要用户 prompt（群聊与私聊分支共用同一段 `[系统通知]` 规则）与 `memory/daily_batch.py` 的两处日终小传 prompt 都加了硬约束，要求摘要 LLM 把 `[系统通知]` 开头的行视为元事件回执：必要时用客观第三方表述（如「南杉确认/驳回了某条记忆更新申请」），不得作为对话引语，且与正文话题无关时整体省略。
 
 ### 8.6 业务 SSE 通道与事件总线
 

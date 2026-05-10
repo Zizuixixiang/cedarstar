@@ -237,13 +237,48 @@ async def _resolve_micro_batch_memory_prefix(
             break
     if not cid:
         cid = await _active_character_id_fallback()
-    base = await _get_micro_batch_memory_prefix(uid, cid)
-    session_id = str(messages[0].get("session_id") or "") if messages else ""
-    if session_id.startswith("telegram_group_"):
-        session_line = "【会话类型】当前材料来自Telegram群聊，多角色对话。请区分南杉、Sirius、Clio三方发言。"
+    return await _get_micro_batch_memory_prefix(uid, cid)
+
+
+_CHUNK_SYSTEM_NOTICE_RULE = (
+    "注意：对话记录中以「[系统通知]」开头的行**不是**用户或助手的实际发言，而是系统侧的元事件回执（例如审批结果，"
+    '"南杉同意/拒绝了你某项申请"），仅作背景上下文。摘要正文若有必要提及，请用第三方客观陈述（如"南杉确认/驳回了某条记忆更新申请"），'
+    "**不得**把它当作对话引语或情绪表达；如与本次对话主题无关，可整段忽略。\n"
+    "输出客观凝练，无主观修饰，严格符合字数要求。"
+)
+
+
+def _build_chunk_summary_user_prompt(
+    *,
+    is_group_session: bool,
+    char_name: str,
+    user_name: str,
+    memory_prefix: str,
+    conversation_text: str,
+) -> str:
+    """群聊与私聊使用不同的 chunk 摘要任务说明（共用系统通知规则与字数要求）。"""
+    mp = memory_prefix or ""
+    if is_group_session:
+        framing = (
+            f"以下是 Telegram 群聊中的对话材料。assistant 行对应助手人设「{char_name}」；"
+            f"user 行主要对应「{user_name}」及群内其他人类发言（材料中已用 {user_name}/{char_name} 前缀区分角色，但仍可能混有多人）。\n"
+        )
+        task = (
+            "请为以下材料生成 150–200 字中文简洁摘要：抓住群内话题主线、关键事实（含数字、决策、名称、报错等）、"
+            "各方态度与情绪变化；区分不同说话人，避免把旁人玩笑或跑题闲聊误写成「南杉」与助手之间的私密对话。"
+            "若出现多个助手人设（如 Sirius / Clio），按行归属分别概括，不要混为一谈。\n"
+        )
     else:
-        session_line = "【会话类型】当前材料来自私聊对话。"
-    return f"{session_line}\n{base}"
+        framing = f"这是「{char_name}」与「{user_name}」的一对一私聊对话记录。\n"
+        task = (
+            "请为以下对话生成 150–200 字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实"
+            "（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。\n"
+        )
+    return (
+        f"{framing}{mp}{task}"
+        f"{_CHUNK_SYSTEM_NOTICE_RULE}\n"
+        f"【对话记录】\n{conversation_text}\n摘要（中文）:"
+    )
 
 
 async def _resolve_micro_batch_tool_context(
@@ -322,6 +357,7 @@ class SummaryLLMInterface:
         memory_prefix: str = "",
         tool_records: Optional[List[Dict[str, Any]]] = None,
         response_format: Optional[Dict[str, Any]] = None,
+        is_group_session: bool = False,
     ) -> str:
         """
         生成消息摘要。
@@ -331,6 +367,7 @@ class SummaryLLMInterface:
             char_name: 助手侧显示名（注入 Prompt 与对话行前缀）
             user_name: 用户侧显示名
             tool_records: 工具执行记录，内联注入到对应 assistant 消息之后
+            is_group_session: 是否为 Telegram 群聊会话（使用群聊专用 chunk 说明）
 
         Returns:
             str: 生成的摘要文本
@@ -341,9 +378,6 @@ class SummaryLLMInterface:
         """
         if not self.api_key:
             raise ValueError("摘要 API 密钥未设置，无法生成摘要")
-
-        prefix = f"这是 {char_name} 与 {user_name} 的对话记录。\n"
-        mp = memory_prefix or ""
 
         # 按 assistant_message_id 分组工具记录
         tool_by_msg_id: Dict[int, List[Dict[str, Any]]] = {}
@@ -370,12 +404,13 @@ class SummaryLLMInterface:
                     tool_line += f" 结果：{summary}"
                     conversation_text += f"{tool_line}\n\n"
 
-        prompt = f"""{prefix}{mp}请为以下对话生成150-200字中文简洁摘要，精准提取核心话题、双方情绪变化、关键事实（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。
-注意：对话记录中以「[系统通知]」开头的行**不是**用户或助手的实际发言，而是系统侧的元事件回执（例如审批结果，"南杉同意/拒绝了你某项申请"），仅作背景上下文。摘要正文若有必要提及，请用第三方客观陈述（如"南杉确认/驳回了某条记忆更新申请"），**不得**把它当作对话引语或情绪表达；如与本次对话主题无关，可整段忽略。
-输出客观凝练，无主观修饰，严格符合字数要求。
-【对话记录】
-{conversation_text}
-摘要（中文）:"""
+        prompt = _build_chunk_summary_user_prompt(
+            is_group_session=is_group_session,
+            char_name=char_name,
+            user_name=user_name,
+            memory_prefix=memory_prefix,
+            conversation_text=conversation_text,
+        )
         
         try:
             text = batch_one_shot_with_async_output_guard(
@@ -543,12 +578,12 @@ async def generate_summary_for_messages(
             formatted_messages.append(entry)
 
         memory_prefix = await _resolve_micro_batch_memory_prefix(messages)
+        sid0 = str(messages[0].get("session_id") or "") if messages else ""
         ids = [int(m["id"]) for m in messages if m.get("id") is not None]
         tool_records: List[Dict[str, Any]] = []
         if ids:
-            sid = str(messages[0].get("session_id") or "")
             tool_records = await _resolve_micro_batch_tool_context(
-                sid, min(ids), max(ids)
+                sid0, min(ids), max(ids)
             )
 
         # 生成摘要（Guard 用尽时不写入占位摘要，由上层跳过落库）
@@ -558,6 +593,7 @@ async def generate_summary_for_messages(
             user_name=user_name,
             memory_prefix=memory_prefix,
             tool_records=tool_records,
+            is_group_session=_is_group_session(sid0),
         )
         
         return summary

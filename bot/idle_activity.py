@@ -13,7 +13,7 @@ from typing import Any, Optional
 import pytz
 import requests
 
-from config import Platform
+from config import Platform, config as app_config
 from llm.llm_interface import LLMInterface, complete_with_lutopia_tool_loop
 from memory.context_builder import build_context
 from memory.database import save_message
@@ -189,29 +189,73 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
     await trigger_idle_activity(telegram_bot_instance, db)
 
 
-async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool = False) -> None:
-    """执行一次自主活动：构建临时 trigger 上下文，生成并发送 assistant 文本。"""
-    # 仅允许发给私聊：session_id 必须是 telegram_<chat_id>，排除 telegram_group_<chat_id>。
+def _parse_positive_telegram_dm_chat_id(raw: Optional[str]) -> Optional[str]:
+    """仅接受与 Bot 私聊一致的 chat_id：正整数字符串（排除群/超群的负 ID）。"""
+    if raw is None:
+        return None
+    s = str(raw).strip()
+    if not s.isdigit() or s == "0":
+        return None
+    try:
+        n = int(s)
+    except ValueError:
+        return None
+    if n <= 0:
+        return None
+    return s
+
+
+async def _resolve_idle_activity_telegram_dm_chat_id(db) -> Optional[str]:
+    """
+    解析自主活动发送目标：仅私聊。
+
+    1) 优先 ``TELEGRAM_MAIN_USER_CHAT_ID``（与审批回执、熔断告警同源），避免误选历史脏数据。
+    2) 否则取 messages 中最近一条 Telegram 私聊形态会话，且 channel_id 必须为正整数
+       （群/超群的 chat_id 为负，旧数据若 session_id 未带 telegram_group_ 前缀也不会再被选中）。
+    """
+    pinned = _parse_positive_telegram_dm_chat_id(
+        (app_config.TELEGRAM_MAIN_USER_CHAT_ID or "").strip() or None
+    )
+    if pinned:
+        logger.info("[idle] 使用 TELEGRAM_MAIN_USER_CHAT_ID 作为自主活动私聊目标")
+        return pinned
+
     async with db.pool.acquire() as conn:
         chat_row = await conn.fetchrow(
             """
             SELECT channel_id
             FROM messages
-            WHERE session_id LIKE 'telegram_%'
+            WHERE (platform IS NULL OR platform = 'telegram')
+              AND session_id LIKE 'telegram_%'
               AND session_id NOT LIKE 'telegram_group_%'
+              AND channel_id IS NOT NULL
+              AND TRIM(channel_id) <> ''
+              AND channel_id ~ '^[0-9]+$'
+              AND CAST(channel_id AS BIGINT) > 0
             ORDER BY created_at DESC
             LIMIT 1
             """
         )
     if not chat_row or not chat_row["channel_id"]:
-        logger.info("idle activity 跳过：未找到可发送的私聊会话")
+        logger.info("idle activity 跳过：未找到可发送的私聊会话（可配置 TELEGRAM_MAIN_USER_CHAT_ID）")
+        return None
+    resolved = _parse_positive_telegram_dm_chat_id(str(chat_row["channel_id"]))
+    if not resolved:
+        logger.info("idle activity 跳过：推断的 channel_id 非私聊正 ID")
+        return None
+    return resolved
+
+
+async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool = False) -> None:
+    """执行一次自主活动：构建临时 trigger 上下文，生成并发送 assistant 文本。"""
+    chat_id_str = await _resolve_idle_activity_telegram_dm_chat_id(db)
+    if not chat_id_str:
         return
 
-    chat_id_str = str(chat_row["channel_id"])
     try:
         chat_id = int(chat_id_str)
     except (TypeError, ValueError):
-        logger.warning("idle activity 跳过：最新 channel_id 不是 Telegram chat_id (%s)", chat_id_str)
+        logger.warning("idle activity 跳过：chat_id 非法 (%s)", chat_id_str)
         return
     logger.info(f"[idle] activity triggered → chat_id={chat_id}")
 
