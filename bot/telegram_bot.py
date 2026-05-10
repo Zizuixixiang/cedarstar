@@ -3175,8 +3175,10 @@ class TelegramBot:
                     thinking=gen.thinking,
                     vision_processed=1,
                 )
-                current_round = await db.increment_group_chat_round_count(
-                    str(base_message.chat.id), 1
+                # 轮次计数只在 handle_peer_group_message / 对端 bot 路径递增；
+                # 用户缓冲 flush 只写共享表并 relay 当前计数，避免双 bot 各 +1 过快顶满 max。
+                current_round = await db.get_group_chat_round_count(
+                    str(base_message.chat.id)
                 )
                 await self._relay_group_assistant_message(
                     chat_id=str(base_message.chat.id),
