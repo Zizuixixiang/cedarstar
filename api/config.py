@@ -226,7 +226,7 @@ async def update_config(new_config: Dict[str, Any]):
                     elif key in ("idle_activity_start_hour", "idle_activity_end_hour"):
                         config[key] = max(0, min(23, int(value)))
                     elif key == "group_chat_max_message_chars":
-                        config[key] = max(120, min(3800, int(value)))
+                        config[key] = max(10, min(3800, int(value)))
                     else:
                         config[key] = int(value)
                     updated = True

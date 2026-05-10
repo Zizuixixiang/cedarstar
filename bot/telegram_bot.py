@@ -1541,7 +1541,7 @@ class TelegramBot:
                 max_chars = int(raw_max or 600)
             except (TypeError, ValueError):
                 max_chars = 600
-            max_chars = max(120, min(3800, max_chars))
+            max_chars = max(10, min(3800, max_chars))
             line_blocks = _group_chat_newline_send_segments(body_for_db, max_chars)
             if not line_blocks:
                 return "", None

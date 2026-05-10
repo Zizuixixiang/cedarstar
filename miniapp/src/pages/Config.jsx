@@ -94,7 +94,7 @@ const TELEGRAM_CONFIG_ROWS = [
     key: 'group_chat_max_message_chars',
     name: '群聊每条上限字数',
     description: '群聊按换行拆条发送，每条 Telegram 消息最多多少字（至多 3 条）',
-    min: 120,
+    min: 10,
     max: 3800,
     step: 10,
   },

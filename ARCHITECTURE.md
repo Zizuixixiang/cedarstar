@@ -40,7 +40,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `retrieval_top_k` | 向量 / BM25 各路召回数 |
 | `telegram_max_chars` | Telegram 分段最大字数 |
 | `telegram_max_msg` | Telegram 分段最大条数 |
-| `group_chat_max_message_chars` | Telegram 群聊每条上限字数（按换行拆条，至多 3 条消息） |
+| `group_chat_max_message_chars` | Telegram 群聊每条上限字数（按换行拆条，至多 3 条消息；合法范围 10–3800） |
 | `idle_activity_enabled` | 是否启用 AI 自主活动（true/false） |
 | `idle_activity_level` | 自主活动概率档位：low/mid/high（0.3/0.6/1.0） |
 | `idle_activity_threshold_min` | 距离用户最后发言达到多少分钟后才有资格触发 |
