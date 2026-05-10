@@ -437,6 +437,20 @@ class TelegramBot:
     def _shared_sender_peer(cls) -> str:
         return "sirius" if cls._shared_sender_self() == "clio" else "clio"
 
+    async def _group_chat_should_random_interject(self) -> bool:
+        """开启插话且掷骰成功时返回 True；未开启或未掷中返回 False。"""
+        db = get_database()
+        if not self._is_truthy_config_value(
+            await db.get_config("group_chat_interject_enabled", "0")
+        ):
+            return False
+        try:
+            raw = await db.get_config("group_chat_interject_probability", "0.3")
+            prob = float(raw if raw is not None else 0.3)
+        except (TypeError, ValueError):
+            prob = 0.3
+        return random.random() < max(0.0, min(1.0, prob))
+
     async def _should_ignore_group_user_mention(
         self, context: ContextTypes.DEFAULT_TYPE, message
     ) -> bool:
@@ -844,7 +858,7 @@ class TelegramBot:
         message,
         session_id: str,
     ) -> bool:
-        """群聊中记录另一名 bot，并按 @/概率插话触发回复。"""
+        """群聊中记录另一名 bot；@ 本 bot 必接话，否则在开启插话时按概率接话一轮。"""
         chat_type = getattr(message.chat, "type", "")
         sender = getattr(message, "from_user", None)
         if chat_type not in ("group", "supergroup") or not sender or not getattr(sender, "is_bot", False):
@@ -877,10 +891,10 @@ class TelegramBot:
             return True
 
         me_username = (getattr(me, "username", "") or "").lower() if me else ""
-        # bot->bot 仅允许「明确 @ 当前 bot」触发，禁止概率插话导致轮次膨胀。
         mentioned = bool(me_username and f"@{me_username}" in content.lower())
         if not mentioned:
-            return True
+            if not await self._group_chat_should_random_interject():
+                return True
 
         if round_count + 1 > max_rounds:
             return True
@@ -979,8 +993,7 @@ class TelegramBot:
             return {"status": "signal_no_recent_message"}
         last = recent[0]
         last_sender = str(last.get("sender") or "").strip().lower()
-        # peer signal 仅在「对端 bot 的最新发言明确 @到当前 bot」时才接话，
-        # 避免用户触发后的首轮回复 + peer 信号再次拉起第二次同质回复。
+        # 仅处理「对端 bot 刚写入共享表」的接力，避免把用户消息当成 peer 信号误接。
         if last_sender != self._shared_sender_peer():
             return {"status": "signal_last_not_peer"}
         try:
@@ -989,8 +1002,12 @@ class TelegramBot:
             me = None
         me_username = (getattr(me, "username", "") or "").strip().lower()
         last_content = str(last.get("content") or "")
-        if not (me_username and f"@{me_username}" in last_content.lower()):
-            return {"status": "signal_peer_not_mention_me"}
+        mentioned_me = bool(
+            me_username and f"@{me_username}" in last_content.lower()
+        )
+        if not mentioned_me:
+            if not await self._group_chat_should_random_interject():
+                return {"status": "signal_peer_not_mention_me"}
 
         session_id = self._session_id_for_chat(chat_id, "group")
         prompt = "[群聊接话信号] 请基于最新群聊上下文自然接话，避免重复前文。"
