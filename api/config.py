@@ -57,7 +57,7 @@ DEFAULT_CONFIG = {
     "group_chat_silent_mode": 0,
     "group_chat_max_rounds": 3,
     "group_chat_interject_enabled": 0,
-    "group_chat_interject_probability": 0.2,
+    "group_chat_interject_probability": 0.3,
     "x_daily_read_limit": 100,
     "idle_activity_enabled": "false",
     "idle_activity_level": "mid",

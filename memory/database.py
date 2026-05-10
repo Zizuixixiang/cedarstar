@@ -780,7 +780,7 @@ async def migrate_database_schema(conn) -> None:
             ("group_chat_silent_mode", "0"),
             ("group_chat_max_rounds", "3"),
             ("group_chat_interject_enabled", "0"),
-            ("group_chat_interject_probability", "0.2"),
+            ("group_chat_interject_probability", "0.3"),
             ("group_chunk_threshold", "30"),
             # AI 自主活动（Idle Activity）默认配置
             ("idle_activity_enabled", "false"),
