@@ -195,6 +195,36 @@ def _split_telegram_body_parts(text: str) -> List[str]:
     return [p.strip() for p in norm.split("|||") if p.strip()]
 
 
+# 群聊 outgoing 正文：换行拆条后最多发几条 Telegram 消息（与产品策略一致，非 DB 配置）
+_GROUP_CHAT_MAX_OUTGOING_MESSAGES = 3
+
+
+def _group_chat_newline_send_segments(body_for_db: str, max_chars: int) -> List[str]:
+    """
+    群聊按换行拆成若干段，至多 ``_GROUP_CHAT_MAX_OUTGOING_MESSAGES`` 段；
+    超过时前几段独立、余下合并为末段。每段按 max_chars 截断（末字 …）。
+    """
+    raw = (body_for_db or "").strip()
+    if not raw:
+        return []
+    lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
+    if not lines:
+        return []
+    cap = _GROUP_CHAT_MAX_OUTGOING_MESSAGES
+    if len(lines) <= cap:
+        merged = lines
+    else:
+        merged = lines[: cap - 1] + ["\n".join(lines[cap - 1 :])]
+    out: List[str] = []
+    for block in merged:
+        one = (block or "").strip()
+        if len(one) > max_chars:
+            one = one[: max_chars - 1].rstrip() + "…"
+        if one:
+            out.append(one)
+    return out
+
+
 def _sanitize_tts_voice_text(text: str) -> str:
     """
     语音兜底清洗：
@@ -1502,27 +1532,40 @@ class TelegramBot:
         body_for_db = "\n".join(parts)
         chat_type = getattr(getattr(base_message, "chat", None), "type", "")
         if chat_type in ("group", "supergroup"):
-            # 群聊禁用正文分段发送：统一裁剪为单条，避免两 bot 文本交错放大“刷屏感”。
+            # 群聊：按换行拆成至多 3 条发送；每条字数由 group_chat_max_message_chars 配置。
             max_chars = 600
             try:
                 raw_max = await get_database().get_config(
                     "group_chat_max_message_chars", "600"
                 )
                 max_chars = int(raw_max or 600)
-            except Exception:
+            except (TypeError, ValueError):
                 max_chars = 600
             max_chars = max(120, min(3800, max_chars))
-            one_text = body_for_db.strip()
-            if len(one_text) > max_chars:
-                one_text = one_text[: max_chars - 1].rstrip() + "…"
-            if not one_text:
+            line_blocks = _group_chat_newline_send_segments(body_for_db, max_chars)
+            if not line_blocks:
                 return "", None
-            stack = "".join(traceback.format_stack())
-            logging.warning(f"send called from: {stack}")
-            sent = await self._send_text_near_base(
-                base_message, bot, one_text, parse_mode="HTML"
-            )
-            return one_text, str(sent.message_id)
+            out_chunks: List[str] = []
+            cap = _GROUP_CHAT_MAX_OUTGOING_MESSAGES
+            for block in line_blocks:
+                for chunk in self._telegram_html_body_chunks(block):
+                    if len(out_chunks) >= cap:
+                        break
+                    out_chunks.append(chunk)
+                if len(out_chunks) >= cap:
+                    break
+            first_mid: Optional[str] = None
+            for i, chunk in enumerate(out_chunks):
+                stack = "".join(traceback.format_stack())
+                logging.warning(f"send called from: {stack}")
+                sent = await self._send_text_near_base(
+                    base_message, bot, chunk, parse_mode="HTML"
+                )
+                if first_mid is None:
+                    first_mid = str(sent.message_id)
+                if i + 1 < len(out_chunks):
+                    await asyncio.sleep(0.5)
+            return body_for_db.strip(), first_mid
         out_chunks: List[str] = []
         for seg in parts:
             out_chunks.extend(self._telegram_html_body_chunks(seg))
@@ -1636,8 +1679,7 @@ class TelegramBot:
                 (payload or "")[:50],
             )
             if kind == "text" and is_group:
-                # 群聊 _telegram_send_body_segments 只合并段内 |||；无 ||| 时解析器会按换行拆成多段 text，
-                # 若逐段 send_message 会连发多条、内容易重叠（如复述用户），与「单条群聊回复」设计相悖。
+                # 群聊：合并连续 text 后交给 _telegram_send_body_segments，由其按换行拆成至多 3 条发出。
                 acc: List[str] = []
                 while seg_i < n_seg and segments[seg_i][0] == "text":
                     piece = str(segments[seg_i][1] or "")

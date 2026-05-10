@@ -779,6 +779,7 @@ async def migrate_database_schema(conn) -> None:
             ("starred_boost_factor", "1.2"),
             ("group_chat_silent_mode", "0"),
             ("group_chat_max_rounds", "3"),
+            ("group_chat_max_message_chars", "600"),
             ("group_chat_interject_enabled", "0"),
             ("group_chat_interject_probability", "0.3"),
             ("group_chunk_threshold", "30"),

@@ -54,6 +54,7 @@ const DEFAULT_CONFIG = {
   offline_mode_active: 0,
   group_chat_silent_mode: 0,
   group_chat_max_rounds: 3,
+  group_chat_max_message_chars: 600,
   group_chat_interject_enabled: 0,
   group_chat_interject_probability: 0.3,
   idle_activity_enabled: 'false',
@@ -88,6 +89,14 @@ const TELEGRAM_CONFIG_ROWS = [
     min: 1,
     max: 20,
     step: 1,
+  },
+  {
+    key: 'group_chat_max_message_chars',
+    name: '群聊每条上限字数',
+    description: '群聊按换行拆条发送，每条 Telegram 消息最多多少字（至多 3 条）',
+    min: 120,
+    max: 3800,
+    step: 10,
   },
 ];
 
@@ -485,21 +494,47 @@ function Config() {
   };
 
   const handleTelegramBlur = (key, rawValue) => {
-    const v =
-      key === 'telegram_max_chars'
-        ? clampTelegramChars(rawValue)
-        : clampTelegramMsg(rawValue);
-    setConfig((prev) => ({ ...prev, [key]: v }));
+    const row = TELEGRAM_CONFIG_ROWS.find((r) => r.key === key);
+    if (key === 'telegram_max_chars') {
+      setConfig((prev) => ({ ...prev, [key]: clampTelegramChars(rawValue) }));
+      return;
+    }
+    if (key === 'telegram_max_msg') {
+      setConfig((prev) => ({ ...prev, [key]: clampTelegramMsg(rawValue) }));
+      return;
+    }
+    if (!row) return;
+    const step = row.step || 1;
+    const num = Number(rawValue);
+    const rounded = Number.isNaN(num)
+      ? DEFAULT_CONFIG[key]
+      : Math.round(num / step) * step;
+    const clamped = Math.max(row.min, Math.min(row.max, rounded));
+    setConfig((prev) => ({ ...prev, [key]: clamped }));
   };
 
   const adjustTelegram = (key, delta) => {
     const row = TELEGRAM_CONFIG_ROWS.find((r) => r.key === key);
     if (!row) return;
-    const cur = config[key];
-    const next =
-      key === 'telegram_max_chars'
-        ? clampTelegramChars(cur + delta)
-        : clampTelegramMsg(cur + delta);
+    if (key === 'telegram_max_chars') {
+      setConfig((prev) => ({
+        ...prev,
+        [key]: clampTelegramChars(config[key] + delta),
+      }));
+      setHasUnsavedChanges(true);
+      return;
+    }
+    if (key === 'telegram_max_msg') {
+      setConfig((prev) => ({
+        ...prev,
+        [key]: clampTelegramMsg(config[key] + delta),
+      }));
+      setHasUnsavedChanges(true);
+      return;
+    }
+    const cur = Number(config[key]);
+    if (Number.isNaN(cur)) return;
+    const next = Math.max(row.min, Math.min(row.max, cur + delta));
     setConfig((prev) => ({ ...prev, [key]: next }));
     setHasUnsavedChanges(true);
   };
@@ -531,10 +566,18 @@ function Config() {
 
   const saveTelegramRow = async (key) => {
     if (!config) return;
-    const v =
-      key === 'telegram_max_chars'
-        ? clampTelegramChars(config[key])
-        : clampTelegramMsg(config[key]);
+    let v;
+    if (key === 'telegram_max_chars') {
+      v = clampTelegramChars(config[key]);
+    } else if (key === 'telegram_max_msg') {
+      v = clampTelegramMsg(config[key]);
+    } else {
+      const row = TELEGRAM_CONFIG_ROWS.find((r) => r.key === key);
+      if (!row) return;
+      const step = row.step || 1;
+      const n = Math.round(Number(config[key]) / step) * step;
+      v = Math.max(row.min, Math.min(row.max, n));
+    }
     setConfig((prev) => ({ ...prev, [key]: v }));
     setSavingTelegramKey(key);
     try {

@@ -56,6 +56,7 @@ DEFAULT_CONFIG = {
     "offline_mode_active": 0,
     "group_chat_silent_mode": 0,
     "group_chat_max_rounds": 3,
+    "group_chat_max_message_chars": 600,
     "group_chat_interject_enabled": 0,
     "group_chat_interject_probability": 0.3,
     "x_daily_read_limit": 100,
@@ -224,6 +225,8 @@ async def update_config(new_config: Dict[str, Any]):
                         config[key] = max(1, min(1440, int(value)))
                     elif key in ("idle_activity_start_hour", "idle_activity_end_hour"):
                         config[key] = max(0, min(23, int(value)))
+                    elif key == "group_chat_max_message_chars":
+                        config[key] = max(120, min(3800, int(value)))
                     else:
                         config[key] = int(value)
                     updated = True
