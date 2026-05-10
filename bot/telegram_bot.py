@@ -988,13 +988,18 @@ class TelegramBot:
     ) -> Dict[str, Any]:
         """收到 peer signal 后，基于共享群聊上下文触发本端回复。"""
         db = get_database()
-        recent = await db.get_recent_shared_group_messages(chat_id, limit=1)
+        recent = await db.get_recent_shared_group_messages(chat_id, limit=5)
         if not recent:
             return {"status": "signal_no_recent_message"}
-        last = recent[0]
-        last_sender = str(last.get("sender") or "").strip().lower()
-        # 仅处理「对端 bot 刚写入共享表」的接力，避免把用户消息当成 peer 信号误接。
-        if last_sender != self._shared_sender_peer():
+        peer_sender = self._shared_sender_peer()
+        last = None
+        for row in recent:
+            if str(row.get("sender") or "").strip().lower() == peer_sender:
+                last = row
+                break
+        # 仅处理「对端 bot 刚写入共享表」的接力；在倒序最近 5 条里取最新一条 peer，
+        # 避免用户/本端并发插入把单条最新顶成非 peer 时误判 signal_last_not_peer。
+        if last is None:
             return {"status": "signal_last_not_peer"}
         try:
             me = await bot_obj.get_me()
