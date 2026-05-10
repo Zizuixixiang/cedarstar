@@ -8,7 +8,7 @@ Context 构建模块。
 4. relationship_timeline：条数见 `relationship_timeline_limit`（库内选取），注入 Context 时按 created_at 正序排列
 5. 向量检索（长期记忆）：各路 `retrieval_top_k` 条，去重合并，经 SiliconFlow Rerank 精排、阈值过滤、event_type 分级时间衰减、MMR 多样性筛选后注入 `context_max_longterm` 条
 6. daily summary：`context_max_daily_summaries`（优先）或环境变量决定最近 N 天，倒序取后翻为正序拼入
-7. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入
+7. chunk summary：查询今天的 summary_type='chunk' 记录（全局查询，不按 session_id 筛选），附带其来源标识，按时间正序拼入。Telegram 群聊与主用户私聊配对时（`TELEGRAM_MAIN_USER_CHAT_ID` + `TELEGRAM_CONTEXT_GROUP_CHAT_ID`），在 chunk 块内按「对端 chunk + 对端近期原文」与「本侧 chunk」交错顺序注入，便于模型同时看到两侧对话脉络。
 8. 最近消息：`short_term_limit`（优先）或环境变量决定条数，再正序排列后拼入
 
 组装完成后返回一个结构，包含 system prompt 和 messages 数组，直接可以传给 LLM API。
@@ -109,6 +109,14 @@ TOOL_ORAL_COACHING_BLOCK = (
 TELEGRAM_GROUP_CONTINUATION_DIRECTIVE = (
     "【群聊续话】若下方对话历史里已有你（助手）自己的发言，本轮续写必须紧接上一条往下推进情节或观点，"
     "不要复述、改写或换一种说法重复同一层意思；避免车轱辘话，让对话向前走。"
+)
+
+TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE = (
+    "【跨会话情境说明】本块除「今日 chunk 摘要」外，另含来自 Telegram 另一会话（私聊或群聊）的近期原文摘录，"
+    "用于把握两边话题的连续性；该摘录不是当前输入框里的逐条消息，参与者与语气可能与当前会话不同。"
+    "生成回复时仍以**当前用户消息所在会话**为准：在群聊中不要默认对方已看到私聊里才说过的事，除非用户明确提起；"
+    "在私聊中不要把群里的玩笑或多人起哄直接当成对用户个人的承诺。"
+    "可自然呼应另一边的信息，但不要编造另一会话中未出现的细节。"
 )
 
 TTS_PROMPT_BLOCK = """【TTS语音输出说明】
@@ -1061,6 +1069,36 @@ def build_persona_config_system_body(row: Mapping[str, Any]) -> str:
     return "\n\n".join(parts).strip()
 
 
+# Telegram 群/私聊交叉上下文：对端会话原文注入 system 时的总长度上限。
+_TELEGRAM_PEER_RECENT_MAX_CHARS = 12000
+
+
+async def _telegram_cross_context_peer_session_id(session_id: str) -> Optional[str]:
+    """
+    若当前为 Telegram 群聊或（主用户）私聊，返回「另一路」session_id。
+
+    - 群聊 ``telegram_group_*`` → 私聊 ``telegram_{TELEGRAM_MAIN_USER_CHAT_ID}``
+    - 私聊 ``telegram_*``（非 group）→ 群聊 ``telegram_group_{gid}``；
+      ``gid`` 优先 ``TELEGRAM_CONTEXT_GROUP_CHAT_ID``；未配置时若共享群表仅有
+      一个 ``chat_id``，则自动使用该 id（单群部署）。
+    """
+    sid = str(session_id or "").strip()
+    if not sid.startswith("telegram"):
+        return None
+    if sid.startswith("telegram_group_"):
+        main = (config.TELEGRAM_MAIN_USER_CHAT_ID or "").strip()
+        if not main:
+            return None
+        return f"telegram_{main}"
+    gid = (config.TELEGRAM_CONTEXT_GROUP_CHAT_ID or "").strip()
+    if not gid:
+        gid = await get_database().get_unique_shared_group_chat_id_for_context() or ""
+        gid = str(gid).strip()
+    if not gid:
+        return None
+    return f"telegram_group_{gid}"
+
+
 class ContextBuilder:
     """
     Context 构建器类。
@@ -1777,6 +1815,133 @@ class ContextBuilder:
             logger.warning("构建远古 daily 补充失败: %s", e)
             self._last_archived_daily_summary_ids = []
             return ""
+
+    async def _build_telegram_peer_recent_for_system(self, peer_session_id: str) -> str:
+        """
+        拉取对端 Telegram 会话的近期原文，格式化为 Markdown 列表，供拼入「今日对话摘要」块内。
+
+        与 `_build_recent_messages_section` 使用相同的条数配置，但不剥离当前轮用户正文、
+        不处理群聊缓冲 skip_tg（对端会话与本轮触发无关）。
+        """
+        peer = str(peer_session_id or "").strip()
+        if not peer:
+            return ""
+
+        limit = await _short_term_recent_message_limit()
+        overlap = await _summarized_overlap_limit()
+        db = get_database()
+
+        merged: List[Dict[str, Any]] = []
+        if peer.startswith("telegram_group_"):
+            chat_id = peer[len("telegram_group_") :]
+            recent_unsummarized = await db.get_unsummarized_shared_group_messages(
+                chat_id, limit=limit
+            )
+            summarized_overlap = await db.get_recent_summarized_shared_group_messages(
+                chat_id, limit=overlap
+            )
+            seen_ids = set()
+            for msg in summarized_overlap + recent_unsummarized:
+                mid = msg.get("id")
+                if mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                merged.append(msg)
+            deduped: List[Dict[str, Any]] = []
+            for row in merged:
+                if deduped:
+                    prev = deduped[-1]
+                    if (
+                        str(prev.get("sender") or "").strip().lower()
+                        == str(row.get("sender") or "").strip().lower()
+                        and str(prev.get("content") or "").strip()
+                        == str(row.get("content") or "").strip()
+                    ):
+                        continue
+                deduped.append(row)
+            merged = deduped
+        else:
+            recent_unsummarized = await get_unsummarized_messages_desc(peer, limit=limit)
+            summarized_overlap = await get_recent_summarized_messages_desc(
+                peer, limit=overlap
+            )
+            seen_ids = set()
+            for msg in summarized_overlap + recent_unsummarized:
+                mid = msg.get("id")
+                if mid in seen_ids:
+                    continue
+                seen_ids.add(mid)
+                merged.append(msg)
+
+        if not merged:
+            return ""
+
+        def _sort_key(r: Dict[str, Any]) -> Any:
+            return r.get("created_at") or ""
+
+        merged.sort(key=_sort_key)
+
+        lines: List[str] = []
+        for row in merged:
+            if peer.startswith("telegram_group_"):
+                sender = str(row.get("sender") or "").strip().lower()
+                role_cn = "用户" if sender == "user" else "助手"
+                raw = str(row.get("content") or "").strip()
+                if sender == "user":
+                    text = str(
+                        inject_user_sent_at_into_llm_content(
+                            raw, row.get("created_at")
+                        )
+                    )
+                else:
+                    text = strip_lutopia_behavior_appendix(raw)
+            else:
+                msg_role = row.get("role")
+                role_cn = "用户" if msg_role == "user" else "助手"
+                text = format_user_message_for_context(
+                    {
+                        "role": row.get("role"),
+                        "content": row.get("content"),
+                        "media_type": row.get("media_type"),
+                        "image_caption": row.get("image_caption"),
+                    }
+                )
+                if msg_role == "user":
+                    text = str(
+                        inject_user_sent_at_into_llm_content(
+                            text, row.get("created_at")
+                        )
+                    )
+                    if not str(text).strip():
+                        continue
+                else:
+                    text = strip_lutopia_behavior_appendix(text)
+            if not str(text).strip():
+                continue
+            clock = format_shanghai_clock_24h(row.get("created_at"))
+            if not clock:
+                clock = "?"
+            one = str(text).replace("\r\n", "\n").strip()
+            if len(one) > 900:
+                one = one[:900] + "…"
+            lines.append(f"- **{role_cn}**（{clock}）：{one}")
+
+        body = "\n".join(lines)
+        if len(body) > _TELEGRAM_PEER_RECENT_MAX_CHARS:
+            kept: List[str] = []
+            total = 0
+            for ln in reversed(lines):
+                add = len(ln) + (1 if kept else 0)
+                if total + add > _TELEGRAM_PEER_RECENT_MAX_CHARS:
+                    break
+                kept.append(ln)
+                total += add
+            kept.reverse()
+            body = (
+                "（以下摘录因长度限制从最早处截断，保留较近对话。）\n"
+                + "\n".join(kept)
+            )
+        return body.strip()
     
     async def _build_chunk_summaries_section(self, session_id: str) -> str:
         """
@@ -1791,9 +1956,35 @@ class ContextBuilder:
         try:
             self._last_chunk_summary_ids = []
             chunk_summaries = await get_today_chunk_summaries()
-            
-            if not chunk_summaries:
+
+            peer_id = await _telegram_cross_context_peer_session_id(session_id)
+            peer_text = ""
+            if peer_id:
+                try:
+                    peer_text = await self._build_telegram_peer_recent_for_system(peer_id)
+                except Exception as e:
+                    logger.warning("构建 Telegram 对端近期原文失败: %s", e)
+                    peer_text = ""
+            peer_plain = (peer_text or "").strip()
+
+            if not chunk_summaries and not peer_plain:
                 return ""
+
+            if not chunk_summaries:
+                self._last_chunk_summary_ids = []
+                current_is_group_only = str(session_id or "").startswith(
+                    "telegram_group_"
+                )
+                hdr = (
+                    "## 私聊近期原文（Telegram 私聊，与当前群聊不同会话，仅作情境参考）"
+                    if current_is_group_only
+                    else "## 群聊近期原文（Telegram 群聊，与当前私聊不同会话，仅作情境参考）"
+                )
+                chunk_section = "\n\n".join([hdr, peer_plain])
+                today = now_shanghai().strftime("%Y年%m月%d日")
+                title = f"# 今日对话摘要（{today}，东八区日历）"
+                body = f"{TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE}\n\n{chunk_section}"
+                return f"{title}\n\n{body}"
 
             total_chunk_summaries = len(chunk_summaries)
             chunk_limit = await _context_max_chunk_summaries_limit()
@@ -1846,7 +2037,7 @@ class ContextBuilder:
             sections: List[str] = []
             current_is_group = str(session_id or "").startswith("telegram_group_")
             if current_is_group:
-                # 群聊会话：把私聊块放前，群聊块贴近末尾
+                # 群聊会话：把私聊块放前，群聊块贴近末尾；对端私聊原文插在私聊 chunk 与群聊 chunk 之间
                 if private_sections:
                     sections.append("## 私聊摘要")
                     sections.append(
@@ -1857,6 +2048,11 @@ class ContextBuilder:
                         ).strip()
                     )
                     sections.append("\n\n".join(private_sections))
+                if peer_plain:
+                    sections.append(
+                        "## 私聊近期原文（Telegram 私聊，与当前群聊不同会话，仅作情境参考）\n\n"
+                        + peer_plain
+                    )
                 if group_sections:
                     sections.append("## 群聊摘要")
                     sections.append(
@@ -1868,7 +2064,7 @@ class ContextBuilder:
                     )
                     sections.append("\n\n".join(group_sections))
             else:
-                # 私聊会话：把群聊块放前，私聊块贴近末尾
+                # 私聊会话：把群聊块放前，私聊块贴近末尾；对端群聊原文插在群聊 chunk 与私聊 chunk 之间
                 if group_sections:
                     sections.append("## 群聊摘要")
                     sections.append(
@@ -1879,6 +2075,11 @@ class ContextBuilder:
                         ).strip()
                     )
                     sections.append("\n\n".join(group_sections))
+                if peer_plain:
+                    sections.append(
+                        "## 群聊近期原文（Telegram 群聊，与当前私聊不同会话，仅作情境参考）\n\n"
+                        + peer_plain
+                    )
                 if private_sections:
                     sections.append("## 私聊摘要")
                     sections.append(
@@ -1893,10 +2094,12 @@ class ContextBuilder:
             if sections:
                 chunk_section = "\n\n".join(sections)
                 today = now_shanghai().strftime("%Y年%m月%d日")
-                return (
-                    f"# 今日对话摘要（{today}，东八区日历）\n\n"
-                    f"{chunk_section}"
-                )
+                title = f"# 今日对话摘要（{today}，东八区日历）"
+                if peer_plain:
+                    body = f"{TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE}\n\n{chunk_section}"
+                else:
+                    body = chunk_section
+                return f"{title}\n\n{body}"
             else:
                 return ""
                 

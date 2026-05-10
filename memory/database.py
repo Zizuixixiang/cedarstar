@@ -1393,6 +1393,26 @@ class MessageDatabase:
             )
         return int(count or 0)
 
+    async def get_unique_shared_group_chat_id_for_context(self) -> Optional[str]:
+        """
+        若 ``shared_group_messages`` 中恰好只有一个 distinct ``chat_id``，返回该 id（字符串）；
+        供 Context 私聊侧自动配对「只有一个群」的场景。0 条或多于一个群时返回 ``None``。
+        """
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return None
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT DISTINCT chat_id FROM shared_group_messages LIMIT 2"
+            )
+        if len(rows) != 1:
+            return None
+        cid = rows[0].get("chat_id")
+        if cid is None:
+            return None
+        out = str(cid).strip()
+        return out or None
+
     async def mark_shared_group_messages_as_summarized_by_ids(
         self, chat_id: str, message_ids: List[int]
     ) -> int:

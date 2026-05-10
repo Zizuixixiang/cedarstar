@@ -567,6 +567,19 @@ class Config:
         return v or None
 
     @property
+    def TELEGRAM_CONTEXT_GROUP_CHAT_ID(self) -> Optional[str]:
+        """
+        与主用户私聊配对的 Telegram 群聊 chat_id（数字字符串，可与 supergroup 的负 id 一致）。
+
+        用于 Context 拼装：私聊会话下把该群的 `shared_group_messages` 近期原文注入 system，
+        与 `TELEGRAM_MAIN_USER_CHAT_ID`（群聊下解析为 `telegram_{id}` 私聊会话）成对使用。
+        未设置时，若共享群库 `shared_group_messages` 里恰好只有一个 distinct `chat_id`，
+        会自动使用该群（单群场景）；多群时必须显式配置以免串台。
+        """
+        v = (os.getenv("TELEGRAM_CONTEXT_GROUP_CHAT_ID") or "").strip()
+        return v or None
+
+    @property
     def ENABLE_PROXY(self) -> bool:
         """
         获取是否启用代理设置。

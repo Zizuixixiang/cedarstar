@@ -125,7 +125,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | 表 | 说明 |
 |---|---|
 | `sticker_cache` | Telegram 贴纸元数据缓存（file_unique_id → emoji / description），用于贴纸消息的文本化摘要 |
-| `group_chat_state` | 群聊状态（chat_id → round_count），跟踪群聊轮次 |
+| `group_chat_state` | 群聊状态（chat_id → round_count），跟踪双 bot 接力步数；与 `config.group_chat_max_rounds` 等配合，详见 **§2.6** |
 | `model_favorites` | Mini App 配置页按供应商收藏的模型列表（base_url + model 唯一） |
 | `sensor_events` | 外部传感器事件 ingestion（event_type + JSONB payload） |
 | `autonomous_diary` | 自主日记条目（title / content / trigger_reason / tool_log） |
@@ -135,6 +135,13 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `transactions` | 零花钱流水（收入/支出、分类、余额快照、审批预留字段） |
 | `pocket_money_config` | 零花钱配置（月额度、下月额度、年化利率） |
 | `pocket_money_job_log` | 零花钱日任务执行日志（按日期+任务类型+character 唯一） |
+
+### 2.6 Telegram 双实例、共享群表与接力计数（以 `bot/telegram_bot.py` 为准）
+
+- **环境变量（`.env`）**：`SHARED_GROUP_DB_URL` 指向存放 `shared_group_messages` 的 PostgreSQL（可与主库同实例）；CedarStar ↔ CedarClio 群聊 HTTP relay 使用 `TELEGRAM_GROUP_PEER_RELAY_URLS`、`TELEGRAM_GROUP_PEER_RELAY_TOKEN`、`TELEGRAM_GROUP_PEER_RELAY_APP_ID`（见 `config.py`）。Context 侧 Telegram 私聊/群聊交叉原文依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与可选的 `TELEGRAM_CONTEXT_GROUP_CHAT_ID`（单群时可由 `memory/database.py` 的 `get_unique_shared_group_chat_id_for_context()` 自动推断），见 **§3.1** chunk 小节。
+- **`group_chat_state.round_count`**：存主库表 `group_chat_state`。`group_chat_max_rounds`、`group_chat_silent_mode`、`group_chat_interject_enabled` / `group_chat_interject_probability` 等在 **`config` 表**（Mini App「助手配置」）。对端 bot 的 Telegram 入站或 HTTP relay 在接话路径上 **`increment_group_chat_round_count`**；**真人用户**在群内产生「新一句」时 **`set_group_chat_round_count(chat_id, 0)`**，覆盖：群聊纯文本入口、`voice`/`sticker`/`photo` 分支、`document`/`video`/`video_note`/`animation` 分支（`MessageHandler` 已注册这些类型），以及缓冲路径**首次**将用户写入 `shared_group_messages` 时（与纯文本入口语义一致，避免仅发语音/附件仍沿用旧计数导致 relay `signal_round_limited`）。
+- **@ 到本 bot 的判定**：使用 Telegram **`get_me().username` / `id`** 与正文匹配（`@username`、`tg://user?id=`、零宽字符清洗，`_shared_group_text_mentions_this_bot`）；**无硬编码**具体 @handle。HTTP relay 接话时在共享表最近消息中取对端 `sender` 的多条记录窗口（`get_recent_shared_group_messages(..., limit=12)`）内自新向旧查找显式提及。
+- **未实现入缓冲的类型**：当前对 `Document` / `VIDEO` / `VIDEO_NOTE` / `ANIMATION` 入 `handle_message` 后**仅执行接力清零并 `return`**，不触发 LLM 缓冲；若日后要支持对话，需另接入 `_add_to_buffer` 等链路。
 
 ## 3. 上下文构建与召回
 
@@ -181,6 +188,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 8. 未归档 chunk summaries
 
 **chunk 常规注入范围（实现口径）**：`_build_chunk_summaries_section` 使用 `get_today_chunk_summaries()` **全局**取「内容日 ≤ 东八区今天」且默认 `archived_by IS NULL` 的 chunk，再按 `context_max_chunk_summaries` 截断；**不按当前 `session_id` 过滤**。
+
+**Telegram 群/私聊交叉原文（实现口径）**：群聊侧需 `TELEGRAM_MAIN_USER_CHAT_ID` 以解析对端私聊 `telegram_{id}`。私聊侧对端群优先用 `.env` 的 `TELEGRAM_CONTEXT_GROUP_CHAT_ID`；未配置时若 `shared_group_messages` 仅有**一个** distinct `chat_id`，则自动使用该群（单群部署）。在「今日对话摘要」块内于两类 chunk 之间插入对端近期原文摘录（条数与短期历史一致，总长度有上限）。当前为群聊 `telegram_group_*` 时顺序为：私聊 chunk → 私聊原文 → 群聊 chunk（当前群聊原文仍在下文「最近消息」）；当前为私聊 `telegram_*`（非 group）时顺序为：群聊 chunk → 群聊原文 → 私聊 chunk（当前私聊原文仍在「最近消息」）。无法解析对端或拉取失败时不插入。若实际注入了非空对端摘录，会在「# 今日对话摘要」标题下追加 **`TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`**（`memory/context_builder.py` 常量），提示模型区分当前会话与摘录来源。
 
 9. 动态内容（当前时间、工具记录、结束语）
 10. 最近消息

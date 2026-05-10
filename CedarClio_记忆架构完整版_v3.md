@@ -133,6 +133,13 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - 缓存统计拆分为两套口径：`provider_cache_hit_tokens`（上游实际命中）与 `theoretical_cached_tokens`（系统估算命中）。
 - Observability 聚合查询会同时返回两套值，避免把“理论可缓存”与“供应商实际命中”混为一谈。
 
+### 2.6 Telegram 双实例、共享群表与接力（与 CedarStar 同构）
+
+- **共享表**：`shared_group_messages` 存于 `SHARED_GROUP_DB_URL` 所指库；主库 `group_chat_state` 存 `round_count`；`config` 表存 `group_chat_max_rounds` 等（Mini App 可调）。
+- **接力清零**：真人用户新一句时 `set_group_chat_round_count(..., 0)`，覆盖文本、语音/贴纸/图、`document`/`video`/`video_note`/`animation` 及缓冲首次写入共享表用户行；对端接话路径 `increment`。避免仅语音/附件沿用旧计数导致 relay `signal_round_limited`。
+- **@ 判定**：`get_me()` 的 username/id，无硬编码 handle；relay 窗口 `get_recent_shared_group_messages(..., limit=12)`。
+- **Context 交叉原文**：与 `ARCHITECTURE.md` §3.1 一致；可选 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；注入时附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`。
+
 ## 三、上下文构建与召回
 
 ### 3.0 新增记忆字段（数据结构）
@@ -170,6 +177,8 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 9. 动态内容（当前时间、工具记录、结束语）
 10. 最近消息
 11. 当前用户消息
+
+**Telegram 群/私聊交叉原文**：在「今日对话摘要」块内两类 chunk 之间插入对端近期原文（`memory/context_builder.py`）；依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；非空摘录时标题下附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`。详见 `ARCHITECTURE.md` §2.6 / §3.1。
 
 其中长期记忆召回采用双路检索 + SiliconFlow Rerank 精排 + 阈值过滤 + event_type 分级时间衰减 + MMR 多样性筛选：
 

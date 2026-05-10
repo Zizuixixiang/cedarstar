@@ -474,6 +474,25 @@ class TelegramBot:
             prob = 0.3
         return random.random() < max(0.0, min(1.0, prob))
 
+    @staticmethod
+    def _shared_group_text_mentions_this_bot(
+        content: str, *, me_username: str, me_id: Optional[int] = None
+    ) -> bool:
+        """
+        判断共享表里存的正文是否「点到」本 bot：普通 @username，以及 HTML 里常见的 tg://user?id=。
+        去掉零宽字符，避免客户端插入的不可见符号导致子串匹配失败。
+        """
+        raw = str(content or "")
+        c = raw.lower().replace("\u200b", "").replace("\ufeff", "")
+        uname = (me_username or "").strip().lower()
+        if uname and f"@{uname}" in c:
+            return True
+        if me_id is not None:
+            needle = f"tg://user?id={int(me_id)}"
+            if needle.lower() in re.sub(r"\s+", "", c):
+                return True
+        return False
+
     async def _should_ignore_group_user_mention(
         self, context: ContextTypes.DEFAULT_TYPE, message
     ) -> bool:
@@ -824,15 +843,29 @@ class TelegramBot:
             pending_rescan.discard(session_id)
             await message.reply_text("未检测到贴纸，已取消")
         if message.voice:
+            await self._reset_group_chat_relay_on_user_activity(message)
             await self._handle_voice_message(update, context, message)
             return
         if message.sticker:
+            await self._reset_group_chat_relay_on_user_activity(message)
             await self._handle_sticker_message(update, context, message)
             return
         if message.photo:
+            await self._reset_group_chat_relay_on_user_activity(message)
             await self._handle_photo_message(update, context, message)
             return
+        if (
+            message.document
+            or message.video
+            or message.video_note
+            or message.animation
+        ):
+            # 当前未实现这些类型的入缓冲/入共享，仅对齐「用户发言打断接力」语义，避免仅发文件仍沿用旧 round_count。
+            await self._reset_group_chat_relay_on_user_activity(message)
+            return
         if not message.text:
+            # 文档 / 视频 / 动图等仅有附件、无 message.text 时，语音贴纸图分支不会命中
+            await self._reset_group_chat_relay_on_user_activity(message)
             return
         
         # 获取消息信息（纯文本）
@@ -874,6 +907,20 @@ class TelegramBot:
             shared_user_persisted=getattr(message.chat, "type", "") in ("group", "supergroup"),
         )
 
+    async def _reset_group_chat_relay_on_user_activity(self, message) -> None:
+        """
+        群聊中真人用户任意发言时，将 bot 接力计数清零（与纯文本入口一致）。
+
+        供语音/贴纸/图片入口、以及「仅有附件、无 message.text」等路径调用；
+        缓冲 flush 首次写入共享用户时也会清零（见 _generate_reply_from_buffer）。
+        """
+        if getattr(message.chat, "type", "") not in ("group", "supergroup"):
+            return
+        fu = getattr(message, "from_user", None)
+        if fu is None or getattr(fu, "is_bot", False):
+            return
+        await get_database().set_group_chat_round_count(str(message.chat.id), 0)
+
     async def _handle_group_bot_message(
         self,
         update: Update,
@@ -914,7 +961,10 @@ class TelegramBot:
             return True
 
         me_username = (getattr(me, "username", "") or "").lower() if me else ""
-        mentioned = bool(me_username and f"@{me_username}" in content.lower())
+        me_id = getattr(me, "id", None) if me else None
+        mentioned = self._shared_group_text_mentions_this_bot(
+            content, me_username=me_username, me_id=me_id
+        )
         if not mentioned:
             if not await self._group_chat_should_random_interject():
                 return True
@@ -1011,28 +1061,36 @@ class TelegramBot:
     ) -> Dict[str, Any]:
         """收到 peer signal 后，基于共享群聊上下文触发本端回复。"""
         db = get_database()
-        recent = await db.get_recent_shared_group_messages(chat_id, limit=5)
+        recent = await db.get_recent_shared_group_messages(chat_id, limit=12)
         if not recent:
             return {"status": "signal_no_recent_message"}
         peer_sender = self._shared_sender_peer()
-        last = None
-        for row in recent:
-            if str(row.get("sender") or "").strip().lower() == peer_sender:
-                last = row
-                break
-        # 仅处理「对端 bot 刚写入共享表」的接力；在倒序最近 5 条里取最新一条 peer，
-        # 避免用户/本端并发插入把单条最新顶成非 peer 时误判 signal_last_not_peer。
-        if last is None:
+        peer_rows = [
+            row
+            for row in recent
+            if str(row.get("sender") or "").strip().lower() == peer_sender
+        ]
+        # 仅处理「对端 bot 刚写入共享表」的接力；recent 为 created_at DESC。
+        if not peer_rows:
             return {"status": "signal_last_not_peer"}
         try:
             me = await bot_obj.get_me()
         except Exception:
             me = None
         me_username = (getattr(me, "username", "") or "").strip().lower()
-        last_content = str(last.get("content") or "")
-        mentioned_me = bool(
-            me_username and f"@{me_username}" in last_content.lower()
-        )
+        me_id = getattr(me, "id", None) if me else None
+        # 在窗口内从「新到旧」找第一条显式点到本 bot 的对端发言；避免仅看全局最新一条 peer
+        # 时，被对端连续两条中的前一条（无 @）挡住而误判 signal_peer_not_mention_me。
+        mention_row = None
+        for row in peer_rows:
+            if self._shared_group_text_mentions_this_bot(
+                str(row.get("content") or ""),
+                me_username=me_username,
+                me_id=me_id,
+            ):
+                mention_row = row
+                break
+        mentioned_me = mention_row is not None
         if not mentioned_me:
             if not await self._group_chat_should_random_interject():
                 return {"status": "signal_peer_not_mention_me"}
@@ -2766,6 +2824,11 @@ class TelegramBot:
                                 media_type=media_t,
                                 vision_processed=0 if has_img else 1,
                             )
+                            # 纯文本群消息在 handle_message 入口已清零；语音/贴纸/图等走缓冲才写共享表，
+                            # 此处与「新用户发言」对齐，避免沿用旧 round_count 导致 relay signal_round_limited。
+                            await get_database().set_group_chat_round_count(
+                                str(chat_id), 0
+                            )
                 if has_img and user_row_id:
                     schedule_generate_image_caption(
                         user_row_id,
@@ -3551,6 +3614,10 @@ class TelegramBot:
                         | filters.VOICE
                         | filters.TEXT
                         | filters.Sticker.ALL
+                        | filters.Document.ALL
+                        | filters.VIDEO
+                        | filters.VIDEO_NOTE
+                        | filters.ANIMATION
                     )
                     & ~filters.COMMAND,
                     self.handle_message,
