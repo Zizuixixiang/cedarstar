@@ -2657,11 +2657,14 @@ class MessageDatabase:
         source_filter: Optional[str] = None,
         only_unarchived: bool = False,
         starred_only: bool = False,
+        session_kind: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         分页查询 summaries；可选 summary_type（chunk/daily）、内容日区间（起止 YYYY-MM-DD，可只填一侧）。
         筛选日使用 COALESCE(source_date::date, created_at::date)，避免 source_date 为空时筛不出。
-        排序：source_date DESC（内容所属日，补跑历史也会按该日排在合适位置），空 source_date 置后，再按 created_at DESC。
+        session_kind: group（Telegram 群聊或 is_group=1）/ private（其余）/ None 或 all 表示不过滤。
+        排序：按内容日 COALESCE(source_date::date, created_at::date) DESC，再按 created_at DESC。
+        避免仅用 source_date DESC NULLS LAST 导致大量 source_date 为空的旧 chunk 被挤到末页，前几页看起来像「只有今天」。
         返回 (行列表, 总条数)。
         """
         page = max(1, page)
@@ -2709,6 +2712,18 @@ class MessageDatabase:
         if starred_only:
             conds.append("is_starred = TRUE")
 
+        sk = (session_kind or "").strip().lower()
+        if sk == "group":
+            conds.append(
+                "(session_id LIKE 'telegram_group_%' OR COALESCE(is_group, 0) = 1)"
+            )
+        elif sk == "private":
+            conds.append(
+                "(session_id NOT LIKE 'telegram_group_%' AND COALESCE(is_group, 0) = 0)"
+            )
+        elif sk and sk not in ("all", ""):
+            raise ValueError("session_kind 须为 group、private、all 或省略")
+
         # 筛选日：优先 source_date 日历日；旧数据 source_date 为空时用 created_at::date，否则仅有 source_date 时选不到
         day_expr = "COALESCE(source_date::date, created_at::date)"
 
@@ -2745,6 +2760,7 @@ class MessageDatabase:
                     s.created_at,
                     s.summary_type,
                     s.source_date,
+                    s.is_group,
                     s.archived_by,
                     s.is_starred,
                     s.source,
@@ -2759,7 +2775,7 @@ class MessageDatabase:
                     ) AS has_daily_summary
                 FROM summaries AS s
                 WHERE {where_sql}
-                ORDER BY s.source_date DESC NULLS LAST, s.created_at DESC
+                ORDER BY COALESCE(s.source_date::date, s.created_at::date) DESC, s.created_at DESC
                 LIMIT ${lim_ph} OFFSET ${off_ph}
                 """,
                 *params_with_lim,
@@ -2775,6 +2791,7 @@ class MessageDatabase:
                 "created_at": _norm(r["created_at"]),
                 "summary_type": r["summary_type"],
                 "source_date": _norm(r["source_date"]),
+                "is_group": bool(r["is_group"]) if r["is_group"] is not None else False,
                 "archived_by": r["archived_by"],
                 "is_starred": bool(r["is_starred"]),
                 "source": r["source"] or "internal",
@@ -6027,6 +6044,7 @@ async def get_summaries_filtered(
     source_filter: Optional[str] = None,
     only_unarchived: bool = False,
     starred_only: bool = False,
+    session_kind: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     return await get_database().get_summaries_filtered(
         page=page,
@@ -6037,6 +6055,7 @@ async def get_summaries_filtered(
         source_filter=source_filter,
         only_unarchived=only_unarchived,
         starred_only=starred_only,
+        session_kind=session_kind,
     )
 
 

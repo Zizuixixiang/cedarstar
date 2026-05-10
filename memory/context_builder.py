@@ -77,6 +77,7 @@ _LAST_CONTEXT_TRACE: Dict[str, Any] = {
     "chunk_summary_ids": [],
     "archived_daily_summary_ids": [],
     "longterm_doc_ids": [],
+    "memory_card_dimensions": [],
 }
 
 
@@ -92,6 +93,9 @@ def get_last_context_trace() -> Dict[str, Any]:
             _LAST_CONTEXT_TRACE.get("archived_daily_summary_ids") or []
         ),
         "longterm_doc_ids": list(_LAST_CONTEXT_TRACE.get("longterm_doc_ids") or []),
+        "memory_card_dimensions": list(
+            _LAST_CONTEXT_TRACE.get("memory_card_dimensions") or []
+        ),
     }
 
 # OpenAI 兼容路径下启用 Lutopia tools 时注入 system 末尾（与 tools 是否传入由调用方 flag 对齐）
@@ -1069,6 +1073,7 @@ class ContextBuilder:
         self._last_daily_summary_ids: List[int] = []
         self._last_chunk_summary_ids: List[int] = []
         self._last_archived_daily_summary_ids: List[int] = []
+        self._last_memory_card_dimensions: List[str] = []
         logger.info("Context 构建器初始化完成")
 
     def _record_context_trace(self, session_id: str, user_message: str) -> None:
@@ -1086,6 +1091,7 @@ class ContextBuilder:
                 for r in self._last_longterm_results
                 if r.get("id")
             ],
+            "memory_card_dimensions": list(self._last_memory_card_dimensions),
             "rerank_scores": {
                 str(r.get("id") or ""): {
                     "rerank_score": r.get("rerank_score"),
@@ -1583,6 +1589,7 @@ class ContextBuilder:
             str: memory cards 部分的文本，如果没有则返回空字符串
         """
         try:
+            self._last_memory_card_dimensions = []
             memory_cards = await get_all_active_memory_cards(limit=100)
             
             if not memory_cards:
@@ -1627,6 +1634,7 @@ class ContextBuilder:
                 sections.append("\n".join(section_lines))
             
             if sections:
+                self._last_memory_card_dimensions = list(dimension_groups.keys())
                 memory_section = "\n\n".join(sections)
                 return f"# 用户记忆卡片\n\n{memory_section}"
             else:
@@ -1634,6 +1642,7 @@ class ContextBuilder:
                 
         except Exception as e:
             logger.warning(f"构建 memory cards 部分失败: {e}")  # 可恢复/已兜底，降为 warning
+            self._last_memory_card_dimensions = []
             return ""
     
     async def _build_daily_summaries_section(self, session_id: Optional[str] = None) -> str:

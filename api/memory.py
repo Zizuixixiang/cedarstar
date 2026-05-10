@@ -763,6 +763,7 @@ async def list_summaries(
     days: Optional[int] = None,
     context_only: bool = False,
     starred_only: bool = False,
+    session_kind: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -772,6 +773,12 @@ async def list_summaries(
     st = (summary_type or "").strip() or None
     if st is not None and st not in ("chunk", "daily"):
         return create_response(False, None, "summary_type 须为 chunk 或 daily")
+
+    sk = (session_kind or "").strip().lower() or None
+    if sk in ("all", ""):
+        sk = None
+    if sk is not None and sk not in ("group", "private"):
+        return create_response(False, None, "session_kind 须为 group、private、all 或省略")
 
     d_from = (source_date_from or "").strip() or None
     d_to = (source_date_to or "").strip() or None
@@ -807,7 +814,7 @@ async def list_summaries(
                         SELECT
                             s.id, s.session_id, s.summary_text, s.start_message_id,
                             s.end_message_id, s.created_at, s.summary_type, s.source_date,
-                            s.archived_by, s.is_starred,
+                            s.is_group, s.archived_by, s.is_starred,
                             EXISTS (
                                 SELECT 1
                                 FROM summaries AS d
@@ -832,12 +839,30 @@ async def list_summaries(
                         "created_at": r["created_at"].isoformat() if r["created_at"] else None,
                         "summary_type": r["summary_type"],
                         "source_date": r["source_date"].isoformat() if r["source_date"] else None,
+                        "is_group": bool(r["is_group"]) if r["is_group"] is not None else False,
                         "archived_by": r["archived_by"],
                         "is_starred": bool(r["is_starred"]),
                         "has_daily_summary": bool(r["has_daily_summary"]),
                     }
                     for r in rows
                 ]
+                # 先看 trace id，再按 session_kind 收窄（与全表列表筛选语义一致）
+                if sk == "group":
+                    items = [
+                        x
+                        for x in items
+                        if str(x.get("session_id") or "").startswith("telegram_group_")
+                        or x.get("is_group") is True
+                        or x.get("is_group") == 1
+                    ]
+                elif sk == "private":
+                    items = [
+                        x
+                        for x in items
+                        if not str(x.get("session_id") or "").startswith("telegram_group_")
+                        and x.get("is_group") is not True
+                        and x.get("is_group") != 1
+                    ]
                 total = len(items)
                 page = 1
             else:
@@ -850,6 +875,7 @@ async def list_summaries(
                 source_date_from=d_from,
                 source_date_to=d_to,
                 starred_only=starred_only,
+                session_kind=sk,
             )
     except ValueError as e:
         return create_response(False, None, str(e))

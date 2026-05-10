@@ -567,6 +567,26 @@ class DailyBatchProcessor:
         """跑批 Prompt 统一前缀：标明角色称呼，减轻上下文断裂与名字丢失。"""
         return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录。\n"
 
+    def _daily_step2_session_framing(self, session_id: str) -> str:
+        """Step2 今日小传：与 micro_batch chunk 摘要一致的群聊/私聊材料说明（写入摘要模型 prompt）。"""
+        sid = str(session_id or "")
+        is_group = sid.startswith("telegram_group_")
+        cn = self._batch_char_name
+        un = self._batch_user_name
+        if is_group:
+            return (
+                f"以下材料汇总自 Telegram 群聊中当日产生的 chunk 摘要。各 chunk 对应助手人设「{cn}」；"
+                f"用户侧主要对应「{un}」及群内其他人类发言（材料中已标注来源，但仍可能混有多人）。\n"
+                "撰写今日小传时需抓住群内话题主线、关键事实（含数字、决策、名称、报错等）与各方态度与情绪变化；"
+                f"区分不同说话人，避免把旁人玩笑或跑题闲聊误写成「{un}」与助手之间的私密互动。\n"
+                "若材料中出现多个助手人设（如 Sirius / Clio），按 chunk 来源分别归属概括，不要混为一谈。\n\n"
+            )
+        return (
+            f"以下材料汇总自「{cn}」与「{un}」的一对一私聊当日 chunk 摘要。\n"
+            "撰写今日小传时聚焦双方关系中的核心话题、重要事件与情感变化，以及关键事实"
+            "（含数字、决策、名称、技术术语/报错信息、时间节点等），剔除语气词、重复内容与无效闲聊。\n\n"
+        )
+
     async def _resolve_batch_memory_identity(self, batch_date: str) -> None:
         """按当日首对 user/character 解析记忆卡查询主键；无则回退到 DEFAULT_CHARACTER_ID。"""
         default_cid = config.DEFAULT_CHARACTER_ID
@@ -1037,7 +1057,12 @@ class DailyBatchProcessor:
                             f"{summary_text}\n\n"
                         )
 
-                    prompt = self._persona_dialogue_prefix() + memory_prefix + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+                    session_framing = self._daily_step2_session_framing(session_id)
+                    prompt = (
+                        self._persona_dialogue_prefix()
+                        + memory_prefix
+                        + session_framing
+                        + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在 150-600 字，内容丰富可写至上限，平淡日常满足 150 字即可。
 - 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
@@ -1046,6 +1071,7 @@ class DailyBatchProcessor:
 - 若材料中残留以「[系统通知]」开头的字样（审批结果回执之类的元事件），不要当对话引语处理；与正文话题相关时用客观第三方表述（如"南杉确认/驳回了某条记忆更新申请"），无关时整体省略。
 {today_content}
 今日小传（中文）："""
+                    )
 
                     def _gen():
                         return self._call_summary_llm_custom(prompt)

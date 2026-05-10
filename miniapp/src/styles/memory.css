@@ -281,6 +281,12 @@ h2.memory-tab-header__title,
   background: var(--surface);
 }
 
+.memory-card--context {
+  background: var(--surface);
+  border-color: var(--text-main);
+  box-shadow: var(--shadow-solid);
+}
+
 /* 带「查看全文」时多留底部空间，避免与绝对定位的页脚重叠 */
 .memory-card--has-view-link {
   padding-bottom: 40px;
@@ -295,6 +301,15 @@ h2.memory-tab-header__title,
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px solid rgba(74, 85, 104, 0.1);
+}
+
+.memory-card-header__left {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .memory-card-header .card-title {
@@ -1476,6 +1491,20 @@ h2.memory-tab-header__title,
   text-transform: none;
 }
 
+/* 「本轮」「群聊」与类型角标区分：与本轮同盒模型，保证并排时等高 */
+.memory-item-head__meta .memory-context-badge.timeline-type-badge {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.2;
+}
+
+.summary-session-group-badge {
+  background: #f3e8ff;
+  border-color: #9b6fd6;
+  color: #4a2c7a;
+  text-transform: none;
+}
+
 .memory-item--context {
   background: var(--surface);
   border-color: var(--text-main);
@@ -1776,6 +1805,47 @@ h2.memory-tab-header__title,
 .memory-container .summaries-type-toggle button.summaries-type-btn:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+/* 会话筛选：次级，弱于 chunk / daily 主切换 */
+.summaries-session-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.memory-container .summaries-session-toggle button.summaries-session-btn {
+  appearance: none;
+  -webkit-appearance: none;
+  margin: 0;
+  flex-shrink: 0;
+  border: 1px solid #a8a8a8;
+  border-radius: 0;
+  background: #f0f0f0;
+  color: #6b6b6b;
+  box-shadow: 2px 2px 0 #c4c4c4;
+  padding: 5px 10px;
+  font-family: monospace;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition: none;
+  white-space: nowrap;
+}
+
+.memory-container .summaries-session-toggle button.summaries-session-btn:hover {
+  background: #e8e8e8;
+  color: #444444;
+  border-color: #909090;
+}
+
+.memory-container .summaries-session-toggle button.summaries-session-btn.active {
+  background: #dde5dd;
+  border-color: #7a8a7a;
+  color: #2f3d2f;
+  box-shadow: 2px 2px 0 #a8b8a8;
 }
 
 .summaries-date-range {

@@ -169,6 +169,14 @@ function normalizeSummaryDateInput(value) {
   return /^\d{4}-\d{2}-\d{2}$/.test(iso) ? iso : t;
 }
 
+/** 摘要行是否视为 Telegram 群聊来源（与 API session_kind=group 判定一致） */
+function isGroupSummaryRow(row) {
+  const sid = String(row?.session_id || '');
+  if (sid.startsWith('telegram_group_')) return true;
+  const ig = row?.is_group;
+  return ig === true || ig === 1;
+}
+
 function formatSummaryRecordTitle(row) {
   if (row.source_date) {
     try {
@@ -203,6 +211,9 @@ function ContextTraceNote({ trace }) {
     (trace.daily_summary_ids?.length || 0) +
     (trace.chunk_summary_ids?.length || 0) +
     (trace.archived_daily_summary_ids?.length || 0);
+  const cardDimCount = Array.isArray(trace.memory_card_dimensions)
+    ? trace.memory_card_dimensions.length
+    : 0;
   return (
     <div
       className="context-trace-note"
@@ -212,6 +223,7 @@ function ContextTraceNote({ trace }) {
       {trace.session_id ? ` · session: ${trace.session_id}` : ''}
       {' · '}
       摘要 {summaryCount} 条 · 长期记忆 {trace.longterm_doc_ids?.length || 0} 条
+      {cardDimCount > 0 ? ` · 记忆卡 ${cardDimCount} 维` : ''}
     </div>
   );
 }
@@ -483,12 +495,22 @@ function SummaryRecordItem({
             </span>
           ) : null}
           {isInCurrentContext ? (
-            <span
-              className="memory-context-badge timeline-type-badge"
-              title={contextTraceLabel || '最近一轮 context 实际注入了这条摘要'}
-            >
-              本轮
-            </span>
+            <>
+              <span
+                className="memory-context-badge timeline-type-badge"
+                title={contextTraceLabel || '最近一轮 context 实际注入了这条摘要'}
+              >
+                本轮
+              </span>
+              {isGroupSummaryRow(row) ? (
+                <span
+                  className="memory-context-badge timeline-type-badge summary-session-group-badge"
+                  title="Telegram 群聊会话摘要"
+                >
+                  群聊
+                </span>
+              ) : null}
+            </>
           ) : null}
         </div>
       </div>
@@ -1026,7 +1048,7 @@ function TemporalStateItem({ row, addToast, onRefresh, onEdit }) {
 /**
  * 记忆卡片组件
  */
-function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
+function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete, isInCurrentContext, contextTraceLabel }) {
   const [viewOpen, setViewOpen] = useState(false);
   const [showViewFull, setShowViewFull] = useState(false);
   const cardContentRef = useRef(null);
@@ -1061,7 +1083,9 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
 
   return (
     <div
-      className={`memory-card ${isEmpty ? 'empty' : ''} ${showViewFull ? 'memory-card--has-view-link' : ''}`}
+      className={`memory-card ${isEmpty ? 'empty' : ''} ${showViewFull ? 'memory-card--has-view-link' : ''} ${
+        isInCurrentContext ? 'memory-card--context' : ''
+      }`}
     >
       {viewOpen && (
         <ViewMemoryCardModal
@@ -1071,7 +1095,17 @@ function MemoryCard({ dimension, content, updatedAt, onEdit, onDelete }) {
         />
       )}
       <div className="memory-card-header">
-        <div className="card-title">{DIMENSION_MAP[dimension]}</div>
+        <div className="memory-card-header__left">
+          <div className="card-title">{DIMENSION_MAP[dimension]}</div>
+          {isInCurrentContext ? (
+            <span
+              className="memory-context-badge timeline-type-badge"
+              title={contextTraceLabel || '最近一轮 context 实际注入了该维度记忆卡片'}
+            >
+              本轮
+            </span>
+          ) : null}
+        </div>
         <div className="card-actions">
           <button className="action-button edit-button" onClick={() => onEdit(dimension)}>
             编辑
@@ -1460,6 +1494,8 @@ function Memory() {
   const [summariesContextOnly, setSummariesContextOnly] = useState(false);
   const [summariesDateFrom, setSummariesDateFrom] = useState('');
   const [summariesDateTo, setSummariesDateTo] = useState('');
+  /** all | group | private — 与 /api/memory/summaries session_kind 对齐 */
+  const [summariesSessionKind, setSummariesSessionKind] = useState('all');
   const [confirmDeleteSummaryId, setConfirmDeleteSummaryId] = useState(null);
   const [summaryEditingRow, setSummaryEditingRow] = useState(null);
   const summariesFetchSeqRef = useRef(0);
@@ -1483,6 +1519,11 @@ function Memory() {
     () => new Set((contextTrace?.longterm_doc_ids || []).map((id) => String(id))),
     [contextTrace]
   );
+  const contextMemoryCardDimensionSet = useMemo(() => {
+    const raw = contextTrace?.memory_card_dimensions;
+    if (!Array.isArray(raw)) return new Set();
+    return new Set(raw.filter((d) => typeof d === 'string' && d));
+  }, [contextTrace]);
   const contextTraceLabel = contextTrace?.built_at
     ? `最近构建：${formatShanghaiDateTime(contextTrace.built_at)}${
         contextTrace.session_id ? ` · session: ${contextTrace.session_id}` : ''
@@ -1675,6 +1716,9 @@ function Memory() {
       if (!summariesContextOnly && dt) {
         params.set('source_date_to', dt);
       }
+      if (summariesSessionKind === 'group' || summariesSessionKind === 'private') {
+        params.set('session_kind', summariesSessionKind);
+      }
       const response = await apiFetch(`/api/memory/summaries?${params.toString()}`);
       const data = await response.json();
       if (seq !== summariesFetchSeqRef.current) {
@@ -1710,10 +1754,18 @@ function Memory() {
         setSummariesLoading(false);
       }
     }
-  }, [summariesPage, summaryKindFilter, summariesContextOnly, summariesDateFrom, summariesDateTo, addToast]);
+  }, [
+    summariesPage,
+    summaryKindFilter,
+    summariesContextOnly,
+    summariesDateFrom,
+    summariesDateTo,
+    summariesSessionKind,
+    addToast,
+  ]);
 
   useEffect(() => {
-    if (activeTab === 'summaries' || activeTab === 'longterm') {
+    if (activeTab === 'summaries' || activeTab === 'longterm' || activeTab === 'cards') {
       loadContextTrace();
     }
     if (activeTab === 'temporal') {
@@ -2207,6 +2259,8 @@ function Memory() {
                 updatedAt={memoryCards[dimension]?.updated_at}
                 onEdit={handleEditCard}
                 onDelete={handleDeleteCard}
+                isInCurrentContext={contextMemoryCardDimensionSet.has(dimension)}
+                contextTraceLabel={contextTraceLabel}
               />
             ))}
           </div>
@@ -2420,12 +2474,50 @@ function Memory() {
               type="button"
               className={`memory-context-filter-btn ${summariesContextOnly ? 'active' : ''}`}
               onClick={() => {
-                setSummariesContextOnly((prev) => !prev);
+                setSummariesContextOnly((prev) => {
+                  const next = !prev;
+                  if (next) {
+                    setSummariesSessionKind('all');
+                  }
+                  return next;
+                });
                 setSummariesPage(1);
               }}
             >
               只看本轮
             </button>
+            <div className="summaries-session-toggle" role="group" aria-label="会话类型筛选">
+              <button
+                type="button"
+                className={`summaries-session-btn ${summariesSessionKind === 'all' ? 'active' : ''}`}
+                onClick={() => {
+                  setSummariesSessionKind('all');
+                  setSummariesPage(1);
+                }}
+              >
+                全部会话
+              </button>
+              <button
+                type="button"
+                className={`summaries-session-btn ${summariesSessionKind === 'group' ? 'active' : ''}`}
+                onClick={() => {
+                  setSummariesSessionKind('group');
+                  setSummariesPage(1);
+                }}
+              >
+                群聊
+              </button>
+              <button
+                type="button"
+                className={`summaries-session-btn ${summariesSessionKind === 'private' ? 'active' : ''}`}
+                onClick={() => {
+                  setSummariesSessionKind('private');
+                  setSummariesPage(1);
+                }}
+              >
+                私聊
+              </button>
+            </div>
             <div className="summaries-date-range" role="group" aria-label="source_date 范围">
               <span className="summaries-filter-label-text">source_date</span>
               <label className="summaries-date-field">
