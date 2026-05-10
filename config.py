@@ -40,6 +40,19 @@ class Config:
     def ENABLE_DISCORD(self) -> bool:
         return os.getenv("ENABLE_DISCORD", "true").lower() == "true"
 
+    @property
+    def ENABLE_AI_NEWS_TOOL(self) -> bool:
+        """
+        是否允许注册 ``get_ai_news``（部署侧总开关 / 白名单）。
+        默认开启；设为 false 时所有人设均不注册该工具，与 ``persona_configs.enable_ai_news_tool`` 为 AND 关系。
+        """
+        return os.getenv("ENABLE_AI_NEWS_TOOL", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+            "on",
+        )
+
     # ChromaDB 配置
     @property
     def CHROMADB_URL(self) -> Optional[str]:

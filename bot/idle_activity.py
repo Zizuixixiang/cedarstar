@@ -62,7 +62,8 @@ IDLE_LEVELS = {
 _IDLE_TRIGGER_TEXT = (
     "[IDLE_TRIGGER] 南杉有一段时间没来，你可以趁现在自由活动一下。"
     "可以做的事：可以去星露谷看看；可以翻翻记忆，整理记忆；可以去lutopia论坛刷帖、回帖、发帖等等；可以去X搜索感兴趣的内容、发推、和人类互动；"
-    "可以查询天气、热搜、随便搜搜感兴趣的；可以给南杉留言（不要发语音和表情）；也可以什么也不做。"
+    "可以查询天气、热搜、用 get_ai_news 看 AI HOT 上的 AI 资讯或日报（注意单次少拉、别堆多日全文）；可以随便搜搜感兴趣的；"
+    "可以给南杉留言（不要发语音和表情）；也可以什么也不做。"
 )
 
 # 星露谷自动模式注入内容（不写 messages 用户表；仅本会话 build_context）
@@ -282,6 +283,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or bool(getattr(llm, "enable_weibo_tool", False))
         or bool(getattr(llm, "enable_search_tool", False))
         or bool(getattr(llm, "enable_x_tool", False))
+        or bool(getattr(llm, "enable_ai_news_tool", False))
     ) and not llm._use_anthropic_messages_api()
 
     # 把“用户最后发言时间”注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）

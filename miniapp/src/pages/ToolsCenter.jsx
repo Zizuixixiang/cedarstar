@@ -10,6 +10,7 @@ const TOOL_SWITCH_KEYS = [
   { key: 'enable_weibo_tool', label: '微博热搜工具' },
   { key: 'enable_search_tool', label: '网页搜索工具' },
   { key: 'enable_x_tool', label: 'X (Twitter) 工具' },
+  { key: 'enable_ai_news_tool', label: 'AI HOT 资讯工具' },
 ];
 
 const SETTINGS_CONFIG_TYPES = [
@@ -102,6 +103,7 @@ export default function ToolsCenter() {
           enable_weibo_tool: Number(d.enable_weibo_tool || 0),
           enable_search_tool: Number(d.enable_search_tool || 0),
           enable_x_tool: Number(d.enable_x_tool || 0),
+          enable_ai_news_tool: Number(d.enable_ai_news_tool || 0),
         });
       } else {
         setPersonaName(personas[0]?.name || '未找到人设');

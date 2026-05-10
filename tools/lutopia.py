@@ -29,6 +29,7 @@ from tools.memory_tools import (
     execute_memory_get_approval_status,
     execute_memory_update_request,
 )
+from tools.aihot import execute_get_ai_news_function_call
 from tools.search import execute_search_function_call
 from tools.weather import execute_weather_function_call
 from tools.weibo import execute_weibo_function_call
@@ -741,7 +742,7 @@ async def append_tool_exchange_to_messages(
             "tool_calls": wrapped,
         }
     )
-    for tc in tool_calls:
+    for seq, tc in enumerate(tool_calls, start=1):
         if not isinstance(tc, dict):
             continue
         nm = tc.get("name") or ""
@@ -780,6 +781,9 @@ async def append_tool_exchange_to_messages(
         elif nm == "web_search":
             args_ws = _safe_load_tool_args(arg, nm)
             out = await execute_search_function_call(nm, args_ws)
+        elif nm == "get_ai_news":
+            args_news = _safe_load_tool_args(arg, nm)
+            out = await execute_get_ai_news_function_call(nm, args_news)
         elif nm in (
             "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
             "reply_tweet", "search_tweets", "get_timeline", "get_user",
@@ -796,6 +800,7 @@ async def append_tool_exchange_to_messages(
             "get_weather",
             "get_weibo_hot",
             "web_search",
+            "get_ai_news",
         ):
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:

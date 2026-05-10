@@ -35,6 +35,17 @@ WEIBO_HOT_TOOL_DIRECTIVE = (
     "或判断引入热搜能让回答更生动时，可自由调用。避免在无关的严肃提问（如写代码）中强行插入。禁止每轮都调用。"
 )
 
+AIHOT_TOOL_DIRECTIVE = (
+    "你可以调用 get_ai_news 从 AI HOT 聚合站拉取匿名公开资讯。"
+    "当用户询问 AI 资讯、AI 动态、AI 新闻、AI 日报、某家 AI 公司最近动态、论文或产品类热点时调用；"
+    "action 选 items 拉条目列表、daily 最新日报、daily_by_date 指定单日日报、dailies 拉归档列表。"
+    "为控制上下文体积：每次对话优先**单次、小范围**调用——"
+    "dailies 的 take 建议 5～10、勿一次拉几十天；"
+    "需要多日对比时请**分轮**或让用户收窄日期，勿在同一轮内连调多次 daily_by_date 把多日全文堆进对话；"
+    "已有 daily 或 items 结果时勿重复拉同内容。"
+    "仅在本会话人设已开启该工具时可用（Mini App 人设页「AI HOT 资讯」）；禁止无意义重复调用。"
+)
+
 MEMORY_TOOL_DIRECTIVE = (
     "【Memory记忆工具】\n"
     "读取工具（可自由调用）：\n"
@@ -101,6 +112,56 @@ OPENAI_WEIBO_TOOLS: List[Dict[str, Any]] = [
                 "type": "object",
                 "properties": {},
                 "required": [],
+            },
+        },
+    }
+]
+
+OPENAI_AIHOT_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "get_ai_news",
+            "description": (
+                "查询 AI HOT 聚合站的公开资讯与日报。"
+                "当用户询问 AI 资讯、AI 动态、AI 新闻、AI 日报、某家 AI 公司最近动态、行业或论文类热点时使用。"
+                "注意控制体量：单次调用只解决一类需求；dailies 勿用大 take；多日内容分轮查询，勿一轮内多次拉多日全文。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "action": {
+                        "type": "string",
+                        "description": "请求类型",
+                        "enum": ["items", "daily", "daily_by_date", "dailies"],
+                    },
+                    "mode": {
+                        "type": "string",
+                        "description": "仅 action=items 时有效：selected 精选，all 全量",
+                        "enum": ["selected", "all"],
+                    },
+                    "since": {
+                        "type": "string",
+                        "description": "仅 items：ISO8601 时间下限，如 2026-05-10T00:00:00+08:00",
+                    },
+                    "category": {
+                        "type": "string",
+                        "description": "仅 items：分类筛选（ai-models / ai-products / industry / paper / tip）",
+                    },
+                    "q": {
+                        "type": "string",
+                        "description": "仅 items：关键词搜索",
+                    },
+                    "date": {
+                        "type": "string",
+                        "description": "仅 daily_by_date：单日 YYYY-MM-DD（必填）；一次只查一天，多日请分轮或让用户指定范围",
+                    },
+                    "take": {
+                        "type": "integer",
+                        "description": "仅 dailies：归档条数上限，建议 5～10，勿超过 15，避免上下文膨胀",
+                    },
+                },
+                "required": ["action"],
             },
         },
     }
@@ -329,6 +390,7 @@ TOOL_DIRECTIVES: Dict[str, str] = {
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
     "weather": WEATHER_TOOL_DIRECTIVE,
     "weibo": WEIBO_HOT_TOOL_DIRECTIVE,
+    "aihot": AIHOT_TOOL_DIRECTIVE,
     "search": SEARCH_TOOL_DIRECTIVE,
     "x": X_TOOL_DIRECTIVE,
 }

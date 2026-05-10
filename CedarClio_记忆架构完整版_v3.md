@@ -1,4 +1,4 @@
-v3.1 · 2026-05-07 更新 · TTS · 零花钱 · 业务 SSE · 实现以代码为准
+v3.1 · 2026-05-11 更新 · AI HOT 资讯工具 · TTS · 零花钱 · 业务 SSE · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -110,6 +110,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `enable_weibo_tool`
 - `enable_search_tool`
 - `enable_x_tool`
+- `enable_ai_news_tool`（与部署 `ENABLE_AI_NEWS_TOOL` 同时为真才注册 `get_ai_news`）
 
 ### 2.4 辅助表
 
@@ -256,12 +257,21 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 微博热搜
 - 网页搜索
 - X (Twitter)（11 个工具：发推、点赞、回复、搜索、时间线、关注/取关、粉丝列表等，共享每日配额）
+- AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
+
+另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。
 
 工具口播提示由 system suffix 注入，确保模型在调用工具前先说一句自然口语。
+
+### 4.2.1 AI HOT 资讯（`tools/aihot.py`）
+
+匿名请求 `https://aihot.virxact.com/api/public` 的 `items` / `daily` / `daily/{date}` / `dailies`（`User-Agent: CedarStar/1.0`）。`dailies` 始终带 `take`（默认 10，硬上限 15）；`daily` / `daily_by_date` 格式化正文有总长度上限（模块常量，当前 10000 字符量级）。`get_ai_news` 写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 拼附录。
 
 ### 4.3 AI 自主活动（Idle Activity）
 
 进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
+
+`[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致）。
 
 额外支持「星露谷自动模式」：
 

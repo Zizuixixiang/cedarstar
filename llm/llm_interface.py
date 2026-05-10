@@ -1057,6 +1057,21 @@ def _persona_row_enable_x_tool(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _persona_row_enable_ai_news_tool(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用 AI HOT 资讯工具（enable_ai_news_tool 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_ai_news_tool")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -1072,6 +1087,8 @@ class LLMInterface:
         enable_weibo_tool: 是否开启 get_weibo_hot 工具（同上）。
         enable_search_tool: 是否开启 web_search 工具（同上）。
         enable_x_tool: 是否开启 X (Twitter) 工具（同上）。
+        enable_ai_news_tool: 是否开启 get_ai_news；须人设 ``enable_ai_news_tool`` 与全局
+            ``ENABLE_AI_NEWS_TOOL`` 同时为真（部署白名单 ∧ 人设开关）。
     """
     
     def __init__(
@@ -1084,6 +1101,7 @@ class LLMInterface:
         _enable_weibo_tool: Optional[bool] = None,
         _enable_search_tool: Optional[bool] = None,
         _enable_x_tool: Optional[bool] = None,
+        _enable_ai_news_tool: Optional[bool] = None,
     ):
         """
         初始化 LLM 接口。
@@ -1142,6 +1160,11 @@ class LLMInterface:
         self.enable_x_tool = (
             bool(_enable_x_tool) if _enable_x_tool is not None else False
         )
+        self.enable_ai_news_tool = (
+            bool(_enable_ai_news_tool)
+            if _enable_ai_news_tool is not None
+            else False
+        )
 
         self.timeout = config.LLM_TIMEOUT
         # vision 专用配置：读超时至少与 LLM_VISION_TIMEOUT 对齐（贴纸识图等为同步阻塞）
@@ -1196,6 +1219,7 @@ class LLMInterface:
         enable_weibo_tool_flag = False
         enable_search_tool_flag = False
         enable_x_tool_flag = False
+        enable_ai_news_tool_flag = False
         if db_cfg and config_type == "chat":
             pid = db_cfg.get("persona_id")
             if pid is not None:
@@ -1221,6 +1245,10 @@ class LLMInterface:
                             prow
                         )
                         enable_x_tool_flag = _persona_row_enable_x_tool(prow)
+                        enable_ai_news_tool_flag = (
+                            _persona_row_enable_ai_news_tool(prow)
+                            and bool(config.ENABLE_AI_NEWS_TOOL)
+                        )
 
         return cls(
             model_name=model_name,
@@ -1231,6 +1259,7 @@ class LLMInterface:
             _enable_weibo_tool=enable_weibo_tool_flag,
             _enable_search_tool=enable_search_tool_flag,
             _enable_x_tool=enable_x_tool_flag,
+            _enable_ai_news_tool=enable_ai_news_tool_flag,
         )
 
     @staticmethod
@@ -2497,6 +2526,7 @@ async def complete_with_lutopia_tool_loop(
         execute_memory_update_request,
     )
     from tools.prompts import (
+        OPENAI_AIHOT_TOOLS,
         OPENAI_SEARCH_TOOLS,
         OPENAI_WEATHER_TOOLS,
         OPENAI_WEIBO_TOOLS,
@@ -2504,6 +2534,7 @@ async def complete_with_lutopia_tool_loop(
         build_tool_system_suffix,
         inject_tool_suffix_into_messages,
     )
+    from tools.aihot import execute_get_ai_news_function_call
     from tools.search import execute_search_function_call
     from tools.weather import execute_weather_function_call
     from tools.weibo import execute_weibo_function_call
@@ -2528,6 +2559,9 @@ async def complete_with_lutopia_tool_loop(
     if getattr(llm, "enable_x_tool", False):
         tools_list.extend(OPENAI_X_TOOLS)
         suffix_keys.append("x")
+    if getattr(llm, "enable_ai_news_tool", False):
+        tools_list.extend(OPENAI_AIHOT_TOOLS)
+        suffix_keys.append("aihot")
     tools_payload: Optional[List[Dict[str, Any]]] = (
         tools_list if tools_list else None
     )
@@ -2699,6 +2733,12 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_dx = {}
                     result_str = await execute_x_function_call(nm, args_dx)
+                elif nm == "get_ai_news":
+                    try:
+                        args_news: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_news = {}
+                    result_str = await execute_get_ai_news_function_call(nm, args_news)
                 else:
                     result_str = await execute_lutopia_function_call(
                         nm, raw_args or "{}", mcp_session=mcp_session

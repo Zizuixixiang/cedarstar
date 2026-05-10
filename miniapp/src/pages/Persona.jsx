@@ -72,6 +72,7 @@ const EMPTY_FORM = {
   enable_weibo_tool: 0,
   enable_search_tool: 0,
   enable_x_tool: 0,
+  enable_ai_news_tool: 0,
 };
 
 function t(v) {
@@ -435,6 +436,10 @@ function Persona() {
           d.enable_search_tool != null && Number(d.enable_search_tool) !== 0 ? 1 : 0,
         enable_x_tool:
           d.enable_x_tool != null && Number(d.enable_x_tool) !== 0 ? 1 : 0,
+        enable_ai_news_tool:
+          d.enable_ai_news_tool != null && Number(d.enable_ai_news_tool) !== 0
+            ? 1
+            : 0,
       };
       setForm(f);
       setSavedForm(f);
@@ -982,6 +987,20 @@ function Persona() {
             )}
             <p className="persona-field-hint">
               开启后模型可调用 post_tweet / read_mentions；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_ai_news_tool === 1}
+                onChange={e =>
+                  handleChange('enable_ai_news_tool', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用 AI HOT 资讯工具</span>
+            </label>
+            <p className="persona-field-hint">
+              开启后模型可调用 get_ai_news（条目 / 日报 / 归档）；关闭不注册；随本套人设保存。
+              部署环境须允许（ENABLE_AI_NEWS_TOOL，默认开启）；服务端关闭时此处打开也不会注册。
             </p>
           </div>
         </div>
