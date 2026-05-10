@@ -54,8 +54,8 @@ def _is_rate_limit_exc(exc: BaseException, _seen: Optional[set] = None) -> bool:
 
 # 自主活动档位：只绑定“每次检查命中率”
 IDLE_LEVELS = {
-    "low": {"trigger_prob": 0.3},
-    "mid": {"trigger_prob": 0.6},
+    "low": {"trigger_prob": 0.25},
+    "mid": {"trigger_prob": 0.5},
     "high": {"trigger_prob": 1.0},
 }
 

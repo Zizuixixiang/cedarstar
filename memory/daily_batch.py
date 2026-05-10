@@ -42,6 +42,10 @@ from llm.llm_interface import (
     batch_one_shot_with_async_output_guard,
 )
 from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display_names
+from memory.shanghai_dt import (
+    format_created_at_range_preamble,
+    format_created_at_span_minmax_preamble,
+)
 from tools.lutopia import strip_lutopia_internal_memory_blocks
 from api.stream import EventType, publish_event
 
@@ -979,7 +983,17 @@ class DailyBatchProcessor:
                     lines.append(f"- {who}: {content}")
                 if not lines:
                     return ""
-                return "# 摘要衔接（已摘要消息）\n\n" + "\n".join(lines) + "\n\n"
+                overlap_pre = format_created_at_range_preamble(
+                    rows,
+                    heading="【摘要衔接时间范围】",
+                    semantics_note="messages.created_at 为落库时间",
+                )
+                return (
+                    overlap_pre
+                    + "# 摘要衔接（已摘要消息）\n\n"
+                    + "\n".join(lines)
+                    + "\n\n"
+                )
 
             chunk_summaries = await get_today_chunk_summaries(batch_date)
 
@@ -1008,6 +1022,11 @@ class DailyBatchProcessor:
 
                     today_content += await _build_overlap_section_for_session(session_id)
                     today_content += "# 今日对话摘要\n\n"
+                    today_content += format_created_at_range_preamble(
+                        session_chunks,
+                        heading="【chunk 摘要时间范围】",
+                        semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
+                    )
                     for summary in session_chunks:
                         summary_text = strip_lutopia_internal_memory_blocks(
                             str(summary.get("summary_text") or "")
@@ -1075,6 +1094,11 @@ class DailyBatchProcessor:
             
             if chunk_summaries:
                 today_content += "# 今日对话摘要\n\n"
+                today_content += format_created_at_range_preamble(
+                    chunk_summaries,
+                    heading="【chunk 摘要时间范围】",
+                    semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
+                )
                 for summary in chunk_summaries:
                     session_id = summary['session_id']
                     summary_text = strip_lutopia_internal_memory_blocks(
@@ -2226,6 +2250,11 @@ content 强制要求：
             section_lines.append("【群聊】")
             section_lines.extend(group_lines)
         chunk_input = "\n".join(section_lines)
+        chunk_input = format_created_at_span_minmax_preamble(
+            chunks,
+            heading="【本批 chunk 摘要时间范围】",
+            semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
+        ) + chunk_input
         prompt = self._persona_dialogue_prefix() + f"""【任务】
 以下是今天按时间顺序的对话片段摘要。请只根据语义主题把 chunk_id 聚类：同一事件/话题放在同一组，不同事件/话题分开。
 
@@ -2436,7 +2465,11 @@ arousal:
                     f"- chunk_id={c['id']} | created_at={c.get('created_at')} | "
                     f"session={c.get('session_id')}\n{strip_lutopia_internal_memory_blocks(str(c.get('summary_text') or ''))}"
                 )
-            chunk_input = "\n\n".join(chunk_lines)
+            chunk_input = format_created_at_range_preamble(
+                chunks,
+                heading="【本批 chunk 摘要时间范围】",
+                semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
+            ) + "\n\n".join(chunk_lines)
             
             parent_doc_id = build_daily_summary_doc_id(batch_date)
             store = get_vector_store()

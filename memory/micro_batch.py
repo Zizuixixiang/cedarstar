@@ -34,6 +34,7 @@ from llm.llm_interface import (
     batch_one_shot_with_async_output_guard,
 )
 from tools.lutopia import strip_lutopia_internal_memory_blocks
+from memory.shanghai_dt import format_shanghai_datetime_minutes
 
 # 与日终跑批、业务时区一致：摘要「内容日」按东八区日历展示/筛选
 _TZ_SH = pytz.timezone("Asia/Shanghai")
@@ -244,8 +245,30 @@ _CHUNK_SYSTEM_NOTICE_RULE = (
     "注意：对话记录中以「[系统通知]」开头的行**不是**用户或助手的实际发言，而是系统侧的元事件回执（例如审批结果，"
     '"南杉同意/拒绝了你某项申请"），仅作背景上下文。摘要正文若有必要提及，请用第三方客观陈述（如"南杉确认/驳回了某条记忆更新申请"），'
     "**不得**把它当作对话引语或情绪表达；如与本次对话主题无关，可整段忽略。\n"
+    "段首「首条…至末条…」与各行「[YYYY-MM-DD HH:MM 东八区]」均为数据库 `messages.created_at`（落库时间，东八区 24 小时制），"
+    "不等于正文里口头提到的时间；摘要若需写钟点，须与这些时间一致或显式写「上午/下午」。"
+    "禁止仅写「一点」「1点」等易与凌晨混淆的说法来指代下午时段。\n"
     "输出客观凝练，无主观修饰，严格符合字数要求。"
 )
+
+
+def _chunk_batch_first_last_created_display(
+    messages: List[Dict[str, Any]],
+) -> Tuple[Optional[str], Optional[str]]:
+    """本批对话按时间正序：首条/末条有 `created_at` 且可格式化的显示串（东八区）。"""
+    first_ts: Optional[str] = None
+    for msg in messages:
+        ts = format_shanghai_datetime_minutes(msg.get("created_at"))
+        if ts:
+            first_ts = ts
+            break
+    last_ts: Optional[str] = None
+    for msg in reversed(messages):
+        ts = format_shanghai_datetime_minutes(msg.get("created_at"))
+        if ts:
+            last_ts = ts
+            break
+    return first_ts, last_ts
 
 
 def _build_chunk_summary_user_prompt(
@@ -387,10 +410,28 @@ class SummaryLLMInterface:
                 tool_by_msg_id.setdefault(int(mid), []).append(rec)
 
         # 构建摘要提示，工具结果内联到对应 assistant 消息之后
-        conversation_text = ""
+        first_disp, last_disp = _chunk_batch_first_last_created_display(messages)
+        if first_disp and last_disp:
+            if first_disp == last_disp:
+                conversation_text = (
+                    f"以下是首条与末条均为 {first_disp}（东八区，`messages.created_at` 落库时间）"
+                    f"的聊天记录，按时间正序：\n\n"
+                )
+            else:
+                conversation_text = (
+                    f"以下是首条消息 {first_disp} 至末条消息 {last_disp}（东八区，`messages.created_at` 落库时间）"
+                    f"之间的聊天记录，按时间正序：\n\n"
+                )
+        else:
+            conversation_text = (
+                "以下为本批聊天记录（部分行无可用落库时间戳；按时间正序）：\n\n"
+            )
+
         for msg in messages:
             role_label = user_name if msg["role"] == "user" else char_name
-            conversation_text += f"{role_label}: {msg['content']}\n\n"
+            ts = format_shanghai_datetime_minutes(msg.get("created_at"))
+            time_prefix = f"[{ts} 东八区] " if ts else ""
+            conversation_text += f"{role_label}{time_prefix}: {msg['content']}\n\n"
             # 在 assistant 消息后注入该轮工具结果
             msg_id = msg.get("id")
             if msg_id is not None and int(msg_id) in tool_by_msg_id:
@@ -572,6 +613,7 @@ async def generate_summary_for_messages(
             entry: Dict[str, Any] = {
                 "role": role,
                 "content": strip_lutopia_internal_memory_blocks(raw),
+                "created_at": msg.get("created_at"),
             }
             if msg.get("id") is not None:
                 entry["id"] = int(msg["id"])

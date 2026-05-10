@@ -39,6 +39,14 @@ from memory.database import (
     get_unsummarized_messages_desc,
     get_recent_summarized_messages_desc,
 )
+from memory.shanghai_dt import (
+    format_created_at_range_preamble,
+    format_shanghai_clock_24h,
+    format_shanghai_date_iso,
+    format_shanghai_datetime_minutes,
+    now_shanghai,
+    to_shanghai_datetime,
+)
 
 # 导入向量存储函数
 try:
@@ -233,32 +241,12 @@ def _format_voice_part(msg: Dict[str, Any]) -> str:
 
 def format_user_context_sent_at_line(created_at: Optional[Any] = None) -> str:
     """
-    用户消息发往 LLM 时附带的单行时间（东八区），仅写入上下文，不落库。
+    用户消息发往 LLM 时附带的单行时间（东八区 24 小时制），仅写入上下文，不落库。
     ``created_at`` 为 None 时表示「当前时刻」（用于本轮尚未入库的用户输入）。
     """
-    from datetime import datetime, timezone, timedelta
-
-    tz_sh = timezone(timedelta(hours=8))
-    dt: Optional[datetime] = None
-    if created_at is not None:
-        try:
-            if isinstance(created_at, datetime):
-                d = created_at
-            else:
-                s = str(created_at).strip()
-                if not s:
-                    raise ValueError("empty created_at")
-                if s.endswith("Z"):
-                    s = s[:-1] + "+00:00"
-                d = datetime.fromisoformat(s)
-            if d.tzinfo is None:
-                dt = d
-            else:
-                dt = d.astimezone(tz_sh)
-        except Exception:
-            dt = None
+    dt = to_shanghai_datetime(created_at) if created_at is not None else None
     if dt is None:
-        dt = datetime.now(tz_sh)
+        dt = now_shanghai()
     # 时、分之间用全角冒号，与「当前系统时间」块区分表述为「当前时间」
     weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
     line = (
@@ -266,7 +254,7 @@ def format_user_context_sent_at_line(created_at: Optional[Any] = None) -> str:
         f"{weekdays[dt.weekday()]} "
         f"{dt.hour:02d}：{dt.minute:02d}"
     )
-    return f"【当前时间：{line}】"
+    return f"【当前时间：{line}】（东八区24小时制）"
 
 
 def inject_user_sent_at_into_llm_content(
@@ -751,12 +739,12 @@ async def format_telegram_group_segment_directive() -> str:
 
 def _created_at_timestamp_for_sort(created_at: Any) -> float:
     """用于 relationship_timeline 等按时间正序排序；无法解析时置 0（排在最前）。"""
-    if not created_at:
+    dt = to_shanghai_datetime(created_at)
+    if dt is None:
         return 0.0
     try:
-        dt = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
         return float(dt.timestamp())
-    except (TypeError, ValueError, OSError):
+    except OSError:
         return 0.0
 
 
@@ -1573,13 +1561,10 @@ class ContextBuilder:
                 et = row.get("event_type") or ""
                 label = type_labels.get(et, et)
                 created = row.get("created_at") or ""
-                if created:
-                    try:
-                        dt = datetime.fromisoformat(str(created).replace("Z", "+00:00"))
-                        created_fmt = dt.strftime("%Y-%m-%d %H:%M")
-                    except (TypeError, ValueError):
-                        created_fmt = str(created)
-                else:
+                created_fmt = format_shanghai_datetime_minutes(created) or (
+                    str(created) if created else ""
+                )
+                if not created_fmt:
                     created_fmt = "未知时间"
                 content = (row.get("content") or "").strip()
                 lines.append(f"- **{label}**（{created_fmt}）\n  {content}")
@@ -1631,13 +1616,10 @@ class ContextBuilder:
                 for card in cards:
                     # 格式化更新时间
                     updated_at = card['updated_at']
-                    if updated_at:
-                        try:
-                            dt = datetime.fromisoformat(updated_at.replace('Z', '+00:00'))
-                            formatted_time = dt.strftime("%Y-%m-%d %H:%M")
-                        except:
-                            formatted_time = updated_at
-                    else:
+                    formatted_time = format_shanghai_datetime_minutes(updated_at) or (
+                        str(updated_at) if updated_at else ""
+                    )
+                    if not formatted_time:
                         formatted_time = "未知时间"
                     
                     section_lines.append(f"- {card['content']} (更新于: {formatted_time})")
@@ -1683,13 +1665,10 @@ class ContextBuilder:
             for summary in daily_summaries:
                 # 优先用 source_date（摘要实际代表的日期），兜底 created_at
                 raw_date = summary.get('source_date') or summary.get('created_at')
-                if raw_date:
-                    try:
-                        dt = datetime.fromisoformat(str(raw_date).replace('Z', '+00:00'))
-                        formatted_date = dt.strftime("%Y-%m-%d")
-                    except Exception:
-                        formatted_date = str(raw_date)[:10]
-                else:
+                formatted_date = format_shanghai_date_iso(raw_date) or (
+                    str(raw_date)[:10] if raw_date else ""
+                )
+                if not formatted_date:
                     formatted_date = "未知日期"
                 
                 sections.append(f"### {formatted_date}\n{summary['summary_text']}")
@@ -1820,35 +1799,37 @@ class ContextBuilder:
             
             private_sections: List[str] = []
             group_sections: List[str] = []
+            private_summaries: List[Dict[str, Any]] = []
+            group_summaries: List[Dict[str, Any]] = []
             for summary in chunk_summaries:
-                # 格式化创建时间
-                created_at = summary['created_at']
-                if created_at:
-                    try:
-                        dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                        formatted_time = dt.strftime("%H:%M")
-                    except:
-                        formatted_time = created_at.split(' ')[1] if ' ' in created_at else created_at
-                else:
+                # 格式化创建时间（东八区 24 小时制，避免与 UTC 串混淆）
+                created_at_raw = summary["created_at"]
+                formatted_time = format_shanghai_clock_24h(created_at_raw)
+                if not formatted_time:
                     formatted_time = "未知时间"
-                
-                session_id = summary['session_id']
+
+                sum_session_id = summary["session_id"]
                 # 简化 session_id 显示
-                if '_' in session_id:
-                    parts = session_id.split('_')
+                if "_" in sum_session_id:
+                    parts = sum_session_id.split("_")
                     if len(parts) >= 2:
                         display_session = f"用户{parts[0][:4]}...频道{parts[1][:4]}..."
                     else:
-                        display_session = session_id[:20]
+                        display_session = sum_session_id[:20]
                 else:
-                    display_session = session_id[:20]
-                
-                item = f"### {formatted_time} [来自: {display_session}]\n{summary['summary_text']}"
+                    display_session = sum_session_id[:20]
+
+                item = (
+                    f"### {formatted_time}（东八区） [来自: {display_session}]\n"
+                    f"{summary['summary_text']}"
+                )
                 sid = str(summary.get("session_id") or "")
                 if sid.startswith("telegram_group_"):
                     group_sections.append(item)
+                    group_summaries.append(summary)
                 else:
                     private_sections.append(item)
+                    private_summaries.append(summary)
 
             sections: List[str] = []
             current_is_group = str(session_id or "").startswith("telegram_group_")
@@ -1856,24 +1837,54 @@ class ContextBuilder:
                 # 群聊会话：把私聊块放前，群聊块贴近末尾
                 if private_sections:
                     sections.append("## 私聊摘要")
+                    sections.append(
+                        format_created_at_range_preamble(
+                            private_summaries,
+                            heading="【私聊 chunk 时间范围】",
+                            semantics_note="summaries.created_at 为各 chunk 摘要写入库时间",
+                        ).strip()
+                    )
                     sections.append("\n\n".join(private_sections))
                 if group_sections:
                     sections.append("## 群聊摘要")
+                    sections.append(
+                        format_created_at_range_preamble(
+                            group_summaries,
+                            heading="【群聊 chunk 时间范围】",
+                            semantics_note="summaries.created_at 为各 chunk 摘要写入库时间",
+                        ).strip()
+                    )
                     sections.append("\n\n".join(group_sections))
             else:
                 # 私聊会话：把群聊块放前，私聊块贴近末尾
                 if group_sections:
                     sections.append("## 群聊摘要")
+                    sections.append(
+                        format_created_at_range_preamble(
+                            group_summaries,
+                            heading="【群聊 chunk 时间范围】",
+                            semantics_note="summaries.created_at 为各 chunk 摘要写入库时间",
+                        ).strip()
+                    )
                     sections.append("\n\n".join(group_sections))
                 if private_sections:
                     sections.append("## 私聊摘要")
+                    sections.append(
+                        format_created_at_range_preamble(
+                            private_summaries,
+                            heading="【私聊 chunk 时间范围】",
+                            semantics_note="summaries.created_at 为各 chunk 摘要写入库时间",
+                        ).strip()
+                    )
                     sections.append("\n\n".join(private_sections))
 
             if sections:
                 chunk_section = "\n\n".join(sections)
-                from datetime import timezone, timedelta
-                today = datetime.now(timezone(timedelta(hours=8))).strftime("%Y年%m月%d日")
-                return f"# 今日对话摘要（{today}）\n\n{chunk_section}"
+                today = now_shanghai().strftime("%Y年%m月%d日")
+                return (
+                    f"# 今日对话摘要（{today}，东八区日历）\n\n"
+                    f"{chunk_section}"
+                )
             else:
                 return ""
                 
@@ -2393,12 +2404,13 @@ class ContextBuilder:
         Anthropic 路径使用 text blocks + 1h cache_control；OpenAI 路径在 LLM 层压回字符串。
         易变的当前时间、长期检索和工具记录放在缓存块之后，避免破坏稳定前缀。
         """
-        from datetime import datetime, timezone, timedelta
-        tz_utc_8 = timezone(timedelta(hours=8))
-        _now = datetime.now(tz_utc_8)
+        _now = now_shanghai()
         _weekdays = ["星期一", "星期二", "星期三", "星期四", "星期五", "星期六", "星期日"]
         now_str = f"{_now.year}年{_now.month}月{_now.day}日{_weekdays[_now.weekday()]} {_now.strftime('%H:%M')}"
-        time_section = f"【当前系统时间（东八区）：{now_str}】\n(提示：在对话中若关注时间信息，请以此时间为基准！)"
+        time_section = (
+            f"【当前系统时间（东八区24小时制）：{now_str}】\n"
+            f"(提示：在对话中若关注时间信息，请以此时间为基准；写钟点请用24小时制或写明上午/下午。)"
+        )
 
         fixed_sections = [system_prompt, MEMORY_BLOCK_PRIORITY_DIRECTIVE]
         fixed_sections.append(MEMORY_CITATION_DIRECTIVE)

@@ -141,7 +141,7 @@ async def _ensure_mcp_audit_log_table(conn) -> None:
             result_status VARCHAR(32),
             error_message TEXT,
             approval_id UUID,
-            called_at TIMESTAMPTZ DEFAULT NOW()
+            called_at TIMESTAMP DEFAULT NOW()
         )
     """)
     await conn.execute(
@@ -171,9 +171,9 @@ async def _ensure_pending_approvals_table(conn) -> None:
             after_preview JSONB,
             requested_by_token_hash VARCHAR(128),
             status VARCHAR(32) DEFAULT 'pending',
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            expires_at TIMESTAMPTZ,
-            resolved_at TIMESTAMPTZ NULL,
+            created_at TIMESTAMP DEFAULT NOW(),
+            expires_at TIMESTAMP,
+            resolved_at TIMESTAMP NULL,
             resolution_note TEXT NULL
         )
     """)
@@ -194,6 +194,86 @@ async def _ensure_pending_approvals_table(conn) -> None:
         "ON pending_approvals (expires_at) WHERE status = 'pending'"
     )
     logger.debug("pending_approvals table checked")
+
+
+async def _migrate_audit_and_approval_timestamps_to_naive_shanghai(conn) -> None:
+    """
+    将 mcp_audit_log / pending_approvals 的 TIMESTAMPTZ 列迁移为 TIMESTAMP（东八区墙钟）。
+    旧值按 AT TIME ZONE 'Asia/Shanghai' 先转换为本地时间再落入无时区列。
+    """
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'mcp_audit_log'
+                  AND column_name = 'called_at'
+                  AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE mcp_audit_log
+                ALTER COLUMN called_at TYPE TIMESTAMP
+                USING (called_at AT TIME ZONE 'Asia/Shanghai');
+            END IF;
+        END $$;
+        """
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'pending_approvals'
+                  AND column_name = 'created_at'
+                  AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE pending_approvals
+                ALTER COLUMN created_at TYPE TIMESTAMP
+                USING (created_at AT TIME ZONE 'Asia/Shanghai');
+            END IF;
+        END $$;
+        """
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'pending_approvals'
+                  AND column_name = 'expires_at'
+                  AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE pending_approvals
+                ALTER COLUMN expires_at TYPE TIMESTAMP
+                USING (expires_at AT TIME ZONE 'Asia/Shanghai');
+            END IF;
+        END $$;
+        """
+    )
+    await conn.execute(
+        """
+        DO $$
+        BEGIN
+            IF EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_name = 'pending_approvals'
+                  AND column_name = 'resolved_at'
+                  AND data_type = 'timestamp with time zone'
+            ) THEN
+                ALTER TABLE pending_approvals
+                ALTER COLUMN resolved_at TYPE TIMESTAMP
+                USING (resolved_at AT TIME ZONE 'Asia/Shanghai');
+            END IF;
+        END $$;
+        """
+    )
+    logger.debug("mcp_audit_log/pending_approvals 时间列已校准为 TIMESTAMP(Asia/Shanghai naive)")
 
 
 async def _summaries_ensure_archive_columns(conn) -> None:
@@ -588,6 +668,7 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_model_favorites_table(conn)
     await _ensure_mcp_audit_log_table(conn)
     await _ensure_pending_approvals_table(conn)
+    await _migrate_audit_and_approval_timestamps_to_naive_shanghai(conn)
     await conn.execute(
         """
         CREATE TABLE IF NOT EXISTS transactions (
@@ -1351,7 +1432,13 @@ class MessageDatabase:
         conn=None,
     ) -> str:
         """Insert a pending approval and return its id."""
-        exp = expires_at or (_dt.datetime.now(_dt.timezone.utc) + _dt.timedelta(hours=24))
+        if expires_at is None:
+            default_exp = _dt.datetime.now(
+                _dt.timezone(_dt.timedelta(hours=8))
+            ) + _dt.timedelta(hours=24)
+            exp = _pg_timestamp_naive_shanghai(default_exp)
+        else:
+            exp = _pg_timestamp_naive_shanghai(expires_at)
 
         async def _insert(conn_obj) -> str:
             row_id = await conn_obj.fetchval(
@@ -4056,7 +4143,8 @@ class MessageDatabase:
         sid = (state_id or "").strip()
         if not sid:
             return 0
-        exp = _pg_timestamp_naive_utc(new_expire_at)
+        # temporal_states.expire_at 语义为业务本地墙钟（Asia/Shanghai）。
+        exp = _pg_timestamp_naive_shanghai(new_expire_at)
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 "UPDATE temporal_states SET expire_at = $1 WHERE id = $2",
@@ -4092,12 +4180,13 @@ class MessageDatabase:
                     eid, event_type, content, source_summary_id,
                 )
             else:
+                created_naive = _pg_timestamp_naive_shanghai(created_at)
                 await conn.execute(
                     """
                     INSERT INTO relationship_timeline (id, event_type, content, source_summary_id, created_at)
                     VALUES ($1, $2, $3, $4, $5)
                     """,
-                    eid, event_type, content, source_summary_id, created_at,
+                    eid, event_type, content, source_summary_id, created_naive,
                 )
         logger.debug(
             "relationship_timeline 插入成功 id=%s type=%s", eid, event_type
@@ -4192,6 +4281,8 @@ class MessageDatabase:
         if expire_at:
             try:
                 dt_expire = _dt.datetime.fromisoformat(expire_at.replace("Z", "+00:00"))
+                if dt_expire.tzinfo is not None:
+                    dt_expire = _pg_timestamp_naive_shanghai(dt_expire)
             except ValueError:
                 logger.warning("解析 expire_at 失败: %s", expire_at)
         eid = uuid.uuid4().hex
@@ -4234,7 +4325,7 @@ class MessageDatabase:
                 try:
                     dt_exp = _dt.datetime.fromisoformat(expire_at.replace("Z", "+00:00"))
                     sets.append(f"expire_at = ${idx}")
-                    params.append(_pg_timestamp_naive_utc(dt_exp))
+                    params.append(_pg_timestamp_naive_shanghai(dt_exp))
                     idx += 1
                 except ValueError:
                     logger.warning("update_temporal_state: 解析 expire_at 失败: %s", expire_at)
@@ -4255,7 +4346,7 @@ class MessageDatabase:
         is_active: int = 1,
     ) -> None:
         """插入一条 temporal_states；id 冲突则忽略。"""
-        exp = _pg_timestamp_naive_utc(expire_at)
+        exp = _pg_timestamp_naive_shanghai(expire_at)
         async with self.pool.acquire() as conn:
             await conn.execute(
                 """

@@ -933,8 +933,8 @@ function Config() {
               value={['low', 'mid', 'high'].includes(config.idle_activity_level) ? config.idle_activity_level : 'mid'}
               onChange={(e) => handleIdleLevelChange(e.target.value)}
             >
-              <option value="low">低（命中率 0.3）</option>
-              <option value="mid">中（命中率 0.6）</option>
+              <option value="low">低（命中率 0.25）</option>
+              <option value="mid">中（命中率 0.5）</option>
               <option value="high">高（命中率 1.0）</option>
             </select>
             <div className="config-idle-threshold">
