@@ -1008,13 +1008,13 @@ def build_char_persona_prompt_sections(row: Mapping[str, Any]) -> List[str]:
     if contract_parts:
         sections.append("【表达契约】\n" + "\n\n".join(contract_parts))
 
-    crels = _persona_field_str(row, "char_relationships")
-    if crels:
-        sections.append("【机际关系】\n" + crels)
-
     cnsfw = _persona_field_str(row, "char_nsfw")
     if cnsfw:
         sections.append("【成人内容】\n" + cnsfw)
+
+    crels = _persona_field_str(row, "char_relationships")
+    if crels:
+        sections.append("【机际关系】\n" + crels)
 
     tools_parts: List[str] = []
     ctg = _persona_field_str(row, "char_tools_guide")

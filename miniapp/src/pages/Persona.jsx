@@ -134,6 +134,11 @@ function buildPreviewSections(form) {
     });
   }
 
+  const cnsfw = t(form.char_nsfw);
+  if (cnsfw) {
+    sections.push({ zone: 'char', heading: '【成人内容】', body: cnsfw });
+  }
+
   const relParts = [];
   const crels = t(form.char_relationships);
   if (crels) relParts.push(crels);
@@ -143,11 +148,6 @@ function buildPreviewSections(form) {
       heading: '【机际关系】',
       body: relParts.join('\n\n'),
     });
-  }
-
-  const cnsfw = t(form.char_nsfw);
-  if (cnsfw) {
-    sections.push({ zone: 'char', heading: '【成人内容】', body: cnsfw });
   }
 
   const toolsParts = [];
@@ -729,19 +729,6 @@ function Persona() {
                 </div>
               </PersonaSubBlock>
 
-              <PersonaSubBlock slug="[ REL ]" title="机际关系">
-                <div className="field-row">
-                  <label className="field-label">机际关系</label>
-                  <textarea
-                    className="field-textarea"
-                    rows={3}
-                    value={form.char_relationships}
-                    onChange={e => handleChange('char_relationships', e.target.value)}
-                    placeholder="与其他角色、用户或实体的关系"
-                  />
-                </div>
-              </PersonaSubBlock>
-
               <PersonaSubBlock slug="[ CHAR_NSFW ]" title="成人内容">
                 <div className="field-row">
                   <label className="field-label">成人内容（Char）</label>
@@ -751,6 +738,19 @@ function Persona() {
                     value={form.char_nsfw}
                     onChange={e => handleChange('char_nsfw', e.target.value)}
                     placeholder="Char 侧 NSFW 边界、偏好与演绎尺度（与 User 侧 NSFW 偏好无关）"
+                  />
+                </div>
+              </PersonaSubBlock>
+
+              <PersonaSubBlock slug="[ REL ]" title="机际关系">
+                <div className="field-row">
+                  <label className="field-label">机际关系</label>
+                  <textarea
+                    className="field-textarea"
+                    rows={3}
+                    value={form.char_relationships}
+                    onChange={e => handleChange('char_relationships', e.target.value)}
+                    placeholder="与其他角色、用户或实体的关系"
                   />
                 </div>
               </PersonaSubBlock>
