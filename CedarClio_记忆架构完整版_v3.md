@@ -251,7 +251,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 4.3 AI 自主活动（Idle Activity）
 
-进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`，助手消息会写入 `messages` 且内容前缀为 `【自主活动】`，并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
+进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
 额外支持「星露谷自动模式」：
 

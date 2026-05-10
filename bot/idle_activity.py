@@ -77,6 +77,17 @@ STARDEW_AUTOPLAY_TRIGGER_TEXT = (
 STOP_TAG_STARDEW = "[STARDEW_STOP]"
 _SHANGHAI_TZ = pytz.timezone("Asia/Shanghai")
 
+# 与落库 / Telegram 发送拼接一致；若模型从历史里模仿写出，先剥掉再统一加一层。
+_IDLE_ASSISTANT_MARK = "【自主活动】"
+
+
+def _strip_leading_idle_assistant_mark(text: str) -> str:
+    """去掉正文开头重复的「【自主活动】」，避免与代码固定前缀叠两次。"""
+    s = text.strip()
+    while s.startswith(_IDLE_ASSISTANT_MARK):
+        s = s[len(_IDLE_ASSISTANT_MARK) :].lstrip()
+    return s
+
 
 def _to_aware_utc(ts: Any) -> Optional[datetime]:
     """把数据库时间统一转成 UTC aware datetime，便于做分钟差计算。"""
@@ -349,12 +360,13 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
             raise last_exc
         return
     reply_text = (outcome.aggregated_assistant_text or outcome.response.content or "").strip()
+    reply_text = _strip_leading_idle_assistant_mark(reply_text)
     if not reply_text:
         return
 
-    sent = await tg_bot.send_message(chat_id=chat_id, text=reply_text)
+    db_content = f"{_IDLE_ASSISTANT_MARK}{reply_text}"
+    sent = await tg_bot.send_message(chat_id=chat_id, text=db_content)
     msg_id = getattr(sent, "message_id", None)
-    db_content = f"【自主活动】{reply_text}"
     assistant_message_row_id = await save_message(
         role="assistant",
         content=db_content,
