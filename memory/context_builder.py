@@ -94,6 +94,11 @@ TOOL_ORAL_COACHING_BLOCK = (
     "不要罗列工具名称，不要说技术性的话。"
 )
 
+TELEGRAM_GROUP_CONTINUATION_DIRECTIVE = (
+    "【群聊续话】若下方对话历史里已有你（助手）自己的发言，本轮续写必须紧接上一条往下推进情节或观点，"
+    "不要复述、改写或换一种说法重复同一层意思；避免车轱辘话，让对话向前走。"
+)
+
 TTS_PROMPT_BLOCK = """【TTS语音输出说明】
 当前系统已开启语音输出，你可以自由穿插文字和语音消息。
 
@@ -1182,6 +1187,11 @@ class ContextBuilder:
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
                 )
 
+            if str(session_id).startswith("telegram_group_"):
+                full_system_prompt.append(
+                    _cache_text_block(TELEGRAM_GROUP_CONTINUATION_DIRECTIVE, cache=False)
+                )
+
             # TTS 语气标签注入
             tts_enabled = await get_database().get_config("tts_enabled", "false")
             logger.info("[TTS注入] tts_enabled 原始值=%r, 判断结果=%s", tts_enabled, tts_enabled.lower() in ("true", "1"))
@@ -1366,6 +1376,11 @@ class ContextBuilder:
             if telegram_segment_hint:
                 full_system_prompt.append(
                     _cache_text_block(await format_telegram_reply_segment_hint(), cache=False)
+                )
+
+            if str(session_id).startswith("telegram_group_"):
+                full_system_prompt.append(
+                    _cache_text_block(TELEGRAM_GROUP_CONTINUATION_DIRECTIVE, cache=False)
                 )
 
             # TTS 语气标签注入
