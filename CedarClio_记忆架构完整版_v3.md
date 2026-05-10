@@ -264,7 +264,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 
@@ -273,7 +273,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 日终跑批由进程内 `schedule_daily_batch()` 按数据库 `daily_batch_hour` 配置定时触发（东八区），按业务日执行六步。`run_daily_batch.py` 保留为独立命令行入口（手动补跑 / 重试子进程调用）。
 
 1. Step 1：到期 temporal_states 结算
-2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐）
+2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；摘要链路统一注入 CedarStar/CedarClio 角色背景块）
 3. Step 3：记忆卡片 Upsert + relationship_timeline
 4. Step 3.5：从今日小传提取时效状态操作
 5. Step 4：事件聚类 + 描述打分 + 长期事件入库

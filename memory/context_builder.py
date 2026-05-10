@@ -972,20 +972,23 @@ def build_char_persona_prompt_sections(row: Mapping[str, Any]) -> List[str]:
     sections: List[str] = []
     cn = _persona_field_str(row, "char_name")
     ci = _persona_field_str(row, "char_identity")
-    ca = _persona_field_str(row, "char_appearance")
     exist_lines: List[str] = []
     if cn:
         exist_lines.append(f"你的名字是 {cn}。")
     if ci:
         exist_lines.append(ci)
-    if ca:
-        exist_lines.append(ca)
     if exist_lines:
         sections.append("【存在定义】\n" + "\n".join(exist_lines))
 
     cpers = _persona_field_str(row, "char_personality")
+    ca = _persona_field_str(row, "char_appearance")
+    inner_image_parts: List[str] = []
     if cpers:
-        sections.append("【内在人格】\n" + cpers)
+        inner_image_parts.append(cpers)
+    if ca:
+        inner_image_parts.append("外在形象：\n" + ca)
+    if inner_image_parts:
+        sections.append("【内在人格和外在形象】\n" + "\n\n".join(inner_image_parts))
 
     contract_parts: List[str] = []
     cs = _persona_field_str(row, "char_speech_style")
@@ -999,7 +1002,7 @@ def build_char_persona_prompt_sections(row: Mapping[str, Any]) -> List[str]:
 
     crels = _persona_field_str(row, "char_relationships")
     if crels:
-        sections.append("【关系与形象】\n" + crels)
+        sections.append("【机际关系】\n" + crels)
 
     cnsfw = _persona_field_str(row, "char_nsfw")
     if cnsfw:
@@ -1011,7 +1014,7 @@ def build_char_persona_prompt_sections(row: Mapping[str, Any]) -> List[str]:
     if ctg:
         tools_parts.append("工具使用守则：\n" + ctg)
     if com:
-        tools_parts.append("线下模式：\n" + com)
+        tools_parts.append("线下模式（在赛博世界接触）：\n" + com)
     if tools_parts:
         sections.append("【工具与场景】\n" + "\n\n".join(tools_parts))
 

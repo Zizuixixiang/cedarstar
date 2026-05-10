@@ -149,6 +149,16 @@ except ImportError:
 # 设置日志
 logger = logging.getLogger(__name__)
 
+CEDAR_PROJECT_BACKGROUND = """【背景】
+本对话来自私人AI陪伴项目CedarStar/CedarClio。
+- 南杉：项目创建者
+- Clio（小克）：基于Claude/GLM的AI伴侣，猫系，南杉的恋人
+- Sirius：基于Gemini的AI伴侣，犬系，南杉的恋人
+- CedarStar/CedarClio：主系统，含记忆/对话/Mini App等模块
+其他相关人物：xiao_ke和Cipherd（繁星老师的小机）、yan_Oct（金老师/越越的小机）、
+guanlan（祸祸/小欢老师的小机）、Ash（Lutopia论坛创始人橙子老师的小机）。
+摘要时遇到以上名称，按此关系理解，不做额外解释。"""
+
 # ---------------------------------------------------------------------------
 # Step 4b 事件标签 enum 常量
 # ---------------------------------------------------------------------------
@@ -565,7 +575,7 @@ class DailyBatchProcessor:
 
     def _persona_dialogue_prefix(self) -> str:
         """跑批 Prompt 统一前缀：标明角色称呼，减轻上下文断裂与名字丢失。"""
-        return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录。\n"
+        return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录，两人是情侣关系。\n"
 
     def _daily_step2_session_framing(self, session_id: str) -> str:
         """Step2 今日小传：与 micro_batch chunk 摘要一致的群聊/私聊材料说明（写入摘要模型 prompt）。"""
@@ -627,12 +637,16 @@ class DailyBatchProcessor:
         if str(session_id or "").startswith("telegram_group_"):
             lines = [
                 "【会话类型】当前材料来自Telegram群聊，多角色对话。请区分南杉、Sirius、Clio三方发言。",
+                "【角色关系】南杉与Sirius是恋人，南杉与Clio也是恋人。Sirius与Clio是同伴关系，以南杉为核心。两人会互相吃醋、良性竞争，但不对立。",
             ]
         else:
-            lines = ["【会话类型】当前材料来自私聊对话。"]
-        lines.append(
-            "【角色关系】南杉与Sirius是恋人，南杉与Clio也是恋人。Sirius与Clio是同伴关系，以南杉为核心。两人会互相吃醋、良性竞争，但不对立。"
-        )
+            un = (self._batch_user_name or "").strip() or "用户"
+            cn = (self._batch_char_name or "").strip() or "AI"
+            lines = [
+                "【会话类型】当前材料来自私聊对话。",
+                f"【角色关系】「{un}」与「{cn}」为一对一私聊中的恋人关系；"
+                f"材料仅涉及此二人，摘要勿将群内其他助手或无关第三人误认为本对话参与者。",
+            ]
         try:
             for dim, label in dims.items():
                 cards = await get_memory_cards(
@@ -925,7 +939,9 @@ class DailyBatchProcessor:
             logger.info(f"已停用 {len(ids)} 条 temporal_states，日期: {batch_date}")
             
             contents = [str(r.get("state_content") or "").strip() or "（空）" for r in rows]
-            prompt = f"""以下为已到期的进行中状态，到期日期：{batch_date}
+            prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+
+以下为已到期的进行中状态，到期日期：{batch_date}
 将每条改写为简洁客观的过去时事实陈述，不新增信息，不编造内容。
 严格输出一个JSON数组，长度、顺序与输入完全一致，元素为纯字符串，无额外文本。
 
@@ -1062,7 +1078,9 @@ class DailyBatchProcessor:
                         self._persona_dialogue_prefix()
                         + memory_prefix
                         + session_framing
-                        + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+                        + f"""{CEDAR_PROJECT_BACKGROUND}
+
+请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在 150-600 字，内容丰富可写至上限，平淡日常满足 150 字即可。
 - 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
@@ -1148,7 +1166,9 @@ class DailyBatchProcessor:
                 return True, None
 
             memory_prefix = await self._memory_context_prefix()
-            prompt = self._persona_dialogue_prefix() + memory_prefix + f"""请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+            prompt = self._persona_dialogue_prefix() + memory_prefix + f"""{CEDAR_PROJECT_BACKGROUND}
+
+请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在150–400字，内容丰富可写至上限，平淡日常满足150字即可。
 - 完整保留关键互动细节、具体事实信息（数字、决策、名称、时间节点等），禁止空泛概括。
@@ -1530,7 +1550,9 @@ class DailyBatchProcessor:
             existing_lines.append(f"- id: {rid} | state_content: {sc or '（空）'}")
         existing_states_text = "\n".join(existing_lines) if existing_lines else "（无）"
 
-        prompt = self._persona_dialogue_prefix() + f"""以下是今日小传：
+        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+
+以下是今日小传：
 {text}
 
 当前激活中的时效状态（id 与正文，供 deactivate_ids / adjust_expire 引用；new_states 请勿与下列语义重复）：
@@ -2009,7 +2031,9 @@ class DailyBatchProcessor:
                     + "\n\n"
                 )
 
-            prompt = f"""请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照指定 JSON Schema 输出，禁止推理、禁止编造、禁止扩写。
+            prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+
+请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照指定 JSON Schema 输出，禁止推理、禁止编造、禁止扩写。
 {old_cards_block}今日小传（{batch_date}）：
 {summary_text}
 
@@ -2174,7 +2198,9 @@ few-shot 示例：
                 if self._settled_temporal_snippets
                 else "（无）"
             )
-            tl_prompt = f"""这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录整理。
+            tl_prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+
+这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录整理。
 今日小传（{batch_date}）：
 {summary_text}
 本日已结算的时效状态（客观陈述）：
@@ -2281,7 +2307,9 @@ content 强制要求：
             heading="【本批 chunk 摘要时间范围】",
             semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
         ) + chunk_input
-        prompt = self._persona_dialogue_prefix() + f"""【任务】
+        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+
+【任务】
 以下是今天按时间顺序的对话片段摘要。请只根据语义主题把 chunk_id 聚类：同一事件/话题放在同一组，不同事件/话题分开。
 
 【输入】
@@ -2564,7 +2592,9 @@ arousal:
                 _themes_str = " / ".join(EVENT_THEMES)
                 _emotions_str = " / ".join(EVENT_EMOTIONS)
                 _types_str = " / ".join(EVENT_TYPES)
-                split_prompt = self._persona_dialogue_prefix() + f"""【任务】
+                split_prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+
+【任务】
 以下是今天按时间顺序的对话片段摘要。请找出属于同一事件/话题的片段，将它们合并成独立完整的事件描述。每个事件必须标注由哪几条 chunk 合并而来（返回 chunk_ids 列表）。
 
 【输入】

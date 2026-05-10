@@ -86,6 +86,7 @@ def chunk_source_date_from_messages(messages: List[Dict[str, Any]]) -> date:
 try:
     from .database import (
         get_database,
+        get_latest_chunk_summary_text_for_session,
         get_memory_cards,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
@@ -98,6 +99,7 @@ except ImportError:
     # 如果相对导入失败，尝试绝对导入
     from memory.database import (
         get_database,
+        get_latest_chunk_summary_text_for_session,
         get_memory_cards,
         get_unsummarized_count_by_session,
         get_unsummarized_messages_by_session,
@@ -201,15 +203,31 @@ async def _active_character_id_fallback() -> str:
     return str(config.DEFAULT_CHARACTER_ID)
 
 
-async def _get_micro_batch_memory_prefix(user_id: str, character_id: str) -> str:
-    """chunk 摘要前注入关系锚点与激活记忆卡（current_status / relationships）。"""
+async def _get_micro_batch_memory_prefix(
+    user_id: str,
+    character_id: str,
+    *,
+    include_group_relationship_anchor: bool,
+    user_name: str,
+    char_name: str,
+) -> str:
+    """chunk 摘要前注入激活记忆卡；群聊注入三角关系锚点，私聊注入 user–char 一对一恋人关系锚点。"""
     dims = {
         "current_status": "用户近况",
         "relationships": "重要关系",
     }
-    lines = [
-        "【角色关系】南杉与Sirius是恋人，南杉与Clio也是恋人。Sirius与Clio是同伴关系，以南杉为核心。两人会互相吃醋、良性竞争，但不对立。",
-    ]
+    lines: List[str] = []
+    un = (user_name or "").strip() or DEFAULT_BATCH_USER_NAME
+    cn = (char_name or "").strip() or DEFAULT_BATCH_CHAR_NAME
+    if include_group_relationship_anchor:
+        lines.append(
+            "【角色关系】南杉与Sirius是恋人，南杉与Clio也是恋人。Sirius与Clio是同伴关系，以南杉为核心。两人会互相吃醋、良性竞争，但不对立。"
+        )
+    else:
+        lines.append(
+            f"【角色关系】「{un}」与「{cn}」为一对一私聊中的恋人关系；"
+            f"对话与摘要仅围绕此二人，勿引入群内其他助手或与本会话无关的角色。"
+        )
     try:
         for dim, label in dims.items():
             cards = await get_memory_cards(user_id, character_id, dim, limit=1)
@@ -218,11 +236,16 @@ async def _get_micro_batch_memory_prefix(user_id: str, character_id: str) -> str
                 lines.append(f"【{label}】{card['content']}")
     except Exception as e:
         logger.warning("微批记忆上下文前缀构建失败: %s", e)
+    if not lines:
+        return ""
     return "\n".join(lines) + "\n\n"
 
 
 async def _resolve_micro_batch_memory_prefix(
     messages: List[Dict[str, Any]],
+    *,
+    user_name: str = DEFAULT_BATCH_USER_NAME,
+    char_name: str = DEFAULT_BATCH_CHAR_NAME,
 ) -> str:
     uid = "default_user"
     for m in messages:
@@ -238,8 +261,30 @@ async def _resolve_micro_batch_memory_prefix(
             break
     if not cid:
         cid = await _active_character_id_fallback()
-    return await _get_micro_batch_memory_prefix(uid, cid)
+    sid = ""
+    for m in messages:
+        s = m.get("session_id")
+        if s is not None and str(s).strip():
+            sid = str(s).strip()
+            break
+    return await _get_micro_batch_memory_prefix(
+        uid,
+        cid,
+        include_group_relationship_anchor=_is_group_session(sid),
+        user_name=user_name,
+        char_name=char_name,
+    )
 
+
+# 上一轮 chunk 摘要注入上限（字符），避免撑爆摘要模型上下文
+_CHUNK_PREV_SUMMARY_CAP = 4000
+
+_CHUNK_PREV_SUMMARY_HEADER_PRIVATE = (
+    "【以下是上一轮摘要，仅供理解上下文，不再重复归纳】\n"
+)
+_CHUNK_PREV_SUMMARY_HEADER_GROUP = (
+    "【以下是上一轮群聊 chunk 摘要，仅供理解上下文与话题衔接，不再重复归纳】\n"
+)
 
 _CHUNK_SYSTEM_NOTICE_RULE = (
     "注意：对话记录中以「[系统通知]」开头的行**不是**用户或助手的实际发言，而是系统侧的元事件回执（例如审批结果，"
@@ -250,6 +295,16 @@ _CHUNK_SYSTEM_NOTICE_RULE = (
     "禁止仅写「一点」「1点」等易与凌晨混淆的说法来指代下午时段。\n"
     "输出客观凝练，无主观修饰，严格符合字数要求。"
 )
+
+_CEDAR_PROJECT_BACKGROUND = """【背景】
+本对话来自私人AI陪伴项目CedarStar/CedarClio。
+- 南杉：项目创建者
+- Clio（小克）：基于Claude/GLM的AI伴侣，猫系，南杉的恋人
+- Sirius：基于Gemini的AI伴侣，犬系，南杉的恋人
+- CedarStar/CedarClio：主系统，含记忆/对话/Mini App等模块
+其他相关人物：xiao_ke和Cipherd（繁星老师的小机）、yan_Oct（金老师/越越的小机）、
+guanlan（祸祸/小欢老师的小机）、Ash（Lutopia论坛创始人橙子老师的小机）。
+摘要时遇到以上名称，按此关系理解，不做额外解释。"""
 
 
 def _chunk_batch_first_last_created_display(
@@ -278,9 +333,22 @@ def _build_chunk_summary_user_prompt(
     user_name: str,
     memory_prefix: str,
     conversation_text: str,
+    previous_chunk_summary: Optional[str] = None,
 ) -> str:
     """群聊与私聊使用不同的 chunk 摘要任务说明（共用系统通知规则与字数要求）。"""
     mp = memory_prefix or ""
+    prev_block = ""
+    raw_prev = (previous_chunk_summary or "").strip()
+    if raw_prev:
+        prev_body = strip_lutopia_internal_memory_blocks(raw_prev)
+        if len(prev_body) > _CHUNK_PREV_SUMMARY_CAP:
+            prev_body = prev_body[:_CHUNK_PREV_SUMMARY_CAP] + "\n…（已截断）"
+        hdr = (
+            _CHUNK_PREV_SUMMARY_HEADER_GROUP
+            if is_group_session
+            else _CHUNK_PREV_SUMMARY_HEADER_PRIVATE
+        )
+        prev_block = hdr + prev_body + "\n\n"
     if is_group_session:
         framing = (
             f"以下是 Telegram 群聊中的对话材料。assistant 行对应助手人设「{char_name}」；"
@@ -298,7 +366,7 @@ def _build_chunk_summary_user_prompt(
             "（含数字、决策、名称、技术术语/报错信息），剔除语气词、重复内容与无效闲聊。\n"
         )
     return (
-        f"{framing}{mp}{task}"
+        f"{framing}{mp}{_CEDAR_PROJECT_BACKGROUND}\n\n{prev_block}{task}"
         f"{_CHUNK_SYSTEM_NOTICE_RULE}\n"
         f"【对话记录】\n{conversation_text}\n摘要（中文）:"
     )
@@ -381,6 +449,7 @@ class SummaryLLMInterface:
         tool_records: Optional[List[Dict[str, Any]]] = None,
         response_format: Optional[Dict[str, Any]] = None,
         is_group_session: bool = False,
+        previous_chunk_summary: Optional[str] = None,
     ) -> str:
         """
         生成消息摘要。
@@ -391,6 +460,7 @@ class SummaryLLMInterface:
             user_name: 用户侧显示名
             tool_records: 工具执行记录，内联注入到对应 assistant 消息之后
             is_group_session: 是否为 Telegram 群聊会话（使用群聊专用 chunk 说明）
+            previous_chunk_summary: 同会话上一轮未归档 chunk 摘要全文（可选），注入 prompt 作衔接背景
 
         Returns:
             str: 生成的摘要文本
@@ -451,6 +521,7 @@ class SummaryLLMInterface:
             user_name=user_name,
             memory_prefix=memory_prefix,
             conversation_text=conversation_text,
+            previous_chunk_summary=previous_chunk_summary,
         )
         
         try:
@@ -619,8 +690,20 @@ async def generate_summary_for_messages(
                 entry["id"] = int(msg["id"])
             formatted_messages.append(entry)
 
-        memory_prefix = await _resolve_micro_batch_memory_prefix(messages)
+        memory_prefix = await _resolve_micro_batch_memory_prefix(
+            messages,
+            user_name=user_name,
+            char_name=char_name,
+        )
         sid0 = str(messages[0].get("session_id") or "") if messages else ""
+        previous_chunk_summary: Optional[str] = None
+        if sid0:
+            try:
+                previous_chunk_summary = await get_latest_chunk_summary_text_for_session(
+                    sid0
+                )
+            except Exception as e:
+                logger.warning("读取上一轮 chunk 摘要失败（已跳过衔接块）: %s", e)
         ids = [int(m["id"]) for m in messages if m.get("id") is not None]
         tool_records: List[Dict[str, Any]] = []
         if ids:
@@ -636,6 +719,7 @@ async def generate_summary_for_messages(
             memory_prefix=memory_prefix,
             tool_records=tool_records,
             is_group_session=_is_group_session(sid0),
+            previous_chunk_summary=previous_chunk_summary,
         )
         
         return summary

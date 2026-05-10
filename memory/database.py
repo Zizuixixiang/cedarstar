@@ -2647,6 +2647,35 @@ class MessageDatabase:
             for r in rows
         ]
 
+    async def get_latest_chunk_summary_text_for_session(
+        self, session_id: str
+    ) -> Optional[str]:
+        """
+        同会话最新一条仍未归档（archived_by IS NULL）的 chunk 摘要正文。
+
+        微批生成新 chunk 前用于衔接「上一轮」语境；日终归档后同会话不再有未归档 chunk，则返回 None。
+        """
+        sid = str(session_id or "").strip()
+        if not sid:
+            return None
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT summary_text
+                FROM summaries
+                WHERE session_id = $1
+                  AND summary_type = 'chunk'
+                  AND archived_by IS NULL
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                sid,
+            )
+        if not row:
+            return None
+        t = str(row["summary_text"] or "").strip()
+        return t if t else None
+
     async def get_summaries_filtered(
         self,
         page: int = 1,
@@ -6033,6 +6062,12 @@ async def get_daily_summary_by_date(
 
 async def get_daily_summaries_by_date(batch_date: str) -> List[Dict[str, Any]]:
     return await get_database().get_daily_summaries_by_date(batch_date)
+
+
+async def get_latest_chunk_summary_text_for_session(
+    session_id: str,
+) -> Optional[str]:
+    return await get_database().get_latest_chunk_summary_text_for_session(session_id)
 
 
 async def get_summaries_filtered(

@@ -97,10 +97,8 @@ function buildPreviewSections(form) {
   const existLines = [];
   const cn = t(form.char_name);
   const ci = t(form.char_identity);
-  const ca = t(form.char_appearance);
   if (cn) existLines.push(`你的名字是 ${cn}。`);
   if (ci) existLines.push(ci);
-  if (ca) existLines.push(ca);
   if (existLines.length > 0) {
     sections.push({
       zone: 'char',
@@ -109,9 +107,17 @@ function buildPreviewSections(form) {
     });
   }
 
+  const innerImageParts = [];
   const cpers = t(form.char_personality);
-  if (cpers) {
-    sections.push({ zone: 'char', heading: '【内在人格】', body: cpers });
+  const ca = t(form.char_appearance);
+  if (cpers) innerImageParts.push(cpers);
+  if (ca) innerImageParts.push(`外在形象：\n${ca}`);
+  if (innerImageParts.length > 0) {
+    sections.push({
+      zone: 'char',
+      heading: '【内在人格和外在形象】',
+      body: innerImageParts.join('\n\n'),
+    });
   }
 
   const contractParts = [];
@@ -127,9 +133,15 @@ function buildPreviewSections(form) {
     });
   }
 
+  const relParts = [];
   const crels = t(form.char_relationships);
-  if (crels) {
-    sections.push({ zone: 'char', heading: '【关系与形象】', body: crels });
+  if (crels) relParts.push(crels);
+  if (relParts.length > 0) {
+    sections.push({
+      zone: 'char',
+      heading: '【机际关系】',
+      body: relParts.join('\n\n'),
+    });
   }
 
   const cnsfw = t(form.char_nsfw);
@@ -141,7 +153,7 @@ function buildPreviewSections(form) {
   const ctg = t(form.char_tools_guide);
   const com = t(form.char_offline_mode);
   if (ctg) toolsParts.push(`工具使用守则：\n${ctg}`);
-  if (com) toolsParts.push(`线下模式：\n${com}`);
+  if (com) toolsParts.push(`线下模式（在赛博世界接触）：\n${com}`);
   if (toolsParts.length > 0) {
     sections.push({
       zone: 'char',
@@ -661,12 +673,12 @@ function Persona() {
                     rows={4}
                     value={form.char_identity}
                     onChange={e => handleChange('char_identity', e.target.value)}
-                    placeholder="我是谁、本质设定、与世界的关系等（形象在下方「关系与形象」中编辑，预览时并入存在定义块）"
+                    placeholder="我是谁、本质设定、与世界的关系等"
                   />
                 </div>
               </PersonaSubBlock>
 
-              <PersonaSubBlock slug="[ INNER ]" title="内在人格">
+              <PersonaSubBlock slug="[ INNER ]" title="内在人格和外在形象">
                 <div className="field-row">
                   <label className="field-label">内在人格</label>
                   <textarea
@@ -675,6 +687,16 @@ function Persona() {
                     value={form.char_personality}
                     onChange={e => handleChange('char_personality', e.target.value)}
                     placeholder="性格、动机、价值观等稳定人格内核"
+                  />
+                </div>
+                <div className="field-row">
+                  <label className="field-label">外在形象</label>
+                  <textarea
+                    className="field-textarea"
+                    rows={3}
+                    value={form.char_appearance}
+                    onChange={e => handleChange('char_appearance', e.target.value)}
+                    placeholder="外貌、穿着、视觉特征（预览在「内在人格和外在形象」块展示）"
                   />
                 </div>
               </PersonaSubBlock>
@@ -702,7 +724,7 @@ function Persona() {
                 </div>
               </PersonaSubBlock>
 
-              <PersonaSubBlock slug="[ REL ]" title="关系与形象">
+              <PersonaSubBlock slug="[ REL ]" title="机际关系">
                 <div className="field-row">
                   <label className="field-label">机际关系</label>
                   <textarea
@@ -710,17 +732,7 @@ function Persona() {
                     rows={3}
                     value={form.char_relationships}
                     onChange={e => handleChange('char_relationships', e.target.value)}
-                    placeholder="与其他角色、用户或实体的关系（预览为「关系与形象」块，仅关系文）"
-                  />
-                </div>
-                <div className="field-row">
-                  <label className="field-label">外在形象</label>
-                  <textarea
-                    className="field-textarea"
-                    rows={3}
-                    value={form.char_appearance}
-                    onChange={e => handleChange('char_appearance', e.target.value)}
-                    placeholder="外貌、穿着、视觉特征（预览并入「存在定义」，不重复出现在关系块）"
+                    placeholder="与其他角色、用户或实体的关系"
                   />
                 </div>
               </PersonaSubBlock>
@@ -750,7 +762,7 @@ function Persona() {
                   />
                 </div>
                 <div className="field-row">
-                  <label className="field-label">线下模式</label>
+                  <label className="field-label">线下模式（在赛博世界接触）</label>
                   <textarea
                     className="field-textarea"
                     rows={3}
