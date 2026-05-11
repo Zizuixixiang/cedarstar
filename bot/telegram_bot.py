@@ -408,7 +408,9 @@ class TelegramBot:
         # 群聊触发去重：避免同一消息/信号在短时间内被重复处理导致重复调用 LLM。
         self._group_user_seen: Dict[str, float] = {}
         self._group_peer_seen: Dict[str, float] = {}
+        self._group_peer_reply_seen: Dict[str, float] = {}
         self._group_seen_ttl_sec: float = 20.0
+        self._group_peer_segment_cooldown_sec: float = 3.0
         
         logger.info("Telegram 机器人初始化完成")
 
@@ -421,6 +423,38 @@ class TelegramBot:
         if key in bucket:
             return False
         bucket[key] = now
+        return True
+
+    def _mark_group_peer_reply_seen(
+        self, *, chat_id: str, peer_sender: str, peer_message_id: str
+    ) -> bool:
+        """
+        为同一条 peer bot 发言提供跨 Telegram update / HTTP relay 的接话幂等。
+
+        同一个助手回复可能按换行拆成多条 Telegram 消息；短冷却用于把紧邻分段视作同一轮发言，
+        避免每个分段都重新掷一次随机插话。
+        """
+        peer_sender_norm = str(peer_sender or "").strip().lower()
+        msg_id_norm = str(peer_message_id or "").strip()
+        if not peer_sender_norm or not msg_id_norm:
+            return True
+        now = time.time()
+        expired = [
+            k
+            for k, ts in self._group_peer_reply_seen.items()
+            if now - ts > self._group_seen_ttl_sec
+        ]
+        for k in expired:
+            self._group_peer_reply_seen.pop(k, None)
+        segment_key = f"segment:{chat_id}:{peer_sender_norm}"
+        segment_ts = self._group_peer_reply_seen.get(segment_key)
+        if segment_ts is not None and now - segment_ts <= self._group_peer_segment_cooldown_sec:
+            return False
+        exact_key = f"message:{chat_id}:{peer_sender_norm}:{msg_id_norm}"
+        if exact_key in self._group_peer_reply_seen:
+            return False
+        self._group_peer_reply_seen[exact_key] = now
+        self._group_peer_reply_seen[segment_key] = now
         return True
 
     @staticmethod
@@ -492,6 +526,55 @@ class TelegramBot:
             needle = f"tg://user?id={int(me_id)}"
             if needle.lower() in re.sub(r"\s+", "", c):
                 return True
+        return False
+
+    @staticmethod
+    def _shared_group_text_has_explicit_mention(content: str) -> bool:
+        raw = str(content or "")
+        c = raw.lower().replace("\u200b", "").replace("\ufeff", "")
+        if re.search(r"(?<![\w.])@[A-Za-z0-9_]{5,32}\b", c):
+            return True
+        return "tg://user?id=" in re.sub(r"\s+", "", c)
+
+    def _recent_user_message_targeted_peer_only(
+        self,
+        recent: List[Dict[str, Any]],
+        *,
+        trigger_row: Optional[Dict[str, Any]],
+        me_username: str,
+        me_id: Optional[int],
+    ) -> bool:
+        """
+        随机插话只用于「用户单独 @ 了另一名 bot」后的补充发言。
+
+        recent 为 shared_group_messages 倒序；从触发本轮的 peer bot 消息向旧消息查找最近用户句。
+        该用户句必须有显式 mention，且不能 mention 当前 bot。
+        """
+        rows = list(recent or [])
+        if not rows:
+            return False
+        start_idx = 0
+        trigger_id = None if not trigger_row else str(trigger_row.get("id") or "")
+        trigger_mid = None if not trigger_row else str(trigger_row.get("tg_message_id") or "")
+        if trigger_id or trigger_mid:
+            for i, row in enumerate(rows):
+                row_id = str(row.get("id") or "")
+                row_mid = str(row.get("tg_message_id") or "")
+                if (trigger_id and row_id == trigger_id) or (trigger_mid and row_mid == trigger_mid):
+                    start_idx = i + 1
+                    break
+        for row in rows[start_idx:]:
+            sender = str(row.get("sender") or "").strip().lower()
+            if sender != "user":
+                continue
+            content = str(row.get("content") or "")
+            if not self._shared_group_text_has_explicit_mention(content):
+                return False
+            return not self._shared_group_text_mentions_this_bot(
+                content,
+                me_username=me_username,
+                me_id=me_id,
+            )
         return False
 
     async def _should_ignore_group_user_mention(
@@ -660,6 +743,7 @@ class TelegramBot:
         *,
         chat_id: str,
         round_count: int,
+        tg_message_id: Optional[str] = None,
     ) -> None:
         urls = config.TELEGRAM_GROUP_PEER_RELAY_URLS
         token = config.TELEGRAM_GROUP_PEER_RELAY_TOKEN
@@ -670,6 +754,8 @@ class TelegramBot:
             "chat_id": str(chat_id),
             "round_count": max(0, int(round_count)),
         }
+        if tg_message_id:
+            payload["tg_message_id"] = str(tg_message_id)
 
         headers = {
             "Content-Type": "application/json",
@@ -929,7 +1015,7 @@ class TelegramBot:
         message,
         session_id: str,
     ) -> bool:
-        """群聊中记录另一名 bot；@ 本 bot 必接话，否则在开启插话时按概率接话一轮。"""
+        """群聊中记录另一名 bot；@ 本 bot 必接话；用户单独 @ 对端后才按概率插话。"""
         chat_type = getattr(message.chat, "type", "")
         sender = getattr(message, "from_user", None)
         if chat_type not in ("group", "supergroup") or not sender or not getattr(sender, "is_bot", False):
@@ -945,9 +1031,10 @@ class TelegramBot:
         if not content:
             return True
         db = get_database()
+        peer_sender = self._shared_sender_peer()
         await db.insert_shared_group_message(
             chat_id=str(message.chat.id),
-            sender=self._shared_sender_peer(),
+            sender=peer_sender,
             content=content,
             tg_message_id=str(message.message_id),
             platform=Platform.TELEGRAM,
@@ -966,7 +1053,35 @@ class TelegramBot:
         mentioned = self._shared_group_text_mentions_this_bot(
             content, me_username=me_username, me_id=me_id
         )
+        if not self._mark_group_peer_reply_seen(
+            chat_id=str(message.chat.id),
+            peer_sender=peer_sender,
+            peer_message_id=str(message.message_id),
+        ):
+            logger.info(
+                "群聊 peer bot 消息已由另一入口处理，跳过接话: chat_id=%s sender=%s message_id=%s",
+                message.chat.id,
+                peer_sender,
+                message.message_id,
+            )
+            return True
         if not mentioned:
+            recent = await db.get_recent_shared_group_messages(str(message.chat.id), limit=12)
+            trigger_row = None
+            for row in recent:
+                if (
+                    str(row.get("sender") or "").strip().lower() == peer_sender
+                    and str(row.get("tg_message_id") or "") == str(message.message_id)
+                ):
+                    trigger_row = row
+                    break
+            if not self._recent_user_message_targeted_peer_only(
+                recent,
+                trigger_row=trigger_row,
+                me_username=me_username,
+                me_id=me_id,
+            ):
+                return True
             if not await self._group_chat_should_random_interject():
                 return True
 
@@ -1008,9 +1123,19 @@ class TelegramBot:
                 platform=Platform.TELEGRAM,
                 thinking=gen.thinking,
             )
+            await db.insert_shared_group_message(
+                chat_id=str(message.chat.id),
+                sender=self._shared_sender_self(),
+                content=gen.reply,
+                tg_message_id=assistant_mid,
+                platform=Platform.TELEGRAM,
+                thinking=gen.thinking,
+                vision_processed=1,
+            )
             await self._relay_group_assistant_message(
                 chat_id=str(message.chat.id),
                 round_count=new_round_count,
+                tg_message_id=assistant_mid,
             )
         return True
 
@@ -1028,7 +1153,10 @@ class TelegramBot:
         if not chat_id:
             return {"status": "ignored_empty"}
         round_count_raw = payload.get("round_count")
-        peer_seen_key = f"{chat_id}:{sender_app_id}:{round_count_raw}"
+        peer_seen_key = (
+            f"{chat_id}:{sender_app_id}:{round_count_raw}:"
+            f"{str(payload.get('tg_message_id') or '').strip()}"
+        )
         if not self._mark_group_seen(self._group_peer_seen, peer_seen_key):
             return {"status": "signal_duplicate_ignored"}
         if await db.get_config("group_chat_silent_mode", "0") == "1":
@@ -1046,11 +1174,11 @@ class TelegramBot:
             return {"status": "signal_no_bot"}
         if round_count + 1 > max_rounds:
             return {"status": "signal_round_limited"}
-        new_round_count = await db.increment_group_chat_round_count(chat_id, 1)
         return await self._handle_peer_group_signal_reply(
             chat_id=chat_id,
             bot_obj=bot_obj,
-            new_round_count=new_round_count,
+            round_count=round_count,
+            peer_tg_message_id=str(payload.get("tg_message_id") or "").strip() or None,
         )
 
     async def _handle_peer_group_signal_reply(
@@ -1058,7 +1186,8 @@ class TelegramBot:
         *,
         chat_id: str,
         bot_obj,
-        new_round_count: int,
+        round_count: int,
+        peer_tg_message_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         """收到 peer signal 后，基于共享群聊上下文触发本端回复。"""
         db = get_database()
@@ -1074,25 +1203,45 @@ class TelegramBot:
         # 仅处理「对端 bot 刚写入共享表」的接力；recent 为 created_at DESC。
         if not peer_rows:
             return {"status": "signal_last_not_peer"}
+        trigger_row = None
+        if peer_tg_message_id:
+            for row in peer_rows:
+                if str(row.get("tg_message_id") or "") == peer_tg_message_id:
+                    trigger_row = row
+                    break
+            if trigger_row is None:
+                return {"status": "signal_peer_message_missing"}
+        else:
+            trigger_row = peer_rows[0]
         try:
             me = await bot_obj.get_me()
         except Exception:
             me = None
         me_username = (getattr(me, "username", "") or "").strip().lower()
         me_id = getattr(me, "id", None) if me else None
-        # 在窗口内从「新到旧」找第一条显式点到本 bot 的对端发言；避免仅看全局最新一条 peer
-        # 时，被对端连续两条中的前一条（无 @）挡住而误判 signal_peer_not_mention_me。
-        mention_row = None
-        for row in peer_rows:
-            if self._shared_group_text_mentions_this_bot(
-                str(row.get("content") or ""),
+        mentioned_me = self._shared_group_text_mentions_this_bot(
+            str(trigger_row.get("content") or ""),
+            me_username=me_username,
+            me_id=me_id,
+        )
+        trigger_mid = (
+            str(trigger_row.get("tg_message_id") or "").strip()
+            or str(trigger_row.get("id") or "").strip()
+        )
+        if not self._mark_group_peer_reply_seen(
+            chat_id=chat_id,
+            peer_sender=peer_sender,
+            peer_message_id=trigger_mid,
+        ):
+            return {"status": "signal_peer_duplicate_ignored"}
+        if not mentioned_me:
+            if not self._recent_user_message_targeted_peer_only(
+                recent,
+                trigger_row=trigger_row,
                 me_username=me_username,
                 me_id=me_id,
             ):
-                mention_row = row
-                break
-        mentioned_me = mention_row is not None
-        if not mentioned_me:
+                return {"status": "signal_peer_not_user_targeted_peer"}
             if not await self._group_chat_should_random_interject():
                 return {"status": "signal_peer_not_mention_me"}
 
@@ -1100,6 +1249,7 @@ class TelegramBot:
         prompt = "[群聊接话信号] 请基于最新群聊上下文自然接话，避免重复前文。"
         fake_message = _SendOnlyTelegramMessage(bot_obj, int(chat_id))
         signal_mid = f"peer_signal_{int(datetime.now().timestamp())}"
+        new_round_count = await db.increment_group_chat_round_count(chat_id, 1)
         gen = await self._generate_reply_from_buffer(
             session_id=session_id,
             combined_raw=prompt,
@@ -1145,6 +1295,7 @@ class TelegramBot:
         await self._relay_group_assistant_message(
             chat_id=chat_id,
             round_count=new_round_count,
+            tg_message_id=assistant_mid,
         )
         return {"status": "signal_replied"}
 
@@ -3288,6 +3439,7 @@ class TelegramBot:
                 await self._relay_group_assistant_message(
                     chat_id=str(base_message.chat.id),
                     round_count=current_round,
+                    tg_message_id=assistant_mid,
                 )
         if gen.reply and not gen.assistant_message_id:
             try:

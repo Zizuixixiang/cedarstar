@@ -19,6 +19,7 @@ class PeerGroupMessage(BaseModel):
     sender_app_id: str
     chat_id: str
     round_count: Optional[int] = None
+    tg_message_id: Optional[str] = None
 
 
 @router.post("/group-message")
