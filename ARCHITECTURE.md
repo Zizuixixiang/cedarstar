@@ -352,6 +352,8 @@ Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `l
 
 Settings 页管理 API 配置，Config 页管理运行参数，包括缓冲延迟、摘要阈值、最近原文条数与 Telegram 分段参数。助手配置页「自主活动」区块提供「星露谷模式」闸刀按钮，读写 `config.stardew_autoplay`，对应接口 `GET/POST /api/stardew/autoplay`。
 
+Mini App「时光机历史」（`/history`）：**私聊** tab 调 **`GET /api/history`**，服务端经 **`memory/database.get_messages_filtered`** 查主库 **`messages`**，固定排除 **`session_id` 以 `telegram_group_` 开头** 的 Telegram 群聊行（群聊与私聊同表存储，避免私聊列表混入群内消息）；**群聊** tab 调 **`GET /api/messages?type=group`**（`get_messages_by_type`，数据源为共享群消息表链路，与上者分离）。
+
 Memory 页的 summaries 列表支持对 chunk 点星收藏；收藏状态会通过 `PATCH /api/memory/summaries/{id}/star` 同步到引用该 chunk 的长期事件与 Chroma metadata。
 
 Memory 页长期记忆列表的日期显示口径来自 Chroma metadata：优先 `date`，缺失时回退 `last_access_ts`。因此长期记忆日期相关修复需优先保证 Chroma metadata 完整（而不仅是 PostgreSQL 镜像表字段）。

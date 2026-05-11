@@ -2005,6 +2005,9 @@ class MessageDatabase:
         """
         带过滤条件的消息查询（SQL 层过滤 + LIMIT/OFFSET 分页）。
 
+        固定排除 ``session_id`` 以 ``telegram_group_`` 开头的行（Telegram 群聊），
+        供 Mini App「私聊」时光机；群聊另见 ``get_messages_by_type`` + ``/api/messages``。
+
         Returns:
             {"total": int, "messages": List[Dict]}
         """
@@ -2040,6 +2043,10 @@ class MessageDatabase:
             conditions.append(f"created_at::date <= ${idx}")
             params.append(date_to)
             idx += 1
+
+        # Mini App「时光机」私聊 tab 走本函数；群聊 session 为 telegram_group_*，另有 /api/messages?type=group
+        # 查 shared_group_messages。若不排除，私聊列表会混入群内落库的 messages 行。
+        conditions.append("(session_id IS NULL OR session_id NOT LIKE 'telegram_group_%')")
 
         where_clause = ("WHERE " + " AND ".join(conditions)) if conditions else ""
 

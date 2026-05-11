@@ -388,6 +388,8 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 - 摘要 Tab 含「全部会话 / 群聊 / 私聊」筛选；「群聊」小标签与「本轮」同排时等高样式；记忆卡片 Tab 会刷新 trace 并对命中维度显示「本轮」。
 - 前端用蓝色「本轮」标签标记最近一次 context 实际注入的摘要和长期记忆。
 
+「时光机历史」（`/history`）：私聊列表为 **`GET /api/history`** → **`memory/database.get_messages_filtered`**，查主库 **`messages`** 时固定排除 **`session_id` 前缀 `telegram_group_`** 的 Telegram 群聊行；群聊列表为 **`GET /api/messages?type=group`**（`get_messages_by_type`，共享群消息）。详见 `ARCHITECTURE.md` §7。
+
 ### 7.4 待审批
 
 待审批页（`/approvals`）展示来自内部记忆工具写入操作与 MCP `api_admin` 管理写入工具的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。
