@@ -39,6 +39,7 @@ from memory.database import (
     get_unsummarized_messages_desc,
     get_recent_summarized_messages_desc,
 )
+from memory.micro_batch import fetch_active_persona_display_names
 from memory.shanghai_dt import (
     format_created_at_range_preamble,
     format_shanghai_clock_24h,
@@ -107,17 +108,56 @@ TOOL_ORAL_COACHING_BLOCK = (
 )
 
 TELEGRAM_GROUP_CONTINUATION_DIRECTIVE = (
-    "【群聊续话】若下方对话历史里已有你（助手）自己的发言，本轮续写必须紧接上一条往下推进情节或观点，"
+    "【群聊续话】我在下方近期群聊原文中会看到，每句开头用方括号标出说话人："
+    "括号内是**用户**在人设中的称呼；另外两方固定为 **[Clio]** 与 **[Sirius]**，分别指两名不同的助手（不是用户）。"
+    "与**我当前使用的助手标签**相一致的那一方只会是 [Clio]、[Sirius] 二者之一；该标签下的发言视为**我**已经说过的话。"
+    "若历史中已有这样的发言，我本轮续写须紧接上一条往下推进情节或观点，"
     "不要复述、改写或换一种说法重复同一层意思；避免车轱辘话，让对话向前走。"
 )
 
 TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE = (
     "【跨会话情境说明】本块除「今日 chunk 摘要」外，另含来自 Telegram 另一会话（私聊或群聊）的近期原文摘录，"
-    "用于把握两边话题的连续性；该摘录不是当前输入框里的逐条消息，参与者与语气可能与当前会话不同。"
-    "生成回复时仍以**当前用户消息所在会话**为准：在群聊中不要默认对方已看到私聊里才说过的事，除非用户明确提起；"
-    "在私聊中不要把群里的玩笑或多人起哄直接当成对用户个人的承诺。"
-    "可自然呼应另一边的信息，但不要编造另一会话中未出现的细节。"
+    "供我把握两边话题的连续性；该摘录不是当前输入框里的逐条消息，参与者与语气可能与当前会话不同。"
+    "我生成回复时仍须以**当前用户消息所在会话**为准：我在群聊中不要默认对方已看到私聊里才说过的事，除非用户明确提起；"
+    "我在私聊中不要把群里的玩笑或多人起哄直接当成对用户个人的承诺。"
+    "我可自然呼应另一边的信息，但不要编造另一会话中未出现的细节。"
 )
+
+
+async def _group_transcript_user_bracket_label() -> str:
+    """群聊 transcript 中用户行括号标签：来自激活 chat 人设的 user_name。"""
+    _, user_name = await fetch_active_persona_display_names()
+    un = (user_name or "").strip()
+    return un if un else "用户"
+
+
+def _group_transcript_speaker_bracket(sender_raw: str, *, user_bracket_label: str) -> str:
+    """shared_group_messages.sender → transcript 内方括号中的说话人（两助手固定为 Clio / Sirius）。"""
+    s = str(sender_raw or "").strip().lower()
+    if s == "user":
+        ub = (user_bracket_label or "").strip()
+        return ub if ub else "用户"
+    if s == "clio":
+        return "Clio"
+    if s == "sirius":
+        return "Sirius"
+    tail = str(sender_raw or "").strip()
+    return tail if tail else "?"
+
+
+async def _telegram_group_chunk_viewpoint_line() -> str:
+    """注入「## 群聊摘要」下：第一人称说明方括号标签与「我」在摘要中的指代（与 chunk 摘要任务、人设叙述一致）。"""
+    char_name, user_name = await fetch_active_persona_display_names()
+    ub = (user_name or "").strip() or "用户"
+    cn = (char_name or "").strip() or "助手"
+    relay = get_database()._shared_summary_actor()
+    me_relay = "Clio" if relay == "clio" else "Sirius"
+    peer_relay = "Sirius" if relay == "clio" else "Clio"
+    return (
+        f"（我在本节群聊摘录中会看到方括号开头的说话人："
+        f"**[{ub}]** 指用户；**[{me_relay}]**、**[{peer_relay}]** 固定指两名助手。我在对话中使用的助手标签是 **{me_relay}**；"
+        f"我在人设中的名字是 **{cn}**。若摘要正文里出现第一人称「我」，在无特别声明时即指 **{cn}**（我的人设视角），不要误读成另一名助手或用户。）"
+    )
 
 TTS_PROMPT_BLOCK = """【TTS语音输出说明】
 当前系统已开启语音输出，你可以自由穿插文字和语音消息。
@@ -1881,11 +1921,17 @@ class ContextBuilder:
 
         merged.sort(key=_sort_key)
 
+        user_bracket = ""
+        if peer.startswith("telegram_group_"):
+            user_bracket = await _group_transcript_user_bracket_label()
+
         lines: List[str] = []
         for row in merged:
             if peer.startswith("telegram_group_"):
                 sender = str(row.get("sender") or "").strip().lower()
-                role_cn = "用户" if sender == "user" else "助手"
+                speaker = _group_transcript_speaker_bracket(
+                    sender, user_bracket_label=user_bracket
+                )
                 raw = str(row.get("content") or "").strip()
                 if sender == "user":
                     text = str(
@@ -1924,7 +1970,10 @@ class ContextBuilder:
             one = str(text).replace("\r\n", "\n").strip()
             if len(one) > 900:
                 one = one[:900] + "…"
-            lines.append(f"- **{role_cn}**（{clock}）：{one}")
+            if peer.startswith("telegram_group_"):
+                lines.append(f"- **[{speaker}]**（{clock}）：{one}")
+            else:
+                lines.append(f"- **{role_cn}**（{clock}）：{one}")
 
         body = "\n".join(lines)
         if len(body) > _TELEGRAM_PEER_RECENT_MAX_CHARS:
@@ -2055,6 +2104,7 @@ class ContextBuilder:
                     )
                 if group_sections:
                     sections.append("## 群聊摘要")
+                    sections.append(await _telegram_group_chunk_viewpoint_line())
                     sections.append(
                         format_created_at_range_preamble(
                             group_summaries,
@@ -2067,6 +2117,7 @@ class ContextBuilder:
                 # 私聊会话：把群聊块放前，私聊块贴近末尾；对端群聊原文插在群聊 chunk 与私聊 chunk 之间
                 if group_sections:
                     sections.append("## 群聊摘要")
+                    sections.append(await _telegram_group_chunk_viewpoint_line())
                     sections.append(
                         format_created_at_range_preamble(
                             group_summaries,
@@ -2489,28 +2540,34 @@ class ContextBuilder:
                             break
                 if not merged:
                     return []
+                user_bracket = await _group_transcript_user_bracket_label()
                 out: List[Dict[str, Any]] = []
                 for row in merged:
                     sender = str(row.get("sender") or "").strip().lower()
                     content = str(row.get("content") or "")
                     if not content:
                         continue
+                    label = _group_transcript_speaker_bracket(
+                        sender, user_bracket_label=user_bracket
+                    )
                     if sender == "user":
-                        out.append(
-                            {
-                                "role": "user",
-                                "content": inject_user_sent_at_into_llm_content(
-                                    content, row.get("created_at")
-                                ),
-                            }
-                        )
+                        body = str(
+                            inject_user_sent_at_into_llm_content(
+                                content, row.get("created_at")
+                            )
+                        ).strip()
                     else:
-                        out.append(
-                            {
-                                "role": "assistant",
-                                "content": strip_lutopia_behavior_appendix(content),
-                            }
-                        )
+                        body = str(
+                            strip_lutopia_behavior_appendix(content)
+                        ).strip()
+                    if not body:
+                        continue
+                    out.append(
+                        {
+                            "role": "user",
+                            "content": f"[{label}]\n{body}",
+                        }
+                    )
                 return out
 
             recent_messages = await get_unsummarized_messages_desc(
