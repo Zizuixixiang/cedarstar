@@ -257,7 +257,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 天气
 - 微博热搜
 - 网页搜索
-- X (Twitter)（11 个工具：发推、点赞、回复、搜索、时间线、关注/取关、粉丝列表等，共享每日配额）
+- X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 
 另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。
@@ -270,7 +270,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 4.3 AI 自主活动（Idle Activity）
 
-进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
+进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。空闲阈值由 `memory/database.get_latest_idle_user_activity()` 统一判断：主库 `messages` 的真人用户消息（`role='user'` 且 `user_id!='system'`）和共享群表 `shared_group_messages.sender='user'` 取最新时间，私聊/普通通道与群聊都超过阈值才触发；触发提示会注明最后一条活动来自群聊或私聊/普通通道。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
 `[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致）。
 
@@ -388,7 +388,7 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 - 摘要 Tab 含「全部会话 / 群聊 / 私聊」筛选；「群聊」小标签与「本轮」同排时等高样式；记忆卡片 Tab 会刷新 trace 并对命中维度显示「本轮」。
 - 前端用蓝色「本轮」标签标记最近一次 context 实际注入的摘要和长期记忆。
 
-「时光机历史」（`/history`）：私聊列表为 **`GET /api/history`** → **`memory/database.get_messages_filtered`**，查主库 **`messages`** 时固定排除 **`session_id` 前缀 `telegram_group_`** 的 Telegram 群聊行；群聊列表为 **`GET /api/messages?type=group`**（`get_messages_by_type`，共享群消息）。详见 `ARCHITECTURE.md` §7。
+「时光机历史」（`/history`）：私聊列表为 **`GET /api/history`** → **`memory/database.get_messages_filtered`**，查主库 **`messages`** 时固定排除 **`session_id` 前缀 `telegram_group_`** 的 Telegram 群聊行；群聊列表为 **`GET /api/messages?type=group`**（`get_messages_by_type`，共享群消息）。编辑/删除按 tab 分流：私聊走 `/api/history/{id}`，群聊走 `PATCH /api/messages/{id}` 与 `DELETE /api/messages/{id}`，直接按共享群表主键更新或删除；前端删除使用自定义确认弹窗，不使用 `window.confirm`。详见 `ARCHITECTURE.md` §7。
 
 ### 7.4 待审批
 

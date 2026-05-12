@@ -934,6 +934,13 @@ input[type='date'].date-select {
   margin-bottom: 6px;
 }
 
+.history-modal-copy {
+  margin: 0 0 18px;
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.5;
+}
+
 .history-modal-textarea {
   width: 100%;
   min-height: 80px;
@@ -986,6 +993,16 @@ input[type='date'].date-select {
 
 .history-modal-btn.primary:hover:not(:disabled) {
   background: #444444;
+}
+
+.history-modal-btn.danger {
+  background: #fff0f0;
+  border-color: #b91c1c;
+  color: #b91c1c;
+}
+
+.history-modal-btn.danger:hover:not(:disabled) {
+  background: #fee2e2;
 }
 
 .history-modal-btn:disabled {

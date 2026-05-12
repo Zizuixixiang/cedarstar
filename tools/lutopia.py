@@ -786,6 +786,7 @@ async def append_tool_exchange_to_messages(
             out = await execute_get_ai_news_function_call(nm, args_news)
         elif nm in (
             "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
+            "retweet_tweet", "unretweet_tweet",
             "reply_tweet", "search_tweets", "get_timeline", "get_user",
             "follow_user", "unfollow_user", "get_followers",
         ):

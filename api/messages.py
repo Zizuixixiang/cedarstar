@@ -7,12 +7,20 @@ from datetime import date
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 router = APIRouter()
 
 
 def create_response(success: bool, data: Any = None, message: str = "") -> Dict[str, Any]:
     return {"success": success, "data": data, "message": message}
+
+
+class MessageUpdateBody(BaseModel):
+    """部分更新：至少提供 content 或 thinking 之一。"""
+
+    content: Optional[str] = None
+    thinking: Optional[str] = None
 
 
 @router.get("")
@@ -56,3 +64,40 @@ async def get_messages(
             "items": result.get("items", []),
         },
     )
+
+
+@router.patch("/{message_id}")
+async def patch_group_message(message_id: int, body: MessageUpdateBody):
+    """更新单条群聊共享消息的正文和/或思维链。"""
+    if body.content is None and body.thinking is None:
+        return create_response(False, None, "至少提供 content 或 thinking 之一")
+
+    from memory.database import get_database
+
+    db = get_database()
+    try:
+        ok = await db.update_shared_group_message_by_id(
+            message_id,
+            content=body.content,
+            thinking=body.thinking,
+        )
+    except ValueError as e:
+        return create_response(False, None, str(e))
+    if not ok:
+        return create_response(False, None, "消息不存在或未修改")
+    return create_response(True, {"id": message_id}, "更新成功")
+
+
+@router.delete("/{message_id}")
+async def delete_group_message(message_id: int):
+    """删除单条群聊共享消息。"""
+    from memory.database import get_database
+
+    db = get_database()
+    try:
+        ok = await db.delete_shared_group_message_by_id(message_id)
+    except ValueError as e:
+        return create_response(False, None, str(e))
+    if not ok:
+        return create_response(False, None, "消息不存在")
+    return create_response(True, {"id": message_id}, "删除成功")

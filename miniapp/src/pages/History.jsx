@@ -199,28 +199,26 @@ function MessageBubble({ message, keyword, onEdit, onDelete, actionBusyId, messa
         </>
       )}
 
-      {messageType === 'private' ? (
-        <div className={`message-toolbar ${isUser ? 'align-end' : 'align-start'}`}>
-          <button
-            type="button"
-            className="message-toolbar-btn"
-            disabled={busy}
-            onClick={() => {
-              onEdit(message);
-            }}
-          >
-            编辑
-          </button>
-          <button
-            type="button"
-            className="message-toolbar-btn danger"
-            disabled={busy}
-            onClick={() => onDelete(message)}
-          >
-            删除
-          </button>
-        </div>
-      ) : null}
+      <div className={`message-toolbar ${isUser ? 'align-end' : 'align-start'}`}>
+        <button
+          type="button"
+          className="message-toolbar-btn"
+          disabled={busy}
+          onClick={() => {
+            onEdit(message);
+          }}
+        >
+          编辑
+        </button>
+        <button
+          type="button"
+          className="message-toolbar-btn danger"
+          disabled={busy}
+          onClick={() => onDelete(message)}
+        >
+          删除
+        </button>
+      </div>
     </div>
   );
 }
@@ -311,6 +309,7 @@ function History() {
   const [editingMessage, setEditingMessage] = useState(null);
   const [editContent, setEditContent] = useState('');
   const [editThinking, setEditThinking] = useState('');
+  const [pendingDeleteMessage, setPendingDeleteMessage] = useState(null);
   const [actionBusyId, setActionBusyId] = useState(null);
 
   // 防抖引用
@@ -637,10 +636,16 @@ function History() {
     setActionBusyId(editingMessage.id);
     try {
       const payload = { content: editContent };
-      if (editingMessage.role === 'assistant') {
+      const isAssistantMessage = messageType === 'group'
+        ? String(editingMessage.sender || '').toLowerCase() !== 'user'
+        : editingMessage.role === 'assistant';
+      if (isAssistantMessage) {
         payload.thinking = editThinking;
       }
-      const res = await apiFetch(`/api/history/${editingMessage.id}`, {
+      const endpoint = messageType === 'group'
+        ? `/api/messages/${editingMessage.id}`
+        : `/api/history/${editingMessage.id}`;
+      const res = await apiFetch(endpoint, {
         method: 'PATCH',
         body: JSON.stringify(payload)
       });
@@ -672,6 +677,7 @@ function History() {
     editThinking,
     addToast,
     fetchHistory,
+    messageType,
     selectedPlatform,
     searchKeyword,
     dateRangeOption,
@@ -681,19 +687,28 @@ function History() {
     pageSize
   ]);
 
-  const handleDeleteMessage = useCallback(
+  const handleDeleteMessage = useCallback((msg) => {
+    setPendingDeleteMessage(msg);
+  }, []);
+
+  const handleConfirmDelete = useCallback(
     async (msg) => {
-      if (!window.confirm('确定删除这条消息？此操作不可恢复。')) {
+      const target = msg || pendingDeleteMessage;
+      if (!target) {
         return;
       }
-      setActionBusyId(msg.id);
+      setActionBusyId(target.id);
       try {
-        const res = await apiFetch(`/api/history/${msg.id}`, { method: 'DELETE' });
+        const endpoint = messageType === 'group'
+          ? `/api/messages/${target.id}`
+          : `/api/history/${target.id}`;
+        const res = await apiFetch(endpoint, { method: 'DELETE' });
         const data = await res.json();
         if (!data.success) {
           throw new Error(data.message || '删除失败');
         }
         addToast('已删除', 'success');
+        setPendingDeleteMessage(null);
         const newTotal = Math.max(0, totalItems - 1);
         const maxPage = Math.ceil(newTotal / pageSize) || 1;
         const nextPage = Math.min(currentPage, maxPage);
@@ -717,9 +732,11 @@ function History() {
     },
     [
       addToast,
+      pendingDeleteMessage,
       totalItems,
       pageSize,
       currentPage,
+      messageType,
       selectedPlatform,
       searchKeyword,
       dateRangeOption,
@@ -774,7 +791,9 @@ function History() {
               onChange={e => setEditContent(e.target.value)}
               disabled={!!actionBusyId}
             />
-            {editingMessage.role === 'assistant' && (
+            {(messageType === 'group'
+              ? String(editingMessage.sender || '').toLowerCase() !== 'user'
+              : editingMessage.role === 'assistant') && (
               <>
                 <label className="history-modal-label" htmlFor="history-edit-thinking">
                   思维链
@@ -805,6 +824,47 @@ function History() {
                 onClick={handleSaveEdit}
               >
                 保存
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {pendingDeleteMessage && (
+        <div
+          className="history-modal-overlay"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="history-delete-title"
+          onClick={() => {
+            if (!actionBusyId) {
+              setPendingDeleteMessage(null);
+            }
+          }}
+        >
+          <div className="history-modal" onClick={e => e.stopPropagation()}>
+            <div id="history-delete-title" className="history-modal-title">
+              删除消息
+            </div>
+            <p className="history-modal-copy">
+              确定删除这条消息？此操作不可恢复。
+            </p>
+            <div className="history-modal-actions">
+              <button
+                type="button"
+                className="history-modal-btn"
+                disabled={!!actionBusyId}
+                onClick={() => setPendingDeleteMessage(null)}
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                className="history-modal-btn danger"
+                disabled={!!actionBusyId}
+                onClick={() => handleConfirmDelete()}
+              >
+                删除
               </button>
             </div>
           </div>

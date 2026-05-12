@@ -144,16 +144,13 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
     level_name = str(await db.get_config("idle_activity_level", "mid") or "mid").strip().lower()
     level = IDLE_LEVELS.get(level_name, IDLE_LEVELS["mid"])
 
-    # 查最近一条用户消息时间
-    async with db.pool.acquire() as conn:
-        last_user_row = await conn.fetchrow(
-            "SELECT created_at FROM messages WHERE role='user' ORDER BY created_at DESC LIMIT 1"
-        )
-    if not last_user_row or last_user_row["created_at"] is None:
+    # 同时看私聊/普通消息与共享群聊中的真人用户消息；两边都空闲才触发。
+    last_activity = await db.get_latest_idle_user_activity()
+    if not last_activity or last_activity.get("created_at") is None:
         return
 
     now_utc = datetime.now(timezone.utc)
-    last_user_msg_at = _to_aware_utc(last_user_row["created_at"])
+    last_user_msg_at = _to_aware_utc(last_activity["created_at"])
     if last_user_msg_at is None:
         return
     idle_min = (now_utc - last_user_msg_at).total_seconds() / 60.0
@@ -188,6 +185,7 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
 
     logger.debug(
         f"[idle] level={level_name} idle={idle_min:.1f}min "
+        f"source={last_activity.get('source') or 'unknown'} "
         f"since_last={since_last:.1f}min prob={level['trigger_prob']}"
     )
 
@@ -291,15 +289,17 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         idle_trigger_text = STARDEW_AUTOPLAY_TRIGGER_TEXT
     else:
         idle_trigger_text = _IDLE_TRIGGER_TEXT
-        async with db.pool.acquire() as conn:
-            last_user_row = await conn.fetchrow(
-                "SELECT created_at FROM messages WHERE role='user' ORDER BY created_at DESC LIMIT 1"
-            )
-        if last_user_row and last_user_row.get("created_at") is not None:
-            last_user_text = _format_shanghai_timestamp(last_user_row["created_at"])
+        last_activity = await db.get_latest_idle_user_activity()
+        if last_activity and last_activity.get("created_at") is not None:
+            last_user_text = _format_shanghai_timestamp(last_activity["created_at"])
             if last_user_text:
+                source_text = (
+                    "群聊"
+                    if str(last_activity.get("source") or "").lower() == "group"
+                    else "私聊/普通通道"
+                )
                 idle_trigger_text = (
-                    f"{_IDLE_TRIGGER_TEXT}\n南杉最后一条消息在{last_user_text}。"
+                    f"{_IDLE_TRIGGER_TEXT}\n南杉最后一条{source_text}消息在{last_user_text}。"
                 )
 
     # 只把 idle trigger 注入本次推理，不写入 messages 表
@@ -397,4 +397,3 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     if stardew_mode and STOP_TAG_STARDEW in reply_text:
         await db.set_config("stardew_autoplay", "false")
         logger.info("[idle][stardew] detected STOP, disabled stardew_autoplay")
-

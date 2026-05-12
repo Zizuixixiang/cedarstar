@@ -247,6 +247,50 @@ async def unlike_tweet(tweet_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
+# 4b. retweet_tweet
+# ---------------------------------------------------------------------------
+async def retweet_tweet(tweet_id: str) -> Dict[str, Any]:
+    client = _get_client()
+    if client is None:
+        return {"success": False, "error": "X 客户端未初始化"}
+    tid = (tweet_id or "").strip()
+    if not tid:
+        return {"success": False, "error": "tweet_id 不能为空"}
+    qerr = await _check_quota()
+    if qerr:
+        return qerr
+    try:
+        client.retweet(tweet_id=int(tid))
+        await _inc_today_count()
+        return {"success": True, "source_tweet_id": tid, **(await _quota_info())}
+    except Exception as e:
+        logger.warning("retweet_tweet 失败: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# 4c. unretweet_tweet
+# ---------------------------------------------------------------------------
+async def unretweet_tweet(tweet_id: str) -> Dict[str, Any]:
+    client = _get_client()
+    if client is None:
+        return {"success": False, "error": "X 客户端未初始化"}
+    tid = (tweet_id or "").strip()
+    if not tid:
+        return {"success": False, "error": "tweet_id 不能为空"}
+    qerr = await _check_quota()
+    if qerr:
+        return qerr
+    try:
+        client.unretweet(source_tweet_id=int(tid))
+        await _inc_today_count()
+        return {"success": True, "source_tweet_id": tid, **(await _quota_info())}
+    except Exception as e:
+        logger.warning("unretweet_tweet 失败: %s", e)
+        return {"success": False, "error": str(e)}
+
+
+# ---------------------------------------------------------------------------
 # 5. reply_tweet
 # ---------------------------------------------------------------------------
 async def reply_tweet(tweet_id: str, text: str) -> Dict[str, Any]:
@@ -499,6 +543,8 @@ async def execute_x_function_call(function_name: str, arguments: Any) -> str:
         "read_mentions": lambda: read_mentions(int(args.get("max_results", 10))),
         "like_tweet": lambda: like_tweet(str(args.get("tweet_id") or "")),
         "unlike_tweet": lambda: unlike_tweet(str(args.get("tweet_id") or "")),
+        "retweet_tweet": lambda: retweet_tweet(str(args.get("tweet_id") or "")),
+        "unretweet_tweet": lambda: unretweet_tweet(str(args.get("tweet_id") or "")),
         "reply_tweet": lambda: reply_tweet(
             str(args.get("tweet_id") or ""), str(args.get("text") or "")
         ),
@@ -576,6 +622,34 @@ X_TOOLS: List[Dict[str, Any]] = [
                 "type": "object",
                 "properties": {
                     "tweet_id": {"type": "string", "description": "要取消赞的推文 ID"},
+                },
+                "required": ["tweet_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "retweet_tweet",
+            "description": "转推（转发）一条推文到当前账号时间线",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {"type": "string", "description": "要转推的推文 ID"},
+                },
+                "required": ["tweet_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unretweet_tweet",
+            "description": "取消对指定推文的转推",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {"type": "string", "description": "要取消转推的原文推文 ID"},
                 },
                 "required": ["tweet_id"],
             },

@@ -125,6 +125,7 @@ _GUARD_MIN_BODY_CHARS_SOFT = 20
 
 _REFUSAL_PATTERNS_STRONG: Tuple[re.Pattern, ...] = (
     re.compile(r"抱歉[，,、\s]*我(不能|无法|做不到)"),
+    re.compile(r"(?:抱歉|对不起|不好意思)[^\n。！？!?]{0,24}我[^\n。！？!?]{0,12}(?:并)?没有[^\n。！？!?]{0,24}(实体|身体|肉身|物理形态)"),
     re.compile(r"对不起[，,、\s]*我(不能|无法)"),
     re.compile(r"我不能(满足|提供|回答|协助|帮你)"),
     re.compile(r"我无法(满足|提供|回答|协助)"),
@@ -133,6 +134,7 @@ _REFUSAL_PATTERNS_STRONG: Tuple[re.Pattern, ...] = (
     re.compile(r"I\s*['′′']?m\s+an?\s+(AI|artificial\s+intelligence)\b", re.I),
     re.compile(r"I\s+cannot\s+(assist|help|comply|fulfill|answer)", re.I),
     re.compile(r"I\s+can\s*['′′']?t\s+(assist|help|comply|answer)", re.I),
+    re.compile(r"I\s+(?:decline|refuse|reject)\s+(?:to\s+)?(?:assist|help|comply|fulfill|answer|respond|this|that|the\s+request)", re.I),
     re.compile(r"违反(了)?[^\n。]{0,20}(政策|规定|准则|法律法规)"),
     re.compile(r"不符合[^\n。]{0,12}(政策|规定|安全)"),
 )
@@ -2725,6 +2727,7 @@ async def complete_with_lutopia_tool_loop(
                     result_str = await execute_memory_update_request(args_mem_update)
                 elif nm in (
                     "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
+                    "retweet_tweet", "unretweet_tweet",
                     "reply_tweet", "search_tweets", "get_timeline", "get_user",
                     "follow_user", "unfollow_user", "get_followers",
                 ):

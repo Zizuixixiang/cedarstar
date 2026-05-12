@@ -1416,6 +1416,58 @@ class MessageDatabase:
         out = str(cid).strip()
         return out or None
 
+    async def get_latest_idle_user_activity(self) -> Optional[Dict[str, Any]]:
+        """
+        返回自主活动触发判定使用的最近真人用户活动。
+
+        私聊/普通通道来自主库 ``messages``，群聊来自共享库
+        ``shared_group_messages`` 的 ``sender='user'``。如果共享群库未配置，
+        则只按主库消息判断。
+        """
+        candidates: List[Dict[str, Any]] = []
+        async with self.pool.acquire() as conn:
+            private_row = await conn.fetchrow(
+                """
+                SELECT created_at
+                FROM messages
+                WHERE role = 'user'
+                  AND COALESCE(user_id, '') <> 'system'
+                ORDER BY created_at DESC
+                LIMIT 1
+                """
+            )
+        if private_row and private_row["created_at"] is not None:
+            candidates.append(
+                {"source": "private", "created_at": private_row["created_at"]}
+            )
+
+        pool = await self._ensure_shared_group_pool()
+        if pool is not None:
+            async with pool.acquire() as conn:
+                group_row = await conn.fetchrow(
+                    """
+                    SELECT created_at
+                    FROM shared_group_messages
+                    WHERE sender = 'user'
+                    ORDER BY created_at DESC
+                    LIMIT 1
+                    """
+                )
+            if group_row and group_row["created_at"] is not None:
+                candidates.append(
+                    {"source": "group", "created_at": group_row["created_at"]}
+                )
+
+        if not candidates:
+            return None
+        def _activity_sort_key(row: Dict[str, Any]) -> Any:
+            ts = row["created_at"]
+            if isinstance(ts, _dt.datetime) and ts.tzinfo is not None:
+                return ts.astimezone(_dt.timezone.utc).replace(tzinfo=None)
+            return ts
+
+        return max(candidates, key=_activity_sort_key)
+
     async def mark_shared_group_messages_as_summarized_by_ids(
         self, chat_id: str, message_ids: List[int]
     ) -> int:
@@ -2201,7 +2253,7 @@ class MessageDatabase:
                 offset = (page - 1) * page_size
                 rows = await conn.fetch(
                     f"""
-                    SELECT id, sender, content, tg_message_id, {summary_col} AS is_summarized, created_at,
+                    SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized, created_at,
                            platform, thinking, media_type, image_caption, vision_processed
                     FROM shared_group_messages
                     {where_clause}
@@ -2220,7 +2272,7 @@ class MessageDatabase:
                     "thinking": r["thinking"],
                     "platform": r["platform"],
                     "created_at": _norm(r["created_at"]),
-                    "chat_id": str(chat_id),
+                    "chat_id": str(r["chat_id"]),
                     "tg_message_id": r["tg_message_id"],
                     "is_summarized": bool(r["is_summarized"]),
                     "media_type": r["media_type"],
@@ -2232,6 +2284,48 @@ class MessageDatabase:
             return {"total": int(total or 0), "items": items}
 
         raise ValueError("type 仅支持 private 或 group")
+
+    async def update_shared_group_message_by_id(
+        self,
+        message_id: int,
+        *,
+        content: Optional[str] = None,
+        thinking: Optional[str] = None,
+    ) -> bool:
+        """按共享群聊表主键更新正文和/或思维链；仅更新非 None 的字段。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            raise ValueError("未配置 SHARED_GROUP_DB_URL，无法更新群聊共享消息")
+        parts: List[str] = []
+        params: List[Any] = []
+        idx = 1
+        if content is not None:
+            parts.append(f"content = ${idx}")
+            params.append(content)
+            idx += 1
+        if thinking is not None:
+            parts.append(f"thinking = ${idx}")
+            params.append(thinking)
+            idx += 1
+        if not parts:
+            return False
+        params.append(message_id)
+        sql = f"UPDATE shared_group_messages SET {', '.join(parts)} WHERE id = ${idx}"
+        async with pool.acquire() as conn:
+            status = await conn.execute(sql, *params)
+        return _rowcount(status) > 0
+
+    async def delete_shared_group_message_by_id(self, message_id: int) -> bool:
+        """按共享群聊表主键删除一条消息。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            raise ValueError("未配置 SHARED_GROUP_DB_URL，无法删除群聊共享消息")
+        async with pool.acquire() as conn:
+            status = await conn.execute(
+                "DELETE FROM shared_group_messages WHERE id = $1",
+                message_id,
+            )
+        return _rowcount(status) > 0
 
     async def update_message_by_id(
         self,

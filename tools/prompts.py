@@ -71,9 +71,10 @@ SEARCH_TOOL_DIRECTIVE = (
 
 X_TOOL_DIRECTIVE = (
     "【X (Twitter)】可用工具：post_tweet（发推）、read_mentions（读@提及）、like_tweet/unlike_tweet（点赞/取消赞）、"
+    "retweet_tweet/unretweet_tweet（转推/取消转推）、"
     "reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
     "get_user（查用户信息，不耗配额）、follow_user/unfollow_user（关注/取关）、get_followers（粉丝列表）。"
-    "发推和回复前应确认用户意图，避免误发；除 get_user 外所有操作共享每日配额，超限返回错误。"
+    "发推、转推和回复前应确认用户意图，避免误发；除 get_user 外所有操作共享每日配额，超限返回错误。"
     "（南杉：Shan_Cedar,Sirius:Sirius_Cedar）"
 )
 
@@ -250,6 +251,40 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
                     "tweet_id": {
                         "type": "string",
                         "description": "要取消点赞的推文 ID",
+                    },
+                },
+                "required": ["tweet_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "retweet_tweet",
+            "description": "转推（转发）一条推文到当前账号时间线",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {
+                        "type": "string",
+                        "description": "要转推的推文 ID",
+                    },
+                },
+                "required": ["tweet_id"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "unretweet_tweet",
+            "description": "取消对指定推文的转推",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tweet_id": {
+                        "type": "string",
+                        "description": "要取消转推的原文推文 ID",
                     },
                 },
                 "required": ["tweet_id"],
