@@ -93,7 +93,10 @@ from tools.lutopia import (
     create_lutopia_mcp_session,
     strip_lutopia_user_facing_assistant_text,
 )
-from tools.rcommunity import OPENAI_RCOMMUNITY_TOOLS, create_rcommunity_mcp_session
+from tools.rcommunity import (
+    OPENAI_RCOMMUNITY_TOOLS,
+    maybe_rcommunity_mcp_session,
+)
 from tools.xhs_tool import find_xhs_urls_in_text, telegram_append_xhs_note_to_message
 from tools.prompts import (
     OPENAI_AIHOT_TOOLS,
@@ -2634,7 +2637,9 @@ class TelegramBot:
                 save_user=outcome.save_user,
             )
 
-        async with create_lutopia_mcp_session() as lutopia_mcp_session, create_rcommunity_mcp_session() as rcommunity_mcp_session:
+        async with create_lutopia_mcp_session() as lutopia_mcp_session, maybe_rcommunity_mcp_session(
+            bool(getattr(llm, "enable_rcommunity", False))
+        ) as rcommunity_mcp_session:
             for _ in range(8):
                 for attempt in range(2):
                     sse = await self._telegram_stream_llm_one_sse_round(

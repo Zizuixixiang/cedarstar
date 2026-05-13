@@ -2570,9 +2570,9 @@ async def complete_with_lutopia_tool_loop(
     )
     from tools.rcommunity import (
         OPENAI_RCOMMUNITY_TOOLS,
-        create_rcommunity_mcp_session,
         execute_rcommunity_function_call,
         is_rcommunity_openai_tool,
+        maybe_rcommunity_mcp_session,
     )
     from tools.memory_tools import (
         OPENAI_MEMORY_TOOLS,
@@ -2653,7 +2653,9 @@ async def complete_with_lutopia_tool_loop(
     tool_pairs: List[Tuple[str, str, str]] = []
     tool_turn_id = uuid.uuid4().hex
     tool_seq = 0
-    async with create_lutopia_mcp_session() as mcp_session, create_rcommunity_mcp_session() as rcommunity_session:
+    async with create_lutopia_mcp_session() as mcp_session, maybe_rcommunity_mcp_session(
+        bool(getattr(llm, "enable_rcommunity", False))
+    ) as rcommunity_session:
         for round_idx in range(max_tool_rounds):
             tool_round_prompt = (
                 f"\n\n【工具轮次状态】当前是第 {round_idx + 1}/{max_tool_rounds} 轮工具调用。"

@@ -292,7 +292,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 4.2.4 rcommunity 论坛 MCP（`tools/rcommunity.py`）
 
-与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；SSE URL 为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、`append_tool_exchange_to_messages`（`rcommunity_mcp_session`）。`tool_executions` 照常记录；rcommunity 不进入 Lutopia 流式 `execution_log` 旁白附录。探测：`scripts/list_rcommunity_tools.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`。
+与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；SSE URL 为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity SSE，避免只配 token 未开开关时每轮建连阻塞。`append_tool_exchange_to_messages`（`rcommunity_mcp_session`）。`tool_executions` 照常记录；rcommunity 不进入 Lutopia 流式 `execution_log` 旁白附录。探测：`scripts/list_rcommunity_tools.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`。
 
 ### 4.3 AI 自主活动（Idle Activity）
 

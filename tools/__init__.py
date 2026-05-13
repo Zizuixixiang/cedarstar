@@ -29,6 +29,7 @@ from tools.rcommunity import (
     OPENAI_RCOMMUNITY_TOOLS,
     create_rcommunity_mcp_session,
     execute_rcommunity_function_call,
+    maybe_rcommunity_mcp_session,
 )
 
 __all__ = [
@@ -52,6 +53,7 @@ __all__ = [
     "append_tool_exchange_to_messages",
     "create_lutopia_mcp_session",
     "create_rcommunity_mcp_session",
+    "maybe_rcommunity_mcp_session",
     "execute_lutopia_function_call",
     "execute_rcommunity_function_call",
     "get_lutopia_token",

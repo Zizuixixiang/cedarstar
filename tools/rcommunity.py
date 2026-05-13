@@ -244,6 +244,21 @@ async def create_rcommunity_mcp_session() -> AsyncIterator[Optional[Any]]:
         raise
 
 
+@asynccontextmanager
+async def maybe_rcommunity_mcp_session(enabled: bool) -> AsyncIterator[Optional[Any]]:
+    """
+    仅在人设开启 rcommunity 时建立 SSE；否则立即 ``yield None``。
+
+    避免在 ``RCOMMUNITY_MCP_TOKEN`` 已配置但人设未启用时，每条走工具循环的对话都去建连
+    （可能阻塞或拖垮首轮回复）。
+    """
+    if not enabled:
+        yield None
+        return
+    async with create_rcommunity_mcp_session() as session:
+        yield session
+
+
 async def _execute_rcommunity_function_call_impl(
     name: str,
     arguments_json: str,
