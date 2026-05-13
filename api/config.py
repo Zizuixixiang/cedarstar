@@ -60,6 +60,8 @@ DEFAULT_CONFIG = {
     "group_chat_interject_enabled": 0,
     "group_chat_interject_probability": 0.3,
     "x_daily_read_limit": 100,
+    "xhs_daily_read_limit": 80,
+    "xhs_daily_write_limit": 30,
     "idle_activity_enabled": "false",
     "idle_activity_level": "mid",
     "idle_activity_threshold_min": 10,
@@ -273,6 +275,17 @@ async def get_x_usage():
     try:
         from tools.x_tool import get_today_usage
         usage = await get_today_usage()
+        return create_response(True, usage)
+    except Exception as e:
+        return create_response(False, None, str(e))
+
+
+@router.get("/xhs-usage")
+async def get_xhs_usage():
+    """返回小红书工具当日读/写配额用量。"""
+    try:
+        from tools.xhs_tool import get_xhs_usage_today
+        usage = await get_xhs_usage_today()
         return create_response(True, usage)
     except Exception as e:
         return create_response(False, None, str(e))

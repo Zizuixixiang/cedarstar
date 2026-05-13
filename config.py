@@ -54,6 +54,20 @@ class Config:
         )
 
     @property
+    def ENABLE_XHS_TOOL(self) -> bool:
+        """
+        是否允许注册小红书 OpenAI tools（部署侧总开关）。
+        默认开启；设为 false 时所有人设均不注册，与 ``persona_configs.enable_xhs_tool`` 为 AND 关系；
+        Telegram 链接自动展开亦受此开关约束。
+        """
+        return os.getenv("ENABLE_XHS_TOOL", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+            "on",
+        )
+
+    @property
     def ENABLE_WEB_FETCH_TOOL(self) -> bool:
         """
         是否注册 ``web_fetch``（部署侧总开关 / 白名单）。
@@ -65,6 +79,12 @@ class Config:
             "yes",
             "on",
         )
+
+    @property
+    def XHS_COOKIE_PATH(self) -> Optional[str]:
+        """小红书 CLI Cookie JSON 路径（与 ``xiaohongshu-cli`` 的 cookies 格式一致）；未设置则链接预处理与工具不可用。"""
+        p = (os.getenv("XHS_COOKIE_PATH") or "").strip()
+        return p or None
 
     # ChromaDB 配置
     @property

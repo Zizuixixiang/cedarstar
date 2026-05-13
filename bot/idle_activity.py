@@ -281,6 +281,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or bool(getattr(llm, "enable_weibo_tool", False))
         or bool(getattr(llm, "enable_search_tool", False))
         or bool(getattr(llm, "enable_x_tool", False))
+        or bool(getattr(llm, "enable_xhs_tool", False))
         or bool(getattr(llm, "enable_ai_news_tool", False))
         or bool(app_config.ENABLE_WEB_FETCH_TOOL)
     ) and not llm._use_anthropic_messages_api()

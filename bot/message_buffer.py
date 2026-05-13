@@ -47,10 +47,14 @@ def aggregate_buffer_entries(
             ips.append(e["image_payload"])
         for ip in ips:
             images.append(ip)
-            cap = (ip.get("caption") or "").strip()
-            if cap:
-                text_parts.append(cap)
-                raw_parts.append(cap)
+            raw_cap = (ip.get("caption") or "").strip()
+            llm_cap = (ip.get("caption_llm") or raw_cap).strip()
+            if llm_cap:
+                text_parts.append(llm_cap)
+            if raw_cap:
+                raw_parts.append(raw_cap)
+            elif llm_cap:
+                raw_parts.append(llm_cap)
 
     if images:
         body_llm = "\n".join(text_parts).strip()

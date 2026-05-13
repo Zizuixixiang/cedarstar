@@ -10,6 +10,7 @@ const TOOL_SWITCH_KEYS = [
   { key: 'enable_weibo_tool', label: '微博热搜工具' },
   { key: 'enable_search_tool', label: '网页搜索工具' },
   { key: 'enable_x_tool', label: 'X (Twitter) 工具' },
+  { key: 'enable_xhs_tool', label: '小红书工具' },
   { key: 'enable_ai_news_tool', label: 'AI HOT 资讯工具' },
 ];
 
@@ -34,6 +35,9 @@ export default function ToolsCenter() {
   const [toolSwitches, setToolSwitches] = useState({});
   const [xDailyReadLimit, setXDailyReadLimit] = useState(100);
   const [xUsage, setXUsage] = useState({ used_today: 0 });
+  const [xhsReadLimit, setXhsReadLimit] = useState(80);
+  const [xhsWriteLimit, setXhsWriteLimit] = useState(30);
+  const [xhsUsage, setXhsUsage] = useState({ read_used: 0, write_used: 0 });
   const [usageLoading, setUsageLoading] = useState(false);
   const [apiConfigs, setApiConfigs] = useState({
     search_summary: [],
@@ -45,17 +49,28 @@ export default function ToolsCenter() {
   const loadXUsage = useCallback(async () => {
     setUsageLoading(true);
     try {
-      const [usageRes, configRes] = await Promise.all([
+      const [usageRes, configRes, xhsUsageRes] = await Promise.all([
         apiFetch('/api/config/x-usage'),
         apiFetch('/api/config/config'),
+        apiFetch('/api/config/xhs-usage'),
       ]);
       const usageData = await usageRes.json();
       const configData = await configRes.json();
+      const xhsUsageData = await xhsUsageRes.json();
       if (usageData.success && usageData.data) {
         setXUsage(usageData.data);
       }
       if (configData.success && configData.data?.x_daily_read_limit != null) {
         setXDailyReadLimit(Number(configData.data.x_daily_read_limit) || 100);
+      }
+      if (configData.success && configData.data?.xhs_daily_read_limit != null) {
+        setXhsReadLimit(Number(configData.data.xhs_daily_read_limit) || 80);
+      }
+      if (configData.success && configData.data?.xhs_daily_write_limit != null) {
+        setXhsWriteLimit(Number(configData.data.xhs_daily_write_limit) || 30);
+      }
+      if (xhsUsageData?.success && xhsUsageData?.data) {
+        setXhsUsage(xhsUsageData.data);
       }
     } finally {
       setUsageLoading(false);
@@ -78,6 +93,7 @@ export default function ToolsCenter() {
         detailData,
         configData,
         xUsageData,
+        xhsUsageData,
         searchSummaryData,
         ttsData,
         sttData,
@@ -86,6 +102,7 @@ export default function ToolsCenter() {
         detailPromise,
         apiFetch('/api/config/config').then((r) => r.json()),
         apiFetch('/api/config/x-usage').then((r) => r.json()),
+        apiFetch('/api/config/xhs-usage').then((r) => r.json()),
         apiFetch('/api/settings/api-configs?config_type=search_summary').then((r) =>
           r.json()
         ),
@@ -103,6 +120,7 @@ export default function ToolsCenter() {
           enable_weibo_tool: Number(d.enable_weibo_tool || 0),
           enable_search_tool: Number(d.enable_search_tool || 0),
           enable_x_tool: Number(d.enable_x_tool || 0),
+          enable_xhs_tool: Number(d.enable_xhs_tool || 0),
           enable_ai_news_tool: Number(d.enable_ai_news_tool || 0),
         });
       } else {
@@ -112,8 +130,17 @@ export default function ToolsCenter() {
       if (configData?.success && configData?.data?.x_daily_read_limit != null) {
         setXDailyReadLimit(Number(configData.data.x_daily_read_limit) || 100);
       }
+      if (configData?.success && configData?.data?.xhs_daily_read_limit != null) {
+        setXhsReadLimit(Number(configData.data.xhs_daily_read_limit) || 80);
+      }
+      if (configData?.success && configData?.data?.xhs_daily_write_limit != null) {
+        setXhsWriteLimit(Number(configData.data.xhs_daily_write_limit) || 30);
+      }
       if (xUsageData?.success && xUsageData?.data) {
         setXUsage(xUsageData.data);
+      }
+      if (xhsUsageData?.success && xhsUsageData?.data) {
+        setXhsUsage(xhsUsageData.data);
       }
 
       setApiConfigs({
@@ -177,6 +204,13 @@ export default function ToolsCenter() {
               </Link>
             </div>
             <p className="tools-muted">当前展示人设：{personaName || '未命名'}</p>
+            <p className="tools-muted" style={{ marginTop: 8, lineHeight: 1.5 }}>
+              下表为只读快照。要<strong>开启/关闭</strong>各工具（含<strong>小红书</strong>、X、天气等），请到{' '}
+              <Link className="tools-link-btn" to="/persona?section=tools" style={{ display: 'inline', padding: '0 0.2em' }}>
+                人设与参数
+              </Link>
+              ，在左侧栏向下滚动到 <strong>「[ SYS_TOOLS ] 工具」</strong> 区块勾选后<strong>保存人设</strong>。
+            </p>
             <div className="tools-switch-list">
               {TOOL_SWITCH_KEYS.map((item) => (
                 <div className="tools-switch-row" key={item.key}>
@@ -205,6 +239,28 @@ export default function ToolsCenter() {
             <div className="tools-usage-line">
               今日已用 <strong>{Number(xUsage.used_today || 0)}</strong> /{' '}
               <strong>{xDailyReadLimit}</strong>
+            </div>
+          </section>
+
+          <section className="tools-card">
+            <div className="tools-card-head">
+              <div className="tools-card-title">
+                <TrendingUp size={16} aria-hidden />
+                小红书配额概览
+              </div>
+              <button
+                type="button"
+                className="tools-link-btn ghost"
+                onClick={loadXUsage}
+                disabled={usageLoading}
+              >
+                {usageLoading ? '刷新中...' : '刷新配额'}
+              </button>
+            </div>
+            <div className="tools-usage-line">
+              读： <strong>{Number(xhsUsage.read_used || 0)}</strong> / <strong>{xhsReadLimit}</strong>
+              {' · '}
+              写： <strong>{Number(xhsUsage.write_used || 0)}</strong> / <strong>{xhsWriteLimit}</strong>
             </div>
           </section>
 

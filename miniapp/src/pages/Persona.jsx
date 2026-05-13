@@ -3,6 +3,7 @@
  * 管理 AI 助手的人设和参数配置
  */
 import React, { useState, useEffect, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 import { Sparkles, UserRound, Wrench, Settings2, FileCode } from 'lucide-react';
@@ -73,6 +74,7 @@ const EMPTY_FORM = {
   enable_search_tool: 0,
   enable_x_tool: 0,
   enable_ai_news_tool: 0,
+  enable_xhs_tool: 0,
 };
 
 function t(v) {
@@ -357,6 +359,7 @@ function SkeletonScreen() {
 }
 
 function Persona() {
+  const [searchParams] = useSearchParams();
   const personaTabsRef = useHorizontalDragScroll();
   const [personas, setPersonas] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -368,7 +371,17 @@ function Persona() {
   const [xDailyReadLimit, setXDailyReadLimit] = useState(100);
   const [savedXDailyReadLimit, setSavedXDailyReadLimit] = useState(100);
   const [xUsedToday, setXUsedToday] = useState(0);
-  const hasUnsavedChanges = JSON.stringify(form) !== JSON.stringify(savedForm) || xDailyReadLimit !== savedXDailyReadLimit;
+  const [xhsDailyReadLimit, setXhsDailyReadLimit] = useState(80);
+  const [savedXhsDailyReadLimit, setSavedXhsDailyReadLimit] = useState(80);
+  const [xhsDailyWriteLimit, setXhsDailyWriteLimit] = useState(30);
+  const [savedXhsDailyWriteLimit, setSavedXhsDailyWriteLimit] = useState(30);
+  const [xhsReadUsed, setXhsReadUsed] = useState(0);
+  const [xhsWriteUsed, setXhsWriteUsed] = useState(0);
+  const hasUnsavedChanges =
+    JSON.stringify(form) !== JSON.stringify(savedForm) ||
+    xDailyReadLimit !== savedXDailyReadLimit ||
+    xhsDailyReadLimit !== savedXhsDailyReadLimit ||
+    xhsDailyWriteLimit !== savedXhsDailyWriteLimit;
   const previewSections = useMemo(() => buildPreviewSections(form), [form]);
   const preview = useMemo(
     () => buildPreviewPlainText(previewSections),
@@ -440,6 +453,8 @@ function Persona() {
           d.enable_ai_news_tool != null && Number(d.enable_ai_news_tool) !== 0
             ? 1
             : 0,
+        enable_xhs_tool:
+          d.enable_xhs_tool != null && Number(d.enable_xhs_tool) !== 0 ? 1 : 0,
       };
       setForm(f);
       setSavedForm(f);
@@ -465,6 +480,16 @@ function Persona() {
             setXDailyReadLimit(v);
             setSavedXDailyReadLimit(v);
           }
+          if (cfg?.success && cfg?.data?.xhs_daily_read_limit != null) {
+            const r = Number(cfg.data.xhs_daily_read_limit) || 80;
+            setXhsDailyReadLimit(r);
+            setSavedXhsDailyReadLimit(r);
+          }
+          if (cfg?.success && cfg?.data?.xhs_daily_write_limit != null) {
+            const w = Number(cfg.data.xhs_daily_write_limit) || 30;
+            setXhsDailyWriteLimit(w);
+            setSavedXhsDailyWriteLimit(w);
+          }
         } catch (_) {}
         // 加载 X 今日用量
         try {
@@ -472,6 +497,15 @@ function Persona() {
           const usage = await usageRes.json();
           if (usage?.success && usage?.data?.used_today != null) {
             setXUsedToday(Number(usage.data.used_today) || 0);
+          }
+        } catch (_) {}
+        // 小红书今日用量
+        try {
+          const xh = await apiFetch('/api/config/xhs-usage');
+          const xhj = await xh.json();
+          if (xhj?.success && xhj?.data) {
+            setXhsReadUsed(Number(xhj.data.read_used) || 0);
+            setXhsWriteUsed(Number(xhj.data.write_used) || 0);
           }
         } catch (_) {}
       } catch (e) {
@@ -482,6 +516,18 @@ function Persona() {
     };
     init();
   }, []);
+
+  // 从「工具中心」等入口带 ?section=tools 时滚到「工具」开关区域（含小红书、X 等）
+  useEffect(() => {
+    if (searchParams.get('section') !== 'tools' || isLoading) return;
+    const t = window.setTimeout(() => {
+      document.getElementById('persona-tools-section')?.scrollIntoView({
+        behavior: 'smooth',
+        block: 'start',
+      });
+    }, 100);
+    return () => window.clearTimeout(t);
+  }, [searchParams, isLoading]);
 
   // 切换人设
   const handleSwitch = async (p) => {
@@ -587,9 +633,15 @@ function Persona() {
           await apiFetch('/api/config/config', {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ x_daily_read_limit: xDailyReadLimit }),
+            body: JSON.stringify({
+              x_daily_read_limit: xDailyReadLimit,
+              xhs_daily_read_limit: xhsDailyReadLimit,
+              xhs_daily_write_limit: xhsDailyWriteLimit,
+            }),
           });
           setSavedXDailyReadLimit(xDailyReadLimit);
+          setSavedXhsDailyReadLimit(xhsDailyReadLimit);
+          setSavedXhsDailyWriteLimit(xhsDailyWriteLimit);
         } catch (_) {}
         toast.success('✓ 人设已保存', { autoClose: 2000 });
       } else {
@@ -901,7 +953,7 @@ function Persona() {
             </div>
           </div>
 
-          <div className="field-section">
+          <div className="field-section" id="persona-tools-section">
             <SectionHead slug="[ SYS_TOOLS ]" title="工具" icon={Wrench} />
             <label className="persona-tool-toggle">
               <input
@@ -987,6 +1039,57 @@ function Persona() {
             )}
             <p className="persona-field-hint">
               开启后模型可调用 post_tweet / read_mentions；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_xhs_tool === 1}
+                onChange={e =>
+                  handleChange('enable_xhs_tool', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用小红书工具</span>
+            </label>
+            {form.enable_xhs_tool === 1 && (
+              <div style={{ marginTop: 6, paddingLeft: 34 }}>
+                <span style={{ opacity: 0.7, fontSize: '0.78em' }}>读上限</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={xhsDailyReadLimit}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 1) setXhsDailyReadLimit(v);
+                  }}
+                  style={{ width: 56, textAlign: 'center', marginLeft: 4, fontSize: '0.78em' }}
+                />
+                <span style={{ opacity: 0.6, fontSize: '0.78em', marginLeft: 6 }}>条/天</span>
+                <span style={{ marginLeft: 10, opacity: 0.5, fontSize: '0.75em' }}>
+                  读已用 {xhsReadUsed}/{xhsDailyReadLimit}
+                </span>
+                <br />
+                <span style={{ opacity: 0.7, fontSize: '0.78em' }}>写上限</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={10000}
+                  value={xhsDailyWriteLimit}
+                  onChange={e => {
+                    const v = parseInt(e.target.value, 10);
+                    if (!isNaN(v) && v >= 1) setXhsDailyWriteLimit(v);
+                  }}
+                  style={{ width: 56, textAlign: 'center', marginLeft: 4, fontSize: '0.78em' }}
+                />
+                <span style={{ opacity: 0.6, fontSize: '0.78em', marginLeft: 6 }}>次/天</span>
+                <span style={{ marginLeft: 10, opacity: 0.5, fontSize: '0.75em' }}>
+                  写已用 {xhsWriteUsed}/{xhsDailyWriteLimit}
+                </span>
+              </div>
+            )}
+            <p className="persona-field-hint">
+              开启后可搜索/读笔记/刷推荐/看用户主页/点赞/收藏；需服务器配置 xhs CLI 与 Cookie。链接-only 消息会自动注入正文与配图。
+              部署环境须允许（ENABLE_XHS_TOOL，默认开启）；服务端关闭时此处打开也不会注册，且 Telegram 链接预处理不会执行。
             </p>
             <label className="persona-tool-toggle">
               <input

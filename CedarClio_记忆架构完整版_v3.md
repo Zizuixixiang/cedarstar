@@ -1,4 +1,4 @@
-v3.1 · 2026-05-13 更新 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
+v3.1 · 2026-05-14 更新 · 小红书链接预处理与 `xhs` 工具 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -47,6 +47,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `idle_activity_end_hour` | 自主活动允许结束小时（东八区，0-23） |
 | `stardew_autoplay` | 星露谷自动模式：为 true 时 idle 调度每 3 分钟触发，`check_and_trigger` 跳过普通 idle 条件并注入 `[STARDEW_AUTO]` 虚拟用户句；助手回复中含 `[STARDEW_STOP]` 时自动写回 false |
 | `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
+| `xhs_daily_read_limit` | 小红书工具日读配额上限（`config` 表键；默认 80） |
+| `xhs_daily_write_limit` | 小红书工具日写配额上限（`config` 表键；默认 30） |
 | `rerank_enabled` | 是否启用 SiliconFlow Rerank 精排，默认 true |
 | `rerank_candidate_size` | rerank 候选集大小上限，默认 50 |
 | `rerank_score_floor` | 非收藏事件的 rerank 分数阈值，默认 0.3 |
@@ -111,6 +113,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `enable_search_tool`
 - `enable_x_tool`
 - `enable_ai_news_tool`（与部署 `ENABLE_AI_NEWS_TOOL` 同时为真才注册 `get_ai_news`）
+- `enable_xhs_tool`（与部署 **`ENABLE_XHS_TOOL`** 同时为真才注册小红书工具集）
 
 补充：`web_fetch`（网页正文抓取）**不是**本表字段；仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（默认 true）控制是否注册，见 **§4.2.1**。
 
@@ -261,10 +264,13 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 网页搜索
 - X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额。`retweet_tweet` 可选 `comment`：非空则为引用转推/带话转发，仅 `tweet_id` 则为纯转推，见 `tools/x_tool.py`）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
+- 小红书（`search_xhs` / `read_xhs_note` / `get_xhs_feed` / `get_xhs_user` / `like_xhs_note` / `favorite_xhs_note`；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py`）
 
 **`web_fetch`（网页正文抓取）** 无人设列：仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（`config.py`，默认 true）为真时注册；与记忆内部工具同属「可出现在 OpenAI tools 列表」的旁路能力，但不经由 `persona_configs` 开关。
 
 另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。
+
+另：环境变量 **`ENABLE_XHS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设 **`enable_xhs_tool`** 同时为真才注册小红书 OpenAI tools。进程读配额键 `xhs_read_usage_YYYY-MM-DD`、`xhs_write_usage_YYYY-MM-DD`；上限可调键见 **§2.1**；Mini App / API 见 **`GET /api/config/xhs-usage`**（`api/config.py`）。
 
 工具口播提示由 system suffix 注入，确保模型在调用工具前先说一句自然口语。
 
@@ -275,6 +281,12 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 ### 4.2.2 AI HOT 资讯（`tools/aihot.py`）
 
 匿名请求 `https://aihot.virxact.com/api/public` 的 `items` / `daily` / `daily/{date}` / `dailies`（`User-Agent: CedarStar/1.0`）。`dailies` 始终带 `take`（默认 10，硬上限 15）；`daily` / `daily_by_date` 格式化正文有总长度上限（模块常量，当前 10000 字符量级）。`get_ai_news` 写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 拼附录。
+
+### 4.2.3 小红书（链接预处理 + CLI 工具，`tools/xhs_tool.py`）
+
+- **依赖**：Python 包 **`xiaohongshu-cli`**（提供 `xhs` 子进程）；Cookie 由环境变量 **`XHS_COOKIE_PATH`** 指向与 CLI 兼容的 `cookies.json`（进程内可按 `APP_NAME` 构造临时 `HOME/.xiaohongshu-cli` 并 symlink，满足 CLI 固定路径约定）。
+- **Telegram 缓冲路径**：在 `build_context` 之前，对正文中的 `xhslink.com` / `xiaohongshu.com` 链接可自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 4 张注入多模态（不占日读配额）；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。实现见 `bot/message_buffer.py` / `bot/telegram_bot.py`（以代码为准）。
+- **工具循环**：与 Lutopia / 天气等并列注册于 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、Discord / idle 路径（`llm/llm_interface.py`、`bot/discord_bot.py`、`bot/idle_activity.py`）。`tool_executions` 照常记录。
 
 ### 4.3 AI 自主活动（Idle Activity）
 
@@ -593,6 +605,10 @@ dispatch 代码位于：
 ### 8.8.1 网页抓取 `web_fetch`（非 MCP、非记忆审批链）
 
 与上表记忆工具并列出现在同一套 OpenAI Function Calling 工具循环中，但**不**调用 `/api` 记忆 REST，也不走 MCP。实现 `tools/web_fetch.py`；schema 与 system 后缀 `tools/prompts.py`（`OPENAI_WEB_FETCH_TOOLS`、`WEB_FETCH_TOOL_DIRECTIVE`）。部署开关 **`ENABLE_WEB_FETCH_TOOL`**（默认 true），**无人设 Mini App 开关**。`tool_executions` 照常记录；`execution_log` 排除名单见 `tools/lutopia.py`（与 `web_search` 等一致）。
+
+### 8.8.2 小红书工具（非 MCP、非记忆审批链）
+
+与 `web_fetch` 同属 OpenAI Function Calling 旁路：`tools/xhs_tool.py`；schema 与口播后缀 `tools/prompts.py`（`OPENAI_XHS_TOOLS`、`XHS_TOOL_DIRECTIVE`）。须 **`persona_configs.enable_xhs_tool`** 与 **`ENABLE_XHS_TOOL`** 同时为真；`tool_executions` 照常记录。用量查询 **`GET /api/config/xhs-usage`**。
 
 ## 九、外部写入（External Chunk）
 

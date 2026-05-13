@@ -1074,6 +1074,21 @@ def _persona_row_enable_ai_news_tool(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _persona_row_enable_xhs_tool(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用小红书工具（enable_xhs_tool 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_xhs_tool")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -1091,6 +1106,8 @@ class LLMInterface:
         enable_x_tool: 是否开启 X (Twitter) 工具（同上）。
         enable_ai_news_tool: 是否开启 get_ai_news；须人设 ``enable_ai_news_tool`` 与全局
             ``ENABLE_AI_NEWS_TOOL`` 同时为真（部署白名单 ∧ 人设开关）。
+        enable_xhs_tool: 是否开启小红书工具集；须人设 ``enable_xhs_tool`` 与部署
+            ``ENABLE_XHS_TOOL`` 同时为真（与 ``XHS_COOKIE_PATH`` / ``xhs`` CLI 等运行时条件配合）。
     """
     
     def __init__(
@@ -1104,6 +1121,7 @@ class LLMInterface:
         _enable_search_tool: Optional[bool] = None,
         _enable_x_tool: Optional[bool] = None,
         _enable_ai_news_tool: Optional[bool] = None,
+        _enable_xhs_tool: Optional[bool] = None,
     ):
         """
         初始化 LLM 接口。
@@ -1167,6 +1185,9 @@ class LLMInterface:
             if _enable_ai_news_tool is not None
             else False
         )
+        self.enable_xhs_tool = (
+            bool(_enable_xhs_tool) if _enable_xhs_tool is not None else False
+        )
 
         self.timeout = config.LLM_TIMEOUT
         # vision 专用配置：读超时至少与 LLM_VISION_TIMEOUT 对齐（贴纸识图等为同步阻塞）
@@ -1222,7 +1243,8 @@ class LLMInterface:
         enable_search_tool_flag = False
         enable_x_tool_flag = False
         enable_ai_news_tool_flag = False
-        if db_cfg and config_type == "chat":
+        enable_xhs_tool_flag = False
+        if db_cfg and config_type in ("chat", "vision"):
             pid = db_cfg.get("persona_id")
             if pid is not None:
                 try:
@@ -1251,6 +1273,10 @@ class LLMInterface:
                             _persona_row_enable_ai_news_tool(prow)
                             and bool(config.ENABLE_AI_NEWS_TOOL)
                         )
+                        enable_xhs_tool_flag = (
+                            _persona_row_enable_xhs_tool(prow)
+                            and bool(config.ENABLE_XHS_TOOL)
+                        )
 
         return cls(
             model_name=model_name,
@@ -1262,6 +1288,7 @@ class LLMInterface:
             _enable_search_tool=enable_search_tool_flag,
             _enable_x_tool=enable_x_tool_flag,
             _enable_ai_news_tool=enable_ai_news_tool_flag,
+            _enable_xhs_tool=enable_xhs_tool_flag,
         )
 
     @staticmethod
@@ -2534,6 +2561,7 @@ async def complete_with_lutopia_tool_loop(
         OPENAI_WEIBO_TOOLS,
         OPENAI_WEB_FETCH_TOOLS,
         OPENAI_X_TOOLS,
+        OPENAI_XHS_TOOLS,
         build_tool_system_suffix,
         inject_tool_suffix_into_messages,
     )
@@ -2542,6 +2570,7 @@ async def complete_with_lutopia_tool_loop(
     from tools.weather import execute_weather_function_call
     from tools.weibo import execute_weibo_function_call
     from tools.x_tool import execute_x_function_call
+    from tools.xhs_tool import execute_xhs_function_call
     from tools.web_fetch import execute_web_fetch_function_call
 
     tools_list: List[Dict[str, Any]] = []
@@ -2566,6 +2595,9 @@ async def complete_with_lutopia_tool_loop(
     if getattr(llm, "enable_x_tool", False):
         tools_list.extend(OPENAI_X_TOOLS)
         suffix_keys.append("x")
+    if getattr(llm, "enable_xhs_tool", False) and bool(config.ENABLE_XHS_TOOL):
+        tools_list.extend(OPENAI_XHS_TOOLS)
+        suffix_keys.append("xhs")
     if getattr(llm, "enable_ai_news_tool", False):
         tools_list.extend(OPENAI_AIHOT_TOOLS)
         suffix_keys.append("aihot")
@@ -2741,6 +2773,19 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_dx = {}
                     result_str = await execute_x_function_call(nm, args_dx)
+                elif nm in (
+                    "search_xhs",
+                    "read_xhs_note",
+                    "get_xhs_feed",
+                    "get_xhs_user",
+                    "like_xhs_note",
+                    "favorite_xhs_note",
+                ):
+                    try:
+                        args_xh: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_xh = {}
+                    result_str = await execute_xhs_function_call(nm, args_xh)
                 elif nm == "get_ai_news":
                     try:
                         args_news: Dict[str, Any] = json.loads(raw_args or "{}")

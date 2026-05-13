@@ -93,6 +93,7 @@ from tools.lutopia import (
     create_lutopia_mcp_session,
     strip_lutopia_user_facing_assistant_text,
 )
+from tools.xhs_tool import find_xhs_urls_in_text, telegram_append_xhs_note_to_message
 from tools.prompts import (
     OPENAI_AIHOT_TOOLS,
     OPENAI_SEARCH_TOOLS,
@@ -100,6 +101,7 @@ from tools.prompts import (
     OPENAI_WEIBO_TOOLS,
     OPENAI_WEB_FETCH_TOOLS,
     OPENAI_X_TOOLS,
+    OPENAI_XHS_TOOLS,
     build_tool_system_suffix,
     inject_tool_suffix_into_messages,
 )
@@ -366,6 +368,40 @@ def _sticker_mime_from_path(file_path: str) -> str:
     if p.endswith(".jpg") or p.endswith(".jpeg"):
         return "image/jpeg"
     return "image/webp"
+
+
+def _telegram_entity_type_value(ent: Any) -> str:
+    t = getattr(ent, "type", None)
+    if t is None:
+        return ""
+    if isinstance(t, str):
+        return t
+    return str(getattr(t, "value", t))
+
+
+def _xhs_hidden_urls_from_text_link_entities(
+    text: str, entities: Optional[List[Any]]
+) -> List[str]:
+    out: List[str] = []
+    for ent in entities or []:
+        if _telegram_entity_type_value(ent) != "text_link":
+            continue
+        url = (getattr(ent, "url", None) or "").strip()
+        if not url or url in (text or ""):
+            continue
+        if find_xhs_urls_in_text(url):
+            out.append(url)
+    return list(dict.fromkeys(out))
+
+
+def _xhs_hidden_urls_from_telegram_text_link_entities(message: Any) -> List[str]:
+    """
+    Telegram 富文本里 TEXT_LINK 的真实 URL 往往不在 message.text 中，
+    导致链接触发扫不到。仅把「小红书相关」隐藏 URL 追加到 LLM 侧正文（见 _add_to_buffer）。
+    """
+    text = getattr(message, "text", None) or ""
+    ents = getattr(message, "entities", None) or []
+    return _xhs_hidden_urls_from_text_link_entities(text, ents)
 
 
 class _SendOnlyChat:
@@ -1314,6 +1350,14 @@ class TelegramBot:
         self._message_buffer.begin_heavy(session_id)
         photo = message.photo[-1]
         caption = (message.caption or "").strip()
+        cap_extras = _xhs_hidden_urls_from_text_link_entities(
+            caption, getattr(message, "caption_entities", None)
+        )
+        caption_for_llm = (
+            (caption.rstrip() + "\n" + "\n".join(cap_extras)).strip()
+            if cap_extras
+            else caption
+        )
 
         try:
             if photo.file_size and photo.file_size > self.MAX_IMAGE_BYTES:
@@ -1347,6 +1391,8 @@ class TelegramBot:
                     "mime_type": mime,
                     "platform_file_id": photo.file_id,
                 }
+                if cap_extras:
+                    image_payload["caption_llm"] = caption_for_llm
                 await self._message_buffer.add_to_buffer(
                     session_id,
                     {
@@ -2494,6 +2540,9 @@ class TelegramBot:
         if getattr(llm, "enable_x_tool", False):
             tools_list.extend(OPENAI_X_TOOLS)
             suffix_keys.append("x")
+        if getattr(llm, "enable_xhs_tool", False) and config.ENABLE_XHS_TOOL:
+            tools_list.extend(OPENAI_XHS_TOOLS)
+            suffix_keys.append("xhs")
         if getattr(llm, "enable_ai_news_tool", False):
             tools_list.extend(OPENAI_AIHOT_TOOLS)
             suffix_keys.append("aihot")
@@ -2914,6 +2963,13 @@ class TelegramBot:
     ) -> _BufferGenResult:
         """从缓冲区合并的消息流式生成回复（思维链 + 正文 ||| 分条）。用户消息在调用上游模型之前落库，避免模型报错时丢失。"""
         try:
+            cr, cc, imgs, tfl = await telegram_append_xhs_note_to_message(
+                combined_raw,
+                combined_content,
+                images or [],
+                text_for_llm,
+            )
+            combined_raw, combined_content, images, text_for_llm = cr, cc, imgs, tfl
             llm = await LLMInterface.create(
                 config_type="vision" if images else "chat"
             )
@@ -3013,6 +3069,7 @@ class TelegramBot:
             weibo_on = bool(getattr(llm, "enable_weibo_tool", False))
             search_on = bool(getattr(llm, "enable_search_tool", False))
             x_on = bool(getattr(llm, "enable_x_tool", False))
+            xhs_on = bool(getattr(llm, "enable_xhs_tool", False)) and config.ENABLE_XHS_TOOL
             ai_news_on = bool(getattr(llm, "enable_ai_news_tool", False))
             web_fetch_on = bool(config.ENABLE_WEB_FETCH_TOOL)
             oral = (
@@ -3021,6 +3078,7 @@ class TelegramBot:
                 or weibo_on
                 or search_on
                 or x_on
+                or xhs_on
                 or ai_news_on
                 or web_fetch_on
             ) and not is_anthropic
@@ -3101,12 +3159,13 @@ class TelegramBot:
                 or weibo_on
                 or search_on
                 or x_on
+                or xhs_on
                 or ai_news_on
                 or web_fetch_on
             ):
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply_with_lutopia "
-                    "→ generate_stream(tools=Lutopia±天气±微博±搜索±X±AI资讯±网页抓取)（persona/环境工具开关）"
+                    "→ generate_stream(tools=Lutopia±天气±微博±搜索±X±小红书±AI资讯±网页抓取)（persona/环境工具开关）"
                 )
             else:
                 llm_path = (
@@ -3176,6 +3235,10 @@ class TelegramBot:
                     or getattr(llm, "enable_weibo_tool", False)
                     or getattr(llm, "enable_search_tool", False)
                     or getattr(llm, "enable_x_tool", False)
+                    or (
+                        getattr(llm, "enable_xhs_tool", False)
+                        and config.ENABLE_XHS_TOOL
+                    )
                     or getattr(llm, "enable_ai_news_tool", False)
                     or bool(config.ENABLE_WEB_FETCH_TOOL)
                 ):
@@ -3351,15 +3414,18 @@ class TelegramBot:
             message_id: 消息ID
         """
         reply_prefix = self._extract_reply_prefix(message)
-        content_for_llm = reply_prefix + content if reply_prefix else content
+        vis = content or ""
+        extras = _xhs_hidden_urls_from_telegram_text_link_entities(message)
+        llm_body = (vis.rstrip() + "\n" + "\n".join(extras)).strip() if extras else vis
+        content_for_llm = reply_prefix + llm_body if reply_prefix else llm_body
         await self._message_buffer.add_to_buffer(
             session_id,
             {
                 "update": update,
                 "context": context,
                 "message": message,
-                "content": content_for_llm,   # 包含引用前缀，供 LLM 使用
-                "raw_content": content,        # 原始消息，不含前缀，供落库使用
+                "content": content_for_llm,   # 含引用前缀 + 小红书 TEXT_LINK 真实 URL，供 LLM / 链接触发
+                "raw_content": vis,           # 用户可见原文（不含隐藏链），供落库
                 "user_id": user_id,
                 "message_id": message_id,
                 "from_voice": from_voice,
@@ -3483,6 +3549,10 @@ class TelegramBot:
         传入 telegram_bot 时：发送思维链、去掉 [meme:…] 后的正文与检索到的表情包。
         """
         try:
+            cr, cc, imgs, tfl = await telegram_append_xhs_note_to_message(
+                content, content, [], content
+            )
+            content = cr
             llm = await LLMInterface.create(config_type="vision")
             if llm.character_id is None:
                 logger.error("persona_id 缺失，无法处理消息 session_id=%s", session_id)
@@ -3493,23 +3563,29 @@ class TelegramBot:
                     )
                 return None
             cid = int(chat_id)
+            xhs_oral = (
+                bool(getattr(llm, "enable_xhs_tool", False))
+                and config.ENABLE_XHS_TOOL
+            )
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))
                 or bool(getattr(llm, "enable_x_tool", False))
+                or xhs_oral
                 or bool(getattr(llm, "enable_ai_news_tool", False))
                 or bool(config.ENABLE_WEB_FETCH_TOOL)
             ) and not llm._use_anthropic_messages_api()
             logger.info(
-                "oral=%s lutopia=%s weather=%s weibo=%s search=%s x=%s ai_news=%s web_fetch=%s anthropic=%s",
+                "oral=%s lutopia=%s weather=%s weibo=%s search=%s x=%s xhs=%s ai_news=%s web_fetch=%s anthropic=%s",
                 oral,
                 getattr(llm, "enable_lutopia", False),
                 getattr(llm, "enable_weather_tool", False),
                 getattr(llm, "enable_weibo_tool", False),
                 getattr(llm, "enable_search_tool", False),
                 getattr(llm, "enable_x_tool", False),
+                xhs_oral,
                 getattr(llm, "enable_ai_news_tool", False),
                 config.ENABLE_WEB_FETCH_TOOL,
                 llm._use_anthropic_messages_api(),
@@ -3517,6 +3593,8 @@ class TelegramBot:
             context = await build_context(
                 session_id,
                 content,
+                images=imgs if imgs else None,
+                llm_user_text=tfl or None,
                 telegram_segment_hint=telegram_bot is not None,
                 tool_oral_coaching=oral,
                 exclude_message_id=user_row_id if 'user_row_id' in locals() else None,

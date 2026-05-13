@@ -796,6 +796,9 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_ai_news_tool INTEGER DEFAULT 0"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_xhs_tool INTEGER DEFAULT 0"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -876,6 +879,8 @@ async def migrate_database_schema(conn) -> None:
             ("idle_activity_end_hour", "23"),
             ("external_chunk_max_chars", "2000"),
             ("x_daily_read_limit", "100"),
+            ("xhs_daily_read_limit", "80"),
+            ("xhs_daily_write_limit", "30"),
             ("tts_enabled", "false"),
             ("tts_voice_id", ""),
             ("tts_model", "speech-2.8-turbo"),
@@ -5234,7 +5239,7 @@ class MessageDatabase:
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
             "enable_weather_tool", "enable_weibo_tool", "enable_search_tool", "enable_x_tool",
-            "enable_ai_news_tool",
+            "enable_ai_news_tool", "enable_xhs_tool",
         ]
         cols = ", ".join(fields)
         placeholders = ", ".join([f"${i + 1}" for i in range(len(fields))])
@@ -5276,6 +5281,12 @@ class MessageDatabase:
                     values.append(1 if int(raw) else 0)
                 except (TypeError, ValueError):
                     values.append(0)
+            elif f == "enable_xhs_tool":
+                raw = data.get("enable_xhs_tool", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
             else:
                 values.append(data.get(f, ""))
         async with self.pool.acquire() as conn:
@@ -5295,7 +5306,7 @@ class MessageDatabase:
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
             "enable_weather_tool", "enable_weibo_tool", "enable_search_tool", "enable_x_tool",
-            "enable_ai_news_tool",
+            "enable_ai_news_tool", "enable_xhs_tool",
         }
         update_data = {k: v for k, v in data.items() if k in allowed}
         if "enable_lutopia" in update_data:
@@ -5340,6 +5351,13 @@ class MessageDatabase:
                 )
             except (TypeError, ValueError):
                 update_data["enable_ai_news_tool"] = 0
+        if "enable_xhs_tool" in update_data:
+            try:
+                update_data["enable_xhs_tool"] = (
+                    1 if int(update_data["enable_xhs_tool"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_xhs_tool"] = 0
         if not update_data:
             return False
         set_parts = [f"{k} = ${i + 1}" for i, k in enumerate(update_data.keys())]

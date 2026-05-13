@@ -48,6 +48,7 @@ class PersonaCreate(BaseModel):
     enable_search_tool: Optional[int] = 0
     enable_x_tool: Optional[int] = 0
     enable_ai_news_tool: Optional[int] = 0
+    enable_xhs_tool: Optional[int] = 0
 
 
 class PersonaUpdate(BaseModel):
@@ -80,6 +81,7 @@ class PersonaUpdate(BaseModel):
     enable_search_tool: Optional[int] = None
     enable_x_tool: Optional[int] = None
     enable_ai_news_tool: Optional[int] = None
+    enable_xhs_tool: Optional[int] = None
 
 
 class PersonaResponse(BaseModel):
@@ -113,6 +115,7 @@ class PersonaResponse(BaseModel):
     enable_search_tool: Optional[int] = 0
     enable_x_tool: Optional[int] = 0
     enable_ai_news_tool: Optional[int] = 0
+    enable_xhs_tool: Optional[int] = 0
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 
