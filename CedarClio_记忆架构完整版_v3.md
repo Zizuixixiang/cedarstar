@@ -257,7 +257,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 天气
 - 微博热搜
 - 网页搜索
-- X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额）
+- X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额。`retweet_tweet` 可选 `comment`：非空则为引用转推/带话转发，仅 `tweet_id` 则为纯转推，见 `tools/x_tool.py`）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 
 另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。

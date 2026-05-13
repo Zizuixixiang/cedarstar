@@ -71,9 +71,11 @@ SEARCH_TOOL_DIRECTIVE = (
 
 X_TOOL_DIRECTIVE = (
     "【X (Twitter)】可用工具：post_tweet（发推）、read_mentions（读@提及）、like_tweet/unlike_tweet（点赞/取消赞）、"
-    "retweet_tweet/unretweet_tweet（转推/取消转推）、"
-    "reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
-    "get_user（查用户信息，不耗配额）、follow_user/unfollow_user（关注/取关）、get_followers（粉丝列表）。"
+    "retweet_tweet/unretweet_tweet、reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
+    "get_user（查用户信息，不耗配额）、follow_user/unfollow_user（关注/取关）、get_followers（粉丝列表）。\n"
+    "【重要·转发与带字转发】纯转推（无附加文字）只传 retweet_tweet 的 tweet_id 即可。"
+    "若用户要在「转发」时附带自己的话、评语、转发语，必须调用 retweet_tweet，并传入可选参数 comment（非空字符串），"
+    "此时为引用转推（Quote），不是 reply_tweet；reply_tweet 仅用于对原帖的回复线程。\n"
     "发推、转推和回复前应确认用户意图，避免误发；除 get_user 外所有操作共享每日配额，超限返回错误。"
     "（南杉：Shan_Cedar,Sirius:Sirius_Cedar）"
 )
@@ -261,13 +263,21 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "retweet_tweet",
-            "description": "转推（转发）一条推文到当前账号时间线",
+            "description": (
+                "转推或引用转推同一条工具：仅 tweet_id＝纯转推（API 不允许在纯转推上挂文字）。"
+                "若需在转发时附带用户评语/转发语，必须同时传入可选参数 comment（非空），此时为引用转推 Quote；"
+                "comment 最长 280 字符。勿用 reply_tweet 代替「带话的转发」。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "tweet_id": {
                         "type": "string",
-                        "description": "要转推的推文 ID",
+                        "description": "原文推文 ID（纯转推或引用转推均必填）",
+                    },
+                    "comment": {
+                        "type": "string",
+                        "description": "可选。仅当需要「带话的转发」时传入非空字符串，作为引用转推正文；省略或空字符串则执行纯转推",
                     },
                 },
                 "required": ["tweet_id"],

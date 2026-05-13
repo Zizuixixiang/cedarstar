@@ -247,22 +247,48 @@ async def unlike_tweet(tweet_id: str) -> Dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# 4b. retweet_tweet
+# 4b. retweet_tweet（无 comment 时为纯转推；有 comment 时为引用转推 / quote）
 # ---------------------------------------------------------------------------
-async def retweet_tweet(tweet_id: str) -> Dict[str, Any]:
+async def retweet_tweet(tweet_id: str, comment: Optional[str] = None) -> Dict[str, Any]:
     client = _get_client()
     if client is None:
         return {"success": False, "error": "X 客户端未初始化"}
     tid = (tweet_id or "").strip()
     if not tid:
         return {"success": False, "error": "tweet_id 不能为空"}
+    c = (comment or "").strip()
+    if c and len(c) > 280:
+        return {"success": False, "error": "引用评论不能超过 280 字符"}
     qerr = await _check_quota()
     if qerr:
         return qerr
     try:
+        if c:
+            resp = client.create_tweet(text=c, quote_tweet_id=int(tid))
+            new_id = str(resp.data["id"])
+            try:
+                me = client.get_me()
+                username = me.data.username
+            except Exception:
+                username = "i"
+            url = f"https://x.com/{username}/status/{new_id}"
+            await _inc_today_count()
+            return {
+                "success": True,
+                "mode": "quote",
+                "source_tweet_id": tid,
+                "tweet_id": new_id,
+                "url": url,
+                **(await _quota_info()),
+            }
         client.retweet(tweet_id=int(tid))
         await _inc_today_count()
-        return {"success": True, "source_tweet_id": tid, **(await _quota_info())}
+        return {
+            "success": True,
+            "mode": "retweet",
+            "source_tweet_id": tid,
+            **(await _quota_info()),
+        }
     except Exception as e:
         logger.warning("retweet_tweet 失败: %s", e)
         return {"success": False, "error": str(e)}
@@ -543,7 +569,10 @@ async def execute_x_function_call(function_name: str, arguments: Any) -> str:
         "read_mentions": lambda: read_mentions(int(args.get("max_results", 10))),
         "like_tweet": lambda: like_tweet(str(args.get("tweet_id") or "")),
         "unlike_tweet": lambda: unlike_tweet(str(args.get("tweet_id") or "")),
-        "retweet_tweet": lambda: retweet_tweet(str(args.get("tweet_id") or "")),
+        "retweet_tweet": lambda: retweet_tweet(
+            str(args.get("tweet_id") or ""),
+            None if args.get("comment") is None else str(args.get("comment")),
+        ),
         "unretweet_tweet": lambda: unretweet_tweet(str(args.get("tweet_id") or "")),
         "reply_tweet": lambda: reply_tweet(
             str(args.get("tweet_id") or ""), str(args.get("text") or "")
@@ -631,11 +660,18 @@ X_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "retweet_tweet",
-            "description": "转推（转发）一条推文到当前账号时间线",
+            "description": (
+                "转推或引用转推：仅 tweet_id 为纯转推；若需带评语/转发语须传非空 comment（引用转推 Quote，最长 280 字）。"
+                "勿用 reply_tweet 代替带话的转发。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "tweet_id": {"type": "string", "description": "要转推的推文 ID"},
+                    "tweet_id": {"type": "string", "description": "要转推或引用的原文推文 ID"},
+                    "comment": {
+                        "type": "string",
+                        "description": "可选。非空时发引用转推，正文为该字符串（最长 280 字符）；留空则纯转推",
+                    },
                 },
                 "required": ["tweet_id"],
             },
