@@ -69,6 +69,11 @@ SEARCH_TOOL_DIRECTIVE = (
     "不必等用户明确要求；简单常识无需搜索。禁止每轮都调用。"
 )
 
+WEB_FETCH_TOOL_DIRECTIVE = (
+    "你可以调用 web_fetch 抓取用户给出的 http(s) 链接的正文，用于阅读用户分享的网页。"
+    "仅在用户提供了明确 URL、或需要阅读原文时再调用；禁止每轮都调用。"
+)
+
 X_TOOL_DIRECTIVE = (
     "【X (Twitter)】可用工具：post_tweet（发推）、read_mentions（读@提及）、like_tweet/unlike_tweet（点赞/取消赞）、"
     "retweet_tweet/unretweet_tweet、reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
@@ -185,6 +190,26 @@ OPENAI_SEARCH_TOOLS: List[Dict[str, Any]] = [
                     },
                 },
                 "required": ["query"],
+            },
+        },
+    }
+]
+
+OPENAI_WEB_FETCH_TOOLS: List[Dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "web_fetch",
+            "description": "抓取指定 URL 的网页正文内容，用于阅读用户分享的链接。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "url": {
+                        "type": "string",
+                        "description": "要抓取的网页 URL（http 或 https）",
+                    },
+                },
+                "required": ["url"],
             },
         },
     }
@@ -437,6 +462,7 @@ TOOL_DIRECTIVES: Dict[str, str] = {
     "weibo": WEIBO_HOT_TOOL_DIRECTIVE,
     "aihot": AIHOT_TOOL_DIRECTIVE,
     "search": SEARCH_TOOL_DIRECTIVE,
+    "web_fetch": WEB_FETCH_TOOL_DIRECTIVE,
     "x": X_TOOL_DIRECTIVE,
 }
 

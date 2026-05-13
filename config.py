@@ -53,6 +53,19 @@ class Config:
             "on",
         )
 
+    @property
+    def ENABLE_WEB_FETCH_TOOL(self) -> bool:
+        """
+        是否注册 ``web_fetch``（部署侧总开关 / 白名单）。
+        默认开启；设为 false 时不注册该工具，且与 Mini App 人设无关（无人设开关）。
+        """
+        return os.getenv("ENABLE_WEB_FETCH_TOOL", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+            "on",
+        )
+
     # ChromaDB 配置
     @property
     def CHROMADB_URL(self) -> Optional[str]:

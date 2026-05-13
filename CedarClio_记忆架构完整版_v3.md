@@ -1,4 +1,4 @@
-v3.1 · 2026-05-11 更新 · AI HOT 资讯工具 · TTS · 零花钱 · 业务 SSE · 实现以代码为准
+v3.1 · 2026-05-13 更新 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -111,6 +111,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `enable_search_tool`
 - `enable_x_tool`
 - `enable_ai_news_tool`（与部署 `ENABLE_AI_NEWS_TOOL` 同时为真才注册 `get_ai_news`）
+
+补充：`web_fetch`（网页正文抓取）**不是**本表字段；仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（默认 true）控制是否注册，见 **§4.2.1**。
 
 ### 2.4 辅助表
 
@@ -260,11 +262,17 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额。`retweet_tweet` 可选 `comment`：非空则为引用转推/带话转发，仅 `tweet_id` 则为纯转推，见 `tools/x_tool.py`）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 
+**`web_fetch`（网页正文抓取）** 无人设列：仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（`config.py`，默认 true）为真时注册；与记忆内部工具同属「可出现在 OpenAI tools 列表」的旁路能力，但不经由 `persona_configs` 开关。
+
 另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。
 
 工具口播提示由 system suffix 注入，确保模型在调用工具前先说一句自然口语。
 
-### 4.2.1 AI HOT 资讯（`tools/aihot.py`）
+### 4.2.1 网页正文抓取（`web_fetch`，`tools/web_fetch.py`）
+
+对用户给出的 http(s) URL：`aiohttp` GET（总超时 10 秒、响应体上限 1MB），`trafilatura.extract` 抽正文；工具返回 JSON（`text` / `error`；正文最多 4000 字符）。**依赖**：`trafilatura`、`lxml_html_clean`（lxml 6+ 必需）、`aiohttp`（见根目录 `requirements.txt`）。**调度**：`complete_with_lutopia_tool_loop`、`append_tool_exchange_to_messages`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`。写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 旁白附录（与 `web_search`、`get_ai_news` 同组排除）。Telegram 缓冲 / Discord / idle 是否走「带 tools 的 OpenAI 兼容流式」与 **`ENABLE_WEB_FETCH_TOOL`** 做逻辑或，避免仅该工具开启时仍走无 tools 路径。
+
+### 4.2.2 AI HOT 资讯（`tools/aihot.py`）
 
 匿名请求 `https://aihot.virxact.com/api/public` 的 `items` / `daily` / `daily/{date}` / `dailies`（`User-Agent: CedarStar/1.0`）。`dailies` 始终带 `take`（默认 10，硬上限 15）；`daily` / `daily_by_date` 格式化正文有总长度上限（模块常量，当前 10000 字符量级）。`get_ai_news` 写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 拼附录。
 
@@ -581,6 +589,10 @@ dispatch 代码位于：
 - `llm/llm_interface.py` → `complete_with_lutopia_tool_loop`
 - `bot/telegram_bot.py` → `_telegram_stream_thinking_and_reply_with_lutopia`
 - `tools/lutopia.py` → `append_tool_exchange_to_messages`
+
+### 8.8.1 网页抓取 `web_fetch`（非 MCP、非记忆审批链）
+
+与上表记忆工具并列出现在同一套 OpenAI Function Calling 工具循环中，但**不**调用 `/api` 记忆 REST，也不走 MCP。实现 `tools/web_fetch.py`；schema 与 system 后缀 `tools/prompts.py`（`OPENAI_WEB_FETCH_TOOLS`、`WEB_FETCH_TOOL_DIRECTIVE`）。部署开关 **`ENABLE_WEB_FETCH_TOOL`**（默认 true），**无人设 Mini App 开关**。`tool_executions` 照常记录；`execution_log` 排除名单见 `tools/lutopia.py`（与 `web_search` 等一致）。
 
 ## 九、外部写入（External Chunk）
 

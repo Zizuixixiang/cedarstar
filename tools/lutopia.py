@@ -31,6 +31,7 @@ from tools.memory_tools import (
 )
 from tools.aihot import execute_get_ai_news_function_call
 from tools.search import execute_search_function_call
+from tools.web_fetch import execute_web_fetch_function_call
 from tools.weather import execute_weather_function_call
 from tools.weibo import execute_weibo_function_call
 
@@ -784,6 +785,9 @@ async def append_tool_exchange_to_messages(
         elif nm == "get_ai_news":
             args_news = _safe_load_tool_args(arg, nm)
             out = await execute_get_ai_news_function_call(nm, args_news)
+        elif nm == "web_fetch":
+            args_wf = _safe_load_tool_args(arg, nm)
+            out = await execute_web_fetch_function_call(nm, args_wf)
         elif nm in (
             "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
             "retweet_tweet", "unretweet_tweet",
@@ -801,6 +805,7 @@ async def append_tool_exchange_to_messages(
             "get_weather",
             "get_weibo_hot",
             "web_search",
+            "web_fetch",
             "get_ai_news",
         ):
             execution_log.append((nm, arg or "{}", out))

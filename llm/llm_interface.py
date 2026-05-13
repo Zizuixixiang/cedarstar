@@ -2532,6 +2532,7 @@ async def complete_with_lutopia_tool_loop(
         OPENAI_SEARCH_TOOLS,
         OPENAI_WEATHER_TOOLS,
         OPENAI_WEIBO_TOOLS,
+        OPENAI_WEB_FETCH_TOOLS,
         OPENAI_X_TOOLS,
         build_tool_system_suffix,
         inject_tool_suffix_into_messages,
@@ -2541,11 +2542,15 @@ async def complete_with_lutopia_tool_loop(
     from tools.weather import execute_weather_function_call
     from tools.weibo import execute_weibo_function_call
     from tools.x_tool import execute_x_function_call
+    from tools.web_fetch import execute_web_fetch_function_call
 
     tools_list: List[Dict[str, Any]] = []
     suffix_keys: List[str] = []
     tools_list.extend(OPENAI_MEMORY_TOOLS)
     suffix_keys.append("memory")
+    if config.ENABLE_WEB_FETCH_TOOL:
+        tools_list.extend(OPENAI_WEB_FETCH_TOOLS)
+        suffix_keys.append("web_fetch")
     if llm.enable_lutopia:
         tools_list.extend(OPENAI_LUTOPIA_TOOLS)
         suffix_keys.append("lutopia")
@@ -2742,6 +2747,12 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_news = {}
                     result_str = await execute_get_ai_news_function_call(nm, args_news)
+                elif nm == "web_fetch":
+                    try:
+                        args_wf: Dict[str, Any] = json.loads(raw_args or "{}")
+                    except json.JSONDecodeError:
+                        args_wf = {}
+                    result_str = await execute_web_fetch_function_call(nm, args_wf)
                 else:
                     result_str = await execute_lutopia_function_call(
                         nm, raw_args or "{}", mcp_session=mcp_session

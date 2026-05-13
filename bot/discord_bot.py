@@ -431,6 +431,7 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_search_tool", False))
                 or bool(getattr(llm, "enable_x_tool", False))
                 or bool(getattr(llm, "enable_ai_news_tool", False))
+                or bool(config.ENABLE_WEB_FETCH_TOOL)
             ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(
@@ -574,6 +575,7 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_search_tool", False))
                 or bool(getattr(llm, "enable_x_tool", False))
                 or bool(getattr(llm, "enable_ai_news_tool", False))
+                or bool(config.ENABLE_WEB_FETCH_TOOL)
             ) and not llm._use_anthropic_messages_api()
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(

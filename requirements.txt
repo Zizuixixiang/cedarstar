@@ -31,6 +31,10 @@ python-dotenv
 # HTTP 请求
 requests
 httpx[socks]
+aiohttp
+# web_fetch：trafilatura 在 lxml 6+ 下需 lxml_html_clean，否则 import 失败
+trafilatura
+lxml_html_clean
 
 # Lutopia MCP（SSE + tools/call，与站方 cli / get_guide 对齐）
 mcp

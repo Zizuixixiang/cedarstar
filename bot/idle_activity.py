@@ -282,6 +282,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or bool(getattr(llm, "enable_search_tool", False))
         or bool(getattr(llm, "enable_x_tool", False))
         or bool(getattr(llm, "enable_ai_news_tool", False))
+        or bool(app_config.ENABLE_WEB_FETCH_TOOL)
     ) and not llm._use_anthropic_messages_api()
 
     # 把“用户最后发言时间”注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
