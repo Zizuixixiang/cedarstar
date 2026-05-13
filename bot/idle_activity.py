@@ -61,7 +61,10 @@ IDLE_LEVELS = {
 
 _IDLE_TRIGGER_TEXT = (
     "[IDLE_TRIGGER] 南杉有一段时间没来，你可以趁现在自由活动一下。"
-    "可以做的事：可以去星露谷看看；可以翻翻记忆，整理记忆；可以去lutopia论坛刷帖、回帖、发帖等等；可以去X搜索感兴趣的内容、发推、和人类互动；"
+    "可以做的事：可以去星露谷看看；可以翻翻记忆，整理记忆；"
+    "可以去论坛看看或互动：Lutopia 侧用 lutopia_cli 刷帖回帖发帖；"
+    "若当前人设已开启 rcommunity 论坛工具，也可用 rcommunity_forum / rcommunity_forum_write 等访问 rhysen 论坛（勿与 Lutopia 混用同一轮空刷）；"
+    "可以去X搜索感兴趣的内容、发推、和人类互动；"
     "可以查询天气、热搜、用 get_ai_news 看 AI HOT 上的 AI 资讯或日报（注意单次少拉、别堆多日全文）；可以随便搜搜感兴趣的；"
     "可以给南杉留言（不要发语音和表情）；也可以什么也不做。"
 )
