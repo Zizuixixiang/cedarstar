@@ -9,6 +9,7 @@ Token：从全局 ``config`` 表读取 key ``lutopia_uid``（值用作 Bearer to
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -38,6 +39,9 @@ from tools.weather import execute_weather_function_call
 from tools.weibo import execute_weibo_function_call
 
 logger = logging.getLogger(__name__)
+
+# 与 rcommunity 侧一致：``call_tool`` 读流卡住时会拖死事件循环（Telegram 整轮无回复）。
+LUTOPIA_CALL_TOOL_TIMEOUT_SEC = 75.0
 
 TOOL_LOG_SNIP_MAX = 200
 BEHAVIOR_DESC_MAX = 80
@@ -571,8 +575,26 @@ async def _invoke_lutopia_mcp_tool(
 
     async def _call(s: Any) -> str:
         try:
-            result = await s.call_tool(mcp_tool_name, merged_args)
+            result = await asyncio.wait_for(
+                s.call_tool(mcp_tool_name, merged_args),
+                timeout=LUTOPIA_CALL_TOOL_TIMEOUT_SEC,
+            )
             return mcp_call_tool_result_to_json_str(result)
+        except asyncio.TimeoutError:
+            logger.warning(
+                "Lutopia MCP call_tool 超时 tool=%s timeout=%ss",
+                mcp_tool_name,
+                int(LUTOPIA_CALL_TOOL_TIMEOUT_SEC),
+            )
+            return json.dumps(
+                {
+                    "error": (
+                        f"Lutopia MCP 在 {int(LUTOPIA_CALL_TOOL_TIMEOUT_SEC)} 秒内未返回。"
+                        "请检查 ``cli`` 命令是否合法或稍后再试；若用户指 rcommunity 论坛请改用 rcommunity_* 工具。"
+                    )
+                },
+                ensure_ascii=False,
+            )
         except Exception as e:
             logger.warning(
                 "Lutopia MCP 调用失败 tool=%s: %s",

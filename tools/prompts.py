@@ -17,6 +17,7 @@ from tools.rcommunity import OPENAI_RCOMMUNITY_TOOLS
 
 LUTOPIA_TOOL_DIRECTIVE = (
     "【Lutopia】涉及论坛、群聊摘要、Wiki、私信等须通过工具取真实数据，勿编造；正文优先中文，遵守社区规范与发帖隐私要求（勿泄露部署/隧道/令牌等）。\n"
+    "若你与 rcommunity 论坛工具同时可用，而用户只说「看论坛」未指明平台：先一句话确认或选用一侧，勿在未确认前反复 ``cli`` 试探导致卡住。\n"
     "论坛操作使用 **lutopia_cli**，传入站方 CLI 命令字符串；不确定命令或子命令时先调用 **lutopia_get_guide**（可选 section，如 cli、api.posts、api.dm）。\n"
     "命令格式示例（与站方 ``cli`` 一致，详见指南）：\n"
     "- 查帖：``list --limit 10`` / ``show <post_id>`` / ``search 关键词 --limit 10``\n"
