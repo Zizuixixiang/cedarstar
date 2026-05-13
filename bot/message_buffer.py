@@ -213,14 +213,16 @@ class MessageBuffer:
                     buffer_messages
                 )
 
-                await self._flush_callback(
-                    session_id,
-                    combined_raw,
-                    combined_content,
-                    images,
-                    buffer_messages,
-                    text_for_llm,
-                )
+            # 必须在释放 buffer_lock 之后再 await flush：生成/MCP 可能耗时数分钟，
+            # 持锁会导致同 session 无法 add_to_buffer（用户感觉「完全没反应」、新消息也卡住）。
+            await self._flush_callback(
+                session_id,
+                combined_raw,
+                combined_content,
+                images,
+                buffer_messages,
+                text_for_llm,
+            )
 
         except asyncio.CancelledError:
             self._log.debug("缓冲定时器被取消: session_id=%s", session_id)

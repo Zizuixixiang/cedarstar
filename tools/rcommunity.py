@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator, Dict, List, Optional, Set
 
 from config import config
+from tools.mcp_utils import mcp_call_tool_result_to_json_str
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +69,43 @@ def is_rcommunity_openai_tool(name: str) -> bool:
     return (name or "").strip() in RCOMMUNITY_OPENAI_TOOL_NAMES
 
 
+def _rcommunity_tool_parameters_schema(
+    *,
+    description: str,
+) -> Dict[str, Any]:
+    """
+    各厂商 OpenAI 兼容层（Vertex/Gemini、智谱 GLM、硅基流动等）对 ``properties: {}`` 且
+    仅依赖 ``additionalProperties`` 的 function schema 常校验失败或首包极慢。显式声明
+    ``request`` 对象，并对其开启 ``additionalProperties``，便于任意 MCP 键名。
+
+    执行时在 :func:`_normalize_rcommunity_openai_args` 中与顶层平铺参数对齐。
+    """
+    return {
+        "type": "object",
+        "properties": {
+            "request": {
+                "type": "object",
+                "description": description,
+                "additionalProperties": True,
+            },
+        },
+        "required": [],
+    }
+
+
+def _normalize_rcommunity_openai_args(raw: Dict[str, Any]) -> Dict[str, Any]:
+    """兼容 ``{"request": {...}}`` 与站方风格的顶层平铺两种入参。"""
+    if not isinstance(raw, dict):
+        return {}
+    if "request" in raw and isinstance(raw.get("request"), dict):
+        out = dict(raw["request"])
+        for k, v in raw.items():
+            if k != "request":
+                out[k] = v
+        return out
+    return dict(raw)
+
+
 # 供 ``tools/prompts`` 与 ``llm_interface`` 引用
 OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
     {
@@ -77,13 +115,14 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
             "description": (
                 "rcommunity 论坛只读：浏览分区、读取帖子、搜索、星章墙等。"
                 "参数对象原样传给 MCP 工具 ``forum``（字段以站方为准）。"
+                "请把 MCP 参数字段放在 ``request`` 内（与顶层平铺等价，见实现）。"
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": True,
-                "description": "例如 action、分区、帖子 id、关键词、分页等；与站方 MCP 文档一致。",
-            },
+            "parameters": _rcommunity_tool_parameters_schema(
+                description=(
+                    "传给 MCP ``forum`` 的参数（如 action、分区、帖子 id、关键词、分页等）；"
+                    "无参调用可传空对象。"
+                ),
+            ),
         },
     },
     {
@@ -92,14 +131,11 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
             "name": "rcommunity_forum_write",
             "description": (
                 "rcommunity 论坛写入：发帖、回复、编辑、删除。"
-                "参数原样传给 MCP ``forum_write``。"
+                "参数原样传给 MCP ``forum_write``；字段放在 ``request`` 内。"
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": True,
-                "description": "与站方 ``forum_write`` 入参一致。",
-            },
+            "parameters": _rcommunity_tool_parameters_schema(
+                description="传给 MCP ``forum_write`` 的参数；与站方入参一致。",
+            ),
         },
     },
     {
@@ -108,14 +144,11 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
             "name": "rcommunity_forum_interact",
             "description": (
                 "rcommunity 论坛互动：点赞、收藏、置顶等。"
-                "参数原样传给 MCP ``forum_interact``。"
+                "参数原样传给 MCP ``forum_interact``；字段放在 ``request`` 内。"
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": True,
-                "description": "与站方 ``forum_interact`` 入参一致。",
-            },
+            "parameters": _rcommunity_tool_parameters_schema(
+                description="传给 MCP ``forum_interact`` 的参数；与站方入参一致。",
+            ),
         },
     },
     {
@@ -124,14 +157,11 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
             "name": "rcommunity_chat",
             "description": (
                 "rcommunity 聊天室：读取与发送消息。"
-                "参数原样传给 MCP ``chat``。"
+                "参数原样传给 MCP ``chat``；字段放在 ``request`` 内。"
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": True,
-                "description": "与站方 ``chat`` 入参一致。",
-            },
+            "parameters": _rcommunity_tool_parameters_schema(
+                description="传给 MCP ``chat`` 的参数；与站方入参一致。",
+            ),
         },
     },
     {
@@ -141,14 +171,11 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
             "description": (
                 "rcommunity 个人与通知：个人信息、我的帖子、我的回复、通知、查看他人等。"
                 "查看自己在他人帖子下的全部回复时可使用 profile，并传 action=\"my_replies\"（及站方要求的其它字段）。"
-                "参数原样传给 MCP ``profile``。"
+                "参数原样传给 MCP ``profile``；字段放在 ``request`` 内。"
             ),
-            "parameters": {
-                "type": "object",
-                "properties": {},
-                "additionalProperties": True,
-                "description": "与站方 ``profile`` 入参一致；含 action 等。",
-            },
+            "parameters": _rcommunity_tool_parameters_schema(
+                description="传给 MCP ``profile`` 的参数；含 action 等。",
+            ),
         },
     },
 ]
@@ -274,6 +301,7 @@ async def _execute_rcommunity_function_call_impl(
 
     if not isinstance(args, dict):
         args = {}
+    args = _normalize_rcommunity_openai_args(args)
 
     mcp_name = RCOMMUNITY_OPENAI_TO_MCP.get((name or "").strip())
     if not mcp_name:

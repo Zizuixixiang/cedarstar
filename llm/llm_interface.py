@@ -13,6 +13,7 @@ import math
 import time
 import re
 import uuid
+from contextlib import AsyncExitStack
 from typing import (
     Any,
     Awaitable,
@@ -2653,9 +2654,55 @@ async def complete_with_lutopia_tool_loop(
     tool_pairs: List[Tuple[str, str, str]] = []
     tool_turn_id = uuid.uuid4().hex
     tool_seq = 0
-    async with create_lutopia_mcp_session() as mcp_session, maybe_rcommunity_mcp_session(
-        bool(getattr(llm, "enable_rcommunity", False))
-    ) as rcommunity_session:
+
+    def _need_lutopia_mcp_for_tool_calls(tc_list: Any) -> bool:
+        if not llm.enable_lutopia or not isinstance(tc_list, list):
+            return False
+        for item in tc_list:
+            if not isinstance(item, dict):
+                continue
+            nm = (item.get("name") or "").strip()
+            if nm in ("lutopia_cli", "lutopia_get_guide"):
+                return True
+        return False
+
+    def _need_rcommunity_mcp_for_tool_calls(tc_list: Any) -> bool:
+        if not bool(getattr(llm, "enable_rcommunity", False)):
+            return False
+        if not isinstance(tc_list, list):
+            return False
+        for item in tc_list:
+            if not isinstance(item, dict):
+                continue
+            if is_rcommunity_openai_tool(str(item.get("name") or "")):
+                return True
+        return False
+
+    # 首轮必须先走 LLM；勿在 generate 之前建立 MCP SSE（任一侧卡住则模型永远调不到）。
+    async with AsyncExitStack() as mcp_stack:
+        mcp_session: Optional[Any] = None
+        rcommunity_session: Optional[Any] = None
+        lutopia_mcp_entered = False
+        rcommunity_mcp_entered = False
+
+        async def _ensure_mcp_sessions_for_round(tc_list: Any) -> None:
+            nonlocal mcp_session, rcommunity_session
+            nonlocal lutopia_mcp_entered, rcommunity_mcp_entered
+            if not isinstance(tc_list, list):
+                return
+            if not lutopia_mcp_entered and _need_lutopia_mcp_for_tool_calls(tc_list):
+                mcp_session = await mcp_stack.enter_async_context(
+                    create_lutopia_mcp_session()
+                )
+                lutopia_mcp_entered = True
+            if not rcommunity_mcp_entered and _need_rcommunity_mcp_for_tool_calls(
+                tc_list
+            ):
+                rcommunity_session = await mcp_stack.enter_async_context(
+                    maybe_rcommunity_mcp_session(True)
+                )
+                rcommunity_mcp_entered = True
+
         for round_idx in range(max_tool_rounds):
             tool_round_prompt = (
                 f"\n\n【工具轮次状态】当前是第 {round_idx + 1}/{max_tool_rounds} 轮工具调用。"
@@ -2728,6 +2775,7 @@ async def complete_with_lutopia_tool_loop(
                 ],
             }
             work.append(assistant_message)
+            await _ensure_mcp_sessions_for_round(last.tool_calls or [])
             for tc in last.tool_calls or []:
                 if not isinstance(tc, dict):
                     continue
@@ -2862,13 +2910,13 @@ async def complete_with_lutopia_tool_loop(
                         "content": tool_result_for_model(nm, raw_args or "{}", result_str),
                     }
                 )
-    fin = last or LLMResponse(content="", model=llm.model_name)
-    return LutopiaToolLoopOutcome(
-        fin,
-        "\n".join(round_texts),
-        build_lutopia_internal_memory_appendix(tool_pairs),
-        tool_turn_id,
-    )
+        fin = last or LLMResponse(content="", model=llm.model_name)
+        return LutopiaToolLoopOutcome(
+            fin,
+            "\n".join(round_texts),
+            build_lutopia_internal_memory_appendix(tool_pairs),
+            tool_turn_id,
+        )
 
 
 # 创建全局 LLM 接口实例

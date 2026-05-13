@@ -20,6 +20,7 @@ import requests
 import uuid
 import random
 import re
+from contextlib import AsyncExitStack
 from datetime import datetime
 from typing import Any, Dict, List, NamedTuple, Optional, Set, Tuple
 
@@ -95,6 +96,7 @@ from tools.lutopia import (
 )
 from tools.rcommunity import (
     OPENAI_RCOMMUNITY_TOOLS,
+    is_rcommunity_openai_tool,
     maybe_rcommunity_mcp_session,
 )
 from tools.xhs_tool import find_xhs_urls_in_text, telegram_append_xhs_note_to_message
@@ -2637,9 +2639,59 @@ class TelegramBot:
                 save_user=outcome.save_user,
             )
 
-        async with create_lutopia_mcp_session() as lutopia_mcp_session, maybe_rcommunity_mcp_session(
-            bool(getattr(llm, "enable_rcommunity", False))
-        ) as rcommunity_mcp_session:
+        def _tg_tool_calls_need_lutopia_mcp(tool_calls: Any) -> bool:
+            if not llm.enable_lutopia or not isinstance(tool_calls, list):
+                return False
+            for item in tool_calls:
+                if not isinstance(item, dict):
+                    continue
+                nm = (item.get("name") or "").strip()
+                if nm in ("lutopia_cli", "lutopia_get_guide"):
+                    return True
+            return False
+
+        def _tg_tool_calls_need_rcommunity_mcp(tool_calls: Any) -> bool:
+            if not bool(getattr(llm, "enable_rcommunity", False)):
+                return False
+            if not isinstance(tool_calls, list):
+                return False
+            for item in tool_calls:
+                if not isinstance(item, dict):
+                    continue
+                if is_rcommunity_openai_tool(str(item.get("name") or "")):
+                    return True
+            return False
+
+        # 勿在首轮 LLM 之前建立 MCP SSE：任一侧阻塞则永远走不到 chat/completions。
+        # 仅在模型返回的 tool_calls 中确实含 Lutopia / rcommunity 工具时再懒加载对应会话。
+        async with AsyncExitStack() as mcp_stack:
+            lutopia_mcp_session: Optional[Any] = None
+            rcommunity_mcp_session: Optional[Any] = None
+            lutopia_mcp_entered = False
+            rcommunity_mcp_entered = False
+
+            async def _ensure_mcp_for_tool_calls(tool_calls: Any) -> None:
+                nonlocal lutopia_mcp_session, rcommunity_mcp_session
+                nonlocal lutopia_mcp_entered, rcommunity_mcp_entered
+                if not isinstance(tool_calls, list):
+                    return
+                if (
+                    not lutopia_mcp_entered
+                    and _tg_tool_calls_need_lutopia_mcp(tool_calls)
+                ):
+                    lutopia_mcp_session = await mcp_stack.enter_async_context(
+                        create_lutopia_mcp_session()
+                    )
+                    lutopia_mcp_entered = True
+                if (
+                    not rcommunity_mcp_entered
+                    and _tg_tool_calls_need_rcommunity_mcp(tool_calls)
+                ):
+                    rcommunity_mcp_session = await mcp_stack.enter_async_context(
+                        maybe_rcommunity_mcp_session(True)
+                    )
+                    rcommunity_mcp_entered = True
+
             for _ in range(8):
                 for attempt in range(2):
                     sse = await self._telegram_stream_llm_one_sse_round(
@@ -2664,6 +2716,7 @@ class TelegramBot:
                 fin = sse.done_payload or {}
                 tc = fin.get("tool_calls")
                 if isinstance(tc, list) and len(tc) > 0:
+                    await _ensure_mcp_for_tool_calls(tc)
                     rc = (sse.raw_content or "").strip()
                     if rc:
                         pre_tool_segments.append(rc)
