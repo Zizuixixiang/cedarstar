@@ -77,11 +77,13 @@ def _rcommunity_tool_parameters_schema(
     description: str,
 ) -> Dict[str, Any]:
     """
-    各厂商 OpenAI 兼容层（Vertex/Gemini、智谱 GLM、硅基流动等）对 ``properties: {}`` 且
-    仅依赖 ``additionalProperties`` 的 function schema 常校验失败或首包极慢。显式声明
-    ``request`` 对象，并对其开启 ``additionalProperties``，便于任意 MCP 键名。
+    OpenAI ``function.parameters``：站方 MCP ``call_tool`` 的入参为**单层 JSON 对象**
+   （与 ``list_tools`` 里各工具的 inputSchema 一致），键名随工具而异（常见含 ``action`` 等）。
 
-    执行时在 :func:`_normalize_rcommunity_openai_args` 中与顶层平铺参数对齐。
+    - 显式 ``request``：便于只认嵌套结构的网关；``_normalize_rcommunity_openai_args`` 会将其
+      与顶层其它键**合并**为传给 ``call_tool`` 的平铺 dict。
+    - 根级 ``additionalProperties: true``：允许模型直接输出站方风格的平铺参数（与 GLM
+      等常见行为一致），不必强制包一层 ``request``。
     """
     return {
         "type": "object",
@@ -93,20 +95,38 @@ def _rcommunity_tool_parameters_schema(
             },
         },
         "required": [],
+        "additionalProperties": True,
     }
 
 
 def _normalize_rcommunity_openai_args(raw: Dict[str, Any]) -> Dict[str, Any]:
-    """兼容 ``{"request": {...}}`` 与站方风格的顶层平铺两种入参。"""
+    """将 OpenAI 工具参数转为 MCP ``call_tool`` 所需的平铺对象。
+
+    - ``{"request": {"action": "…", …}, "foo": "bar"}`` → ``{"action":"…", …, "foo":"bar"}``
+      （``request`` 内字段优先，同名时顶层覆盖）。
+    - 无 ``request`` 或 ``request`` 非对象：原样拷贝顶层（站方平铺格式）。
+    """
     if not isinstance(raw, dict):
         return {}
-    if "request" in raw and isinstance(raw.get("request"), dict):
-        out = dict(raw["request"])
+    req = raw.get("request")
+    if isinstance(req, dict):
+        out = dict(req)
         for k, v in raw.items():
-            if k != "request":
-                out[k] = v
+            if k == "request":
+                continue
+            out[k] = v
         return out
     return dict(raw)
+
+
+def _rcommunity_mcp_arguments_empty(args: Dict[str, Any]) -> bool:
+    """是否应拒绝调用 MCP（避免空 ``call_tool`` 拖死站方或长时间无响应）。"""
+    if not args:
+        return True
+    return not any(
+        v is not None and v != "" and v != [] and v != {}
+        for v in args.values()
+    )
 
 
 # 供 ``tools/prompts`` 与 ``llm_interface`` 引用
@@ -122,8 +142,10 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
             ),
             "parameters": _rcommunity_tool_parameters_schema(
                 description=(
-                    "传给 MCP ``forum`` 的参数（如 action、分区、帖子 id、关键词、分页等）；"
-                    "无参调用可传空对象。"
+                    "传给 MCP ``forum`` 的平铺参数（合并进 ``call_tool`` 根对象）。"
+                    "须含站方要求的字段（常见为 ``action`` 及分区/帖子 id/分页等）；"
+                    "可写在本对象顶层，或放在 ``request`` 内二选一或混用（实现会合并）。"
+                    "禁止无任何有效字段的空调用。"
                 ),
             ),
         },
@@ -137,7 +159,10 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
                 "参数原样传给 MCP ``forum_write``；字段放在 ``request`` 内。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
-                description="传给 MCP ``forum_write`` 的参数；与站方入参一致。",
+                description=(
+                    "传给 ``forum_write`` 的平铺参数；须含站方必填字段；"
+                    "可顶层或写在 ``request`` 内（会合并）。禁止空对象。"
+                ),
             ),
         },
     },
@@ -150,7 +175,10 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
                 "参数原样传给 MCP ``forum_interact``；字段放在 ``request`` 内。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
-                description="传给 MCP ``forum_interact`` 的参数；与站方入参一致。",
+                description=(
+                    "传给 ``forum_interact`` 的平铺参数；须含站方字段；"
+                    "可顶层或 ``request`` 合并。禁止空对象。"
+                ),
             ),
         },
     },
@@ -163,7 +191,9 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
                 "参数原样传给 MCP ``chat``；字段放在 ``request`` 内。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
-                description="传给 MCP ``chat`` 的参数；与站方入参一致。",
+                description=(
+                    "传给 ``chat`` 的平铺参数；须含站方字段；可顶层或 ``request`` 合并。禁止空对象。"
+                ),
             ),
         },
     },
@@ -177,7 +207,10 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
                 "参数原样传给 MCP ``profile``；字段放在 ``request`` 内。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
-                description="传给 MCP ``profile`` 的参数；含 action 等。",
+                description=(
+                    "传给 ``profile`` 的平铺参数（含 ``action`` 等，如 ``my_replies``）；"
+                    "可顶层或 ``request`` 合并。禁止空对象。"
+                ),
             ),
         },
     },
@@ -329,6 +362,18 @@ async def _execute_rcommunity_function_call_impl(
     if not isinstance(args, dict):
         args = {}
     args = _normalize_rcommunity_openai_args(args)
+
+    if _rcommunity_mcp_arguments_empty(args):
+        return json.dumps(
+            {
+                "error": (
+                    "rcommunity 工具参数为空或全为空串：MCP ``call_tool`` 需要与站方 inputSchema "
+                    "一致的平铺字段（常见含 ``action`` 等）。请写在参数顶层，或放在 ``request`` "
+                    "对象内；勿发送 {} 或 {\"request\":{}}。若用户指 Lutopia 论坛请改用 lutopia_cli。"
+                )
+            },
+            ensure_ascii=False,
+        )
 
     mcp_name = RCOMMUNITY_OPENAI_TO_MCP.get((name or "").strip())
     if not mcp_name:
