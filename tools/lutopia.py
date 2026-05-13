@@ -642,15 +642,31 @@ async def create_lutopia_mcp_session() -> AsyncIterator[Optional[Any]]:
         return
 
     headers = {"Authorization": f"Bearer {token}"}
-    async with sse_client(
-        LUTOPIA_MCP_SSE_URL,
-        headers=headers,
-        timeout=120.0,
-        sse_read_timeout=300.0,
-    ) as (read, write):
-        async with ClientSession(read, write) as session:
-            await session.initialize()
-            yield session
+    try:
+        async with sse_client(
+            LUTOPIA_MCP_SSE_URL,
+            headers=headers,
+            timeout=120.0,
+            sse_read_timeout=300.0,
+        ) as (read, write):
+            async with ClientSession(read, write) as session:
+                await session.initialize()
+                yield session
+    except BaseException as exc:
+        # mcp sse_client / anyio 在关闭读写字节流时偶发 TaskGroup ExceptionGroup，
+        # 会导致 Telegram 缓冲路径在已成功收尾 SSE 后仍报「缓冲区生成回复异常」。
+        try:
+            from exceptiongroup import BaseExceptionGroup
+        except ImportError:
+            BaseExceptionGroup = ()  # type: ignore[misc, assignment]
+        if BaseExceptionGroup and isinstance(exc, BaseExceptionGroup):
+            logger.warning(
+                "Lutopia MCP SSE 会话关闭触发 ExceptionGroup（多为后台读写任务清理，可忽略）: %s",
+                exc,
+                exc_info=True,
+            )
+            return
+        raise
 
 
 def _safe_load_tool_args(arg: str, tool_name: str) -> Dict[str, Any]:
@@ -797,6 +813,17 @@ async def append_tool_exchange_to_messages(
             args_xx = _safe_load_tool_args(arg, nm)
             from tools.x_tool import execute_x_function_call
             out = await execute_x_function_call(nm, args_xx)
+        elif nm in (
+            "search_xhs",
+            "read_xhs_note",
+            "get_xhs_feed",
+            "get_xhs_user",
+            "like_xhs_note",
+            "favorite_xhs_note",
+        ):
+            args_xh = _safe_load_tool_args(arg, nm)
+            from tools.xhs_tool import execute_xhs_function_call
+            out = await execute_xhs_function_call(nm, args_xh)
         else:
             out = await execute_lutopia_function_call(
                 nm, arg or "{}", mcp_session=mcp_session
