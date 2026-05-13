@@ -426,6 +426,7 @@ class DiscordBot:
             llm = await LLMInterface.create()
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
+                or bool(getattr(llm, "enable_rcommunity", False))
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))
@@ -571,6 +572,7 @@ class DiscordBot:
             llm = await LLMInterface.create()
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
+                or bool(getattr(llm, "enable_rcommunity", False))
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))

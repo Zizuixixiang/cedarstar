@@ -277,6 +277,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
 
     tool_oral = (
         bool(getattr(llm, "enable_lutopia", False))
+        or bool(getattr(llm, "enable_rcommunity", False))
         or bool(getattr(llm, "enable_weather_tool", False))
         or bool(getattr(llm, "enable_weibo_tool", False))
         or bool(getattr(llm, "enable_search_tool", False))

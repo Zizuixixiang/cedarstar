@@ -6,6 +6,7 @@ import '../styles/tools-center.css';
 
 const TOOL_SWITCH_KEYS = [
   { key: 'enable_lutopia', label: 'Lutopia 论坛工具' },
+  { key: 'enable_rcommunity', label: 'rcommunity 论坛 MCP' },
   { key: 'enable_weather_tool', label: '天气工具' },
   { key: 'enable_weibo_tool', label: '微博热搜工具' },
   { key: 'enable_search_tool', label: '网页搜索工具' },
@@ -116,6 +117,7 @@ export default function ToolsCenter() {
         setPersonaName(d.name || personas[0]?.name || '默认人设');
         setToolSwitches({
           enable_lutopia: Number(d.enable_lutopia || 0),
+          enable_rcommunity: Number(d.enable_rcommunity || 0),
           enable_weather_tool: Number(d.enable_weather_tool || 0),
           enable_weibo_tool: Number(d.enable_weibo_tool || 0),
           enable_search_tool: Number(d.enable_search_tool || 0),

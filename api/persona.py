@@ -43,6 +43,7 @@ class PersonaCreate(BaseModel):
     user_other: Optional[str] = ""
     system_rules: Optional[str] = ""
     enable_lutopia: Optional[int] = 0
+    enable_rcommunity: Optional[int] = 0
     enable_weather_tool: Optional[int] = 0
     enable_weibo_tool: Optional[int] = 0
     enable_search_tool: Optional[int] = 0
@@ -76,6 +77,7 @@ class PersonaUpdate(BaseModel):
     user_other: Optional[str] = None
     system_rules: Optional[str] = None
     enable_lutopia: Optional[int] = None
+    enable_rcommunity: Optional[int] = None
     enable_weather_tool: Optional[int] = None
     enable_weibo_tool: Optional[int] = None
     enable_search_tool: Optional[int] = None
@@ -110,6 +112,7 @@ class PersonaResponse(BaseModel):
     user_other: Optional[str] = ""
     system_rules: Optional[str] = ""
     enable_lutopia: Optional[int] = 0
+    enable_rcommunity: Optional[int] = 0
     enable_weather_tool: Optional[int] = 0
     enable_weibo_tool: Optional[int] = 0
     enable_search_tool: Optional[int] = 0

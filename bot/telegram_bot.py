@@ -93,6 +93,7 @@ from tools.lutopia import (
     create_lutopia_mcp_session,
     strip_lutopia_user_facing_assistant_text,
 )
+from tools.rcommunity import OPENAI_RCOMMUNITY_TOOLS, create_rcommunity_mcp_session
 from tools.xhs_tool import find_xhs_urls_in_text, telegram_append_xhs_note_to_message
 from tools.prompts import (
     OPENAI_AIHOT_TOOLS,
@@ -1775,6 +1776,8 @@ class TelegramBot:
             return "AI 资讯"
         if t.startswith("lutopia_"):
             return t[8:] or t
+        if t.startswith("rcommunity_"):
+            return "rcommunity论坛·" + (t[11:] or t)
         return t or "tool"
 
     async def _telegram_send_body_segments(
@@ -2528,6 +2531,9 @@ class TelegramBot:
         if llm.enable_lutopia:
             tools_list.extend(OPENAI_LUTOPIA_TOOLS)
             suffix_keys.append("lutopia")
+        if getattr(llm, "enable_rcommunity", False):
+            tools_list.extend(OPENAI_RCOMMUNITY_TOOLS)
+            suffix_keys.append("rcommunity")
         if getattr(llm, "enable_weather_tool", False):
             tools_list.extend(OPENAI_WEATHER_TOOLS)
             suffix_keys.append("weather")
@@ -2628,7 +2634,7 @@ class TelegramBot:
                 save_user=outcome.save_user,
             )
 
-        async with create_lutopia_mcp_session() as lutopia_mcp_session:
+        async with create_lutopia_mcp_session() as lutopia_mcp_session, create_rcommunity_mcp_session() as rcommunity_mcp_session:
             for _ in range(8):
                 for attempt in range(2):
                     sse = await self._telegram_stream_llm_one_sse_round(
@@ -2680,6 +2686,7 @@ class TelegramBot:
                         on_tool_done=_lutopia_on_done,
                         execution_log=lutopia_stream_exec_log,
                         mcp_session=lutopia_mcp_session,
+                        rcommunity_mcp_session=rcommunity_mcp_session,
                         session_id=session_id,
                         turn_id=lutopia_stream_turn_id,
                         platform=Platform.TELEGRAM,
@@ -3065,6 +3072,7 @@ class TelegramBot:
 
             is_anthropic = llm._use_anthropic_messages_api()
             lutopia_on = bool(getattr(llm, "enable_lutopia", False))
+            rcommunity_on = bool(getattr(llm, "enable_rcommunity", False))
             weather_on = bool(getattr(llm, "enable_weather_tool", False))
             weibo_on = bool(getattr(llm, "enable_weibo_tool", False))
             search_on = bool(getattr(llm, "enable_search_tool", False))
@@ -3074,6 +3082,7 @@ class TelegramBot:
             web_fetch_on = bool(config.ENABLE_WEB_FETCH_TOOL)
             oral = (
                 lutopia_on
+                or rcommunity_on
                 or weather_on
                 or weibo_on
                 or search_on
@@ -3155,6 +3164,7 @@ class TelegramBot:
                 llm_path = "anthropic_prefetch → generate_with_context_and_tracking（无 tools）"
             elif (
                 lutopia_on
+                or rcommunity_on
                 or weather_on
                 or weibo_on
                 or search_on
@@ -3165,7 +3175,7 @@ class TelegramBot:
             ):
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply_with_lutopia "
-                    "→ generate_stream(tools=Lutopia±天气±微博±搜索±X±小红书±AI资讯±网页抓取)（persona/环境工具开关）"
+                    "→ generate_stream(tools=Lutopia±rcommunity±天气±微博±搜索±X±小红书±AI资讯±网页抓取)（persona/环境工具开关）"
                 )
             else:
                 llm_path = (
@@ -3174,12 +3184,13 @@ class TelegramBot:
                 )
             logger.info(
                 "[TG路径追踪] _generate_reply_from_buffer 已建 LLM：session_id=%s model=%s "
-                "api_base=%s character_id=%r enable_lutopia=%s is_anthropic=%s → %s",
+                "api_base=%s character_id=%r enable_lutopia=%s enable_rcommunity=%s is_anthropic=%s → %s",
                 session_id,
                 llm.model_name,
                 (llm.api_base or "")[:80],
                 llm.character_id,
                 lutopia_on,
+                rcommunity_on,
                 is_anthropic,
                 llm_path,
             )
@@ -3231,6 +3242,7 @@ class TelegramBot:
             else:
                 if (
                     getattr(llm, "enable_lutopia", False)
+                    or getattr(llm, "enable_rcommunity", False)
                     or getattr(llm, "enable_weather_tool", False)
                     or getattr(llm, "enable_weibo_tool", False)
                     or getattr(llm, "enable_search_tool", False)
@@ -3569,6 +3581,7 @@ class TelegramBot:
             )
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
+                or bool(getattr(llm, "enable_rcommunity", False))
                 or bool(getattr(llm, "enable_weather_tool", False))
                 or bool(getattr(llm, "enable_weibo_tool", False))
                 or bool(getattr(llm, "enable_search_tool", False))
@@ -3578,9 +3591,10 @@ class TelegramBot:
                 or bool(config.ENABLE_WEB_FETCH_TOOL)
             ) and not llm._use_anthropic_messages_api()
             logger.info(
-                "oral=%s lutopia=%s weather=%s weibo=%s search=%s x=%s xhs=%s ai_news=%s web_fetch=%s anthropic=%s",
+                "oral=%s lutopia=%s rcommunity=%s weather=%s weibo=%s search=%s x=%s xhs=%s ai_news=%s web_fetch=%s anthropic=%s",
                 oral,
                 getattr(llm, "enable_lutopia", False),
+                getattr(llm, "enable_rcommunity", False),
                 getattr(llm, "enable_weather_tool", False),
                 getattr(llm, "enable_weibo_tool", False),
                 getattr(llm, "enable_search_tool", False),

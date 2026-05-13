@@ -69,6 +69,7 @@ const EMPTY_FORM = {
   user_other: '',
   system_rules: '',
   enable_lutopia: 0,
+  enable_rcommunity: 0,
   enable_weather_tool: 0,
   enable_weibo_tool: 0,
   enable_search_tool: 0,
@@ -439,6 +440,10 @@ function Persona() {
         system_rules: d.system_rules || '',
         enable_lutopia:
           d.enable_lutopia != null && Number(d.enable_lutopia) !== 0 ? 1 : 0,
+        enable_rcommunity:
+          d.enable_rcommunity != null && Number(d.enable_rcommunity) !== 0
+            ? 1
+            : 0,
         enable_weather_tool:
           d.enable_weather_tool != null && Number(d.enable_weather_tool) !== 0
             ? 1
@@ -967,6 +972,20 @@ function Persona() {
             </label>
             <p className="persona-field-hint">
               开启后可调论坛；关闭不注册；随本套人设保存。
+            </p>
+            <label className="persona-tool-toggle">
+              <input
+                type="checkbox"
+                checked={form.enable_rcommunity === 1}
+                onChange={e =>
+                  handleChange('enable_rcommunity', e.target.checked ? 1 : 0)
+                }
+              />
+              <span>启用 rcommunity 论坛 MCP</span>
+            </label>
+            <p className="persona-field-hint">
+              需在部署环境配置 RCOMMUNITY_MCP_TOKEN；开启后注册 forum / forum_write /
+              forum_interact / chat / profile 五类工具。
             </p>
             <label className="persona-tool-toggle">
               <input

@@ -99,12 +99,13 @@ def get_last_context_trace() -> Dict[str, Any]:
         ),
     }
 
-# OpenAI 兼容路径下启用 Lutopia tools 时注入 system 末尾（与 tools 是否传入由调用方 flag 对齐）
+# OpenAI 兼容路径下启用 tools 时注入 system 固定段（与 Bot 侧 tool_oral_coaching 对齐）
 TOOL_ORAL_COACHING_BLOCK = (
     "调用工具前，用一句简短口语告诉用户你要去做什么，"
-    "语气自然随意，比如「我去看看xxxx」。"
+    "语气自然随意，例如「我去看看××」「我去论坛上搜一下」「我去 rcommunity 翻翻帖子」等。"
+    "适用于所有可调用工具（含 Lutopia 论坛、rcommunity 论坛 MCP、记忆类工具、天气、联网检索、X、小红书等）。"
     "工具结果回来后，接着用正常语气继续说。"
-    "不要罗列工具名称，不要说技术性的话。"
+    "不要罗列工具名称或 API 名，不要说技术性的话。"
 )
 
 TELEGRAM_GROUP_CONTINUATION_DIRECTIVE = (
@@ -1215,7 +1216,7 @@ class ContextBuilder:
             images: 当前轮次多模态图片（可选）
             llm_user_text: 对话模型用纯文本（有图片时建议传入）
             telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径）
-            tool_oral_coaching: 为 True 时在 system 末尾追加 Lutopia 工具「口播」引导（与启用 tools 的请求对齐）
+            tool_oral_coaching: 为 True 时在 system 末尾追加「工具调用前口播」引导（与启用 OpenAI tools 的请求对齐）
             short_term_dedup_user_text: 若 user_message 含额外系统缀文（如群聊提示），可传与 shared_group_messages.content 一致的文本（Telegram 缓冲路径下即 combined_raw），用于短期历史去重
             group_recent_skip_tg_message_ids: 群聊缓冲合并本轮涉及的 Telegram message_id，用于从短期历史尾部剥离对应 user 行（多句合并时 combined_raw 无法与单行 content 相等）
             
@@ -1414,7 +1415,7 @@ class ContextBuilder:
             images: 当前轮次图片 payload（可选）
             llm_user_text: 对话模型用纯文本（可选）
             telegram_segment_hint: 为 True 时在 system 末尾追加 Telegram HTML 白名单与 ||| 分段死指令
-            tool_oral_coaching: 为 True 时在 system 末尾追加 Lutopia 工具「口播」引导
+            tool_oral_coaching: 为 True 时在 system 末尾追加「工具调用前口播」引导
             
         Returns:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
@@ -2786,7 +2787,7 @@ async def build_context(
         images: 当前轮图片 payload（可选）
         llm_user_text: 对话模型用纯文本（可选，有图片时建议传入）
         telegram_segment_hint: 为 True 时追加 Telegram HTML 白名单与 ||| 分段死指令（仅 Telegram 缓冲路径建议开启）
-        tool_oral_coaching: 为 True 时追加 Lutopia 工具口播引导（与启用 tools 的请求对齐）
+        tool_oral_coaching: 为 True 时追加「工具调用前口播」引导（与启用 OpenAI tools 的请求对齐）
         
     Returns:
         Dict[str, Any]: 包含 system prompt 和 messages 数组的结构

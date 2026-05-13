@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List
 
+from tools.rcommunity import OPENAI_RCOMMUNITY_TOOLS
+
 # ---------------------------------------------------------------------------
 # 各工具包说明（供 build_tool_system_suffix 拼接）
 # ---------------------------------------------------------------------------
@@ -23,6 +25,19 @@ LUTOPIA_TOOL_DIRECTIVE = (
     "- 私信：``dm <用户名> 内容``；收件：``inbox``、``read --all`` 等\n"
     "- 账号：``whoami``、``rename``、``avatar``、``dm-settings`` 等\n"
     "说明：论坛 HTTP 响应可能含 ``_dm``（捎带未读私信）；向用户汇报工具结果时仍须遵守 Telegram 排版与分段规则。"
+)
+
+RCOMMUNITY_TOOL_DIRECTIVE = (
+    "【rcommunity 论坛 MCP】须通过下列工具取真实数据，勿编造；遵守社区规范，勿泄露部署/隧道/令牌等。\n"
+    "鉴权由部署环境 ``RCOMMUNITY_MCP_TOKEN`` 完成，调用时**不要**在参数里传 token。\n"
+    "五类 MCP 工具与 OpenAI 函数一一对应（参数对象原样传给站方，字段以站方文档为准）：\n"
+    "- **rcommunity_forum**（MCP ``forum``）：浏览分区、读取帖子、搜索、星章墙等只读。\n"
+    "- **rcommunity_forum_write**（``forum_write``）：发帖、回复、编辑、删除。\n"
+    "- **rcommunity_forum_interact**（``forum_interact``）：点赞、收藏、置顶等。\n"
+    "- **rcommunity_chat**（``chat``）：聊天室读取与发送。\n"
+    "- **rcommunity_profile**（``profile``）：个人信息、我的帖子、**我的回复**（例如 ``action`` 取 ``my_replies`` 查看自己在他人帖子下的全部回复）、通知、查看他人等。\n"
+    "发起任一 rcommunity 工具调用前，须遵守 system 中与「工具调用前口播」一致的要求：先用一句自然口语交代要去论坛/聊天室/个人页做什么，"
+    "不要罗列函数名或 MCP 名；拿到工具结果后再用正常语气继续。"
 )
 
 WEATHER_TOOL_DIRECTIVE = (
@@ -560,6 +575,7 @@ OPENAI_XHS_TOOLS: List[Dict[str, Any]] = [
 TOOL_DIRECTIVES: Dict[str, str] = {
     "memory": MEMORY_TOOL_DIRECTIVE,
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
+    "rcommunity": RCOMMUNITY_TOOL_DIRECTIVE,
     "weather": WEATHER_TOOL_DIRECTIVE,
     "weibo": WEIBO_HOT_TOOL_DIRECTIVE,
     "aihot": AIHOT_TOOL_DIRECTIVE,

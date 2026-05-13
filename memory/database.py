@@ -799,6 +799,9 @@ async def migrate_database_schema(conn) -> None:
     await conn.execute(
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_xhs_tool INTEGER DEFAULT 0"
     )
+    await conn.execute(
+        "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_rcommunity INTEGER NOT NULL DEFAULT 0"
+    )
 
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
@@ -5238,6 +5241,7 @@ class MessageDatabase:
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
+            "enable_rcommunity",
             "enable_weather_tool", "enable_weibo_tool", "enable_search_tool", "enable_x_tool",
             "enable_ai_news_tool", "enable_xhs_tool",
         ]
@@ -5247,6 +5251,12 @@ class MessageDatabase:
         for f in fields:
             if f == "enable_lutopia":
                 raw = data.get("enable_lutopia", 0)
+                try:
+                    values.append(1 if int(raw) else 0)
+                except (TypeError, ValueError):
+                    values.append(0)
+            elif f == "enable_rcommunity":
+                raw = data.get("enable_rcommunity", 0)
                 try:
                     values.append(1 if int(raw) else 0)
                 except (TypeError, ValueError):
@@ -5305,6 +5315,7 @@ class MessageDatabase:
             "user_name", "user_body", "user_work", "user_habits",
             "user_likes_dislikes", "user_values", "user_hobbies", "user_taboos",
             "user_nsfw", "user_other",             "system_rules", "enable_lutopia",
+            "enable_rcommunity",
             "enable_weather_tool", "enable_weibo_tool", "enable_search_tool", "enable_x_tool",
             "enable_ai_news_tool", "enable_xhs_tool",
         }
@@ -5316,6 +5327,13 @@ class MessageDatabase:
                 )
             except (TypeError, ValueError):
                 update_data["enable_lutopia"] = 0
+        if "enable_rcommunity" in update_data:
+            try:
+                update_data["enable_rcommunity"] = (
+                    1 if int(update_data["enable_rcommunity"]) else 0
+                )
+            except (TypeError, ValueError):
+                update_data["enable_rcommunity"] = 0
         if "enable_weather_tool" in update_data:
             try:
                 update_data["enable_weather_tool"] = (

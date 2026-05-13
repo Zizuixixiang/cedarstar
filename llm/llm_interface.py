@@ -999,6 +999,21 @@ def _persona_row_enable_lutopia(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+def _persona_row_enable_rcommunity(row: Optional[Dict[str, Any]]) -> bool:
+    """从 persona_configs 行解析是否启用 rcommunity 论坛 MCP（enable_rcommunity 列）。"""
+    if not row:
+        return False
+    v = row.get("enable_rcommunity")
+    if v is None:
+        return False
+    if isinstance(v, bool):
+        return v
+    try:
+        return int(v) != 0
+    except (TypeError, ValueError):
+        return str(v).strip().lower() in ("1", "true", "yes", "on")
+
+
 def _persona_row_enable_weather_tool(row: Optional[Dict[str, Any]]) -> bool:
     """从 persona_configs 行解析是否启用天气工具（enable_weather_tool 列）。"""
     if not row:
@@ -1108,6 +1123,8 @@ class LLMInterface:
             ``ENABLE_AI_NEWS_TOOL`` 同时为真（部署白名单 ∧ 人设开关）。
         enable_xhs_tool: 是否开启小红书工具集；须人设 ``enable_xhs_tool`` 与部署
             ``ENABLE_XHS_TOOL`` 同时为真（与 ``XHS_COOKIE_PATH`` / ``xhs`` CLI 等运行时条件配合）。
+        enable_rcommunity: 是否开启 rcommunity 论坛 MCP（五类工具：forum / forum_write /
+            forum_interact / chat / profile）；还须环境变量 ``RCOMMUNITY_MCP_TOKEN``。
     """
     
     def __init__(
@@ -1116,6 +1133,7 @@ class LLMInterface:
         config_type: str = "chat",
         _db_cfg: Optional[Dict[str, Any]] = None,
         _enable_lutopia: Optional[bool] = None,
+        _enable_rcommunity: Optional[bool] = None,
         _enable_weather_tool: Optional[bool] = None,
         _enable_weibo_tool: Optional[bool] = None,
         _enable_search_tool: Optional[bool] = None,
@@ -1167,6 +1185,9 @@ class LLMInterface:
         # Lutopia / 天气 等工具开关：仅 ``await create()`` 从 persona_configs 注入；同步构造默认为 False
         self.enable_lutopia = (
             bool(_enable_lutopia) if _enable_lutopia is not None else False
+        )
+        self.enable_rcommunity = (
+            bool(_enable_rcommunity) if _enable_rcommunity is not None else False
         )
         self.enable_weather_tool = (
             bool(_enable_weather_tool) if _enable_weather_tool is not None else False
@@ -1238,6 +1259,7 @@ class LLMInterface:
             raise NoActiveAPIConfigError("analysis 配置未激活")
 
         enable_lutopia_flag = False
+        enable_rcommunity_flag = False
         enable_weather_tool_flag = False
         enable_weibo_tool_flag = False
         enable_search_tool_flag = False
@@ -1261,6 +1283,7 @@ class LLMInterface:
                         prow = None
                     if prow:
                         enable_lutopia_flag = _persona_row_enable_lutopia(prow)
+                        enable_rcommunity_flag = _persona_row_enable_rcommunity(prow)
                         enable_weather_tool_flag = _persona_row_enable_weather_tool(
                             prow
                         )
@@ -1283,6 +1306,7 @@ class LLMInterface:
             config_type=config_type,
             _db_cfg=db_cfg,
             _enable_lutopia=enable_lutopia_flag,
+            _enable_rcommunity=enable_rcommunity_flag,
             _enable_weather_tool=enable_weather_tool_flag,
             _enable_weibo_tool=enable_weibo_tool_flag,
             _enable_search_tool=enable_search_tool_flag,
@@ -2544,6 +2568,12 @@ async def complete_with_lutopia_tool_loop(
         save_tool_execution_record,
         tool_result_for_model,
     )
+    from tools.rcommunity import (
+        OPENAI_RCOMMUNITY_TOOLS,
+        create_rcommunity_mcp_session,
+        execute_rcommunity_function_call,
+        is_rcommunity_openai_tool,
+    )
     from tools.memory_tools import (
         OPENAI_MEMORY_TOOLS,
         execute_memory_search,
@@ -2583,6 +2613,9 @@ async def complete_with_lutopia_tool_loop(
     if llm.enable_lutopia:
         tools_list.extend(OPENAI_LUTOPIA_TOOLS)
         suffix_keys.append("lutopia")
+    if getattr(llm, "enable_rcommunity", False):
+        tools_list.extend(OPENAI_RCOMMUNITY_TOOLS)
+        suffix_keys.append("rcommunity")
     if getattr(llm, "enable_weather_tool", False):
         tools_list.extend(OPENAI_WEATHER_TOOLS)
         suffix_keys.append("weather")
@@ -2620,7 +2653,7 @@ async def complete_with_lutopia_tool_loop(
     tool_pairs: List[Tuple[str, str, str]] = []
     tool_turn_id = uuid.uuid4().hex
     tool_seq = 0
-    async with create_lutopia_mcp_session() as mcp_session:
+    async with create_lutopia_mcp_session() as mcp_session, create_rcommunity_mcp_session() as rcommunity_session:
         for round_idx in range(max_tool_rounds):
             tool_round_prompt = (
                 f"\n\n【工具轮次状态】当前是第 {round_idx + 1}/{max_tool_rounds} 轮工具调用。"
@@ -2798,6 +2831,10 @@ async def complete_with_lutopia_tool_loop(
                     except json.JSONDecodeError:
                         args_wf = {}
                     result_str = await execute_web_fetch_function_call(nm, args_wf)
+                elif is_rcommunity_openai_tool(nm):
+                    result_str = await execute_rcommunity_function_call(
+                        nm, raw_args or "{}", mcp_session=rcommunity_session
+                    )
                 else:
                     result_str = await execute_lutopia_function_call(
                         nm, raw_args or "{}", mcp_session=mcp_session

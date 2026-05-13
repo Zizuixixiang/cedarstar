@@ -81,6 +81,20 @@ class Config:
         )
 
     @property
+    def RCOMMUNITY_MCP_TOKEN(self) -> Optional[str]:
+        """rcommunity MCP 鉴权 token（与 URL ``?token=`` 一致）；未设置则该论坛工具不可用。"""
+        t = (os.getenv("RCOMMUNITY_MCP_TOKEN") or "").strip()
+        return t or None
+
+    @property
+    def RCOMMUNITY_MCP_BASE_URL(self) -> str:
+        """rcommunity MCP 基 URL（不含 query）；默认 ``https://rcommunity-v2.rhysen.love/mcp``。"""
+        raw = (os.getenv("RCOMMUNITY_MCP_BASE_URL") or "").strip()
+        if raw:
+            return raw.rstrip("/")
+        return "https://rcommunity-v2.rhysen.love/mcp"
+
+    @property
     def XHS_COOKIE_PATH(self) -> Optional[str]:
         """小红书 CLI Cookie JSON 路径（与 ``xiaohongshu-cli`` 的 cookies 格式一致）；未设置则链接预处理与工具不可用。"""
         p = (os.getenv("XHS_COOKIE_PATH") or "").strip()

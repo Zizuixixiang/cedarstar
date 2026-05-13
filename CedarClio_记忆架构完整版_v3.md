@@ -108,6 +108,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `user_other`
 - `system_rules`
 - `enable_lutopia`
+- `enable_rcommunity`（rcommunity 论坛 MCP；还须 **`RCOMMUNITY_MCP_TOKEN`**）
 - `enable_weather_tool`
 - `enable_weibo_tool`
 - `enable_search_tool`
@@ -172,7 +173,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注在侧）：
 
-1. system prompt + 指令块（优先级、引用、思考语言、工具口播） —— 前缀缓存 ✓
+1. system prompt + 指令块（优先级、引用、思考语言、工具口播；口播与 Lutopia / rcommunity 等 tools 对齐） —— 前缀缓存 ✓
 2. temporal_states —— 前缀缓存 ✓
 3. memory_cards —— 前缀缓存 ✓
 4. relationship_timeline —— 前缀缓存 ✓
@@ -259,6 +260,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 人设可单独控制：
 
 - Lutopia
+- **rcommunity 论坛 MCP**（`persona_configs.enable_rcommunity`；须环境变量 **`RCOMMUNITY_MCP_TOKEN`**；实现 `tools/rcommunity.py`，OpenAI 函数 `rcommunity_forum` / `rcommunity_forum_write` / `rcommunity_forum_interact` / `rcommunity_chat` / `rcommunity_profile` 与 MCP 工具 `forum` / `forum_write` / `forum_interact` / `chat` / `profile` 一一对应；system 后缀见 `tools/prompts.py` 的 `RCOMMUNITY_TOOL_DIRECTIVE`）
 - 天气
 - 微博热搜
 - 网页搜索
@@ -272,7 +274,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 另：环境变量 **`ENABLE_XHS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设 **`enable_xhs_tool`** 同时为真才注册小红书 OpenAI tools。进程读配额键 `xhs_read_usage_YYYY-MM-DD`、`xhs_write_usage_YYYY-MM-DD`；上限可调键见 **§2.1**；Mini App / API 见 **`GET /api/config/xhs-usage`**（`api/config.py`）。
 
-工具口播提示由 system suffix 注入，确保模型在调用工具前先说一句自然口语。
+工具口播提示由 `memory/context_builder.py` 的 `TOOL_ORAL_COACHING_BLOCK`（`tool_oral_coaching=True` 时）与 `tools/prompts.py` 的各工具包 `TOOL_DIRECTIVES`（经 `build_tool_system_suffix` 注入）共同约束，确保模型在调用工具前先有一句自然口语。
 
 ### 4.2.1 网页正文抓取（`web_fetch`，`tools/web_fetch.py`）
 
@@ -287,6 +289,10 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - **依赖**：Python 包 **`xiaohongshu-cli`**（提供 `xhs` 子进程）；Cookie 由环境变量 **`XHS_COOKIE_PATH`** 指向与 CLI 兼容的 `cookies.json`（进程内可按 `APP_NAME` 构造临时 `HOME/.xiaohongshu-cli` 并 symlink，满足 CLI 固定路径约定）。
 - **Telegram 缓冲路径**：在 `build_context` 之前，对正文中的 `xhslink.com` / `xiaohongshu.com` 链接可自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 4 张注入多模态（不占日读配额）；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。实现见 `bot/message_buffer.py` / `bot/telegram_bot.py`（以代码为准）。
 - **工具循环**：与 Lutopia / 天气等并列注册于 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、Discord / idle 路径（`llm/llm_interface.py`、`bot/discord_bot.py`、`bot/idle_activity.py`）。`tool_executions` 照常记录。
+
+### 4.2.4 rcommunity 论坛 MCP（`tools/rcommunity.py`）
+
+与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；SSE URL 为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、`append_tool_exchange_to_messages`（`rcommunity_mcp_session`）。`tool_executions` 照常记录；rcommunity 不进入 Lutopia 流式 `execution_log` 旁白附录。探测：`scripts/list_rcommunity_tools.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`。
 
 ### 4.3 AI 自主活动（Idle Activity）
 

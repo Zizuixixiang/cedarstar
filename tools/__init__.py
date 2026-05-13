@@ -2,6 +2,7 @@
 
 from tools.prompts import (
     LUTOPIA_TOOL_DIRECTIVE,
+    RCOMMUNITY_TOOL_DIRECTIVE,
     OPENAI_SEARCH_TOOLS,
     OPENAI_WEATHER_TOOLS,
     OPENAI_WEIBO_TOOLS,
@@ -24,8 +25,15 @@ from tools.lutopia import (
     get_lutopia_token,
 )
 
+from tools.rcommunity import (
+    OPENAI_RCOMMUNITY_TOOLS,
+    create_rcommunity_mcp_session,
+    execute_rcommunity_function_call,
+)
+
 __all__ = [
     "LUTOPIA_TOOL_DIRECTIVE",
+    "RCOMMUNITY_TOOL_DIRECTIVE",
     "SEARCH_TOOL_DIRECTIVE",
     "WEATHER_TOOL_DIRECTIVE",
     "WEIBO_HOT_TOOL_DIRECTIVE",
@@ -40,8 +48,11 @@ __all__ = [
     "build_tool_system_suffix",
     "inject_tool_suffix_into_messages",
     "OPENAI_LUTOPIA_TOOLS",
+    "OPENAI_RCOMMUNITY_TOOLS",
     "append_tool_exchange_to_messages",
     "create_lutopia_mcp_session",
+    "create_rcommunity_mcp_session",
     "execute_lutopia_function_call",
+    "execute_rcommunity_function_call",
     "get_lutopia_token",
 ]

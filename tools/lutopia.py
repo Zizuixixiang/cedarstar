@@ -20,6 +20,8 @@ import httpx
 
 from memory.database import get_database
 
+from tools.mcp_utils import mcp_call_tool_result_to_json_str
+
 from tools.memory_tools import (
     execute_memory_search,
     execute_memory_get_summaries,
@@ -543,27 +545,6 @@ async def ensure_lutopia_dm_send_enabled_on_startup() -> None:
         logger.warning("Lutopia DM 设置检查请求失败: %s", e)
 
 
-def _mcp_call_tool_result_to_json_str(result: Any) -> str:
-    """将 MCP ``CallToolResult`` 转为 JSON 字符串（供 role=tool）。"""
-    texts: List[str] = []
-    for block in getattr(result, "content", None) or []:
-        t = getattr(block, "text", None)
-        if isinstance(t, str) and t.strip():
-            texts.append(t)
-        else:
-            texts.append(str(block))
-    merged = "\n".join(texts).strip()
-    sc = getattr(result, "structuredContent", None)
-    if getattr(result, "isError", False):
-        return json.dumps(
-            {"error": merged or "MCP 工具返回错误"},
-            ensure_ascii=False,
-        )
-    if isinstance(sc, dict) and sc:
-        return json.dumps(sc, ensure_ascii=False)
-    return json.dumps({"output": merged}, ensure_ascii=False)
-
-
 async def _invoke_lutopia_mcp_tool(
     mcp_tool_name: str,
     arguments: Dict[str, Any],
@@ -591,7 +572,7 @@ async def _invoke_lutopia_mcp_tool(
     async def _call(s: Any) -> str:
         try:
             result = await s.call_tool(mcp_tool_name, merged_args)
-            return _mcp_call_tool_result_to_json_str(result)
+            return mcp_call_tool_result_to_json_str(result)
         except Exception as e:
             logger.warning(
                 "Lutopia MCP 调用失败 tool=%s: %s",
@@ -722,6 +703,7 @@ async def append_tool_exchange_to_messages(
     on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
     execution_log: Optional[List[Tuple[str, str, str]]] = None,
     mcp_session: Optional[Any] = None,
+    rcommunity_mcp_session: Optional[Any] = None,
     session_id: Optional[str] = None,
     turn_id: Optional[str] = None,
     platform: Optional[str] = None,
@@ -734,7 +716,13 @@ async def append_tool_exchange_to_messages(
     ``on_tool_start`` / ``on_tool_done``：可选，分别在单次工具执行前后回调（如 Telegram 状态提示）。
 
     ``mcp_session``：由 ``create_lutopia_mcp_session()`` 提供时复用 MCP 连接；未传则每次工具调用单独建连。
+    ``rcommunity_mcp_session``：rcommunity 论坛 MCP 会话（``create_rcommunity_mcp_session()``）。
     """
+    from tools.rcommunity import (
+        execute_rcommunity_function_call,
+        is_rcommunity_openai_tool,
+    )
+
     wrapped: List[Dict[str, Any]] = []
     for seq, tc in enumerate(tool_calls, start=1):
         if not isinstance(tc, dict):
@@ -824,6 +812,10 @@ async def append_tool_exchange_to_messages(
             args_xh = _safe_load_tool_args(arg, nm)
             from tools.xhs_tool import execute_xhs_function_call
             out = await execute_xhs_function_call(nm, args_xh)
+        elif is_rcommunity_openai_tool(nm):
+            out = await execute_rcommunity_function_call(
+                nm, arg or "{}", mcp_session=rcommunity_mcp_session
+            )
         else:
             out = await execute_lutopia_function_call(
                 nm, arg or "{}", mcp_session=mcp_session
@@ -834,7 +826,7 @@ async def append_tool_exchange_to_messages(
             "web_search",
             "web_fetch",
             "get_ai_news",
-        ):
+        ) and not is_rcommunity_openai_tool(nm):
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:
             await on_tool_done(nm, out)
