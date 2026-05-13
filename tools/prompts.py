@@ -30,7 +30,10 @@ LUTOPIA_TOOL_DIRECTIVE = (
 RCOMMUNITY_TOOL_DIRECTIVE = (
     "【rcommunity 论坛 MCP】须通过下列工具取真实数据，勿编造；遵守社区规范，勿泄露部署/隧道/令牌等。\n"
     "鉴权由部署环境 ``RCOMMUNITY_MCP_TOKEN`` 完成，调用时**不要**在参数里传 token。\n"
-    "五类 MCP 工具与 OpenAI 函数一一对应（参数对象原样传给站方，字段以站方文档为准）：\n"
+    "参数须放在 ``request`` 对象内，且**禁止**无实质字段的空 ``request``（例如 ``{}``）："
+    "每次调用必须包含站方文档要求的键（如 ``action``、分区、帖子 id、分页等）；空参易导致上游长时间无响应。\n"
+    "若系统同时启用 Lutopia 与 rcommunity，用户只说「论坛」时须先明确要查哪一侧，并选用对应工具，勿两边各空刷一轮。\n"
+    "五类 MCP 工具与 OpenAI 函数一一对应（``request`` 内字段原样传给站方，以站方文档为准）：\n"
     "- **rcommunity_forum**（MCP ``forum``）：浏览分区、读取帖子、搜索、星章墙等只读。\n"
     "- **rcommunity_forum_write**（``forum_write``）：发帖、回复、编辑、删除。\n"
     "- **rcommunity_forum_interact**（``forum_interact``）：点赞、收藏、置顶等。\n"

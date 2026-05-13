@@ -8,6 +8,7 @@ rcommunity 论坛：经站方 MCP（SSE，token 在 URL query）调用 ``forum``
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -20,6 +21,8 @@ from tools.mcp_utils import mcp_call_tool_result_to_json_str
 
 logger = logging.getLogger(__name__)
 
+# ``call_tool`` 在站方处理慢、卡读流或空参导致服务端挂起时可能永不返回，会拖死整轮对话（事件循环）。
+RCOMMUNITY_CALL_TOOL_TIMEOUT_SEC = 75.0
 
 TOOL_LOG_SNIP_MAX = 200
 
@@ -200,8 +203,32 @@ async def _invoke_rcommunity_mcp_tool(
 
     async def _call(s: Any) -> str:
         try:
-            result = await s.call_tool(mcp_tool_name, arguments)
+            result = await asyncio.wait_for(
+                s.call_tool(mcp_tool_name, arguments),
+                timeout=RCOMMUNITY_CALL_TOOL_TIMEOUT_SEC,
+            )
             return mcp_call_tool_result_to_json_str(result)
+        except asyncio.TimeoutError:
+            arg_snip = _clip_log(
+                json.dumps(arguments, ensure_ascii=False),
+                max_len=160,
+            )
+            logger.warning(
+                "rcommunity MCP call_tool 超时 tool=%s timeout=%ss args=%s",
+                mcp_tool_name,
+                int(RCOMMUNITY_CALL_TOOL_TIMEOUT_SEC),
+                arg_snip,
+            )
+            return json.dumps(
+                {
+                    "error": (
+                        f"rcommunity MCP 在 {int(RCOMMUNITY_CALL_TOOL_TIMEOUT_SEC)} "
+                        "秒内未返回。请检查 ``request`` 内是否含站方要求的字段（如 action、"
+                        "分区或帖子 id），勿发送空对象；若用户指 Lutopia 论坛请改用 lutopia_cli。"
+                    )
+                },
+                ensure_ascii=False,
+            )
         except Exception as e:
             logger.warning(
                 "rcommunity MCP 调用失败 tool=%s: %s",
