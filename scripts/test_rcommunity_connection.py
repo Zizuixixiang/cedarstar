@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""连接 rcommunity MCP（Streamable HTTP + query token），打印 list_tools 结果。需环境变量 RCOMMUNITY_MCP_TOKEN。"""
+"""
+独立探测 rcommunity 论坛 MCP（**Streamable HTTP** + query token）：initialize、list_tools。
+
+用法（与主服务一致，读项目根 ``.env``）::
+
+    /opt/cedarstar/venv/bin/python scripts/test_rcommunity_connection.py
+
+依赖环境变量 ``RCOMMUNITY_MCP_TOKEN``；可选 ``RCOMMUNITY_MCP_BASE_URL``（默认
+``https://rcommunity-v2.rhysen.love/mcp``）。若脚本整体超时或卡在 list_tools，
+多为 URL、token 或站方无响应。
+"""
 
 from __future__ import annotations
 
@@ -10,7 +20,6 @@ import sys
 import traceback
 from pathlib import Path
 
-# 项目根
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -21,16 +30,6 @@ load_dotenv(ROOT / ".env")
 
 
 async def _inner() -> None:
-    token = (os.getenv("RCOMMUNITY_MCP_TOKEN") or "").strip()
-    if not token:
-        print("请设置环境变量 RCOMMUNITY_MCP_TOKEN（或写入 .env）", file=sys.stderr)
-        sys.exit(1)
-    base = (os.getenv("RCOMMUNITY_MCP_BASE_URL") or "").strip().rstrip("/")
-    if not base:
-        base = "https://rcommunity-v2.rhysen.love/mcp"
-    url = f"{base}?token={token}"
-    print("MCP URL:", url.split("token=")[0] + "token=<redacted>", file=sys.stderr)
-
     from mcp.client.session import ClientSession
     from mcp.client.streamable_http import streamablehttp_client
 
@@ -39,6 +38,18 @@ async def _inner() -> None:
         RCOMMUNITY_MCP_INIT_TIMEOUT_SEC,
         RCOMMUNITY_MCP_STREAM_READ_TIMEOUT_SEC,
     )
+
+    token = (os.getenv("RCOMMUNITY_MCP_TOKEN") or "").strip()
+    if not token:
+        print("缺少环境变量 RCOMMUNITY_MCP_TOKEN（可在 .env 中配置）", file=sys.stderr)
+        sys.exit(1)
+
+    base = (os.getenv("RCOMMUNITY_MCP_BASE_URL") or "").strip().rstrip("/")
+    if not base:
+        base = "https://rcommunity-v2.rhysen.love/mcp"
+    url = f"{base}?token={token}"
+    redacted = url.split("token=")[0] + "token=<redacted>"
+    print("MCP URL:", redacted)
 
     async with streamablehttp_client(
         url,
@@ -54,26 +65,26 @@ async def _inner() -> None:
             )
             res = await asyncio.wait_for(session.list_tools(), timeout=45.0)
             tools = getattr(res, "tools", None) or []
-            out = []
+            names = [getattr(t, "name", "") or "?" for t in tools]
+            print("工具名:", json.dumps(names, ensure_ascii=False))
             for t in tools:
-                if hasattr(t, "model_dump"):
-                    out.append(t.model_dump(mode="json"))
-                else:
-                    name = getattr(t, "name", "") or ""
-                    out.append(
-                        {
-                            "name": name,
-                            "description": getattr(t, "description", "") or "",
-                        }
-                    )
-            print(json.dumps(out, ensure_ascii=False, indent=2))
+                name = getattr(t, "name", "") or ""
+                schema = getattr(t, "inputSchema", None)
+                if schema is None and hasattr(t, "model_dump"):
+                    d = t.model_dump(mode="json")
+                    schema = d.get("inputSchema")
+                print(f"\n=== {name} inputSchema ===")
+                print(json.dumps(schema or {}, ensure_ascii=False, indent=2))
 
 
 def main() -> None:
     try:
         asyncio.run(asyncio.wait_for(_inner(), timeout=90.0))
     except asyncio.TimeoutError:
-        print("超时：请检查网络、RCOMMUNITY_MCP_BASE_URL 与 token。", file=sys.stderr)
+        print(
+            "整体超时：请检查网络、RCOMMUNITY_MCP_BASE_URL 与 token。",
+            file=sys.stderr,
+        )
         sys.exit(2)
     except asyncio.CancelledError:
         raise
@@ -84,8 +95,8 @@ def main() -> None:
             EBG = ()  # type: ignore[misc, assignment]
         if EBG and isinstance(e, EBG):
             print(
-                "MCP Streamable HTTP 异常（ExceptionGroup）。常见原因：对端提前断开、"
-                "URL 不对、token 无效或代理问题。",
+                "MCP 返回 ExceptionGroup（常见于 Streamable HTTP 清理或建连失败）；"
+                "请核对 ``RCOMMUNITY_MCP_BASE_URL`` 与 token。",
                 file=sys.stderr,
             )
             for i, sub in enumerate(e.exceptions, 1):
@@ -93,7 +104,7 @@ def main() -> None:
                 traceback.print_exception(
                     type(sub), sub, sub.__traceback__, file=sys.stderr
                 )
-            sys.exit(3)
+            sys.exit(4)
         print(f"失败: {e}", file=sys.stderr)
         traceback.print_exc()
         sys.exit(3)

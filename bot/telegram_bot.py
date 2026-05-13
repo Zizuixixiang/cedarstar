@@ -74,6 +74,7 @@ from llm.llm_interface import (
     complete_with_lutopia_tool_loop,
     output_guard_blocks_model_text,
     split_thinking_and_content,
+    tool_loop_json_payload_indicates_error_round,
     truncate_accumulator_at_first_refusal,
 )
 from memory.database import (
@@ -2571,6 +2572,8 @@ class TelegramBot:
         # 全局顺序 = 第 1 轮工具… → 第 2 轮工具…，收尾时一次性 build_lutopia_internal_memory_appendix，不会丢中间轮。
         lutopia_stream_exec_log: List[Tuple[str, str, str]] = []
         lutopia_stream_turn_id = uuid.uuid4().hex
+        consecutive_tool_error_rounds = 0
+        force_disable_tools_stream = False
 
         def _trim_overlap_with_pre_tool_segments(
             final_text: str,
@@ -2662,7 +2665,7 @@ class TelegramBot:
                     return True
             return False
 
-        # 勿在首轮 LLM 之前建立 MCP SSE：任一侧阻塞则永远走不到 chat/completions。
+        # 勿在首轮 LLM 之前建立 Lutopia SSE / rcommunity Streamable HTTP：任一侧阻塞则永远走不到 chat/completions。
         # 仅在模型返回的 tool_calls 中确实含 Lutopia / rcommunity 工具时再懒加载对应会话。
         async with AsyncExitStack() as mcp_stack:
             lutopia_mcp_session: Optional[Any] = None
@@ -2693,13 +2696,16 @@ class TelegramBot:
                     rcommunity_mcp_entered = True
 
             for _ in range(8):
+                tools_send: Optional[List[Dict[str, Any]]] = (
+                    None if force_disable_tools_stream else tools_param
+                )
                 for attempt in range(2):
                     sse = await self._telegram_stream_llm_one_sse_round(
                         llm,
                         cur_messages,
                         base_message,
                         bot,
-                        tools=tools_param,
+                        tools=tools_send,
                         cacheable_ratio=cacheable_ratio,
                     )
                     fin = sse.done_payload or {}
@@ -2736,7 +2742,7 @@ class TelegramBot:
                             bot, chat_id, tool_name, out
                         )
 
-                    await append_tool_exchange_to_messages(
+                    raw_tool_outputs = await append_tool_exchange_to_messages(
                         cur_messages,
                         sse.raw_content or "",
                         tc,
@@ -2750,6 +2756,28 @@ class TelegramBot:
                         platform=Platform.TELEGRAM,
                         user_message_id=user_message_id,
                     )
+                    if raw_tool_outputs and all(
+                        tool_loop_json_payload_indicates_error_round(x)
+                        for x in raw_tool_outputs
+                    ):
+                        consecutive_tool_error_rounds += 1
+                    else:
+                        consecutive_tool_error_rounds = 0
+                    if consecutive_tool_error_rounds >= 3:
+                        logger.error(
+                            "Telegram 流式工具连续多轮仅返回错误，已禁用后续工具并插入系统提示"
+                        )
+                        cur_messages.append(
+                            {
+                                "role": "system",
+                                "content": (
+                                    "【系统】已连续多轮工具仅返回错误或失败。请不要再调用任何工具，"
+                                    "直接用自然语言向用户说明并给出建议（可提及论坛暂时不可用）。"
+                                ),
+                            }
+                        )
+                        force_disable_tools_stream = True
+                        consecutive_tool_error_rounds = 0
                     continue
                 trimmed_raw = _trim_overlap_with_pre_tool_segments(sse.raw_content or "")
                 if trimmed_raw != (sse.raw_content or ""):
@@ -2807,8 +2835,6 @@ class TelegramBot:
             suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
             text = text[: 4096 - len(suf)] + suf
         try:
-            stack = "".join(traceback.format_stack())
-            logging.warning(f"send called from: {stack}")
             await bot.send_message(
                 chat_id=chat_id, text=text, parse_mode=None
             )

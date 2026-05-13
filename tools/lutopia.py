@@ -730,7 +730,7 @@ async def append_tool_exchange_to_messages(
     turn_id: Optional[str] = None,
     platform: Optional[str] = None,
     user_message_id: Optional[int] = None,
-) -> None:
+) -> List[str]:
     """
     将一轮 assistant.tool_calls 及对应 tool 结果追加到 messages（原地修改）。
     ``tool_calls`` 为流式或非流式解析后的简表（id / name / arguments）。
@@ -738,7 +738,9 @@ async def append_tool_exchange_to_messages(
     ``on_tool_start`` / ``on_tool_done``：可选，分别在单次工具执行前后回调（如 Telegram 状态提示）。
 
     ``mcp_session``：由 ``create_lutopia_mcp_session()`` 提供时复用 MCP 连接；未传则每次工具调用单独建连。
-    ``rcommunity_mcp_session``：rcommunity 论坛 MCP 会话（``create_rcommunity_mcp_session()``）。
+    ``rcommunity_mcp_session``：rcommunity 论坛 MCP 会话（``create_rcommunity_mcp_session()``，Streamable HTTP）。
+
+    返回：按执行顺序各工具原始 JSON 结果字符串列表（供 Telegram 等做「连续错误轮」防卡死）。
     """
     from tools.rcommunity import (
         execute_rcommunity_function_call,
@@ -769,6 +771,7 @@ async def append_tool_exchange_to_messages(
             "tool_calls": wrapped,
         }
     )
+    tool_outputs: List[str] = []
     for seq, tc in enumerate(tool_calls, start=1):
         if not isinstance(tc, dict):
             continue
@@ -778,70 +781,78 @@ async def append_tool_exchange_to_messages(
             arg = json.dumps(arg if arg is not None else {}, ensure_ascii=False)
         if on_tool_start:
             await on_tool_start(nm)
-        if nm == "memory_search":
-            args_mem = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_search(args_mem)
-        elif nm == "memory_get_summaries":
-            args_ms = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_get_summaries(args_ms)
-        elif nm == "memory_get_cards":
-            args_mc = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_get_cards(args_mc)
-        elif nm == "memory_get_temporal_states":
-            args_mt = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_get_temporal_states(args_mt)
-        elif nm == "memory_get_relationship_timeline":
-            args_mr = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_get_relationship_timeline(args_mr)
-        elif nm == "memory_get_approval_status":
-            args_ma = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_get_approval_status(args_ma)
-        elif nm == "memory_update_request":
-            args_mem_up = _safe_load_tool_args(arg, nm)
-            out = await execute_memory_update_request(args_mem_up)
-        elif nm == "get_weather":
-            args_d = _safe_load_tool_args(arg, nm)
-            out = await execute_weather_function_call(nm, args_d)
-        elif nm == "get_weibo_hot":
-            args_wb = _safe_load_tool_args(arg, nm)
-            out = await execute_weibo_function_call(nm, args_wb)
-        elif nm == "web_search":
-            args_ws = _safe_load_tool_args(arg, nm)
-            out = await execute_search_function_call(nm, args_ws)
-        elif nm == "get_ai_news":
-            args_news = _safe_load_tool_args(arg, nm)
-            out = await execute_get_ai_news_function_call(nm, args_news)
-        elif nm == "web_fetch":
-            args_wf = _safe_load_tool_args(arg, nm)
-            out = await execute_web_fetch_function_call(nm, args_wf)
-        elif nm in (
-            "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
-            "retweet_tweet", "unretweet_tweet",
-            "reply_tweet", "search_tweets", "get_timeline", "get_user",
-            "follow_user", "unfollow_user", "get_followers",
-        ):
-            args_xx = _safe_load_tool_args(arg, nm)
-            from tools.x_tool import execute_x_function_call
-            out = await execute_x_function_call(nm, args_xx)
-        elif nm in (
-            "search_xhs",
-            "read_xhs_note",
-            "get_xhs_feed",
-            "get_xhs_user",
-            "like_xhs_note",
-            "favorite_xhs_note",
-        ):
-            args_xh = _safe_load_tool_args(arg, nm)
-            from tools.xhs_tool import execute_xhs_function_call
-            out = await execute_xhs_function_call(nm, args_xh)
-        elif is_rcommunity_openai_tool(nm):
-            out = await execute_rcommunity_function_call(
-                nm, arg or "{}", mcp_session=rcommunity_mcp_session
+        try:
+            if nm == "memory_search":
+                args_mem = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_search(args_mem)
+            elif nm == "memory_get_summaries":
+                args_ms = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_get_summaries(args_ms)
+            elif nm == "memory_get_cards":
+                args_mc = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_get_cards(args_mc)
+            elif nm == "memory_get_temporal_states":
+                args_mt = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_get_temporal_states(args_mt)
+            elif nm == "memory_get_relationship_timeline":
+                args_mr = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_get_relationship_timeline(args_mr)
+            elif nm == "memory_get_approval_status":
+                args_ma = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_get_approval_status(args_ma)
+            elif nm == "memory_update_request":
+                args_mem_up = _safe_load_tool_args(arg, nm)
+                out = await execute_memory_update_request(args_mem_up)
+            elif nm == "get_weather":
+                args_d = _safe_load_tool_args(arg, nm)
+                out = await execute_weather_function_call(nm, args_d)
+            elif nm == "get_weibo_hot":
+                args_wb = _safe_load_tool_args(arg, nm)
+                out = await execute_weibo_function_call(nm, args_wb)
+            elif nm == "web_search":
+                args_ws = _safe_load_tool_args(arg, nm)
+                out = await execute_search_function_call(nm, args_ws)
+            elif nm == "get_ai_news":
+                args_news = _safe_load_tool_args(arg, nm)
+                out = await execute_get_ai_news_function_call(nm, args_news)
+            elif nm == "web_fetch":
+                args_wf = _safe_load_tool_args(arg, nm)
+                out = await execute_web_fetch_function_call(nm, args_wf)
+            elif nm in (
+                "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
+                "retweet_tweet", "unretweet_tweet",
+                "reply_tweet", "search_tweets", "get_timeline", "get_user",
+                "follow_user", "unfollow_user", "get_followers",
+            ):
+                args_xx = _safe_load_tool_args(arg, nm)
+                from tools.x_tool import execute_x_function_call
+                out = await execute_x_function_call(nm, args_xx)
+            elif nm in (
+                "search_xhs",
+                "read_xhs_note",
+                "get_xhs_feed",
+                "get_xhs_user",
+                "like_xhs_note",
+                "favorite_xhs_note",
+            ):
+                args_xh = _safe_load_tool_args(arg, nm)
+                from tools.xhs_tool import execute_xhs_function_call
+                out = await execute_xhs_function_call(nm, args_xh)
+            elif is_rcommunity_openai_tool(nm):
+                out = await execute_rcommunity_function_call(
+                    nm, arg or "{}", mcp_session=rcommunity_mcp_session
+                )
+            else:
+                out = await execute_lutopia_function_call(
+                    nm, arg or "{}", mcp_session=mcp_session
+                )
+        except Exception as e:
+            logger.exception(
+                "append_tool_exchange_to_messages 工具执行失败 tool=%s",
+                nm,
             )
-        else:
-            out = await execute_lutopia_function_call(
-                nm, arg or "{}", mcp_session=mcp_session
-            )
+            out = json.dumps({"error": str(e)}, ensure_ascii=False)
+        tool_outputs.append(out)
         if execution_log is not None and nm not in (
             "get_weather",
             "get_weibo_hot",
@@ -866,6 +877,8 @@ async def append_tool_exchange_to_messages(
         messages.append(
             {"role": "tool", "tool_call_id": tc.get("id") or "", "content": model_out}
         )
+
+    return tool_outputs
 
 
 async def _execute_lutopia_function_call_impl(

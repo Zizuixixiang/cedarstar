@@ -1,6 +1,6 @@
 """
-rcommunity 论坛：经站方 MCP（SSE，token 在 URL query）调用 ``forum`` / ``forum_write`` /
-``forum_interact`` / ``chat`` / ``profile`` 五类工具。
+rcommunity 论坛：经站方 MCP（**Streamable HTTP**，token 在 URL query）调用 ``forum`` /
+``forum_write`` / ``forum_interact`` / ``chat`` / ``profile`` 五类工具。
 
 鉴权：环境变量 ``RCOMMUNITY_MCP_TOKEN``（见 ``config.py``）；连接 URL 为
 ``{base}?token=...``，不在 HTTP header 或 MCP 参数中重复注入 token。
@@ -23,6 +23,11 @@ logger = logging.getLogger(__name__)
 
 # ``call_tool`` 在站方处理慢、卡读流或空参导致服务端挂起时可能永不返回，会拖死整轮对话（事件循环）。
 RCOMMUNITY_CALL_TOOL_TIMEOUT_SEC = 75.0
+
+# Streamable HTTP：``timeout`` 控制常规 HTTP；``sse_read_timeout`` 为 mcp 库参数名（读侧等待上限）。
+RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC = 30.0
+RCOMMUNITY_MCP_STREAM_READ_TIMEOUT_SEC = 120.0
+RCOMMUNITY_MCP_INIT_TIMEOUT_SEC = 20.0
 
 TOOL_LOG_SNIP_MAX = 200
 
@@ -49,7 +54,8 @@ def get_rcommunity_token() -> Optional[str]:
     return (config.RCOMMUNITY_MCP_TOKEN or "").strip() or None
 
 
-def rcommunity_sse_url() -> Optional[str]:
+def rcommunity_mcp_url() -> Optional[str]:
+    """完整 MCP 端点 URL（含 query ``token``），供 Streamable HTTP 传输使用。"""
     tok = get_rcommunity_token()
     if not tok:
         return None
@@ -136,16 +142,19 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "rcommunity_forum",
             "description": (
-                "rcommunity 论坛只读：浏览分区、读取帖子、搜索、星章墙等。"
-                "参数对象原样传给 MCP 工具 ``forum``（字段以站方为准）。"
-                "请把 MCP 参数字段放在 ``request`` 内（与顶层平铺等价，见实现）。"
+                "rcommunity 论坛只读 MCP 工具 ``forum``。"
+                "``action`` 只能是四选一字符串（勿发明其它值）："
+                "``browse``（列表，需 ``category``：日常/技术/深夜/哲学/亲密/公告）、"
+                "``read``（读帖及回复，需 ``thread_id``，可选 ``limit``/``offset``）、"
+                "``search``（需 ``query``）、``honor``（星章墙）。"
+                "参数可放在 ``request`` 内或与顶层合并。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
                 description=(
-                    "传给 MCP ``forum`` 的平铺参数（合并进 ``call_tool`` 根对象）。"
-                    "须含站方要求的字段（常见为 ``action`` 及分区/帖子 id/分页等）；"
-                    "可写在本对象顶层，或放在 ``request`` 内二选一或混用（实现会合并）。"
-                    "禁止无任何有效字段的空调用。"
+                    "传给 ``forum`` 的平铺参数；必须有 ``action``，且取值仅限 "
+                    "``browse`` / ``read`` / ``search`` / ``honor``。"
+                    "browse 须带 ``category``；read 须带 ``thread_id``；search 须带 ``query``。"
+                    "可顶层或 ``request`` 合并。禁止空对象。"
                 ),
             ),
         },
@@ -155,13 +164,14 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "rcommunity_forum_write",
             "description": (
-                "rcommunity 论坛写入：发帖、回复、编辑、删除。"
-                "参数原样传给 MCP ``forum_write``；字段放在 ``request`` 内。"
+                "rcommunity 论坛写入 MCP ``forum_write``。"
+                "``action`` 只能是：``create`` / ``reply`` / ``edit`` / ``delete_thread`` / ``delete_reply``；"
+                "须按站方字段组合传参（如 create 要 ``title`` ``content`` ``category`` 等）。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
                 description=(
-                    "传给 ``forum_write`` 的平铺参数；须含站方必填字段；"
-                    "可顶层或写在 ``request`` 内（会合并）。禁止空对象。"
+                    "传给 ``forum_write`` 的平铺参数；``action`` 仅限上述五个取值之一，"
+                    "并带齐该 action 所需字段。可顶层或 ``request`` 合并。禁止空对象。"
                 ),
             ),
         },
@@ -171,13 +181,14 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "rcommunity_forum_interact",
             "description": (
-                "rcommunity 论坛互动：点赞、收藏、置顶等。"
-                "参数原样传给 MCP ``forum_interact``；字段放在 ``request`` 内。"
+                "rcommunity 论坛互动 MCP ``forum_interact``。"
+                "``action`` 只能是：``pin`` / ``bookmark`` / ``like`` / ``vote``；"
+                "vote 需 ``option_ids`` 等按站方 schema。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
                 description=(
-                    "传给 ``forum_interact`` 的平铺参数；须含站方字段；"
-                    "可顶层或 ``request`` 合并。禁止空对象。"
+                    "传给 ``forum_interact`` 的平铺参数；``action`` 仅限上述四个取值之一，"
+                    "并带齐对应字段。可顶层或 ``request`` 合并。禁止空对象。"
                 ),
             ),
         },
@@ -187,12 +198,14 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "rcommunity_chat",
             "description": (
-                "rcommunity 聊天室：读取与发送消息。"
-                "参数原样传给 MCP ``chat``；字段放在 ``request`` 内。"
+                "rcommunity 聊天室 MCP ``chat``。"
+                "``action`` 只能是：``send`` / ``read`` / ``delete``；"
+                "频道名 ``channel`` 为：大厅/技术角/深夜电台/人夫联盟/游戏屋（可选，默认大厅）。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
                 description=(
-                    "传给 ``chat`` 的平铺参数；须含站方字段；可顶层或 ``request`` 合并。禁止空对象。"
+                    "传给 ``chat`` 的平铺参数；``action`` 仅限 ``send``/``read``/``delete``，"
+                    "并带齐该 action 所需字段。可顶层或 ``request`` 合并。禁止空对象。"
                 ),
             ),
         },
@@ -202,14 +215,15 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "rcommunity_profile",
             "description": (
-                "rcommunity 个人与通知：个人信息、我的帖子、我的回复、通知、查看他人等。"
-                "查看自己在他人帖子下的全部回复时可使用 profile，并传 action=\"my_replies\"（及站方要求的其它字段）。"
-                "参数原样传给 MCP ``profile``；字段放在 ``request`` 内。"
+                "rcommunity 个人与通知 MCP ``profile``。"
+                "``action`` 只能是：``get`` / ``update`` / ``my_threads`` / ``my_replies`` / "
+                "``my_bookmarks`` / ``notifications`` / ``view_user``；"
+                "view_user 需 ``username`` 等按 schema。"
             ),
             "parameters": _rcommunity_tool_parameters_schema(
                 description=(
-                    "传给 ``profile`` 的平铺参数（含 ``action`` 等，如 ``my_replies``）；"
-                    "可顶层或 ``request`` 合并。禁止空对象。"
+                    "传给 ``profile`` 的平铺参数；``action`` 仅限上述七个取值之一，"
+                    "并带齐该 action 所需字段。可顶层或 ``request`` 合并。禁止空对象。"
                 ),
             ),
         },
@@ -225,10 +239,10 @@ async def _invoke_rcommunity_mcp_tool(
 ) -> str:
     """调用 MCP 工具；不在 arguments 中注入 token。"""
     from mcp.client.session import ClientSession
-    from mcp.client.sse import sse_client
+    from mcp.client.streamable_http import streamablehttp_client
 
-    sse = rcommunity_sse_url()
-    if not sse:
+    url = rcommunity_mcp_url()
+    if not url:
         return json.dumps(
             {"error": "未配置 RCOMMUNITY_MCP_TOKEN（环境变量）"},
             ensure_ascii=False,
@@ -275,13 +289,18 @@ async def _invoke_rcommunity_mcp_tool(
         return await _call(session)
 
     try:
-        async with sse_client(
-            sse,
-            timeout=120.0,
-            sse_read_timeout=300.0,
-        ) as (read, write):
+        async with streamablehttp_client(
+            url,
+            headers=None,
+            timeout=RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC,
+            sse_read_timeout=RCOMMUNITY_MCP_STREAM_READ_TIMEOUT_SEC,
+            terminate_on_close=True,
+        ) as (read, write, _get_session_id):
             async with ClientSession(read, write) as inner:
-                await inner.initialize()
+                await asyncio.wait_for(
+                    inner.initialize(),
+                    timeout=RCOMMUNITY_MCP_INIT_TIMEOUT_SEC,
+                )
                 return await _call(inner)
     except Exception as e:
         logger.warning(
@@ -296,37 +315,63 @@ async def _invoke_rcommunity_mcp_tool(
 @asynccontextmanager
 async def create_rcommunity_mcp_session() -> AsyncIterator[Optional[Any]]:
     """
-    建立 MCP SSE 连接并完成 ``initialize``，供一轮工具循环内复用。
-    无 token 时 ``yield None``。
+    建立 MCP Streamable HTTP 会话并完成 ``initialize``，供一轮工具循环内复用。
+    无 token 或建连/握手失败时 ``yield None``（不抛异常，避免整轮对话崩掉）。
     """
     from mcp.client.session import ClientSession
-    from mcp.client.sse import sse_client
+    from mcp.client.streamable_http import streamablehttp_client
 
-    sse = rcommunity_sse_url()
-    if not sse:
+    try:
+        from exceptiongroup import BaseExceptionGroup as _EBG
+    except ImportError:
+        _EBG = ()  # type: ignore[misc, assignment]
+
+    url = rcommunity_mcp_url()
+    if not url:
         yield None
         return
 
+    yielded_successfully = False
     try:
-        async with sse_client(
-            sse,
-            timeout=120.0,
-            sse_read_timeout=300.0,
-        ) as (read, write):
+        async with streamablehttp_client(
+            url,
+            headers=None,
+            timeout=RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC,
+            sse_read_timeout=RCOMMUNITY_MCP_STREAM_READ_TIMEOUT_SEC,
+            terminate_on_close=True,
+        ) as (read, write, _get_session_id):
             async with ClientSession(read, write) as session:
-                await session.initialize()
+                await asyncio.wait_for(
+                    session.initialize(),
+                    timeout=RCOMMUNITY_MCP_INIT_TIMEOUT_SEC,
+                )
+                yielded_successfully = True
                 yield session
+    except asyncio.CancelledError:
+        raise
     except BaseException as exc:
-        try:
-            from exceptiongroup import BaseExceptionGroup
-        except ImportError:
-            BaseExceptionGroup = ()  # type: ignore[misc, assignment]
-        if BaseExceptionGroup and isinstance(exc, BaseExceptionGroup):
+        if _EBG and isinstance(exc, _EBG):
+            if yielded_successfully:
+                logger.warning(
+                    "rcommunity MCP Streamable HTTP 会话关闭触发 ExceptionGroup（多为清理噪声）: %s",
+                    exc,
+                    exc_info=True,
+                )
+                return
             logger.warning(
-                "rcommunity MCP SSE 会话关闭触发 ExceptionGroup（多为清理噪声）: %s",
+                "rcommunity MCP 建连阶段 ExceptionGroup: %s",
                 exc,
                 exc_info=True,
             )
+            yield None
+            return
+        if not yielded_successfully:
+            logger.error(
+                "rcommunity MCP 建立会话失败（将以无持久连接方式调用）: %s",
+                exc,
+                exc_info=True,
+            )
+            yield None
             return
         raise
 
@@ -334,7 +379,7 @@ async def create_rcommunity_mcp_session() -> AsyncIterator[Optional[Any]]:
 @asynccontextmanager
 async def maybe_rcommunity_mcp_session(enabled: bool) -> AsyncIterator[Optional[Any]]:
     """
-    仅在人设开启 rcommunity 时建立 SSE；否则立即 ``yield None``。
+    仅在人设开启 rcommunity 时建立 Streamable HTTP 会话；否则立即 ``yield None``。
 
     避免在 ``RCOMMUNITY_MCP_TOKEN`` 已配置但人设未启用时，每条走工具循环的对话都去建连
     （可能阻塞或拖垮首轮回复）。
@@ -398,9 +443,20 @@ async def execute_rcommunity_function_call(
 ) -> str:
     t0 = time.perf_counter()
     args_summary = _clip_log(arguments_json or "")
-    ret = await _execute_rcommunity_function_call_impl(
-        name, arguments_json, mcp_session=mcp_session
-    )
+    try:
+        ret = await _execute_rcommunity_function_call_impl(
+            name, arguments_json, mcp_session=mcp_session
+        )
+    except Exception as e:
+        logger.exception(
+            "[tool] rcommunity 未捕获异常 name=%s args=%s",
+            name,
+            args_summary,
+        )
+        ret = json.dumps(
+            {"error": f"rcommunity 工具内部异常: {e}"},
+            ensure_ascii=False,
+        )
     elapsed = time.perf_counter() - t0
     result_summary = _clip_log(ret)
     logger.info(

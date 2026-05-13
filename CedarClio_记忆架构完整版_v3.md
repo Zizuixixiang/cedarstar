@@ -1,4 +1,4 @@
-v3.1 · 2026-05-14 更新 · 小红书链接预处理与 `xhs` 工具 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
+v3.1 · 2026-05-14 更新 · rcommunity Streamable HTTP / 工具防卡死 · 小红书链接预处理与 `xhs` 工具 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -292,7 +292,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 4.2.4 rcommunity 论坛 MCP（`tools/rcommunity.py`）
 
-与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；SSE URL 为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity SSE，避免只配 token 未开开关时每轮建连阻塞。`append_tool_exchange_to_messages`（`rcommunity_mcp_session`）。`tool_executions` 照常记录；rcommunity 不进入 Lutopia 流式 `execution_log` 旁白附录。探测：`scripts/list_rcommunity_tools.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`。
+与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；MCP 端点为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`（**`rcommunity_mcp_url()`**），传输为 **Streamable HTTP**（`mcp.client.streamable_http.streamablehttp_client`；超时常量 `RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC` 等见 `tools/rcommunity.py`）。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity 会话；建连失败则 `yield None`。`append_tool_exchange_to_messages` 返回各工具原始 JSON 列表、单工具 try/except；连续 3 轮仅含 `error` 时暂时禁用 tools（`tool_loop_json_payload_indicates_error_round`）。`RCOMMUNITY_TOOL_DIRECTIVE` / `OPENAI_RCOMMUNITY_TOOLS` 写明站方 `action` 枚举。`tool_executions` 照常记录；rcommunity 不进入 Lutopia 流式 `execution_log` 旁白附录。探测：`scripts/list_rcommunity_tools.py`、`scripts/test_rcommunity_connection.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`（本次无新迁移文件）。
 
 ### 4.3 AI 自主活动（Idle Activity）
 

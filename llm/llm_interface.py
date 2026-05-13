@@ -39,6 +39,21 @@ from memory.database import get_database
 logger = logging.getLogger(__name__)
 
 
+def tool_loop_json_payload_indicates_error_round(s: str) -> bool:
+    """
+    判断单条工具返回 JSON 是否应计为「整轮无进展（仅错误）」，
+    用于 ``complete_with_lutopia_tool_loop`` / Telegram 流式工具防卡死。
+    """
+    t = (s or "").strip()
+    if not t:
+        return True
+    try:
+        obj = json.loads(t)
+    except json.JSONDecodeError:
+        return True
+    return isinstance(obj, dict) and ("error" in obj)
+
+
 class NoActiveAPIConfigError(RuntimeError):
     """指定 config_type 没有激活的数据库配置。"""
 
@@ -2678,8 +2693,10 @@ async def complete_with_lutopia_tool_loop(
                 return True
         return False
 
-    # 首轮必须先走 LLM；勿在 generate 之前建立 MCP SSE（任一侧卡住则模型永远调不到）。
+    # 首轮必须先走 LLM；勿在 generate 之前建立 Lutopia SSE / rcommunity Streamable HTTP（任一侧卡住则模型永远调不到）。
     async with AsyncExitStack() as mcp_stack:
+        consecutive_error_only_rounds = 0
+        force_disable_tools = False
         mcp_session: Optional[Any] = None
         rcommunity_session: Optional[Any] = None
         lutopia_mcp_entered = False
@@ -2729,11 +2746,14 @@ async def complete_with_lutopia_tool_loop(
                     break
             if not injected:
                 work.insert(0, {"role": "system", "content": tool_round_prompt.strip()})
+            tools_effective: Optional[List[Dict[str, Any]]] = (
+                None if force_disable_tools else tools_payload
+            )
             last = await asyncio.to_thread(
                 llm.generate_with_context_and_tracking,
                 work,
                 platform,
-                tools_payload,
+                tools_effective,
             )
             if last is None:
                 break
@@ -2776,120 +2796,135 @@ async def complete_with_lutopia_tool_loop(
             }
             work.append(assistant_message)
             await _ensure_mcp_sessions_for_round(last.tool_calls or [])
+            processed_tools = 0
+            round_all_errors = True
             for tc in last.tool_calls or []:
                 if not isinstance(tc, dict):
                     continue
+                processed_tools += 1
                 nm = tc.get("name") or ""
                 raw_args = tc.get("arguments")
                 if not isinstance(raw_args, str):
                     raw_args = json.dumps(raw_args if raw_args is not None else {}, ensure_ascii=False)
                 if on_tool_start:
                     await on_tool_start(nm)
-                if nm == "get_weather":
-                    try:
-                        args_d: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_d = {}
-                    result_str = await execute_weather_function_call(nm, args_d)
-                elif nm == "get_weibo_hot":
-                    try:
-                        args_d2: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_d2 = {}
-                    result_str = await execute_weibo_function_call(nm, args_d2)
-                elif nm == "web_search":
-                    try:
-                        args_d3: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_d3 = {}
-                    result_str = await execute_search_function_call(nm, args_d3)
-                elif nm == "memory_search":
-                    try:
-                        args_mem: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_mem = {}
-                    result_str = await execute_memory_search(args_mem)
-                elif nm == "memory_get_summaries":
-                    try:
-                        args_ms: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_ms = {}
-                    result_str = await execute_memory_get_summaries(args_ms)
-                elif nm == "memory_get_cards":
-                    try:
-                        args_mc: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_mc = {}
-                    result_str = await execute_memory_get_cards(args_mc)
-                elif nm == "memory_get_temporal_states":
-                    try:
-                        args_mt: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_mt = {}
-                    result_str = await execute_memory_get_temporal_states(args_mt)
-                elif nm == "memory_get_relationship_timeline":
-                    try:
-                        args_mr: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_mr = {}
-                    result_str = await execute_memory_get_relationship_timeline(args_mr)
-                elif nm == "memory_get_approval_status":
-                    try:
-                        args_ma: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_ma = {}
-                    result_str = await execute_memory_get_approval_status(args_ma)
-                elif nm == "memory_update_request":
-                    try:
-                        args_mem_update: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_mem_update = {}
-                    result_str = await execute_memory_update_request(args_mem_update)
-                elif nm in (
-                    "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
-                    "retweet_tweet", "unretweet_tweet",
-                    "reply_tweet", "search_tweets", "get_timeline", "get_user",
-                    "follow_user", "unfollow_user", "get_followers",
-                ):
-                    try:
-                        args_dx: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_dx = {}
-                    result_str = await execute_x_function_call(nm, args_dx)
-                elif nm in (
-                    "search_xhs",
-                    "read_xhs_note",
-                    "get_xhs_feed",
-                    "get_xhs_user",
-                    "like_xhs_note",
-                    "favorite_xhs_note",
-                ):
-                    try:
-                        args_xh: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_xh = {}
-                    result_str = await execute_xhs_function_call(nm, args_xh)
-                elif nm == "get_ai_news":
-                    try:
-                        args_news: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_news = {}
-                    result_str = await execute_get_ai_news_function_call(nm, args_news)
-                elif nm == "web_fetch":
-                    try:
-                        args_wf: Dict[str, Any] = json.loads(raw_args or "{}")
-                    except json.JSONDecodeError:
-                        args_wf = {}
-                    result_str = await execute_web_fetch_function_call(nm, args_wf)
-                elif is_rcommunity_openai_tool(nm):
-                    result_str = await execute_rcommunity_function_call(
-                        nm, raw_args or "{}", mcp_session=rcommunity_session
+                try:
+                    if nm == "get_weather":
+                        try:
+                            args_d: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_d = {}
+                        result_str = await execute_weather_function_call(nm, args_d)
+                    elif nm == "get_weibo_hot":
+                        try:
+                            args_d2: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_d2 = {}
+                        result_str = await execute_weibo_function_call(nm, args_d2)
+                    elif nm == "web_search":
+                        try:
+                            args_d3: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_d3 = {}
+                        result_str = await execute_search_function_call(nm, args_d3)
+                    elif nm == "memory_search":
+                        try:
+                            args_mem: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mem = {}
+                        result_str = await execute_memory_search(args_mem)
+                    elif nm == "memory_get_summaries":
+                        try:
+                            args_ms: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_ms = {}
+                        result_str = await execute_memory_get_summaries(args_ms)
+                    elif nm == "memory_get_cards":
+                        try:
+                            args_mc: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mc = {}
+                        result_str = await execute_memory_get_cards(args_mc)
+                    elif nm == "memory_get_temporal_states":
+                        try:
+                            args_mt: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mt = {}
+                        result_str = await execute_memory_get_temporal_states(args_mt)
+                    elif nm == "memory_get_relationship_timeline":
+                        try:
+                            args_mr: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mr = {}
+                        result_str = await execute_memory_get_relationship_timeline(args_mr)
+                    elif nm == "memory_get_approval_status":
+                        try:
+                            args_ma: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_ma = {}
+                        result_str = await execute_memory_get_approval_status(args_ma)
+                    elif nm == "memory_update_request":
+                        try:
+                            args_mem_update: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mem_update = {}
+                        result_str = await execute_memory_update_request(args_mem_update)
+                    elif nm in (
+                        "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
+                        "retweet_tweet", "unretweet_tweet",
+                        "reply_tweet", "search_tweets", "get_timeline", "get_user",
+                        "follow_user", "unfollow_user", "get_followers",
+                    ):
+                        try:
+                            args_dx: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_dx = {}
+                        result_str = await execute_x_function_call(nm, args_dx)
+                    elif nm in (
+                        "search_xhs",
+                        "read_xhs_note",
+                        "get_xhs_feed",
+                        "get_xhs_user",
+                        "like_xhs_note",
+                        "favorite_xhs_note",
+                    ):
+                        try:
+                            args_xh: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_xh = {}
+                        result_str = await execute_xhs_function_call(nm, args_xh)
+                    elif nm == "get_ai_news":
+                        try:
+                            args_news: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_news = {}
+                        result_str = await execute_get_ai_news_function_call(nm, args_news)
+                    elif nm == "web_fetch":
+                        try:
+                            args_wf: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_wf = {}
+                        result_str = await execute_web_fetch_function_call(nm, args_wf)
+                    elif is_rcommunity_openai_tool(nm):
+                        result_str = await execute_rcommunity_function_call(
+                            nm, raw_args or "{}", mcp_session=rcommunity_session
+                        )
+                    else:
+                        result_str = await execute_lutopia_function_call(
+                            nm, raw_args or "{}", mcp_session=mcp_session
+                        )
+                        tool_pairs.append((nm, raw_args or "{}", result_str))
+                except Exception as exec_err:
+                    logger.exception(
+                        "complete_with_lutopia_tool_loop 工具执行异常 tool=%s",
+                        nm,
                     )
-                else:
-                    result_str = await execute_lutopia_function_call(
-                        nm, raw_args or "{}", mcp_session=mcp_session
+                    result_str = json.dumps(
+                        {"error": f"工具执行内部异常: {exec_err}"},
+                        ensure_ascii=False,
                     )
-                    tool_pairs.append((nm, raw_args or "{}", result_str))
+                if not tool_loop_json_payload_indicates_error_round(result_str):
+                    round_all_errors = False
                 if on_tool_done:
                     await on_tool_done(nm, result_str)
                 tool_seq += 1
@@ -2910,6 +2945,27 @@ async def complete_with_lutopia_tool_loop(
                         "content": tool_result_for_model(nm, raw_args or "{}", result_str),
                     }
                 )
+            if processed_tools == 0:
+                round_all_errors = False
+            if processed_tools and round_all_errors:
+                consecutive_error_only_rounds += 1
+            else:
+                consecutive_error_only_rounds = 0
+            if consecutive_error_only_rounds >= 3:
+                logger.error(
+                    "工具循环连续多轮仅返回错误，已禁用后续工具并插入系统提示（防无限工具循环）"
+                )
+                work.append(
+                    {
+                        "role": "system",
+                        "content": (
+                            "【系统】已连续多轮工具仅返回错误或失败。请不要再调用任何工具，"
+                            "直接用自然语言向用户说明并给出建议（可提及论坛暂时不可用）。"
+                        ),
+                    }
+                )
+                force_disable_tools = True
+                consecutive_error_only_rounds = 0
         fin = last or LLMResponse(content="", model=llm.model_name)
         return LutopiaToolLoopOutcome(
             fin,
