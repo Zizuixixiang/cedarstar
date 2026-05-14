@@ -117,8 +117,6 @@ def _split_cn_labeled_thinking_leading(raw: str) -> Optional[Tuple[str, str]]:
     remainder = _CN_THINK_LINE_HEAD_RE.sub("", s, count=1).strip()
     if not remainder:
         return ("", "")
-    if len(remainder) < 12:
-        return None
     cut = -1
     for sep in ("\n\n（", "\n（"):
         k = remainder.find(sep)
@@ -126,6 +124,8 @@ def _split_cn_labeled_thinking_leading(raw: str) -> Optional[Tuple[str, str]]:
             cut = k
     if cut >= 0:
         return remainder[:cut].strip(), remainder[cut:].lstrip("\n").strip()
+    if len(remainder) < 12:
+        return None
     return remainder, ""
 
 
