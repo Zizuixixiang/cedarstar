@@ -2778,6 +2778,20 @@ class TelegramBot:
                         )
                         force_disable_tools_stream = True
                         consecutive_tool_error_rounds = 0
+                    # 每轮带 tool_calls 的 SSE 在此 continue 前未走 finalize，思维链占位会一直以纯文本编辑，
+                    # 永远不会包成 <blockquote expandable>；下一轮又会新建占位。此处先定稿本轮思维链。
+                    _tp_tool = sse.think_plain or ""
+                    _th_part_tool, _ = split_thinking_and_content(_tp_tool)
+                    if _th_part_tool:
+                        _tp_tool = _th_part_tool
+                    await self._telegram_finalize_thinking_blockquote(
+                        base_message,
+                        bot,
+                        chat_id,
+                        sse.thinking_msg_id,
+                        _tp_tool,
+                        sse.interrupted,
+                    )
                     continue
                 trimmed_raw = _trim_overlap_with_pre_tool_segments(sse.raw_content or "")
                 if trimmed_raw != (sse.raw_content or ""):
