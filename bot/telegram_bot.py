@@ -3479,18 +3479,29 @@ class TelegramBot:
         ).strip()
         if not text:
             return ""
-        _MAX_QUOTE = 200
+        _MAX_QUOTE = 30
         if len(text) > _MAX_QUOTE:
-            text = text[:_MAX_QUOTE] + "…"
+            text = text[:_MAX_QUOTE] + "……"
+
+        def _tg_reply_author_display(u) -> str:
+            if not u:
+                return "未知用户"
+            full = (getattr(u, "full_name", None) or "").strip()
+            if full:
+                return full
+            un = getattr(u, "username", None)
+            if un:
+                return f"@{un}"
+            first = getattr(u, "first_name", None)
+            if first:
+                return str(first).strip()
+            uid = getattr(u, "id", None)
+            return f"用户{uid}" if uid is not None else "未知用户"
+
         from_user = getattr(replied, "from_user", None)
-        is_bot = getattr(from_user, "is_bot", False) if from_user else False
-        if is_bot:
-            return (
-                f"[系统上下文：用户正在回复 AI 的消息「{text}」。"
-                "此信息只用于理解上下文，禁止在回答中复述这段括号内容。]\n\n"
-            )
+        author = _tg_reply_author_display(from_user)
         return (
-            f"[系统上下文：用户正在回复自己之前的消息「{text}」。"
+            f"[系统上下文：用户正在回复 {author} 的消息「{text}」。"
             "此信息只用于理解上下文，禁止在回答中复述这段括号内容。]\n\n"
         )
 
