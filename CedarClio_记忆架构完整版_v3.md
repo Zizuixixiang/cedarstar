@@ -188,10 +188,14 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 
 **Telegram 群/私聊交叉原文**：在「今日对话摘要」块内两类 chunk 之间插入对端近期原文（`memory/context_builder.py`）；依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；非空摘录时标题下附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`（与群聊续话等说明同属 `memory/context_builder.py` 常量）。详见 `ARCHITECTURE.md` §2.6 / §3.1。
 
-其中长期记忆召回采用双路检索 + SiliconFlow Rerank 精排 + 阈值过滤 + event_type 分级时间衰减 + MMR 多样性筛选：
+其中长期记忆召回以 `memory/context_builder.py` 为准，分两条链路：
 
-1. **构建 rerank query**：取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），截断到 `rerank_query_max_chars` 字符
-2. **双路检索**：向量检索与 BM25 各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）
+**`build_context` → `_build_vector_search_section`（Telegram / Discord / idle 当前使用）**：先 `_build_rerank_query(session_id, user_message)`；**向量与 BM25 均以该多轮字符串为检索 query**；空字符串则跳过向量长期记忆块。Chroma `where` 与 BM25 `summary_type` 白名单仍只根据**当前用户句** `user_message`。后续为 `fuse_rerank_with_time_decay` + MMR（非 SiliconFlow Rerank API）。
+
+**`build_context_async` → `_build_vector_search_section_async`（主服务当前未调用）**：采用双路检索 + SiliconFlow Rerank 精排 + 阈值过滤 + event_type 分级时间衰减 + MMR 多样性筛选：
+
+1. **构建 rerank query**：取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），截断到 `rerank_query_max_chars` 字符；若仅空白则回退为 `user_message`
+2. **双路检索**：向量检索与 BM25 **仍以单条** `user_message` **为检索 query**，各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）
 3. **Rerank 精排**：调用 SiliconFlow Qwen3-Reranker-4B API，每条候选得到 0-1 的 relevance_score；超时或异常时降级到旧的 `fuse_rerank_with_time_decay` 路径
 4. **阈值拦截**（用 rerank 纯语义分，不混入加权）：
    - `is_starred=true`：score >= `rerank_starred_floor`（0.15）通过
@@ -353,7 +357,7 @@ Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `l
 
 ### 6.1 长期记忆融合
 
-长期记忆召回采用以下策略：
+**`build_context`（当前 Bot 默认）**为双路检索 + 本地 `fuse_rerank_with_time_decay` + MMR，检索 query 为 `_build_rerank_query` 多轮字符串，**不经过** SiliconFlow Rerank API。**`build_context_async`（主服务未调用）**时长期记忆召回采用以下策略：
 
 - **SiliconFlow Rerank 语义精排**优先（Qwen3-Reranker-4B，0-1 relevance_score）
 - **阈值过滤**剔除低分候选（starred >= 0.15，其他 >= 0.3）

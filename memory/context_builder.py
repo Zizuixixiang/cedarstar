@@ -1237,7 +1237,7 @@ class ContextBuilder:
             relationship_timeline_section = await self._build_relationship_timeline_section()
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
-            vector_search_section = await self._build_vector_search_section(user_message)
+            vector_search_section = await self._build_vector_search_section(session_id, user_message)
             archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(session_id)
             chunk_summaries_section = await self._build_chunk_summaries_section(session_id)
@@ -2210,7 +2210,7 @@ class ContextBuilder:
             logger.warning("构建最近工具使用记录失败: %s", e)
             return ""
     
-    async def _build_vector_search_section(self, user_message: str) -> str:
+    async def _build_vector_search_section(self, session_id: str, user_message: str) -> str:
         """
         构建向量检索部分（同步，无 Cohere 精排）。
         
@@ -2222,14 +2222,18 @@ class ContextBuilder:
                 logger.warning("ZHIPU_API_KEY 未设置或为默认值，跳过向量检索")
                 return ""
 
+            multi_turn_query = await _build_rerank_query(session_id, user_message)
+            if multi_turn_query == "":
+                return ""
+
             tk = await _retrieval_top_k()
             lt_where = chroma_where_longterm_summary_types(user_message)
             lt_types = longterm_allowed_summary_types(user_message)
             vector_results = search_memory(
-                user_message, top_k=tk, where=lt_where
+                multi_turn_query, top_k=tk, where=lt_where
             )
             bm25_results = search_bm25(
-                user_message,
+                multi_turn_query,
                 top_k=tk,
                 allowed_summary_types=lt_types,
             )
@@ -2412,7 +2416,7 @@ class ContextBuilder:
             logger.warning("构建向量检索部分失败（异步）: %s", e)
             self._last_longterm_results = []
             logger.warning("回退到同步检索")
-            return await self._build_vector_search_section(user_message)
+            return await self._build_vector_search_section(session_id, user_message)
 
     def _format_longterm_section(
         self, results: List[Dict[str, Any]], total_candidates: int, label: str

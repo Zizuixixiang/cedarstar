@@ -204,10 +204,12 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 3.2 长期记忆召回
 
-长期记忆采用双路检索 + SiliconFlow Rerank 精排 + 阈值过滤 + event_type 分级时间衰减 + MMR 多样性筛选：
+**`build_context` → `_build_vector_search_section`（Telegram / Discord / idle 当前使用）**：先 `await _build_rerank_query(session_id, user_message)` 得到多轮拼接字符串；**向量检索与 BM25 均以该字符串为检索 query**（与仅用于精排的 rerank query 同源）。若该字符串为空，则跳过整块长期记忆向量注入。Chroma `where` 与 BM25 允许的 `summary_type` **仍仅依据当前用户句** `user_message`（回溯关键词等见 `memory/retrieval.py`）。候选去重后经 `fuse_rerank_with_time_decay`（非 SiliconFlow API）与 starred boost、MMR 注入 `context_max_longterm` 条。
 
-1. **构建 rerank query**：取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），截断到 `rerank_query_max_chars` 字符
-2. **双路检索**：向量检索与 BM25 各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）
+**`build_context_async` → `_build_vector_search_section_async`（仓库内存在，主服务当前未调用）**：长期记忆采用双路检索 + SiliconFlow Rerank 精排 + 阈值过滤 + event_type 分级时间衰减 + MMR 多样性筛选：
+
+1. **构建 rerank query**：取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），截断到 `rerank_query_max_chars` 字符；若仅空白则回退为 `user_message`
+2. **双路检索**：向量检索与 BM25 **仍以单条** `user_message` **为检索 query**（与上一步 rerank query 分离），各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）
 3. **Rerank 精排**：调用 SiliconFlow Qwen3-Reranker-4B API，每条候选得到 0-1 的 relevance_score；超时或异常时降级到旧的 `fuse_rerank_with_time_decay` 路径
 4. **阈值拦截**（用 rerank 纯语义分，不混入加权）：
    - `is_starred=true`：score >= `rerank_starred_floor`（0.15）通过
@@ -374,7 +376,7 @@ Step 4 结果只写事件片段，不再写 daily 小传向量。事件写入 `l
 
 ## 6. 记忆召回策略
 
-长期记忆召回以 SiliconFlow Rerank 语义精排为主，按 event_type 分级时间衰减为辅，通过阈值过滤剔除低分候选，再经 MMR 保证多样性。收藏事件不参与时间衰减且阈值更低。记忆卡片用于稳定保存角色/用户的重要事实（支持 manual_override 跳过自动覆盖）；时效状态用于临时状态与动作规则。
+**`build_context`（Telegram / Discord / idle 当前默认）**：长期记忆为双路检索 + 本地 `fuse_rerank_with_time_decay` + MMR，**不调用** SiliconFlow Rerank API；检索 query 为 `_build_rerank_query` 多轮字符串（见 §3.2）。**`build_context_async`（仓库内存在、主服务未调用）**：长期记忆召回以 SiliconFlow Rerank 语义精排为主，按 event_type 分级时间衰减为辅，通过阈值过滤剔除低分候选，再经 MMR 保证多样性。收藏事件不参与时间衰减且阈值更低。记忆卡片用于稳定保存角色/用户的重要事实（支持 manual_override 跳过自动覆盖）；时效状态用于临时状态与动作规则。
 
 ## 7. Mini App 与配置管理
 
