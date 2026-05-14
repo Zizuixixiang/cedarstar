@@ -2005,6 +2005,18 @@ class TelegramBot:
             if body_part and not (llm_resp.content or "").strip():
                 llm_resp = copy.copy(llm_resp)
                 llm_resp.content = body_part
+            if not (think_plain or "").strip():
+                c0 = (llm_resp.content or "").strip()
+                if c0:
+                    tb, bb = split_thinking_and_content(c0)
+                    if tb.strip():
+                        think_plain = tb
+                        if (bb or "").strip():
+                            llm_resp = copy.copy(llm_resp)
+                            llm_resp.content = bb
+                        else:
+                            llm_resp = copy.copy(llm_resp)
+                            llm_resp.content = ""
 
         if think_plain:
             html_th = self._telegram_thinking_blockquote_html(think_plain)
@@ -2369,6 +2381,11 @@ class TelegramBot:
             think_plain = th_part
         if body_part and not (raw_content or "").strip():
             raw_content = body_part
+        if not (str(think_plain or "").strip()) and (raw_content or "").strip():
+            tb, bb = split_thinking_and_content(raw_content.strip())
+            if tb.strip():
+                think_plain = tb
+                raw_content = bb if (bb or "").strip() else ""
         if done_payload is not None:
             if done_payload.get("guard_refusal_abort") and not (raw_content or "").strip():
                 raw_content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
@@ -2406,6 +2423,8 @@ class TelegramBot:
             thinking_stored = th_part2 or thinking_stored
             if body_part2 and not raw_content.strip():
                 raw_content = body_part2
+        if not (thinking_stored or "").strip() and (str(think_plain or "").strip()):
+            thinking_stored = str(think_plain).strip()
 
         await self._telegram_finalize_thinking_blockquote(
             base_message,

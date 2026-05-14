@@ -101,6 +101,34 @@ _COT_TAG_CONTENT_RE = re.compile(
 )
 
 
+_CN_THINK_LINE_HEAD_RE = re.compile(r"^(?:\*\*思维链\*\*|思维链)\s*[：:\s]*")
+
+
+def _split_cn_labeled_thinking_leading(raw: str) -> Optional[Tuple[str, str]]:
+    """
+    若整段以中文「思维链」/「**思维链**」标题开头，则视为模型把推理写进了正文。
+
+    - 剥掉标题后，若出现 ``\\n（`` / ``\\n\\n（``，则此前为思维链、从括号起为角色对白。
+    - 否则在剥掉标题后剩余足够长时，整段视为仅思维链（无对白），避免按换行拆成多条裸气泡。
+    """
+    s = raw.strip()
+    if not s or not _CN_THINK_LINE_HEAD_RE.match(s):
+        return None
+    remainder = _CN_THINK_LINE_HEAD_RE.sub("", s, count=1).strip()
+    if not remainder:
+        return ("", "")
+    if len(remainder) < 12:
+        return None
+    cut = -1
+    for sep in ("\n\n（", "\n（"):
+        k = remainder.find(sep)
+        if k >= 0 and (cut < 0 or k < cut):
+            cut = k
+    if cut >= 0:
+        return remainder[:cut].strip(), remainder[cut:].lstrip("\n").strip()
+    return remainder, ""
+
+
 def split_thinking_and_content(text: Any) -> Tuple[str, str]:
     """从常见思维链包裹中拆出 (thinking, content)。"""
     if text is None:
@@ -122,6 +150,9 @@ def split_thinking_and_content(text: Any) -> Tuple[str, str]:
             thinking = inner[:close_idx].strip()
             content = inner[close_idx + len(close_t):].strip()
             return thinking, content
+    cn = _split_cn_labeled_thinking_leading(raw)
+    if cn is not None:
+        return cn
     return "", raw
 
 # 同步链路（实时对话）重试时附加在 user 文本末尾

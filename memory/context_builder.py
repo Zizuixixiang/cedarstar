@@ -698,6 +698,8 @@ MEMORY_BLOCK_PRIORITY_DIRECTIVE = (
 
 THINKING_LANGUAGE_DIRECTIVE = (
     "所有思维链、推理过程必须使用中文；思考时统一称呼我为南杉，严禁出现用户、user 字样。"
+    "禁止在面向用户可见的 assistant 正文开头写「思维链」或「**思维链**」小标题；"
+    "推理须走 API 的 reasoning/thinking 通道，或使用 <thinking>…</thinking> 包裹，标签外只保留角色对白。"
 )
 
 ANTHROPIC_CACHE_CONTROL_1H = {
