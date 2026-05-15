@@ -139,6 +139,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `token_usage` 在 `raw_usage_json` 之外，还会持久化 `base_url`，用于按供应商网关来源聚合。
 - 缓存统计拆分为两套口径：`provider_cache_hit_tokens`（上游实际命中）与 `theoretical_cached_tokens`（系统估算命中）。
 - Observability 聚合查询会同时返回两套值，避免把“理论可缓存”与“供应商实际命中”混为一谈。
+- LLM 上游路由：环境变量 **`LLM_USE_ANTHROPIC_API`** 与 `/messages` vs `/chat/completions`、代理 Bearer 鉴权见 **`ARCHITECTURE.md` §4.1**（CedarClio 通常设 `LLM_USE_ANTHROPIC_API=true` 对接 Cedargate）。
 
 ### 2.6 Telegram 双实例、共享群表与接力（与 CedarStar 同构）
 

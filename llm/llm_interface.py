@@ -7,6 +7,7 @@ LLM 接口模块。
 
 import json
 import logging
+import os
 import asyncio
 import copy
 import math
@@ -423,9 +424,12 @@ def use_anthropic_messages_api(
 ) -> bool:
     """
     是否走 Anthropic Messages API（/messages）。
-    只由 api_base 判定。OpenAI-compatible 网关也常提供 Claude 模型，
-    不能仅因模型名含 claude 就改走 Anthropic `/messages`。
+    默认由 api_base 是否含 anthropic 判定；LLM_USE_ANTHROPIC_API=true 时强制走该路径
+    （用于 Cedargate 等 OpenAI 兼容网关，以拿到 cache_creation/cache_read 等字段）。
+    OpenAI-compatible 网关也常提供 Claude 模型，不能仅因模型名含 claude 就改走 Anthropic `/messages`。
     """
+    if os.getenv("LLM_USE_ANTHROPIC_API", "").strip().lower() in ("true", "1", "yes"):
+        return True
     b = (api_base or "").lower()
     if "anthropic" in b:
         return True
@@ -1502,7 +1506,10 @@ class LLMInterface:
         
         # 添加认证头
         if self._use_anthropic_messages_api():
-            headers["x-api-key"] = self.api_key
+            if "anthropic" in (self.api_base or "").lower():
+                headers["x-api-key"] = self.api_key
+            else:
+                headers["Authorization"] = f"Bearer {self.api_key}"
             headers["anthropic-version"] = "2023-06-01"
             headers["anthropic-beta"] = "extended-cache-ttl-2025-04-11"
         elif "gpt-3.5" in self.model_name or "gpt-4" in self.model_name:
