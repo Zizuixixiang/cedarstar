@@ -412,11 +412,12 @@ class SummaryLLMInterface:
     摘要专用的 LLM 接口类。
     
     使用独立的摘要 API 配置，与主 LLM 配置分离。
+    生产路径请用 ``await SummaryLLMInterface.create()`` 读取 Mini App 激活的 summary 配置。
     """
     
     def __init__(self):
         """
-        初始化摘要 LLM 接口。
+        初始化摘要 LLM 接口（.env SUMMARY_*；供 create() 回退与本地测试）。
         """
         # 使用摘要专用的配置
         self.model_name = config.SUMMARY_MODEL_NAME
@@ -439,6 +440,44 @@ class SummaryLLMInterface:
         if not self.api_key:
             logger.error("摘要 API 密钥未设置，无法生成摘要")
             raise ValueError("摘要 API 密钥未设置")
+
+    @staticmethod
+    def _api_config_usable(row: Optional[Dict[str, Any]]) -> bool:
+        if not row:
+            return False
+        key = str(row.get("api_key") or "").strip()
+        base = str(row.get("base_url") or "").strip()
+        model = str(row.get("model") or "").strip()
+        return bool(key and base and model)
+
+    @classmethod
+    async def create(cls) -> "SummaryLLMInterface":
+        """从 api_configs 激活的 summary 行构造；不可用时回退 .env。"""
+        inst = cls()
+        db_cfg: Optional[Dict[str, Any]] = None
+        try:
+            db_cfg = await get_database().get_active_api_config("summary")
+        except Exception as e:
+            logger.warning(
+                "SummaryLLMInterface: failed to load api_config for 'summary': %s",
+                e,
+            )
+        if cls._api_config_usable(db_cfg):
+            assert db_cfg is not None
+            inst.model_name = str(db_cfg.get("model") or inst.model_name)
+            inst.api_key = str(db_cfg.get("api_key") or "")
+            inst.api_base = str(db_cfg.get("base_url") or "")
+            logger.info(
+                "SummaryLLMInterface 使用数据库激活配置: [%s] model=%s base_url=%s",
+                db_cfg.get("name"),
+                inst.model_name,
+                inst.api_base,
+            )
+            return inst
+        logger.warning(
+            "SummaryLLMInterface: no active api_config for 'summary', falling back to .env"
+        )
+        return inst
     
     def generate_summary(
         self,
@@ -674,7 +713,7 @@ async def generate_summary_for_messages(
     """
     try:
         # 创建摘要 LLM 接口
-        summary_llm = SummaryLLMInterface()
+        summary_llm = await SummaryLLMInterface.create()
         
         # 转换消息格式，保留 id 供工具结果内联定位
         formatted_messages = []
@@ -768,8 +807,11 @@ def test_micro_batch() -> None:
         
         # 测试摘要 LLM 接口
         try:
-            summary_llm = SummaryLLMInterface()
-            print("摘要 LLM 接口初始化成功")
+            summary_llm = asyncio.run(SummaryLLMInterface.create())
+            print(
+                f"摘要 LLM 接口初始化成功: model={summary_llm.model_name} "
+                f"base_url={summary_llm.api_base}"
+            )
         except ValueError as e:
             print(f"摘要 LLM 接口初始化失败: {e}")
             print("测试通过（配置检查）")

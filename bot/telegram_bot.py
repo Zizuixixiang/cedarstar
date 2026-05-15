@@ -3353,6 +3353,11 @@ class TelegramBot:
                 if last_hit and not (llm_resp.content or "").strip():
                     llm_resp.content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
 
+                if llm_resp.usage:
+                    llm._save_token_usage_async(
+                        llm_resp.usage, Platform.TELEGRAM, cacheable_ratio
+                    )
+
                 outcome = await self._telegram_deliver_prefetched_llm_response(
                     llm_resp, base_message, bot
                 )

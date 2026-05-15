@@ -73,7 +73,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 其中：
 
 - `chat`：日常对话
-- `summary`：微批 / 日终摘要
+- `summary`：微批 / 日终摘要；运行时通过 `await SummaryLLMInterface.create()`（`memory/micro_batch.py`）优先绑定 Mini App 当前激活的 `api_configs` 行，否则 `.env` 的 `SUMMARY_*`。
 - `vision`：图片理解
 - `stt`：语音转录
 - `embedding`：向量嵌入（默认 SiliconFlow Qwen3-Embedding-8B，dim=1024；通过 `EMBEDDING_PROVIDER` 环境变量可切回智谱 embedding-3）
@@ -139,7 +139,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `token_usage` 在 `raw_usage_json` 之外，还会持久化 `base_url`，用于按供应商网关来源聚合。
 - 缓存统计拆分为两套口径：`provider_cache_hit_tokens`（上游实际命中）与 `theoretical_cached_tokens`（系统估算命中）。
 - Observability 聚合查询会同时返回两套值，避免把“理论可缓存”与“供应商实际命中”混为一谈。
-- LLM 上游路由：环境变量 **`LLM_USE_ANTHROPIC_API`** 与 `/messages` vs `/chat/completions`、代理 Bearer 鉴权见 **`ARCHITECTURE.md` §4.1**（CedarClio 通常设 `LLM_USE_ANTHROPIC_API=true` 对接 Cedargate）。
+- LLM 上游路由：环境变量 **`LLM_USE_ANTHROPIC_API`** 与 `/messages` vs `/chat/completions`、代理 Bearer 鉴权、**本机 CedarGate（`127.0.0.1:8780`）OpenAI 兼容路径下保留块级 `cache_control` 及 `prompt_tokens_details.cached_tokens` 统计**，见 **`ARCHITECTURE.md` §4.1 / §4.4**（CedarClio 通常设 `LLM_USE_ANTHROPIC_API=true` 对接 Cedargate）。
 
 ### 2.6 Telegram 双实例、共享群表与接力（与 CedarStar 同构）
 
@@ -315,7 +315,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致）。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 

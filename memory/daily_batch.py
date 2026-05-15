@@ -544,7 +544,7 @@ class DailyBatchProcessor:
         # LLM 接口在 run_daily_batch 中异步初始化（await LLMInterface.create()）
         self.llm: Optional[LLMInterface] = None
         self.scoring_llm: Optional[LLMInterface] = None
-        self.summary_llm = SummaryLLMInterface()
+        self.summary_llm: Optional[SummaryLLMInterface] = None
         self._settled_temporal_snippets: List[str] = []
         self._batch_char_name: str = "AI"
         self._batch_user_name: str = "用户"
@@ -730,6 +730,7 @@ class DailyBatchProcessor:
                         exc_detail(se),
                     )
                     self.scoring_llm = None
+            self.summary_llm = await SummaryLLMInterface.create()
             self._batch_char_name, self._batch_user_name = (
                 await fetch_active_persona_display_names()
             )

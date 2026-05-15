@@ -143,7 +143,7 @@ def split_thinking_and_content(text: Any) -> Tuple[str, str]:
     if m:
         thinking = (m.group(1) or "").strip()
         if thinking:
-            return thinking, ""
+            return thinking, raw[m.end():].strip()
     for open_t, close_t in COT_TAG_PAIRS:
         if raw.startswith(open_t) and close_t in raw[len(open_t):]:
             inner = raw[len(open_t):]
@@ -742,6 +742,12 @@ def _openrouter_supports_cache_control(api_base: Optional[str], model_name: Opti
     return "openrouter" in s and "claude" in s
 
 
+def _is_cedargate_proxy(api_base: Optional[str]) -> bool:
+    """本机 CedarGate (CLIProxyAPI) OpenAI 兼容端口，需保留块级 cache_control 供上游翻译。"""
+    b = (api_base or "").lower()
+    return "127.0.0.1:8780" in b or "localhost:8780" in b
+
+
 OPENROUTER_CLAUDE_PROVIDER = "amazon-bedrock"
 
 
@@ -823,7 +829,13 @@ def _normalize_usage_for_storage(
         )
         cache_hit_tokens = max(cache_hit_tokens, cache_read_input_tokens)
     else:
-        cache_hit_tokens = 0
+        if "127.0.0.1:8780" in base or "localhost:8780" in base:
+            # Cedargate /chat/completions：prompt_tokens_details.cached_tokens
+            ced = _usage_int(details, "cached_tokens")
+            cache_hit_tokens = ced
+            cache_read_input_tokens = max(cache_read_input_tokens, ced)
+        else:
+            cache_hit_tokens = 0
 
     cache_miss_tokens = 0
 
@@ -1567,7 +1579,8 @@ class LLMInterface:
                 preserve_cache_control=_openrouter_supports_cache_control(
                     self.api_base,
                     self.model_name,
-                ),
+                )
+                or _is_cedargate_proxy(self.api_base),
             ),
             "max_tokens": self._openai_max_tokens(),
             "temperature": self.temperature,
@@ -1660,7 +1673,17 @@ class LLMInterface:
             if has_images:
                 system_message = _strip_cache_control_from_blocks(system_message)
             payload["system"] = system_message
-        
+
+        # Extended thinking
+        thinking_budget = int(os.getenv("LLM_THINKING_BUDGET", "0"))
+        if thinking_budget > 0:
+            payload["thinking"] = {
+                "type": "enabled",
+                "budget_tokens": thinking_budget,
+            }
+            # thinking 模式下 temperature 必须为 1 或不传
+            payload.pop("temperature", None)
+
         return payload
     
     def _parse_openai_response(self, response_data: Dict[str, Any]) -> LLMResponse:
