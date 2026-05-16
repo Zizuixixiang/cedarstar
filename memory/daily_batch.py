@@ -2597,7 +2597,11 @@ arousal:
 
         success = 0
         for snippet_idx, snippet in enumerate(snippets):
-            desc = await self._step4b_describe_and_score(snippet, self.scoring_llm)
+            input_text = (
+                f"- source=settled_temporal_state | source_date={batch_date}\n"
+                f"{snippet}"
+            )
+            desc = await self._step4b_describe_and_score(input_text, self.scoring_llm)
             if desc is None:
                 logger.warning(
                     "settled temporal_states Step 4b 生成失败，跳过: idx=%s text=%s",

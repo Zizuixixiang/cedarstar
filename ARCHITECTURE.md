@@ -375,7 +375,7 @@ Step 4 的事件拆分遵循：
 
 Step 4 结果只写事件片段，不再写 daily 小传向量。普通 chunk 事件写入 `longterm_memories.source_chunk_ids`，并根据来源 chunk 的 `is_starred` 汇总出事件的 `is_starred`。同时，Step 4 写入 Chroma metadata 时会同步带上 `date` 与 `source_date`（均为当日 `batch_date`），供长期记忆列表日期展示与远古 daily 补充逻辑一致使用。
 
-Step 1 结算出的 `_settled_temporal_snippets` 会在普通 Step 4 事件写入完成后追加处理：每条 snippet 不参与 Step 4a 聚类，直接以自身文本作为 Step 4b 输入生成单独长期事件，再按 `daily_event` 写入 ChromaDB、BM25 与 PG `longterm_memories`，`source_date=batch_date`。这些事件不来自 chunk，因此不写 Chroma `source_chunk_ids`，PG 镜像中的 `source_chunk_ids` 置为 `NULL`。单条 4b 失败只跳过该 snippet 并记 WARNING，不影响其他 snippets 或当天跑批。
+Step 1 结算出的 `_settled_temporal_snippets` 会在普通 Step 4 事件写入完成后追加处理：每条 snippet 不参与 Step 4a 聚类，而是包装成 `source=settled_temporal_state | source_date=<batch_date>` 的单条输入后直接送入 Step 4b，生成单独长期事件，再按 `daily_event` 写入 ChromaDB、BM25 与 PG `longterm_memories`，`source_date=batch_date`。这些事件不来自 chunk，因此不写 Chroma `source_chunk_ids`，PG 镜像中的 `source_chunk_ids` 置为 `NULL`。单条 4b 失败只跳过该 snippet 并记 WARNING，不影响其他 snippets 或当天跑批。
 
 ## 6. 记忆召回策略
 
