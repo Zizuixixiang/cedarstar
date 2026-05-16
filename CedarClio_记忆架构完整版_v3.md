@@ -324,7 +324,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 日终跑批由进程内 `schedule_daily_batch()` 按数据库 `daily_batch_hour` 配置定时触发（东八区），按业务日执行六步。`run_daily_batch.py` 保留为独立命令行入口（手动补跑 / 重试子进程调用）。
 
 1. Step 1：到期 temporal_states 结算
-2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；摘要链路统一注入 CedarStar/CedarClio 角色背景块）
+2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；摘要链路统一注入 CedarStar/CedarClio 角色背景块）。注入当日 chunk 时，时间范围 preamble 与每条 chunk 标题使用**内容日** `COALESCE(source_date, created_at)`（上海时区格式），与 Context / 记忆日记本列表口径一致，而非仅用 `summaries.created_at` 写入时间。
 3. Step 3：记忆卡片 Upsert + relationship_timeline
 4. Step 3.5：从今日小传提取时效状态操作
 5. Step 4：事件聚类 + 描述打分 + 长期事件入库

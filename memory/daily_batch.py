@@ -21,7 +21,7 @@ import os
 import re
 from decimal import Decimal
 from datetime import datetime, date, time, timedelta
-from typing import List, Dict, Any, Optional, Tuple, NamedTuple
+from typing import List, Dict, Any, Optional, Tuple, NamedTuple, Mapping, Sequence
 from uuid import uuid4
 import pytz
 
@@ -45,10 +45,36 @@ from memory.micro_batch import SummaryLLMInterface, fetch_active_persona_display
 from memory.shanghai_dt import (
     format_created_at_range_preamble,
     format_created_at_span_minmax_preamble,
+    format_shanghai_datetime_minutes,
 )
 from tools.lutopia import strip_lutopia_internal_memory_blocks
 from api.stream import EventType, publish_event
 from memory.prompt_background import CEDAR_PROJECT_BACKGROUND
+
+_CHUNK_CONTENT_DT_NOTE = "内容日 COALESCE(source_date, created_at)"
+
+
+def _summary_content_datetime(summary: Mapping[str, Any]) -> Any:
+    """chunk 材料展示时间：内容日 source_date 优先，否则 created_at。"""
+    return summary.get("source_date") or summary.get("created_at")
+
+
+def _format_summary_content_dt_for_prompt(summary: Mapping[str, Any]) -> str:
+    raw = _summary_content_datetime(summary)
+    label = format_shanghai_datetime_minutes(raw)
+    return label if label else str(raw or "").strip()
+
+
+def _summaries_for_content_dt_preamble(
+    summaries: Sequence[Mapping[str, Any]],
+) -> List[Dict[str, Any]]:
+    out: List[Dict[str, Any]] = []
+    for s in summaries:
+        row = dict(s)
+        row["_content_dt"] = _summary_content_datetime(s)
+        out.append(row)
+    return out
+
 
 # 导入向量存储函数
 try:
@@ -1049,17 +1075,18 @@ class DailyBatchProcessor:
                     today_content += await _build_overlap_section_for_session(session_id)
                     today_content += "# 今日对话摘要\n\n"
                     today_content += format_created_at_range_preamble(
-                        session_chunks,
+                        _summaries_for_content_dt_preamble(session_chunks),
                         heading="【chunk 摘要时间范围】",
-                        semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
+                        field="_content_dt",
+                        semantics_note=_CHUNK_CONTENT_DT_NOTE,
                     )
                     for summary in session_chunks:
                         summary_text = strip_lutopia_internal_memory_blocks(
                             str(summary.get("summary_text") or "")
                         )
-                        created_at = summary["created_at"]
+                        content_dt = _format_summary_content_dt_for_prompt(summary)
                         today_content += (
-                            f"### {created_at} [来自: {_display_session(session_id)}]\n"
+                            f"### {content_dt} [来自: {_display_session(session_id)}]\n"
                             f"{summary_text}\n\n"
                         )
 
@@ -1074,6 +1101,8 @@ class DailyBatchProcessor:
                         + memory_prefix
                         + session_framing
                         + f"""{CEDAR_PROJECT_BACKGROUND}
+
+本次小传业务日期：{batch_date}
 
 请基于以下材料生成今日小传，按主题与时间脉络完整概括当日核心话题、重要事件与情感状态。
 要求：
@@ -1138,16 +1167,17 @@ class DailyBatchProcessor:
             if chunk_summaries:
                 today_content += "# 今日对话摘要\n\n"
                 today_content += format_created_at_range_preamble(
-                    chunk_summaries,
+                    _summaries_for_content_dt_preamble(chunk_summaries),
                     heading="【chunk 摘要时间范围】",
-                    semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
+                    field="_content_dt",
+                    semantics_note=_CHUNK_CONTENT_DT_NOTE,
                 )
                 for summary in chunk_summaries:
                     session_id = summary['session_id']
                     summary_text = strip_lutopia_internal_memory_blocks(
                         str(summary.get("summary_text") or "")
                     )
-                    created_at = summary['created_at']
+                    content_dt = _format_summary_content_dt_for_prompt(summary)
                     
                     if '_' in session_id:
                         parts = session_id.split('_')
@@ -1158,7 +1188,7 @@ class DailyBatchProcessor:
                     else:
                         display_session = session_id[:20]
                     
-                    today_content += f"### {created_at} [来自: {display_session}]\n{summary_text}\n\n"
+                    today_content += f"### {content_dt} [来自: {display_session}]\n{summary_text}\n\n"
             
             if not today_content.strip():
                 logger.info(f"今日没有内容需要生成小传，日期: {batch_date}")
@@ -1166,6 +1196,8 @@ class DailyBatchProcessor:
 
             memory_prefix = await self._memory_context_prefix()
             prompt = self._persona_dialogue_prefix() + memory_prefix + f"""{CEDAR_PROJECT_BACKGROUND}
+
+本次小传业务日期：{batch_date}
 
 请基于以下材料生成今日小传，按主题与时间脉络完整概括当日核心话题、重要事件与情感状态。
 要求：

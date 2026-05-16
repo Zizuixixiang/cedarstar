@@ -53,6 +53,74 @@ const EMPTY_TAB_TIP = {
 const VOLCENGINE_STT_BASE_URL = 'https://openspeech.bytedance.com/api/v3/auc/bigmodel';
 const VOLCENGINE_STT_MODEL = 'volc:volcengine_input_common';
 
+const CHAT_LIKE_CONFIG_TYPES = new Set([
+  'chat', 'summary', 'vision', 'search_summary', 'analysis',
+]);
+
+const TESTABLE_CONFIG_TYPES = new Set([...CHAT_LIKE_CONFIG_TYPES, 'embedding']);
+
+const normBaseUrl = (url) => (url || '').trim().replace(/\/$/, '');
+
+const applyGroupOrder = (groups, orderList) => {
+  if (!orderList?.length) return groups;
+  return [...groups].sort((a, b) => {
+    const ia = orderList.indexOf(a.baseUrl);
+    const ib = orderList.indexOf(b.baseUrl);
+    if (ia === -1 && ib === -1) return 0;
+    if (ia === -1) return 1;
+    if (ib === -1) return -1;
+    return ia - ib;
+  });
+};
+
+const applyFavoriteModelOrder = (favorites, orderList) => {
+  if (!orderList?.length) return favorites;
+  const byModel = new Map(favorites.map((f) => [f.model, f]));
+  const out = [];
+  for (const model of orderList) {
+    if (byModel.has(model)) out.push(byModel.get(model));
+  }
+  for (const f of favorites) {
+    if (!orderList.includes(f.model)) out.push(f);
+  }
+  return out;
+};
+
+const isConfigActive = (cfg) => cfg?.is_active === 1 || cfg?.is_active === true;
+
+const formatTestResultBody = (data, reply) => {
+  const lines = [];
+  if (data?.used_fixed_context) {
+    const cached = data.context_cached ? '（已缓存固定抽样）' : '（本次从数据库重新抽样并缓存）';
+    lines.push(
+      `上下文：固定长文本约 ${data.context_char_count ?? '—'} 字${cached}，来源 ${data.source_message_count ?? '—'} 条消息`
+    );
+  } else if (data != null) {
+    lines.push('上下文：⚠ 固定长文本未就绪（历史消息不足）');
+  }
+  if (data?.config_name || data?.model) {
+    lines.push(`配置：${data.config_name || '—'} · 模型 ${data.model || '—'}`);
+  }
+  if (data?.context_build_ms != null || data?.llm_ms != null) {
+    lines.push(`耗时：加载 ${data.context_build_ms ?? '—'}ms · 模型 ${data.llm_ms ?? '—'}ms`);
+  }
+  if (lines.length) {
+    lines.push('');
+  }
+  lines.push(reply || '(无文本回复)');
+  return lines.join('\n');
+};
+
+const buildModelChoices = (favorites, currentModel, orderList) => {
+  const ordered = applyFavoriteModelOrder(favorites, orderList);
+  return Array.from(
+    new Set([
+      ...ordered.map((f) => f.model),
+      ...(currentModel ? [currentModel] : []),
+    ])
+  ).filter(Boolean);
+};
+
 /* ─── 骨架屏 ─── */
 function SkeletonCard({ rows = 3 }) {
   return (
@@ -65,9 +133,33 @@ function SkeletonCard({ rows = 3 }) {
   );
 }
 
+/* ─── 测试结果块（可关闭） ─── */
+function TestResultBlock({ result, onClose, className = '' }) {
+  if (!result) return null;
+  return (
+    <div className={`cfg-test-result ${result.success ? 'cfg-test-result--ok' : 'cfg-test-result--err'} ${className}`.trim()}>
+      <div className="cfg-test-result-head">
+        <div className="cfg-test-result-title">{result.title}</div>
+        <button type="button" className="cfg-test-result-close" onClick={onClose} aria-label="关闭">
+          关闭
+        </button>
+      </div>
+      <pre className="cfg-test-result-body">{result.body}</pre>
+    </div>
+  );
+}
+
 /* ─── 弹窗：新增 / 编辑 ─── */
 /* onSaved 成功时传入 form.config_type，父组件据此切换 Tab 并拉取对应列表 */
-function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
+function ConfigModal({
+  initial,
+  personas,
+  onClose,
+  onSaved,
+  configType,
+  favoriteModelOrder = {},
+  onFavoriteModelOrderChange,
+}) {
   const isEdit = !!initial?.id;
   const [form, setForm] = useState({
     name: initial?.name || '',
@@ -83,6 +175,11 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
   const [favoriteModels, setFavoriteModels] = useState([]);
   const [fetchingModels, setFetchingModels] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [manualModelInput, setManualModelInput] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [modalTestResult, setModalTestResult] = useState(null);
+  const [dragFavId, setDragFavId] = useState(null);
+  const [modalFavOrder, setModalFavOrder] = useState(null);
 
   const isStt = form.config_type === 'stt';
   const isVolcengineStt = isStt && (
@@ -123,22 +220,49 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
     fetchFavorites(form.base_url);
   }, [form.base_url, fetchFavorites]);
 
+  useEffect(() => {
+    setModalFavOrder(null);
+  }, [form.base_url, favoriteModels]);
+
+  const normalizeModelIds = (raw) => {
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((m) => (typeof m === 'string' ? m : (m?.id || m?.name || m?.model || '')))
+      .map((s) => String(s).trim())
+      .filter(Boolean);
+  };
+
   const handleFetchModels = async () => {
-    if (!form.api_key || !form.base_url) {
-      toast.warning('请先填写 API Key 和 Base URL');
+    if (!form.base_url.trim()) {
+      toast.warning('请先填写 Base URL');
+      return;
+    }
+    if (!form.api_key.trim() && !(isEdit && initial?.id)) {
+      toast.warning('请先填写 API Key');
       return;
     }
     setFetchingModels(true);
     try {
+      const body = {
+        base_url: form.base_url.trim(),
+        api_key: form.api_key.trim(),
+      };
+      if (isEdit && initial?.id) {
+        body.config_id = initial.id;
+      }
       const res = await apiFetch('/api/settings/api-configs/fetch-models', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ api_key: form.api_key, base_url: form.base_url }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
-      if (data.success && Array.isArray(data.data)) {
-        setModelOptions(data.data);
-        toast.success(`✓ 获取到 ${data.data.length} 个模型`, { autoClose: 2000 });
+      const ids = normalizeModelIds(data.data);
+      if (data.success && ids.length > 0) {
+        setModelOptions(ids);
+        setManualModelInput(false);
+        toast.success(`✓ 获取到 ${ids.length} 个模型`, { autoClose: 2000 });
+      } else if (data.success) {
+        toast.warning('接口未返回可用模型，下拉仍显示已收藏模型');
       } else {
         toast.error(data.message || '获取模型列表失败');
       }
@@ -168,9 +292,95 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
     }
   };
 
+  const handleUnfavoriteModel = async (favoriteId) => {
+    if (!favoriteId) return;
+    const res = await apiFetch(`/api/settings/model-favorites/${favoriteId}`, { method: 'DELETE' });
+    const data = await res.json();
+    if (data.success) {
+      toast.success('✓ 已取消收藏', { autoClose: 1600 });
+      fetchFavorites(form.base_url);
+    } else {
+      toast.error(data.message || '取消收藏失败');
+    }
+  };
+
+  const activeFavorite = favoriteModels.find((f) => f.model === form.model);
+
+  const handleTestConfig = async () => {
+    if (!isEdit || !initial?.id) {
+      toast.warning('请先保存配置后再测试');
+      return;
+    }
+    setTesting(true);
+    setModalTestResult(null);
+    try {
+      const res = await apiFetch(`/api/settings/api-configs/${initial.id}/test`, { method: 'POST' });
+      const data = await res.json();
+      const reply = data.data?.reply || '';
+      const rawText = data.data?.raw ? JSON.stringify(data.data.raw, null, 2) : '';
+      if (data.success) {
+        setModalTestResult({
+          success: true,
+          title: '测试成功',
+          body: formatTestResultBody(data.data, reply),
+        });
+        toast.success('测试成功', { autoClose: 2000 });
+      } else {
+        const errDetail = rawText.slice(0, 2000) || data.message || '(无详情)';
+        setModalTestResult({
+          success: false,
+          title: '测试失败',
+          body: formatTestResultBody(data.data, errDetail),
+        });
+        toast.error(data.message || '测试失败', { autoClose: 3000 });
+      }
+    } catch {
+      setModalTestResult({
+        success: false,
+        title: '网络错误',
+        body: '请检查网络或稍后重试',
+      });
+      toast.error('网络错误');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const favBaseKey = normBaseUrl(form.base_url);
+  const favOrderList = modalFavOrder ?? favoriteModelOrder[favBaseKey] ?? [];
+  const orderedFavoriteModels = applyFavoriteModelOrder(favoriteModels, favOrderList);
+
+  const applyFavoriteOrder = (ordered) => {
+    const order = ordered.map((f) => f.model);
+    setModalFavOrder(order);
+    if (onFavoriteModelOrderChange && favBaseKey) {
+      onFavoriteModelOrderChange(favBaseKey, order);
+    }
+  };
+
+  const reorderFavoriteModels = (fromId, toId) => {
+    if (!fromId || !toId || fromId === toId || !favBaseKey) return;
+    const ordered = applyFavoriteModelOrder(favoriteModels, favOrderList);
+    const fromIdx = ordered.findIndex((f) => f.id === fromId);
+    const toIdx = ordered.findIndex((f) => f.id === toId);
+    if (fromIdx < 0 || toIdx < 0) return;
+    const next = [...ordered];
+    const [moved] = next.splice(fromIdx, 1);
+    next.splice(toIdx, 0, moved);
+    applyFavoriteOrder(next);
+  };
+
+  const moveFavoriteModel = (index, direction) => {
+    const ordered = [...orderedFavoriteModels];
+    const target = index + direction;
+    if (target < 0 || target >= ordered.length) return;
+    [ordered[index], ordered[target]] = [ordered[target], ordered[index]];
+    applyFavoriteOrder(ordered);
+  };
+
   const mergedModelOptions = Array.from(new Set([
-    ...favoriteModels.map((x) => x.model),
     ...modelOptions,
+    ...orderedFavoriteModels.map((x) => x.model),
     ...(form.model ? [form.model] : []),
   ].filter(Boolean)));
 
@@ -323,7 +533,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
 
           {/* API Key */}
           <div className="modal-field">
-            <label className="modal-label">API Key {isEdit && <span className="modal-hint">（留空保持不变）</span>}</label>
+            <label className="modal-label">API Key</label>
             <div className="modal-input-wrap">
               <input className="modal-input" type={showKey ? 'text' : 'password'}
                 value={form.api_key}
@@ -362,7 +572,7 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
             ) : (
               <>
                 <div className="modal-model-row">
-                  {mergedModelOptions.length > 0 ? (
+                  {!manualModelInput && mergedModelOptions.length > 0 ? (
                     <select className="modal-select" value={form.model}
                       onChange={e => set('model', e.target.value)}>
                       <option value="">请选择模型</option>
@@ -380,14 +590,119 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
                   >
                     {fetchingModels ? <span className="spin">⟳</span> : '获取模型列表'}
                   </button>
-                  <button className="clear-models-btn" onClick={handleFavoriteModel}>
-                    收藏
-                  </button>
+                  {activeFavorite ? (
+                    <button type="button" className="clear-models-btn" onClick={() => handleUnfavoriteModel(activeFavorite.id)}>
+                      取消收藏
+                    </button>
+                  ) : (
+                    <button type="button" className="clear-models-btn" onClick={handleFavoriteModel}>
+                      收藏
+                    </button>
+                  )}
                 </div>
-                {modelOptions.length > 0 && (
-                  <button className="clear-models-btn" onClick={() => setModelOptions([])}>
-                    切换为手动输入
-                  </button>
+                <div className="modal-model-actions">
+                  {!manualModelInput && mergedModelOptions.length > 0 && (
+                    <button
+                      type="button"
+                      className="clear-models-btn"
+                      onClick={() => {
+                        setManualModelInput(true);
+                        set('model', '');
+                      }}
+                    >
+                      切换为手动输入
+                    </button>
+                  )}
+                  {manualModelInput && (
+                    <button type="button" className="clear-models-btn" onClick={() => setManualModelInput(false)}>
+                      切换为下拉选择
+                    </button>
+                  )}
+                </div>
+                {orderedFavoriteModels.length > 0 && (
+                  <>
+                    <div className="modal-hint modal-fav-sort-hint">↑↓ 排序；模型名可左右滑动查看，点击显示全名</div>
+                    <div className="modal-fav-list" role="list" aria-label="已收藏模型（可排序）">
+                      {orderedFavoriteModels.map((f, index) => (
+                        <span
+                          key={f.id}
+                          className={`modal-fav-chip ${dragFavId === f.id ? 'modal-fav-chip--dragging' : ''}`}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                            e.dataTransfer.dropEffect = 'move';
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            const fromRaw = e.dataTransfer.getData('text/plain');
+                            const fromId = fromRaw ? Number(fromRaw) : dragFavId;
+                            reorderFavoriteModels(fromId, f.id);
+                            setDragFavId(null);
+                          }}
+                        >
+                          <span className="modal-fav-order-btns">
+                            <button
+                              type="button"
+                              className="modal-fav-order-btn"
+                              disabled={index === 0}
+                              onClick={() => moveFavoriteModel(index, -1)}
+                              aria-label={`${f.model} 上移`}
+                            >
+                              ↑
+                            </button>
+                            <button
+                              type="button"
+                              className="modal-fav-order-btn"
+                              disabled={index === orderedFavoriteModels.length - 1}
+                              onClick={() => moveFavoriteModel(index, 1)}
+                              aria-label={`${f.model} 下移`}
+                            >
+                              ↓
+                            </button>
+                          </span>
+                          <span
+                            className="modal-fav-drag"
+                            draggable
+                            aria-hidden="true"
+                            onDragStart={(e) => {
+                              e.dataTransfer.setData('text/plain', String(f.id));
+                              e.dataTransfer.effectAllowed = 'move';
+                              setDragFavId(f.id);
+                            }}
+                            onDragEnd={() => setDragFavId(null)}
+                          >
+                            ⋮⋮
+                          </span>
+                          <span
+                            className="modal-fav-chip-label-wrap"
+                            role="button"
+                            tabIndex={0}
+                            title={f.model}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              toast.info(f.model, { autoClose: 5000 });
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault();
+                                toast.info(f.model, { autoClose: 5000 });
+                              }
+                            }}
+                          >
+                            <span className="modal-fav-chip-label">{f.model}</span>
+                          </span>
+                          <button
+                            type="button"
+                            className="modal-fav-chip-remove"
+                            onMouseDown={(e) => e.stopPropagation()}
+                            onClick={() => handleUnfavoriteModel(f.id)}
+                            aria-label={`取消收藏 ${f.model}`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  </>
                 )}
                 {isStt && (
                   <div className="modal-hint">
@@ -411,11 +726,22 @@ function ConfigModal({ initial, personas, onClose, onSaved, configType }) {
               ))}
             </select>
           </div>
+
+          <TestResultBlock
+            result={modalTestResult}
+            onClose={() => setModalTestResult(null)}
+            className="cfg-test-result--modal"
+          />
         </div>
 
         <div className="modal-footer">
+          {isEdit && TESTABLE_CONFIG_TYPES.has(form.config_type) && (
+            <button type="button" className="modal-btn-test" onClick={handleTestConfig} disabled={testing || saving}>
+              {testing ? '测试中…' : '测试'}
+            </button>
+          )}
           <button className="modal-btn-cancel" onClick={onClose}>取消</button>
-          <button className="modal-btn-save" onClick={handleSave} disabled={saving}>
+          <button className="modal-btn-save" onClick={handleSave} disabled={saving || testing}>
             {saving ? '保存中...' : '保存'}
           </button>
         </div>
@@ -438,6 +764,11 @@ function Settings() {
   const [modalData, setModalData] = useState(null); // null=关闭, {}=新增, {...}=编辑
   const [confirmDeleteId, setConfirmDeleteId] = useState(null); // 待确认删除的 cfg.id
   const [selectedConfigIds, setSelectedConfigIds] = useState({});
+  const [favoritesByBaseUrl, setFavoritesByBaseUrl] = useState({});
+  const [groupOrder, setGroupOrder] = useState([]);
+  const [favoriteModelOrder, setFavoriteModelOrder] = useState({});
+  const [testingConfigId, setTestingConfigId] = useState(null);
+  const [cardTestResult, setCardTestResult] = useState(null);
 
   /* 切换 tab 时同步更新 ref */
   const switchTab = (tab) => {
@@ -494,6 +825,83 @@ function Settings() {
   useEffect(() => {
     if (!isLoading) fetchConfigs(activeTab);
   }, [activeTab]);
+
+  const loadUiPreferences = useCallback(async (tab) => {
+    try {
+      const res = await apiFetch(`/api/settings/ui-preferences?config_type=${encodeURIComponent(tab)}`);
+      const data = await res.json();
+      if (data.success) {
+        setGroupOrder(Array.isArray(data.data?.group_order) ? data.data.group_order : []);
+        const fo = data.data?.favorite_model_order;
+        setFavoriteModelOrder(fo && typeof fo === 'object' ? fo : {});
+      }
+    } catch {
+      setGroupOrder([]);
+      setFavoriteModelOrder({});
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) loadUiPreferences(activeTab);
+  }, [activeTab, isLoading, loadUiPreferences]);
+
+  const loadFavoritesForConfigs = useCallback(async (configList) => {
+    const urls = [...new Set(configList.map((c) => normBaseUrl(c.base_url)).filter(Boolean))];
+    if (!urls.length) {
+      setFavoritesByBaseUrl({});
+      return;
+    }
+    const entries = await Promise.all(
+      urls.map(async (url) => {
+        try {
+          const res = await apiFetch(
+            `/api/settings/model-favorites?base_url=${encodeURIComponent(url)}`
+          );
+          const data = await res.json();
+          return [url, data.success ? data.data || [] : []];
+        } catch {
+          return [url, []];
+        }
+      })
+    );
+    setFavoritesByBaseUrl(Object.fromEntries(entries));
+  }, []);
+
+  useEffect(() => {
+    if (!isLoading) loadFavoritesForConfigs(configs);
+  }, [configs, isLoading, loadFavoritesForConfigs]);
+
+  const persistUiPreferences = useCallback(async (nextGroupOrder, nextFavOrder) => {
+    try {
+      await apiFetch('/api/settings/ui-preferences', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          config_type: activeTabRef.current,
+          group_order: nextGroupOrder,
+          favorite_model_order: nextFavOrder,
+        }),
+      });
+    } catch (e) {
+      console.error('保存 UI 偏好失败', e);
+    }
+  }, []);
+
+  const refreshFavoritesForBase = useCallback(async (baseUrl) => {
+    const url = normBaseUrl(baseUrl);
+    if (!url) return;
+    try {
+      const res = await apiFetch(
+        `/api/settings/model-favorites?base_url=${encodeURIComponent(url)}`
+      );
+      const data = await res.json();
+      if (data.success) {
+        setFavoritesByBaseUrl((prev) => ({ ...prev, [url]: data.data || [] }));
+      }
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   /* 切换 period */
   useEffect(() => {
@@ -569,15 +977,109 @@ function Settings() {
   const configGroups = useMemo(() => {
     const map = new Map();
     for (const cfg of configs) {
-      const key = cfg.base_url || '未设置 URL';
+      const key = normBaseUrl(cfg.base_url) || '未设置 URL';
       if (!map.has(key)) map.set(key, []);
       map.get(key).push(cfg);
     }
-    return Array.from(map.entries()).map(([baseUrl, items]) => ({
+    const groups = Array.from(map.entries()).map(([baseUrl, items]) => ({
       baseUrl,
       items: items.sort((a, b) => Number(b.is_active || 0) - Number(a.is_active || 0)),
     }));
-  }, [configs]);
+    return applyGroupOrder(groups, groupOrder);
+  }, [configs, groupOrder]);
+
+  const handleQuickModelChange = async (cfg, model) => {
+    if (!model || model === cfg.model) return;
+    try {
+      const res = await apiFetch(`/api/settings/api-configs/${cfg.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ model }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('✓ 模型已切换', { autoClose: 1600 });
+        fetchConfigs(activeTabRef.current);
+      } else {
+        toast.error(data.message || '切换失败');
+      }
+    } catch {
+      toast.error('网络错误');
+    }
+  };
+
+  const handleUnfavoriteOnCard = async (favoriteId, baseUrl, modelName) => {
+    try {
+      const res = await apiFetch(`/api/settings/model-favorites/${favoriteId}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (!data.success) {
+        toast.error(data.message || '取消收藏失败');
+        return;
+      }
+      toast.success('✓ 已取消收藏', { autoClose: 1600 });
+      await refreshFavoritesForBase(baseUrl);
+      const url = normBaseUrl(baseUrl);
+      const nextFavOrder = { ...favoriteModelOrder };
+      if (Array.isArray(nextFavOrder[url])) {
+        nextFavOrder[url] = nextFavOrder[url].filter((m) => m !== modelName);
+        setFavoriteModelOrder(nextFavOrder);
+        persistUiPreferences(groupOrder, nextFavOrder);
+      }
+    } catch {
+      toast.error('网络错误');
+    }
+  };
+
+  const handleTestOnCard = async (cfg) => {
+    setTestingConfigId(cfg.id);
+    setCardTestResult(null);
+    try {
+      const res = await apiFetch(`/api/settings/api-configs/${cfg.id}/test`, { method: 'POST' });
+      const data = await res.json();
+      const reply = data.data?.reply || '';
+      const rawText = data.data?.raw ? JSON.stringify(data.data.raw, null, 2) : '';
+      if (data.success) {
+        setCardTestResult({
+          configId: cfg.id,
+          success: true,
+          title: '测试成功',
+          body: formatTestResultBody(data.data, reply),
+        });
+        toast.success('测试成功', { autoClose: 2000 });
+      } else {
+        const errDetail = rawText.slice(0, 2000) || data.message || '(无详情)';
+        setCardTestResult({
+          configId: cfg.id,
+          success: false,
+          title: '测试失败',
+          body: formatTestResultBody(data.data, errDetail),
+        });
+        toast.error(data.message || '测试失败', { autoClose: 3000 });
+      }
+    } catch {
+      setCardTestResult({
+        configId: cfg.id,
+        success: false,
+        title: '网络错误',
+        body: '请检查网络或稍后重试',
+      });
+      toast.error('网络错误');
+    } finally {
+      setTestingConfigId(null);
+    }
+  };
+
+  const moveGroup = (baseUrl, direction) => {
+    const keys = configGroups.map((g) => g.baseUrl);
+    const idx = keys.indexOf(baseUrl);
+    if (idx < 0) return;
+    const target = idx + direction;
+    if (target < 0 || target >= keys.length) return;
+    const next = [...keys];
+    [next[idx], next[target]] = [next[target], next[idx]];
+    setGroupOrder(next);
+    persistUiPreferences(next, favoriteModelOrder);
+  };
 
   const selectedConfigForGroup = useCallback((group) => {
     const wanted = selectedConfigIds[group.baseUrl];
@@ -668,79 +1170,141 @@ function Settings() {
           </div>
         ) : (
           <div className="config-list">
-            {configGroups.map((group) => {
+            {configGroups.map((group, groupIndex) => {
               const cfg = selectedConfigForGroup(group);
               if (!cfg) return null;
+              const baseKey = normBaseUrl(group.baseUrl) || group.baseUrl;
+              const favs = favoritesByBaseUrl[baseKey] || [];
+              const favOrder = favoriteModelOrder[baseKey] || [];
+              const modelChoices = buildModelChoices(favs, cfg.model, favOrder);
+              const showModelRow = cfg.config_type !== 'tts' && modelChoices.length > 0;
+
               return (
                 <div
                   key={group.baseUrl}
-                  className={`provider-group ${cfg.is_active ? 'active-provider' : ''}`}
+                  className={`provider-group ${isConfigActive(cfg) ? 'active-provider' : ''}`}
                 >
-                  <div className="provider-group-head">
-                    <div className="provider-group-title" title={group.baseUrl}>{group.baseUrl}</div>
-                    <span
-                      className={['cfg-type-tag', CONFIG_TYPE_CLASS[cfg.config_type]]
-                        .filter(Boolean)
-                        .join(' ')}
-                    >
-                      {CONFIG_TYPE_LABEL[cfg.config_type] || cfg.config_type}
-                    </span>
-                    {cfg.is_active && <span className="tag-active">激活中</span>}
-                  </div>
+                  {group.items.length > 1 && (
+                    <div className="provider-config-row">
+                      <label className="provider-model-label" htmlFor={`provider-cfg-${group.baseUrl}`}>
+                        切换配置
+                      </label>
+                      <select
+                        id={`provider-cfg-${group.baseUrl}`}
+                        className="provider-model-select"
+                        value={cfg.id}
+                        onChange={(e) => {
+                          setConfirmDeleteId(null);
+                          setSelectedConfigIds((prev) => ({
+                            ...prev,
+                            [group.baseUrl]: Number(e.target.value),
+                          }));
+                        }}
+                      >
+                        {group.items.map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {item.name}{isConfigActive(item) ? '（激活）' : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
-                  <div className="provider-model-row">
-                    <label className="provider-model-label" htmlFor={`provider-model-${group.baseUrl}`}>
-                      模型
-                    </label>
-                    <select
-                      id={`provider-model-${group.baseUrl}`}
-                      className="provider-model-select"
-                      value={cfg.id}
-                      onChange={(e) => {
-                        setConfirmDeleteId(null);
-                        setSelectedConfigIds((prev) => ({
-                          ...prev,
-                          [group.baseUrl]: Number(e.target.value),
-                        }));
-                      }}
-                    >
-                      {group.items.map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {item.model || item.name || `配置 ${item.id}`}{item.is_active ? '（激活）' : ''}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
+                  {showModelRow && (
+                    <div className="provider-model-row">
+                      <label className="provider-model-label" htmlFor={`provider-model-${group.baseUrl}`}>
+                        模型
+                      </label>
+                      <select
+                        id={`provider-model-${group.baseUrl}`}
+                        className="provider-model-select"
+                        value={cfg.model || ''}
+                        onChange={(e) => handleQuickModelChange(cfg, e.target.value)}
+                      >
+                        {modelChoices.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
-                  <div className="provider-selected-config">
-                    <div className="cfg-left">
+                  <div className="provider-selected-config provider-selected-config--compact">
+                    <div className="cfg-compact-header">
+                      <div className="provider-group-order" aria-label="调整卡片顺序">
+                        <button
+                          type="button"
+                          className="btn-order"
+                          disabled={groupIndex <= 0}
+                          onClick={() => moveGroup(group.baseUrl, -1)}
+                          aria-label="上移"
+                        >
+                          ↑
+                        </button>
+                        <button
+                          type="button"
+                          className="btn-order"
+                          disabled={groupIndex >= configGroups.length - 1}
+                          onClick={() => moveGroup(group.baseUrl, 1)}
+                          aria-label="下移"
+                        >
+                          ↓
+                        </button>
+                      </div>
                       <span className="cfg-name">{cfg.name}</span>
-                      <span className="cfg-key">Key：{maskKey(cfg.api_key)}</span>
+                      <span
+                        className={['cfg-type-tag', CONFIG_TYPE_CLASS[cfg.config_type]]
+                          .filter(Boolean)
+                          .join(' ')}
+                      >
+                        {CONFIG_TYPE_LABEL[cfg.config_type] || cfg.config_type}
+                      </span>
+                      {isConfigActive(cfg) ? <span className="tag-active">激活中</span> : null}
                     </div>
-                    <div className="cfg-mid">
+                    <div className="cfg-compact-body">
                       {cfg.persona_name && (
-                        <span className="cfg-persona">人设：{cfg.persona_name}</span>
+                        <div className="cfg-compact-line cfg-compact-meta">人设：{cfg.persona_name}</div>
                       )}
-                      <span className="cfg-model">模型：{cfg.model || '未设置'}</span>
-                    </div>
-                    <div className="cfg-actions">
-                      {confirmDeleteId === cfg.id ? (
-                        <>
-                          <span className="cfg-del-confirm-text">确认删除？</span>
-                          <button className="btn-del-confirm" onClick={() => handleDeleteConfirm(cfg)}>确认</button>
-                          <button className="btn-del-cancel" onClick={() => setConfirmDeleteId(null)}>取消</button>
-                        </>
-                      ) : (
-                        <>
-                          {!cfg.is_active && (
-                            <button className="btn-activate" onClick={() => handleActivate(cfg.id)}>
-                              设为激活
-                            </button>
+                      {cfg.model && cfg.config_type !== 'tts' && (
+                        <div className="cfg-compact-line cfg-compact-meta cfg-compact-meta--model" title={cfg.model}>
+                          模型：{cfg.model}
+                        </div>
+                      )}
+                      <div className="cfg-actions cfg-actions--compact">
+                        <div className="cfg-actions-row">
+                          {confirmDeleteId === cfg.id ? (
+                            <>
+                              <span className="cfg-del-confirm-text">确认删除？</span>
+                              <button type="button" className="btn-del-confirm" onClick={() => handleDeleteConfirm(cfg)}>确认</button>
+                              <button type="button" className="btn-del-cancel" onClick={() => setConfirmDeleteId(null)}>取消</button>
+                            </>
+                          ) : (
+                            <>
+                              {TESTABLE_CONFIG_TYPES.has(cfg.config_type) && (
+                                <button
+                                  type="button"
+                                  className="btn-test"
+                                  disabled={testingConfigId === cfg.id}
+                                  onClick={() => handleTestOnCard(cfg)}
+                                >
+                                  {testingConfigId === cfg.id ? '测试中…' : '测试'}
+                                </button>
+                              )}
+                              {!isConfigActive(cfg) && (
+                                <button type="button" className="btn-activate" onClick={() => handleActivate(cfg.id)}>
+                                  设为激活
+                                </button>
+                              )}
+                              <button type="button" className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
+                              <button type="button" className="btn-del" onClick={() => handleDeleteClick(cfg)}>删除</button>
+                            </>
                           )}
-                          <button className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>
-                          <button className="btn-del" onClick={() => handleDeleteClick(cfg)}>删除</button>
-                        </>
-                      )}
+                        </div>
+                      </div>
+                      <TestResultBlock
+                        result={cardTestResult?.configId === cfg.id ? cardTestResult : null}
+                        onClose={() => setCardTestResult(null)}
+                        className="cfg-test-result--card"
+                      />
                     </div>
                   </div>
                 </div>
@@ -826,6 +1390,12 @@ function Settings() {
           initial={modalData}
           personas={personas}
           configType={activeTab}
+          favoriteModelOrder={favoriteModelOrder}
+          onFavoriteModelOrderChange={(baseKey, order) => {
+            const next = { ...favoriteModelOrder, [baseKey]: order };
+            setFavoriteModelOrder(next);
+            persistUiPreferences(groupOrder, next);
+          }}
           onClose={() => setModalData(null)}
           onSaved={handleSaved}
         />

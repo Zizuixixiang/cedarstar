@@ -1694,12 +1694,13 @@ function Memory() {
     }
   }, [addToast]);
 
-  const loadSummaries = useCallback(async () => {
+  const loadSummaries = useCallback(async (page = 1) => {
+    const pageToFetch = Math.max(1, Number(page) || 1);
     const seq = ++summariesFetchSeqRef.current;
     setSummariesLoading(true);
     try {
       const params = new URLSearchParams({
-        page: String(summariesPage),
+        page: String(pageToFetch),
         page_size: String(SUMMARIES_PAGE_SIZE),
       });
       if (!summariesContextOnly) {
@@ -1729,15 +1730,13 @@ function Memory() {
         const total = Number(data.data?.total) || 0;
         setSummariesItems(items);
         setSummariesTotal(total);
-        const p = Number(data.data?.page);
-        if (!Number.isNaN(p) && p >= 1) {
-          setSummariesPage(p);
-        }
-        if (items.length === 0 && total > 0) {
-          setSummariesPage((prev) => Math.max(1, prev - 1));
-        }
-        if (total === 0) {
+        if (items.length === 0 && total > 0 && pageToFetch > 1) {
+          const prevPage = pageToFetch - 1;
+          setSummariesPage(prevPage);
+        } else if (total === 0) {
           setSummariesPage(1);
+        } else {
+          setSummariesPage(pageToFetch);
         }
       } else {
         throw new Error(data.message || '加载失败');
@@ -1755,7 +1754,6 @@ function Memory() {
       }
     }
   }, [
-    summariesPage,
     summaryKindFilter,
     summariesContextOnly,
     summariesDateFrom,
@@ -1773,7 +1771,7 @@ function Memory() {
     } else if (activeTab === 'timeline') {
       loadRelationshipTimeline();
     } else if (activeTab === 'summaries') {
-      loadSummaries();
+      loadSummaries(summariesPage);
     }
   }, [activeTab, loadTemporalStates, loadRelationshipTimeline, loadSummaries, loadContextTrace]);
   
@@ -2043,13 +2041,17 @@ function Memory() {
 
   const handleSummariesPrevPage = () => {
     if (summariesPage > 1) {
-      setSummariesPage(summariesPage - 1);
+      const newPage = summariesPage - 1;
+      setSummariesPage(newPage);
+      loadSummaries(newPage);
     }
   };
 
   const handleSummariesNextPage = () => {
     if (summariesPage < summariesTotalPages) {
-      setSummariesPage(summariesPage + 1);
+      const newPage = summariesPage + 1;
+      setSummariesPage(newPage);
+      loadSummaries(newPage);
     }
   };
 
@@ -2058,13 +2060,16 @@ function Memory() {
       return;
     }
     setSummariesPage(1);
+    loadSummaries(1);
   };
 
   const handleSummariesLastPage = () => {
     if (summariesPage >= summariesTotalPages) {
       return;
     }
-    setSummariesPage(summariesTotalPages);
+    const newPage = summariesTotalPages;
+    setSummariesPage(newPage);
+    loadSummaries(newPage);
   };
 
   const handleSummaryDeleteConfirm = async (id) => {
@@ -2076,7 +2081,7 @@ function Memory() {
         throw new Error(data.message || '删除失败');
       }
       addToast('已删除', 'success');
-      await loadSummaries();
+      await loadSummaries(summariesPage);
     } catch (error) {
       console.error('删除摘要失败:', error);
       addToast(error.message || '删除失败', 'error');
@@ -2217,7 +2222,7 @@ function Memory() {
           onSaved={() => {
             addToast('已保存', 'success');
             setSummaryEditingRow(null);
-            loadSummaries();
+            loadSummaries(summariesPage);
           }}
         />
       )}
@@ -2626,7 +2631,10 @@ function Memory() {
         </div>
       )}
 
-      {activeTab === 'summaries' && summariesTotal > 0 && summariesTotalPages > 1 && (
+      {activeTab === 'summaries' &&
+        !summariesContextOnly &&
+        summariesTotal > 0 &&
+        summariesTotalPages > 1 && (
         <div className="pagination pagination--outside">
           <button
             className="pagination-button"
