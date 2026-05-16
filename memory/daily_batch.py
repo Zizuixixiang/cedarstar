@@ -1075,12 +1075,12 @@ class DailyBatchProcessor:
                         + session_framing
                         + f"""{CEDAR_PROJECT_BACKGROUND}
 
-请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+请基于以下材料生成今日小传，按主题与时间脉络完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在 500-1500 字，重要内容较多时可适当超出。
 - 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
 - 请以第一人称「我」的视角撰写今日小传，「我」就是与南杉对话的AI；提到南杉时必须直呼其名「南杉」，绝对不要使用第二人称「你」「您」。
-- 严格按时间顺序组织内容，整合当日所有相关事件，不得遗漏任何核心讨论内容、重要决策、承诺和关键进展以及南杉需后续跟进的身体/情绪状态；日常互动亮点、有趣片段、情绪小细节可概括不可省略。
+- 按主题归纳当日内容，并在主题内保持时间脉络；同一话题的多轮互动合并为一个事件段落，不逐条复述；只在话题切换或有明确时间跨度时标注时间点。不得遗漏核心讨论内容、重要决策、承诺和关键进展以及南杉需后续跟进的身体/情绪状态；日常互动记录情绪基调和关键梗即可，不必逐句还原对话。
 - 关键事实（含重要数字、决策、名称、IP、ID、域名、文件名、报错信息、决策内容等）必须准确无误原文记录；非核心的次要数据可适当简化，但不得改变原意。
 - 避免重复记录同一事件的多次提及，只保留最完整、最准确的一次描述。
 - 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
@@ -1167,12 +1167,12 @@ class DailyBatchProcessor:
             memory_prefix = await self._memory_context_prefix()
             prompt = self._persona_dialogue_prefix() + memory_prefix + f"""{CEDAR_PROJECT_BACKGROUND}
 
-请基于以下材料生成今日小传，按时间顺序完整概括当日核心话题、重要事件与情感状态。
+请基于以下材料生成今日小传，按主题与时间脉络完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在 200-1000 字，重要内容较多时可适当超出。
 - 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
 - 请以第一人称「我」的视角撰写今日小传，「我」就是与南杉对话的AI；提到南杉时必须直呼其名「南杉」，绝对不要使用第二人称「你」「您」。
-- 严格按时间顺序组织内容，整合当日所有相关事件，不得遗漏任何核心讨论内容、重要决策、承诺和关键进展以及南杉需后续跟进的身体/情绪状态；日常互动亮点、有趣片段、情绪小细节可概括不可省略。
+- 按主题归纳当日内容，并在主题内保持时间脉络；同一话题的多轮互动合并为一个事件段落，不逐条复述；只在话题切换或有明确时间跨度时标注时间点。不得遗漏核心讨论内容、重要决策、承诺和关键进展以及南杉需后续跟进的身体/情绪状态；日常互动记录情绪基调和关键梗即可，不必逐句还原对话。
 - 关键事实（含重要数字、决策、名称、IP、ID、域名、文件名、报错信息、决策内容等）必须准确无误原文记录；非核心的次要数据可适当简化，但不得改变原意。
 - 避免重复记录同一事件的多次提及，只保留最完整、最准确的一次描述。
 - 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
@@ -2486,6 +2486,152 @@ arousal:
 
         logger.error("Step 4b 描述打分连续 3 次失败，丢弃该组: %s", exc_detail(last_exc))
         return None
+
+    async def _step4_write_daily_event(
+        self,
+        *,
+        batch_date: str,
+        summary_id: Any,
+        session_id: str,
+        parent_doc_id: str,
+        event_index: int,
+        event: Dict[str, Any],
+        chunk_by_id: Optional[Dict[int, Dict[str, Any]]] = None,
+    ) -> Tuple[bool, Optional[str]]:
+        """写入一条 Step 4 daily_event 到 ChromaDB + PG 镜像 + BM25。"""
+        frag = str(event.get("summary") or "").strip()
+        if not frag:
+            return True, None
+
+        try:
+            from .bm25_retriever import add_document_to_bm25, refresh_bm25_index
+        except ImportError:
+            from memory.bm25_retriever import add_document_to_bm25, refresh_bm25_index
+
+        event_score = self._clamp_score(event.get("score"), 5)
+        event_arousal = self._clamp_arousal(event.get("arousal"), 0.1)
+        event_halflife = _score_to_halflife_days(event_score)
+        raw_source_chunk_ids = event.get("chunk_ids")
+        source_chunk_ids: Optional[List[int]]
+        if raw_source_chunk_ids is None:
+            source_chunk_ids = None
+        else:
+            source_chunk_ids = [int(x) for x in raw_source_chunk_ids]
+        chunk_lookup = chunk_by_id or {}
+        is_starred = any(
+            bool(chunk_lookup[cid].get("is_starred"))
+            for cid in (source_chunk_ids or [])
+            if cid in chunk_lookup
+        )
+        event_theme = event.get("theme", "other")
+        event_entities = event.get("entities", [])
+        event_emotion = event.get("emotion", "neutral")
+        event_event_type = event.get("event_type", "other")
+        eid = build_daily_event_doc_id(batch_date, event_index)
+        em = {
+            "date": batch_date,
+            "source_date": str(batch_date),
+            "session_id": session_id,
+            "summary_type": "daily_event",
+            "score": int(event_score),
+            "summary_id": str(summary_id),
+            "is_starred": bool(is_starred),
+            "base_score": float(event_score),
+            "halflife_days": event_halflife,
+            "arousal": float(event_arousal),
+            "parent_id": parent_doc_id,
+            "theme": str(event_theme),
+            "entities": "|".join(str(e) for e in event_entities) if event_entities else "",
+            "emotion": str(event_emotion),
+            "event_type": str(event_event_type),
+        }
+        if source_chunk_ids is not None:
+            em["source_chunk_ids"] = json.dumps(source_chunk_ids, ensure_ascii=False)
+
+        if not add_memory(eid, frag, em):
+            logger.error(f"事件片段入库失败 id={eid}")
+            return False, f"ChromaDB 事件片段失败: {eid}"
+        try:
+            db = get_database()
+            await db.upsert_longterm_memory_by_chroma_id(
+                content=frag,
+                chroma_doc_id=eid,
+                score=event_score,
+                source_chunk_ids=source_chunk_ids,
+                is_starred=is_starred,
+                source_date=date.fromisoformat(str(batch_date)),
+                theme=event_theme,
+                entities=event_entities,
+                emotion=event_emotion,
+                event_type=event_event_type,
+            )
+            if source_chunk_ids is None:
+                async with db.pool.acquire() as conn:
+                    await conn.execute(
+                        "UPDATE longterm_memories SET source_chunk_ids = NULL WHERE chroma_doc_id = $1",
+                        eid,
+                    )
+        except Exception as e:
+            logger.error("longterm_memories 镜像写入失败 id=%s: %s", eid, e)
+        try:
+            if not add_document_to_bm25(eid, frag, dict(em)):
+                refresh_bm25_index()
+        except Exception as e:
+            logger.error(f"BM25 事件片段增量失败: {e}")
+
+        return True, None
+
+    async def _step4_archive_settled_temporal_events(
+        self,
+        *,
+        batch_date: str,
+        summary_id: Any,
+        session_id: str,
+        parent_doc_id: str,
+        start_index: int,
+    ) -> Tuple[bool, Optional[str], int]:
+        """将 Step 1 已结算 temporal_states 文本逐条生成长期事件。"""
+        snippets = [str(s).strip() for s in self._settled_temporal_snippets if str(s).strip()]
+        if not snippets:
+            return True, None, 0
+
+        success = 0
+        for snippet_idx, snippet in enumerate(snippets):
+            desc = await self._step4b_describe_and_score(snippet, self.scoring_llm)
+            if desc is None:
+                logger.warning(
+                    "settled temporal_states Step 4b 生成失败，跳过: idx=%s text=%s",
+                    snippet_idx,
+                    snippet[:120],
+                )
+                continue
+
+            ok, err = await self._step4_write_daily_event(
+                batch_date=batch_date,
+                summary_id=summary_id,
+                session_id=session_id,
+                parent_doc_id=parent_doc_id,
+                event_index=start_index + snippet_idx,
+                event={
+                    "summary": str(desc.get("content") or "").strip()[:300],
+                    "score": self._clamp_score(desc.get("score"), 5),
+                    "arousal": self._clamp_arousal(desc.get("arousal"), 0.1),
+                    "theme": desc.get("theme", "other"),
+                    "entities": desc.get("entities", []),
+                    "emotion": desc.get("emotion", "neutral"),
+                    "event_type": desc.get("event_type", "other"),
+                },
+            )
+            if not ok:
+                return False, err, success
+            success += 1
+
+        logger.info(
+            "settled temporal_states 事件生成完成，共 %s 条，成功 %s 条",
+            len(snippets),
+            success,
+        )
+        return True, None, success
     
     async def _step4_archive_daily_and_events(self, batch_date: str) -> Tuple[bool, Optional[str]]:
         """
@@ -2501,8 +2647,23 @@ arousal:
             event_split_max = await _event_split_max()
             all_chunks = await get_today_chunk_summaries(batch_date, include_archived=True)
             # get_today_chunk_summaries 已用 <= batch_date，无需再过滤
+            parent_doc_id = build_daily_summary_doc_id(batch_date)
+
             if not all_chunks:
                 logger.info(f"今日没有 chunk 可供 Step 4 拆分，日期: {batch_date}")
+                if self._settled_temporal_snippets:
+                    store = get_vector_store()
+                    for i in range(50):
+                        store.delete_memory(build_daily_event_doc_id(batch_date, i))
+                    ok, err, _ = await self._step4_archive_settled_temporal_events(
+                        batch_date=batch_date,
+                        summary_id=summary_id,
+                        session_id=daily_summary.get('session_id', 'daily_batch'),
+                        parent_doc_id=parent_doc_id,
+                        start_index=0,
+                    )
+                    if not ok:
+                        return False, err
                 return True, None
 
             # 过滤掉 external_events_generated=true 的 chunk（其事件已在 add_external_chunk 时写入）
@@ -2520,6 +2681,19 @@ arousal:
                     await archive_external_chunks_by_daily(batch_date, summary_id)
                 except Exception as e:
                     logger.warning("回填 external chunk archived_by 失败: %s", e)
+                if self._settled_temporal_snippets:
+                    store = get_vector_store()
+                    for i in range(50):
+                        store.delete_memory(build_daily_event_doc_id(batch_date, i))
+                    ok, err, _ = await self._step4_archive_settled_temporal_events(
+                        batch_date=batch_date,
+                        summary_id=summary_id,
+                        session_id=daily_summary.get('session_id', 'daily_batch'),
+                        parent_doc_id=parent_doc_id,
+                        start_index=0,
+                    )
+                    if not ok:
+                        return False, err
                 return True, None
 
             valid_chunk_ids = {int(c["id"]) for c in chunks}
@@ -2535,13 +2709,11 @@ arousal:
                 heading="【本批 chunk 摘要时间范围】",
                 semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
             ) + "\n\n".join(chunk_lines)
-            
-            parent_doc_id = build_daily_summary_doc_id(batch_date)
+
             store = get_vector_store()
-            
             for i in range(50):
                 store.delete_memory(build_daily_event_doc_id(batch_date, i))
-
+            
             def _fallback_chunk_event() -> Dict[str, Any]:
                 text = "；".join(
                     strip_lutopia_internal_memory_blocks(str(c.get("summary_text") or "")).strip()
@@ -2732,69 +2904,28 @@ arousal:
                     max_retries=3,
                 )
 
-            try:
-                from .bm25_retriever import add_document_to_bm25, refresh_bm25_index
-            except ImportError:
-                from memory.bm25_retriever import add_document_to_bm25, refresh_bm25_index
-
             for idx, ev in enumerate(events):
-                frag = str(ev.get("summary") or "").strip()
-                if not frag:
-                    continue
-                event_score = self._clamp_score(ev.get("score"), 5)
-                event_arousal = self._clamp_arousal(ev.get("arousal"), 0.1)
-                event_halflife = _score_to_halflife_days(event_score)
-                source_chunk_ids = [int(x) for x in ev.get("chunk_ids", [])]
-                is_starred = any(
-                    bool(chunk_by_id[cid].get("is_starred"))
-                    for cid in source_chunk_ids
-                    if cid in chunk_by_id
+                ok, err = await self._step4_write_daily_event(
+                    batch_date=batch_date,
+                    summary_id=summary_id,
+                    session_id=daily_summary.get('session_id', 'daily_batch'),
+                    parent_doc_id=parent_doc_id,
+                    event_index=idx,
+                    event=ev,
+                    chunk_by_id=chunk_by_id,
                 )
-                event_theme = ev.get("theme", "other")
-                event_entities = ev.get("entities", [])
-                event_emotion = ev.get("emotion", "neutral")
-                event_event_type = ev.get("event_type", "other")
-                eid = build_daily_event_doc_id(batch_date, idx)
-                em = {
-                    "date": batch_date,
-                    "source_date": str(batch_date),
-                    "session_id": daily_summary.get('session_id', 'daily_batch'),
-                    "summary_type": "daily_event",
-                    "score": int(event_score),
-                    "summary_id": str(summary_id),
-                    "source_chunk_ids": json.dumps(source_chunk_ids, ensure_ascii=False),
-                    "is_starred": bool(is_starred),
-                    "base_score": float(event_score),
-                    "halflife_days": event_halflife,
-                    "arousal": float(event_arousal),
-                    "parent_id": parent_doc_id,
-                    "theme": str(event_theme),
-                    "entities": "|".join(str(e) for e in event_entities) if event_entities else "",
-                    "emotion": str(event_emotion),
-                    "event_type": str(event_event_type),
-                }
-                if not add_memory(eid, frag, em):
-                    logger.error(f"事件片段入库失败 id={eid}")
-                    return False, f"ChromaDB 事件片段失败: {eid}"
-                try:
-                    await get_database().upsert_longterm_memory_by_chroma_id(
-                        content=frag,
-                        chroma_doc_id=eid,
-                        score=event_score,
-                        source_chunk_ids=source_chunk_ids,
-                        is_starred=is_starred,
-                        theme=event_theme,
-                        entities=event_entities,
-                        emotion=event_emotion,
-                        event_type=event_event_type,
-                    )
-                except Exception as e:
-                    logger.error("longterm_memories 镜像写入失败 id=%s: %s", eid, e)
-                try:
-                    if not add_document_to_bm25(eid, frag, dict(em)):
-                        refresh_bm25_index()
-                except Exception as e:
-                    logger.error(f"BM25 事件片段增量失败: {e}")
+                if not ok:
+                    return False, err
+
+            ok, err, _ = await self._step4_archive_settled_temporal_events(
+                batch_date=batch_date,
+                summary_id=summary_id,
+                session_id=daily_summary.get('session_id', 'daily_batch'),
+                parent_doc_id=parent_doc_id,
+                start_index=len(events),
+            )
+            if not ok:
+                return False, err
 
             # 回填 external chunk 的 archived_by（其事件已在 add_external_chunk 时写入，无需重复生成）
             if external_chunks:
