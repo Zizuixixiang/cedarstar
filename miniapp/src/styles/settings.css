@@ -383,7 +383,30 @@
 }
 
 .cfg-test-result--modal {
-  margin-top: 4px;
+  margin: 0;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-test-panel {
+  flex-shrink: 0;
+  padding: 0 24px 12px;
+  border-top: 1px dashed rgba(26, 26, 26, 0.28);
+  background: rgba(255, 255, 255, 0.5);
+  max-height: min(42vh, 300px);
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-sizing: border-box;
+}
+
+.modal-test-panel .cfg-test-result-body {
+  flex: 1;
+  min-height: 96px;
+  max-height: min(34vh, 240px);
 }
 
 .cfg-test-result-body {
@@ -420,6 +443,24 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
+}
+
+.modal-model-actions--split {
+  flex-wrap: nowrap;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-model-actions-left,
+.modal-model-actions-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.modal-model-actions-right {
+  margin-left: auto;
 }
 
 .modal-fav-list {
@@ -479,11 +520,6 @@
 .modal-fav-chip-label-wrap:focus-visible {
   outline: 1px solid var(--text-main);
   outline-offset: 1px;
-}
-
-.modal-fav-sort-hint {
-  margin-top: 6px;
-  margin-bottom: 0;
 }
 
 .modal-fav-order-btns {

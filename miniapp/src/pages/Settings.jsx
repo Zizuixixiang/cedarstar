@@ -590,38 +590,41 @@ function ConfigModal({
                   >
                     {fetchingModels ? <span className="spin">⟳</span> : '获取模型列表'}
                   </button>
-                  {activeFavorite ? (
-                    <button type="button" className="clear-models-btn" onClick={() => handleUnfavoriteModel(activeFavorite.id)}>
-                      取消收藏
-                    </button>
-                  ) : (
-                    <button type="button" className="clear-models-btn" onClick={handleFavoriteModel}>
-                      收藏
-                    </button>
-                  )}
                 </div>
-                <div className="modal-model-actions">
-                  {!manualModelInput && mergedModelOptions.length > 0 && (
-                    <button
-                      type="button"
-                      className="clear-models-btn"
-                      onClick={() => {
-                        setManualModelInput(true);
-                        set('model', '');
-                      }}
-                    >
-                      切换为手动输入
-                    </button>
-                  )}
-                  {manualModelInput && (
-                    <button type="button" className="clear-models-btn" onClick={() => setManualModelInput(false)}>
-                      切换为下拉选择
-                    </button>
-                  )}
+                <div className="modal-model-actions modal-model-actions--split">
+                  <div className="modal-model-actions-left">
+                    {!manualModelInput && mergedModelOptions.length > 0 && (
+                      <button
+                        type="button"
+                        className="clear-models-btn"
+                        onClick={() => {
+                          setManualModelInput(true);
+                          set('model', '');
+                        }}
+                      >
+                        切换为手动输入
+                      </button>
+                    )}
+                    {manualModelInput && (
+                      <button type="button" className="clear-models-btn" onClick={() => setManualModelInput(false)}>
+                        切换为下拉选择
+                      </button>
+                    )}
+                  </div>
+                  <div className="modal-model-actions-right">
+                    {activeFavorite ? (
+                      <button type="button" className="clear-models-btn" onClick={() => handleUnfavoriteModel(activeFavorite.id)}>
+                        取消收藏
+                      </button>
+                    ) : (
+                      <button type="button" className="clear-models-btn" onClick={handleFavoriteModel}>
+                        收藏
+                      </button>
+                    )}
+                  </div>
                 </div>
                 {orderedFavoriteModels.length > 0 && (
                   <>
-                    <div className="modal-hint modal-fav-sort-hint">↑↓ 排序；模型名可左右滑动查看，点击显示全名</div>
                     <div className="modal-fav-list" role="list" aria-label="已收藏模型（可排序）">
                       {orderedFavoriteModels.map((f, index) => (
                         <span
@@ -727,12 +730,17 @@ function ConfigModal({
             </select>
           </div>
 
-          <TestResultBlock
-            result={modalTestResult}
-            onClose={() => setModalTestResult(null)}
-            className="cfg-test-result--modal"
-          />
         </div>
+
+        {modalTestResult && (
+          <div className="modal-test-panel">
+            <TestResultBlock
+              result={modalTestResult}
+              onClose={() => setModalTestResult(null)}
+              className="cfg-test-result--modal"
+            />
+          </div>
+        )}
 
         <div className="modal-footer">
           {isEdit && TESTABLE_CONFIG_TYPES.has(form.config_type) && (
