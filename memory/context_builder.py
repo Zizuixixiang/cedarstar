@@ -20,9 +20,10 @@ import re
 import time
 from functools import partial
 from typing import Any, Dict, List, Mapping, Optional, Sequence, Tuple, Union
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from config import config
+from memory.shanghai_dt import now_shanghai
 from tools.lutopia import strip_lutopia_behavior_appendix
 from memory.retrieval import (
     chroma_where_longterm_summary_types,
@@ -391,6 +392,16 @@ async def _short_term_recent_message_limit() -> int:
     except Exception as e:
         logger.debug("读取 short_term_limit 失败，使用环境变量: %s", e)
     return config.CONTEXT_MAX_RECENT_MESSAGES
+
+
+_SHORT_TERM_CONTEXT_HOURS = 48
+
+
+def _short_term_context_since() -> datetime:
+    """群聊近期原文注入的时间下界（东八区墙钟 naive，与库 TIMESTAMP 约定一致）。"""
+    return (now_shanghai() - timedelta(hours=_SHORT_TERM_CONTEXT_HOURS)).replace(
+        tzinfo=None
+    )
 
 
 async def _summarized_overlap_limit() -> int:
@@ -1877,11 +1888,12 @@ class ContextBuilder:
         merged: List[Dict[str, Any]] = []
         if peer.startswith("telegram_group_"):
             chat_id = peer[len("telegram_group_") :]
+            since = _short_term_context_since()
             recent_unsummarized = await db.get_unsummarized_shared_group_messages(
-                chat_id, limit=limit
+                chat_id, limit=limit, since=since
             )
             summarized_overlap = await db.get_recent_summarized_shared_group_messages(
-                chat_id, limit=overlap
+                chat_id, limit=overlap, since=since
             )
             seen_ids = set()
             for msg in summarized_overlap + recent_unsummarized:
@@ -2483,13 +2495,16 @@ class ContextBuilder:
             if str(session_id).startswith("telegram_group_"):
                 chat_id = str(session_id)[len("telegram_group_") :]
                 db = get_database()
+                since = _short_term_context_since()
                 recent_unsummarized = await db.get_unsummarized_shared_group_messages(
                     chat_id,
                     limit=await _short_term_recent_message_limit(),
+                    since=since,
                 )
                 summarized_overlap = await db.get_recent_summarized_shared_group_messages(
                     chat_id,
                     limit=await _summarized_overlap_limit(),
+                    since=since,
                 )
                 merged: List[Dict[str, Any]] = []
                 seen_ids = set()

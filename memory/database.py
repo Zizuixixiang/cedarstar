@@ -1338,13 +1338,17 @@ class MessageDatabase:
         return [_r(r) for r in rows]
 
     async def get_unsummarized_shared_group_messages(
-        self, chat_id: str, limit: int = 40
+        self,
+        chat_id: str,
+        limit: int = 40,
+        since: Optional[_dt.datetime] = None,
     ) -> List[Dict[str, Any]]:
-        """读取共享群聊最近未摘要消息（正序）。"""
+        """读取共享群聊最近未摘要消息（正序）。``since`` 默认由调用方传入（通常 48 小时内）。"""
         pool = await self._ensure_shared_group_pool()
         if pool is None:
             return []
         summary_col = self._shared_summary_column()
+        since_dt = since if since is not None else _dt.datetime.now() - _dt.timedelta(hours=48)
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
@@ -1352,24 +1356,30 @@ class MessageDatabase:
                        created_at, platform, thinking, media_type, image_caption, vision_processed
                 FROM shared_group_messages
                 WHERE chat_id = $1 AND {summary_col} = 0
+                  AND created_at >= $3
                 ORDER BY created_at DESC
                 LIMIT $2
                 """,
                 str(chat_id),
                 max(1, int(limit)),
+                since_dt,
             )
         out = [_r(r) for r in rows]
         out.reverse()
         return out
 
     async def get_recent_summarized_shared_group_messages(
-        self, chat_id: str, limit: int = 5
+        self,
+        chat_id: str,
+        limit: int = 5,
+        since: Optional[_dt.datetime] = None,
     ) -> List[Dict[str, Any]]:
-        """读取共享群聊最近已摘要消息（正序），用于摘要衔接。"""
+        """读取共享群聊最近已摘要消息（正序），用于摘要衔接。``since`` 限制时间窗口。"""
         pool = await self._ensure_shared_group_pool()
         if pool is None:
             return []
         summary_col = self._shared_summary_column()
+        since_dt = since if since is not None else _dt.datetime.now() - _dt.timedelta(hours=48)
         async with pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
@@ -1377,11 +1387,13 @@ class MessageDatabase:
                        created_at, platform, thinking, media_type, image_caption, vision_processed
                 FROM shared_group_messages
                 WHERE chat_id = $1 AND {summary_col} = 1
+                  AND created_at >= $3
                 ORDER BY created_at DESC
                 LIMIT $2
                 """,
                 str(chat_id),
                 max(1, int(limit)),
+                since_dt,
             )
         out = [_r(r) for r in rows]
         out.reverse()
@@ -1497,6 +1509,87 @@ class MessageDatabase:
                 [int(i) for i in message_ids],
             )
         return _rowcount(result)
+
+    async def mark_group_session_messages_summarized_in_id_range(
+        self,
+        session_id: str,
+        start_message_id: int,
+        end_message_id: int,
+    ) -> int:
+        """群聊 session：将 chunk 区间内 vision_processed=1 的共享行标为已摘要。"""
+        if not self._is_group_session(session_id):
+            return 0
+        chat_id = self._group_chat_id_from_session(str(session_id))
+        return await self.mark_shared_group_messages_summarized_in_id_range(
+            chat_id, start_message_id, end_message_id
+        )
+
+    async def mark_shared_group_messages_summarized_in_id_range(
+        self,
+        chat_id: str,
+        start_message_id: int,
+        end_message_id: int,
+    ) -> int:
+        """
+        将 chunk 区间内 vision_processed=1 的共享群消息标为已摘要（当前实例列）。
+        用于微批落库后堵住「区间内 vision pending 行未进批」的缝隙。
+        """
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return 0
+        lo = min(int(start_message_id), int(end_message_id))
+        hi = max(int(start_message_id), int(end_message_id))
+        summary_col = self._shared_summary_column()
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                f"""
+                UPDATE shared_group_messages
+                SET {summary_col} = 1
+                WHERE chat_id = $1
+                  AND id >= $2 AND id <= $3
+                  AND vision_processed = 1
+                """,
+                str(chat_id),
+                lo,
+                hi,
+            )
+        return _rowcount(result)
+
+    async def update_shared_group_message_vision_result(
+        self,
+        chat_id: str,
+        tg_message_id: str,
+        image_caption: str,
+        vision_processed: int = 1,
+    ) -> int:
+        """视觉处理完成后同步更新共享群表（仅更新仍为 pending 的用户行）。"""
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return 0
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE shared_group_messages
+                SET vision_processed = $1, image_caption = $2
+                WHERE chat_id = $3
+                  AND tg_message_id = $4
+                  AND sender = 'user'
+                  AND vision_processed = 0
+                """,
+                int(vision_processed),
+                str(image_caption or ""),
+                str(chat_id),
+                str(tg_message_id),
+            )
+        n = _rowcount(result)
+        if n:
+            logger.debug(
+                "共享群视觉结果已同步: chat_id=%s tg_message_id=%s rows=%s",
+                chat_id,
+                tg_message_id,
+                n,
+            )
+        return n
 
     # ------------------------------------------------------------------
     # pending_approvals
@@ -1971,8 +2064,10 @@ class MessageDatabase:
     async def expire_stale_vision_pending(self, minutes: int = 5) -> int:
         """
         将长时间仍处于 vision_processed=0 的行标记为失败（微批/检查前兜底）。
+        主库 messages 与共享群 shared_group_messages 均处理。
         """
         caption = VISION_FAIL_CAPTION_TIMEOUT
+        n = 0
         async with self.pool.acquire() as conn:
             result = await conn.execute(
                 """
@@ -1986,7 +2081,22 @@ class MessageDatabase:
                 caption,
                 int(minutes),
             )
-        n = _rowcount(result)
+        n += _rowcount(result)
+        pool = await self._ensure_shared_group_pool()
+        if pool is not None:
+            async with pool.acquire() as conn:
+                result = await conn.execute(
+                    """
+                    UPDATE shared_group_messages
+                    SET vision_processed = 1,
+                        image_caption = $1
+                    WHERE vision_processed = 0
+                      AND created_at <= NOW() - $2 * INTERVAL '1 minute'
+                    """,
+                    caption,
+                    int(minutes),
+                )
+            n += _rowcount(result)
         if n:
             logger.info("expire_stale_vision_pending: 更新 %s 行", n)
         return n
@@ -6125,6 +6235,37 @@ async def update_message_vision_result(
 ) -> bool:
     return await get_database().update_message_vision_result(
         message_row_id, image_caption, vision_processed
+    )
+
+
+async def update_shared_group_message_vision_result(
+    chat_id: str,
+    tg_message_id: str,
+    image_caption: str,
+    vision_processed: int = 1,
+) -> int:
+    return await get_database().update_shared_group_message_vision_result(
+        chat_id, tg_message_id, image_caption, vision_processed
+    )
+
+
+async def mark_shared_group_messages_summarized_in_id_range(
+    chat_id: str,
+    start_message_id: int,
+    end_message_id: int,
+) -> int:
+    return await get_database().mark_shared_group_messages_summarized_in_id_range(
+        chat_id, start_message_id, end_message_id
+    )
+
+
+async def mark_group_session_messages_summarized_in_id_range(
+    session_id: str,
+    start_message_id: int,
+    end_message_id: int,
+) -> int:
+    return await get_database().mark_group_session_messages_summarized_in_id_range(
+        session_id, start_message_id, end_message_id
     )
 
 

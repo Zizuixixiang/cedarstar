@@ -683,9 +683,16 @@ async def process_micro_batch(session_id: str) -> None:
         logger.info(f"摘要保存成功，ID: {summary_id}, 会话: {session_id}")
         
         # 4. 标记消息为已摘要
-        updated_count = await mark_messages_as_summarized_by_ids(
-            message_ids, session_id=session_id
-        )
+        if _is_group_session(session_id):
+            from memory.database import mark_group_session_messages_summarized_in_id_range
+
+            updated_count = await mark_group_session_messages_summarized_in_id_range(
+                session_id, start_message_id, end_message_id
+            )
+        else:
+            updated_count = await mark_messages_as_summarized_by_ids(
+                message_ids, session_id=session_id
+            )
         
         logger.info(f"微批处理完成，会话: {session_id}, 摘要ID: {summary_id}, 标记消息: {updated_count} 条")
         _consecutive_chunk_failures = 0

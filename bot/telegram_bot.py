@@ -3173,11 +3173,20 @@ class TelegramBot:
                                 str(chat_id), 0
                             )
                 if has_img and user_row_id:
+                    _group_chat_id: Optional[str] = None
+                    _group_tg_message_id: Optional[str] = None
+                    if session_id.startswith("telegram_group_"):
+                        _group_chat_id = str(chat_id)
+                        _group_tg_message_id = str(
+                            getattr(base_message, "message_id", message_id)
+                        )
                     schedule_generate_image_caption(
                         user_row_id,
                         images or [],
                         (text_for_llm or "").strip(),
                         platform=Platform.TELEGRAM,
+                        group_chat_id=_group_chat_id,
+                        group_tg_message_id=_group_tg_message_id,
                     )
                 asyncio.create_task(trigger_micro_batch_check(session_id))
             except Exception as persist_u:

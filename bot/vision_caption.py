@@ -26,15 +26,50 @@ def schedule_generate_image_caption(
     images: List[Dict[str, Any]],
     caption_text: str,
     platform: Optional[str] = None,
+    *,
+    group_chat_id: Optional[str] = None,
+    group_tg_message_id: Optional[str] = None,
 ) -> None:
     """在事件循环中调度异步视觉描述任务（吞掉异常，失败时写库标记）。"""
     try:
         asyncio.create_task(
-            generate_image_caption(message_row_id, images, caption_text, platform=platform)
+            generate_image_caption(
+                message_row_id,
+                images,
+                caption_text,
+                platform=platform,
+                group_chat_id=group_chat_id,
+                group_tg_message_id=group_tg_message_id,
+            )
         )
     except RuntimeError:
         # 无运行中的 loop（极少）；同步降级为 fire-and-forget
         logger.warning("schedule_generate_image_caption: 无事件循环，跳过视觉描述")
+
+
+async def _apply_vision_result(
+    message_row_id: int,
+    image_caption: str,
+    vision_processed: int,
+    *,
+    group_chat_id: Optional[str],
+    group_tg_message_id: Optional[str],
+) -> None:
+    from memory.database import (
+        update_message_vision_result,
+        update_shared_group_message_vision_result,
+    )
+
+    await update_message_vision_result(
+        message_row_id, image_caption, vision_processed
+    )
+    if group_chat_id and group_tg_message_id:
+        await update_shared_group_message_vision_result(
+            group_chat_id,
+            group_tg_message_id,
+            image_caption,
+            vision_processed,
+        )
 
 
 async def generate_image_caption(
@@ -42,9 +77,12 @@ async def generate_image_caption(
     images: List[Dict[str, Any]],
     caption_text: str,
     platform: Optional[str] = None,
+    *,
+    group_chat_id: Optional[str] = None,
+    group_tg_message_id: Optional[str] = None,
 ) -> None:
     from llm.llm_interface import LLMInterface, build_user_multimodal_content
-    from memory.database import VISION_FAIL_CAPTION_SHORT, update_message_vision_result
+    from memory.database import VISION_FAIL_CAPTION_SHORT
 
     if not images:
         return
@@ -63,6 +101,7 @@ async def generate_image_caption(
         messages: List[Dict[str, Any]] = [{"role": "user", "content": content}]
 
         loop = asyncio.get_running_loop()
+
         def _call() -> str:
             llm_resp = llm.generate_with_context_and_tracking(
                 messages, platform=platform
@@ -71,10 +110,22 @@ async def generate_image_caption(
 
         text = await loop.run_in_executor(None, _call)
         text = (text or "").strip() or fail_caption
-        update_message_vision_result(message_row_id, text, 1)
+        await _apply_vision_result(
+            message_row_id,
+            text,
+            1,
+            group_chat_id=group_chat_id,
+            group_tg_message_id=group_tg_message_id,
+        )
     except Exception as e:
         logger.exception("视觉描述任务失败 message_id=%s: %s", message_row_id, e)
         try:
-            update_message_vision_result(message_row_id, fail_caption, 1)
+            await _apply_vision_result(
+                message_row_id,
+                fail_caption,
+                1,
+                group_chat_id=group_chat_id,
+                group_tg_message_id=group_tg_message_id,
+            )
         except Exception as db_e:
             logger.error("写入视觉失败标记失败: %s", db_e)
