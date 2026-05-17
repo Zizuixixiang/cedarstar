@@ -38,7 +38,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `retrieval_top_k` | 向量 / BM25 各路召回数 |
 | `telegram_max_chars` | Telegram 分段最大字数 |
 | `telegram_max_msg` | Telegram 分段最大条数 |
-| `group_chat_max_message_chars` | Telegram 群聊每段字数上限（system 内强硬分段指令；发送端不截断；默认 600，范围 10–3800） |
+| `group_chat_max_message_chars` | Telegram 群聊每段字数上限（`format_telegram_group_segment_directive`：日常严守、专业解答/吐槽分析/安慰等可酌情单行略超；每轮最多 3 段；发送端不截断；默认 600，范围 10–3800） |
 | `idle_activity_enabled` | 是否启用 AI 自主活动（true/false） |
 | `idle_activity_level` | 自主活动概率档位：low/mid/high（0.25/0.5/1.0） |
 | `idle_activity_threshold_min` | 距离用户最后发言达到多少分钟后才有资格触发 |
@@ -184,7 +184,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 8. 未归档 chunk summaries（`get_today_chunk_summaries()` **全局**未归档 chunk，不按当前 `session_id` 过滤）
 9. 动态内容（当前时间、工具记录、结束语）
 10. 最近消息
-    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。为避免两名助手在 API 中均被标成同一 `assistant` role 导致指代混淆，这些历史行在 LLM **messages** 里一律 **`role=user`**，单条正文为「方括号标签 + 换行 + 原内容」（用户行仍注入发送时间等既有逻辑，助手行仍 `strip_lutopia_behavior_appendix`）。system 另含 **`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`**。「## 群聊摘要」下第一行由 **`_telegram_group_chunk_viewpoint_line()`** 说明方括号、本实例 Clio/Sirius（**`MessageDatabase._shared_summary_actor()`**，依据 `APP_NAME` / `TELEGRAM_GROUP_PEER_RELAY_APP_ID`）及摘要中「我」与 **`char_name`** 的对齐。对端群聊摘录 **`_build_telegram_peer_recent_for_system`** 亦用 **`[Clio]` / `[Sirius]` / 用户称呼**。
+    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。为避免两名助手在 API 中均被标成同一 `assistant` role 导致指代混淆，这些历史行在 LLM **messages** 里一律 **`role=user`**，单条正文为「方括号标签 + 换行 + 原内容」（用户行仍注入发送时间等既有逻辑，助手行仍 `strip_lutopia_behavior_appendix`）。system 在 `telegram_segment_hint` 时另含 **`format_telegram_group_segment_directive()`**（群聊分段/字数/最多 3 段，专业或情绪向场景可酌情略超每段字数）与 **`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`**。「## 群聊摘要」下第一行由 **`_telegram_group_chunk_viewpoint_line()`** 说明方括号、本实例 Clio/Sirius（**`MessageDatabase._shared_summary_actor()`**，依据 `APP_NAME` / `TELEGRAM_GROUP_PEER_RELAY_APP_ID`）及摘要中「我」与 **`char_name`** 的对齐。对端群聊摘录 **`_build_telegram_peer_recent_for_system`** 亦用 **`[Clio]` / `[Sirius]` / 用户称呼**。
 11. 当前用户消息
 
 **Telegram 群/私聊交叉原文**：在「今日对话摘要」块内两类 chunk 之间插入对端近期原文（`memory/context_builder.py`）；依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；非空摘录时标题下附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`（与群聊续话等说明同属 `memory/context_builder.py` 常量）。详见 `ARCHITECTURE.md` §2.6 / §3.1。
