@@ -1264,8 +1264,13 @@ class MessageDatabase:
         media_type: Optional[str] = None,
         image_caption: Optional[str] = None,
         vision_processed: int = 1,
-    ) -> Optional[int]:
-        """写入共享群聊消息；命中唯一键冲突时返回 None。"""
+    ) -> Optional[Tuple[int, str]]:
+        """
+        写入共享群聊消息。
+
+        返回 (row_id, tg_message_id)：后者为共享表中实际定位该行的 Telegram message_id
+        （含 2 秒 content 去重命中已有行、或唯一键冲突未插入时）。
+        """
         pool = await self._ensure_shared_group_pool()
         if pool is None:
             return None
@@ -1276,9 +1281,9 @@ class MessageDatabase:
             if sender_norm == "user":
                 # 防止同一用户消息在短时间内被不同链路重复写入共享表（例如原始入站与缓冲回写）。
                 # 仅对 sender=user 生效，窗口尽量小，避免误伤真实重复发言。
-                existed = await conn.fetchval(
+                existed = await conn.fetchrow(
                     """
-                    SELECT id
+                    SELECT id, tg_message_id
                     FROM shared_group_messages
                     WHERE chat_id = $1
                       AND sender = 'user'
@@ -1291,7 +1296,7 @@ class MessageDatabase:
                     str(content or ""),
                 )
                 if existed is not None:
-                    return int(existed)
+                    return int(existed["id"]), str(existed["tg_message_id"])
             row = await conn.fetchrow(
                 """
                 INSERT INTO shared_group_messages (
@@ -1300,7 +1305,7 @@ class MessageDatabase:
                 )
                 VALUES ($1, $2, $3, $4, 0, 0, $5, $6, $7, $8, $9)
                 ON CONFLICT (chat_id, tg_message_id, sender) DO NOTHING
-                RETURNING id
+                RETURNING id, tg_message_id
                 """,
                 str(chat_id),
                 sender_norm,
@@ -1312,7 +1317,21 @@ class MessageDatabase:
                 image_caption,
                 int(vision_processed),
             )
-        return int(row["id"]) if row else None
+            if row is not None:
+                return int(row["id"]), str(row["tg_message_id"])
+            existing = await conn.fetchrow(
+                """
+                SELECT id, tg_message_id
+                FROM shared_group_messages
+                WHERE chat_id = $1 AND tg_message_id = $2 AND sender = $3
+                """,
+                str(chat_id),
+                str(tg_message_id),
+                sender_norm,
+            )
+        if existing is not None:
+            return int(existing["id"]), str(existing["tg_message_id"])
+        return None
 
     async def get_recent_shared_group_messages(
         self, chat_id: str, limit: int = 40

@@ -184,8 +184,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 8. 未归档 chunk summaries（`get_today_chunk_summaries()` **全局**未归档 chunk，不按当前 `session_id` 过滤）
 9. 动态内容（当前时间、工具记录、结束语）
 10. 最近消息
-    - 其中会额外带入最近几条已摘要消息作为衔接窗口（`summarized_overlap_limit`）
-    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；未摘要池与 overlap 均限 **`created_at` 最近 48 小时**（`_short_term_context_since()`）。每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。历史行在 LLM **messages** 里一律 **`role=user`**，正文为「方括号标签 + 换行 + 原内容」。system 另含 **`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`**。群聊带图：`vision_caption` 完成后同步共享表（`update_shared_group_message_vision_result`）；同轮 buffer 内「入口已写纯文字 + 后续图片」时对入口 `tg_message_id` 回写（`update_shared_group_user_message_for_media_flush`）；`expire_stale_vision_pending` 覆盖主库与共享库。
+    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。为避免两名助手在 API 中均被标成同一 `assistant` role 导致指代混淆，这些历史行在 LLM **messages** 里一律 **`role=user`**，单条正文为「方括号标签 + 换行 + 原内容」（用户行仍注入发送时间等既有逻辑，助手行仍 `strip_lutopia_behavior_appendix`）。system 另含 **`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`**。「## 群聊摘要」下第一行由 **`_telegram_group_chunk_viewpoint_line()`** 说明方括号、本实例 Clio/Sirius（**`MessageDatabase._shared_summary_actor()`**，依据 `APP_NAME` / `TELEGRAM_GROUP_PEER_RELAY_APP_ID`）及摘要中「我」与 **`char_name`** 的对齐。对端群聊摘录 **`_build_telegram_peer_recent_for_system`** 亦用 **`[Clio]` / `[Sirius]` / 用户称呼**。
 11. 当前用户消息
 
 **Telegram 群/私聊交叉原文**：在「今日对话摘要」块内两类 chunk 之间插入对端近期原文（`memory/context_builder.py`）；依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；非空摘录时标题下附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`（与群聊续话等说明同属 `memory/context_builder.py` 常量）。详见 `ARCHITECTURE.md` §2.6 / §3.1。
@@ -270,7 +269,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 天气
 - 微博热搜
 - 网页搜索
-- X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额。`retweet_tweet` 可选 `comment`：非空则为引用转推/带话转发，仅 `tweet_id` 则为纯转推，见 `tools/x_tool.py`）
+- X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额。`retweet_tweet` 可选 `comment`：非空则为引用转推/带话转发，仅 `tweet_id` 则为纯转推，见 `tools/x_tool.py`。**API 楼中楼回复/带字引用**须原帖 @ 本账号或来自 `read_mentions`，与网页互关可回不同，见 `tools/prompts.py` `X_TOOL_DIRECTIVE`）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 - 小红书（`search_xhs` / `read_xhs_note` / `get_xhs_feed` / `get_xhs_user` / `like_xhs_note` / `favorite_xhs_note`；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py`）
 
@@ -316,9 +315,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。取数仅包含 **`vision_processed=1`** 的行。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致）。
-
-**群聊标记**：共享表 **`is_summarized_clio` / `is_summarized_sirius`** 分列，各实例只更新本列。chunk 落库后对 **`[start_message_id, end_message_id]`** 区间内 **`vision_processed=1`** 的共享行批量标已摘要（`mark_group_session_messages_summarized_in_id_range`）。私聊仍按进批 `message_ids` 更新主库。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致）。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 

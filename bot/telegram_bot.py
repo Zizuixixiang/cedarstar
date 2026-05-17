@@ -140,6 +140,9 @@ def _shared_group_persisted_tg_message_id(
     for bm in buffer_messages or []:
         if not bm.get("shared_user_persisted"):
             continue
+        persisted_tg = bm.get("shared_persisted_tg_message_id")
+        if persisted_tg is not None and str(persisted_tg).strip():
+            return str(persisted_tg).strip()
         mid = bm.get("message_id")
         if mid is not None and str(mid).strip():
             return str(mid).strip()
@@ -1024,7 +1027,8 @@ class TelegramBot:
             if not self._mark_group_seen(self._group_user_seen, user_seen_key):
                 logger.info("群聊用户消息重复触发已忽略: %s", user_seen_key)
                 return
-            await get_database().insert_shared_group_message(
+            shared_persisted_tg: Optional[str] = str(message_id)
+            inserted = await get_database().insert_shared_group_message(
                 chat_id=str(chat_id),
                 sender="user",
                 content=content,
@@ -1032,7 +1036,11 @@ class TelegramBot:
                 platform=Platform.TELEGRAM,
                 vision_processed=1,
             )
+            if inserted is not None:
+                _, shared_persisted_tg = inserted
             await get_database().set_group_chat_round_count(str(chat_id), 0)
+        else:
+            shared_persisted_tg = None
         logger.info(
             "[TG路径追踪] 入口 handle_message(纯文本) session_id=%s -> MessageBuffer.add_to_buffer；"
             "buffer_delay 到期后 MessageBuffer 回调 _flush_buffered_messages -> _generate_reply_from_buffer",
@@ -1040,6 +1048,7 @@ class TelegramBot:
         )
 
         # 将消息添加到缓冲区
+        is_group = getattr(message.chat, "type", "") in ("group", "supergroup")
         await self._add_to_buffer(
             update,
             context,
@@ -1048,7 +1057,8 @@ class TelegramBot:
             content,
             user_id,
             message_id,
-            shared_user_persisted=getattr(message.chat, "type", "") in ("group", "supergroup"),
+            shared_user_persisted=is_group,
+            shared_persisted_tg_message_id=shared_persisted_tg if is_group else None,
         )
 
     async def _reset_group_chat_relay_on_user_activity(self, message) -> None:
@@ -3613,6 +3623,7 @@ class TelegramBot:
         from_voice: bool = False,
         from_sticker: bool = False,
         shared_user_persisted: bool = False,
+        shared_persisted_tg_message_id: Optional[str] = None,
     ):
         """
         将消息添加到缓冲区，并启动/重置缓冲定时器。
@@ -3647,6 +3658,7 @@ class TelegramBot:
                 "from_voice": from_voice,
                 "from_sticker": from_sticker,
                 "shared_user_persisted": shared_user_persisted,
+                "shared_persisted_tg_message_id": shared_persisted_tg_message_id,
                 "timestamp": asyncio.get_event_loop().time(),
             },
         )

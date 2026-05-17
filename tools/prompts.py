@@ -100,9 +100,14 @@ X_TOOL_DIRECTIVE = (
     "【X (Twitter)】可用工具：post_tweet（发推）、read_mentions（读@提及）、like_tweet/unlike_tweet（点赞/取消赞）、"
     "retweet_tweet/unretweet_tweet、reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
     "get_user（查用户信息，不耗配额）、follow_user/unfollow_user（关注/取关）、get_followers（粉丝列表）。\n"
+    "【重要·API 与网页不同】本账号经 X Developer API 发推/回复，规则比网页/App 更严：互关、原帖显示「所有人可回复」"
+    "也不能保证 API 能楼中楼回复。仅当**该条推文正文 @ 了本账号（Clio_Cedar）**、或来自 read_mentions 返回的帖时，"
+    "才可调用 reply_tweet；带 comment 的引用转推（Quote）受同样限制。未 @ 本账号时勿对时间线/搜索到的帖调用 reply_tweet"
+    "或带 comment 的 retweet_tweet，否则会 403（not been mentioned）；勿对同一 tweet_id 反复重试。"
+    "未 @ 时若要互动：优先 like_tweet、纯 retweet_tweet（无 comment），或 post_tweet 新发一条并 @ 对方（不进对方楼中楼）。\n"
     "【重要·转发与带字转发】纯转推（无附加文字）只传 retweet_tweet 的 tweet_id 即可。"
-    "若用户要在「转发」时附带自己的话、评语、转发语，必须调用 retweet_tweet，并传入可选参数 comment（非空字符串），"
-    "此时为引用转推（Quote），不是 reply_tweet；reply_tweet 仅用于对原帖的回复线程。\n"
+    "若用户要在「转发」时附带自己的话、评语、转发语，须原帖已 @ 本账号，再调用 retweet_tweet 并传入 comment；"
+    "否则用 post_tweet @ 对方。reply_tweet 仅用于已 @ 本账号的帖的回复线程。\n"
     "发推、转推和回复前应确认用户意图，避免误发；除 get_user 外所有操作共享每日配额，超限返回错误。"
     "（南杉：Shan_Cedar,Sirius:Sirius_Cedar）"
 )
@@ -360,7 +365,10 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "reply_tweet",
-            "description": "回复一条推文",
+            "description": (
+                "回复一条推文（楼中楼）。仅当该帖正文 @ 了本账号 Clio_Cedar，或该 tweet_id 来自 read_mentions 时可用；"
+                "互关、搜索/时间线捞到的未 @ 帖会 403，勿重试。未 @ 时改用 like_tweet、纯 retweet_tweet 或 post_tweet @ 对方。"
+            ),
             "parameters": {
                 "type": "object",
                 "properties": {
