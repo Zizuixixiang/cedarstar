@@ -185,7 +185,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 9. 动态内容（当前时间、工具记录、结束语）
 10. 最近消息
     - 其中会额外带入最近几条已摘要消息作为衔接窗口（`summarized_overlap_limit`）
-    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；未摘要池与 overlap 均限 **`created_at` 最近 48 小时**（`_short_term_context_since()`）。每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。历史行在 LLM **messages** 里一律 **`role=user`**，正文为「方括号标签 + 换行 + 原内容」。system 另含 **`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`**。群聊带图：`vision_caption` 完成后同步共享表 `vision_processed` / `image_caption`（`update_shared_group_message_vision_result`）；`expire_stale_vision_pending` 覆盖主库与共享库。
+    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；未摘要池与 overlap 均限 **`created_at` 最近 48 小时**（`_short_term_context_since()`）。每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。历史行在 LLM **messages** 里一律 **`role=user`**，正文为「方括号标签 + 换行 + 原内容」。system 另含 **`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`**。群聊带图：`vision_caption` 完成后同步共享表（`update_shared_group_message_vision_result`）；同轮 buffer 内「入口已写纯文字 + 后续图片」时对入口 `tg_message_id` 回写（`update_shared_group_user_message_for_media_flush`）；`expire_stale_vision_pending` 覆盖主库与共享库。
 11. 当前用户消息
 
 **Telegram 群/私聊交叉原文**：在「今日对话摘要」块内两类 chunk 之间插入对端近期原文（`memory/context_builder.py`）；依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；非空摘录时标题下附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`（与群聊续话等说明同属 `memory/context_builder.py` 常量）。详见 `ARCHITECTURE.md` §2.6 / §3.1。

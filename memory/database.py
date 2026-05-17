@@ -1591,6 +1591,50 @@ class MessageDatabase:
             )
         return n
 
+    async def update_shared_group_user_message_for_media_flush(
+        self,
+        chat_id: str,
+        tg_message_id: str,
+        *,
+        content: str,
+        media_type: Optional[str] = None,
+        vision_processed: int = 0,
+    ) -> int:
+        """
+        群聊入口已写入纯文字行后，同轮 buffer 合并带图内容时回写共享表。
+        按 chat_id + tg_message_id + sender=user 定位入口那条记录。
+        """
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return 0
+        async with pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE shared_group_messages
+                SET content = $1,
+                    media_type = $2,
+                    vision_processed = $3,
+                    image_caption = NULL
+                WHERE chat_id = $4
+                  AND tg_message_id = $5
+                  AND sender = 'user'
+                """,
+                str(content or ""),
+                media_type,
+                int(vision_processed),
+                str(chat_id),
+                str(tg_message_id),
+            )
+        n = _rowcount(result)
+        if n:
+            logger.debug(
+                "共享群带图 flush 回写: chat_id=%s tg_message_id=%s rows=%s",
+                chat_id,
+                tg_message_id,
+                n,
+            )
+        return n
+
     # ------------------------------------------------------------------
     # pending_approvals
     # ------------------------------------------------------------------
@@ -6246,6 +6290,23 @@ async def update_shared_group_message_vision_result(
 ) -> int:
     return await get_database().update_shared_group_message_vision_result(
         chat_id, tg_message_id, image_caption, vision_processed
+    )
+
+
+async def update_shared_group_user_message_for_media_flush(
+    chat_id: str,
+    tg_message_id: str,
+    *,
+    content: str,
+    media_type: Optional[str] = None,
+    vision_processed: int = 0,
+) -> int:
+    return await get_database().update_shared_group_user_message_for_media_flush(
+        chat_id,
+        tg_message_id,
+        content=content,
+        media_type=media_type,
+        vision_processed=vision_processed,
     )
 
 

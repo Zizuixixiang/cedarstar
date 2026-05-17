@@ -133,6 +133,19 @@ _PARSE_IMAGE_COUNT_RE = re.compile(r'[前上]([1-9一二两三四五六七八九
 _PARSE_IMAGE_COUNT_MAP = {'一': 1, '二': 2, '两': 2, '三': 3, '四': 4, '五': 5, '六': 6, '七': 7, '八': 8, '九': 9}
 
 
+def _shared_group_persisted_tg_message_id(
+    buffer_messages: Optional[List[Dict[str, Any]]],
+) -> Optional[str]:
+    """取 buffer 中已在群聊入口写入共享表的那条用户消息的 Telegram message_id。"""
+    for bm in buffer_messages or []:
+        if not bm.get("shared_user_persisted"):
+            continue
+        mid = bm.get("message_id")
+        if mid is not None and str(mid).strip():
+            return str(mid).strip()
+    return None
+
+
 def _telegram_user_visible_model_error(
     exc: BaseException,
     *,
@@ -3149,15 +3162,52 @@ class TelegramBot:
                             bool(m.get("shared_user_persisted"))
                             for m in (buffer_messages or [])
                         )
-                        if already_persisted_shared_user:
+                        shared_tg_message_id = str(
+                            getattr(base_message, "message_id", message_id)
+                        )
+                        if already_persisted_shared_user and has_img:
+                            entry_tg = _shared_group_persisted_tg_message_id(
+                                buffer_messages
+                            ) or shared_tg_message_id
+                            n_updated = (
+                                await get_database().update_shared_group_user_message_for_media_flush(
+                                    str(chat_id),
+                                    entry_tg,
+                                    content=combined_raw,
+                                    media_type=media_t,
+                                    vision_processed=0,
+                                )
+                            )
+                            if n_updated:
+                                logger.info(
+                                    "群聊入口纯文字行已回写为带图: session_id=%s tg_message_id=%s",
+                                    session_id,
+                                    entry_tg,
+                                )
+                            else:
+                                await get_database().insert_shared_group_message(
+                                    chat_id=chat_id,
+                                    sender="user",
+                                    content=combined_raw,
+                                    tg_message_id=shared_tg_message_id,
+                                    platform=Platform.TELEGRAM,
+                                    media_type=media_t,
+                                    vision_processed=0,
+                                )
+                                logger.warning(
+                                    "群聊带图回写未命中，已 fallback insert: session_id=%s tg=%s",
+                                    session_id,
+                                    shared_tg_message_id,
+                                )
+                            await get_database().set_group_chat_round_count(
+                                str(chat_id), 0
+                            )
+                        elif already_persisted_shared_user:
                             logger.info(
                                 "群聊用户消息已在入口写入共享表，跳过缓冲链二次写入: session_id=%s",
                                 session_id,
                             )
                         else:
-                            shared_tg_message_id = str(
-                                getattr(base_message, "message_id", message_id)
-                            )
                             await get_database().insert_shared_group_message(
                                 chat_id=chat_id,
                                 sender="user",
@@ -3177,9 +3227,21 @@ class TelegramBot:
                     _group_tg_message_id: Optional[str] = None
                     if session_id.startswith("telegram_group_"):
                         _group_chat_id = str(chat_id)
-                        _group_tg_message_id = str(
-                            getattr(base_message, "message_id", message_id)
+                        _entry_persisted = any(
+                            bool(m.get("shared_user_persisted"))
+                            for m in (buffer_messages or [])
                         )
+                        if _entry_persisted:
+                            _group_tg_message_id = (
+                                _shared_group_persisted_tg_message_id(buffer_messages)
+                                or str(
+                                    getattr(base_message, "message_id", message_id)
+                                )
+                            )
+                        else:
+                            _group_tg_message_id = str(
+                                getattr(base_message, "message_id", message_id)
+                            )
                     schedule_generate_image_caption(
                         user_row_id,
                         images or [],
