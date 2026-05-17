@@ -97,19 +97,17 @@ WEB_FETCH_TOOL_DIRECTIVE = (
 )
 
 X_TOOL_DIRECTIVE = (
-    "【X (Twitter)】可用工具：post_tweet（发推）、read_mentions（读@提及）、like_tweet/unlike_tweet（点赞/取消赞）、"
-    "retweet_tweet/unretweet_tweet、reply_tweet（回复推文）、search_tweets（关键词搜索）、get_timeline（关注时间线）、"
-    "get_user（查用户信息，不耗配额）、follow_user/unfollow_user（关注/取关）、get_followers（粉丝列表）。\n"
-    "【重要·API 与网页不同】本账号经 X Developer API 发推/回复，规则比网页/App 更严：互关、原帖显示「所有人可回复」"
-    "也不能保证 API 能楼中楼回复。仅当**该条推文正文 @ 了本账号（Clio_Cedar）**、或来自 read_mentions 返回的帖时，"
-    "才可调用 reply_tweet；带 comment 的引用转推（Quote）受同样限制。未 @ 本账号时勿对时间线/搜索到的帖调用 reply_tweet"
-    "或带 comment 的 retweet_tweet，否则会 403（not been mentioned）；勿对同一 tweet_id 反复重试。"
-    "未 @ 时若要互动：优先 like_tweet、纯 retweet_tweet（无 comment），或 post_tweet 新发一条并 @ 对方（不进对方楼中楼）。\n"
-    "【重要·转发与带字转发】纯转推（无附加文字）只传 retweet_tweet 的 tweet_id 即可。"
-    "若用户要在「转发」时附带自己的话、评语、转发语，须原帖已 @ 本账号，再调用 retweet_tweet 并传入 comment；"
-    "否则用 post_tweet @ 对方。reply_tweet 仅用于已 @ 本账号的帖的回复线程。\n"
-    "发推、转推和回复前应确认用户意图，避免误发；除 get_user 外所有操作共享每日配额，超限返回错误。"
-    "（南杉：Shan_Cedar,Sirius:Sirius_Cedar）"
+    "【X (Twitter)】工具：post_tweet、read_mentions、like_tweet/unlike_tweet、retweet_tweet、unretweet_tweet、"
+    "reply_tweet、search_tweets、get_timeline、get_user、follow_user/unfollow_user、get_followers。\n"
+    "关联账号（正文 @ 时用）：南杉 @Shan_Cedar，Sirius @Sirius_Cedar，本实例 API 登录 @Clio_Cedar。\n"
+    "参数：tweet_id、user_id 必须是数字 ID，不要传 x.com 链接；follow_user 须先 get_user(用户名) 取 user_id；"
+    "post_tweet、reply_tweet、retweet_tweet 的 comment 均不超过 280 字；search_tweets 每次至少 10 条计入日配额；"
+    "get_user 不计配额。\n"
+    "API 比网页更严（互关也不能绕过）：reply_tweet，以及 retweet_tweet 传入非空 comment 的引用转推，"
+    "仅当该条推文正文 @ 了 Clio_Cedar，或 tweet_id 来自 read_mentions 返回；否则 403，勿对同一 tweet_id 重试。"
+    "原帖未 @ Clio_Cedar 时：like_tweet；retweet_tweet 且不传 comment（纯转推）；或 post_tweet 新推并在正文 @ 对方。"
+    "带评语转发用 retweet_tweet 的 comment，不要用 reply_tweet。\n"
+    "发推/转发/回复前确认用户意图；除 get_user 外共用日配额。"
 )
 
 XHS_TOOL_DIRECTIVE = (
@@ -295,7 +293,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
                 "properties": {
                     "tweet_id": {
                         "type": "string",
-                        "description": "要点赞的推文 ID",
+                        "description": "数字推文 ID，勿传链接",
                     },
                 },
                 "required": ["tweet_id"],
@@ -312,7 +310,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
                 "properties": {
                     "tweet_id": {
                         "type": "string",
-                        "description": "要取消点赞的推文 ID",
+                        "description": "数字推文 ID，勿传链接",
                     },
                 },
                 "required": ["tweet_id"],
@@ -324,20 +322,20 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "retweet_tweet",
             "description": (
-                "转推或引用转推同一条工具：仅 tweet_id＝纯转推（API 不允许在纯转推上挂文字）。"
-                "若需在转发时附带用户评语/转发语，必须同时传入可选参数 comment（非空），此时为引用转推 Quote；"
-                "comment 最长 280 字符。勿用 reply_tweet 代替「带话的转发」。"
+                "转推：只传 tweet_id 为纯转推；另传非空 comment 为引用转推（正文≤280）。"
+                "引用转推须原帖 @Clio_Cedar 或 tweet_id 来自 read_mentions。tweet_id 为数字 ID。"
+                "不要用 reply_tweet 代替带评语转发。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "tweet_id": {
                         "type": "string",
-                        "description": "原文推文 ID（纯转推或引用转推均必填）",
+                        "description": "原文数字推文 ID，勿传链接",
                     },
                     "comment": {
                         "type": "string",
-                        "description": "可选。仅当需要「带话的转发」时传入非空字符串，作为引用转推正文；省略或空字符串则执行纯转推",
+                        "description": "可选。非空=引用转推正文（须原帖 @Clio_Cedar）；省略或空=纯转推",
                     },
                 },
                 "required": ["tweet_id"],
@@ -366,15 +364,15 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "reply_tweet",
             "description": (
-                "回复一条推文（楼中楼）。仅当该帖正文 @ 了本账号 Clio_Cedar，或该 tweet_id 来自 read_mentions 时可用；"
-                "互关、搜索/时间线捞到的未 @ 帖会 403，勿重试。未 @ 时改用 like_tweet、纯 retweet_tweet 或 post_tweet @ 对方。"
+                "楼中楼回复。仅当原帖正文 @Clio_Cedar，或 tweet_id 来自 read_mentions；"
+                "tweet_id 为数字 ID，text≤280。未 @ Clio_Cedar 时用 like_tweet、纯 retweet_tweet 或 post_tweet。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
                     "tweet_id": {
                         "type": "string",
-                        "description": "要回复的推文 ID",
+                        "description": "数字推文 ID，勿传链接",
                     },
                     "text": {
                         "type": "string",
@@ -450,7 +448,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
                 "properties": {
                     "user_id": {
                         "type": "string",
-                        "description": "要关注的用户 ID",
+                        "description": "数字用户 ID（先 get_user），勿用 @用户名",
                     },
                 },
                 "required": ["user_id"],
@@ -467,7 +465,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
                 "properties": {
                     "user_id": {
                         "type": "string",
-                        "description": "要取消关注的用户 ID",
+                        "description": "数字用户 ID（先 get_user），勿用 @用户名",
                     },
                 },
                 "required": ["user_id"],

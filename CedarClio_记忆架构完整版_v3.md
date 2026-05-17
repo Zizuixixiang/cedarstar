@@ -269,7 +269,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 天气
 - 微博热搜
 - 网页搜索
-- X (Twitter)（13 个工具：发推、点赞/取消赞、转推/取消转推、回复、搜索、时间线、关注/取关、粉丝列表等；除 `get_user` 外共享每日配额。`retweet_tweet` 可选 `comment`：非空则为引用转推/带话转发，仅 `tweet_id` 则为纯转推，见 `tools/x_tool.py`。**API 楼中楼回复/带字引用**须原帖 @ 本账号或来自 `read_mentions`，与网页互关可回不同，见 `tools/prompts.py` `X_TOOL_DIRECTIVE`）
+- X (Twitter)（13 工具，`tools/x_tool.py`；配额 `x_usage_*`。CedarClio 用 `@Clio_Cedar`；reply/引用转推仅原帖 @Clio 或 `read_mentions`；账号见 `X_TOOL_DIRECTIVE`）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 - 小红书（`search_xhs` / `read_xhs_note` / `get_xhs_feed` / `get_xhs_user` / `like_xhs_note` / `favorite_xhs_note`；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py`）
 
