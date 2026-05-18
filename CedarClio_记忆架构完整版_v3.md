@@ -38,7 +38,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `retrieval_top_k` | 向量 / BM25 各路召回数 |
 | `telegram_max_chars` | Telegram 分段最大字数 |
 | `telegram_max_msg` | Telegram 分段最大条数 |
-| `group_chat_max_message_chars` | Telegram 群聊每段字数上限（`format_telegram_group_segment_directive`：日常严守、专业解答/吐槽分析/安慰等可酌情单行略超；每轮最多 3 段；发送端不截断；默认 600，范围 10–3800） |
+| `group_chat_max_message_chars` | Telegram 群聊每段字数上限（`format_telegram_group_segment_directive`：日常严守、专业解答/吐槽分析/安慰等可酌情单行略超；每轮最多 3 段；发送端贪心装箱、末块可略超；默认 600，范围 10–3800） |
 | `idle_activity_enabled` | 是否启用 AI 自主活动（true/false） |
 | `idle_activity_level` | 自主活动概率档位：low/mid/high（0.25/0.5/1.0） |
 | `idle_activity_threshold_min` | 距离用户最后发言达到多少分钟后才有资格触发 |
@@ -146,6 +146,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - **共享表**：`shared_group_messages` 存于 `SHARED_GROUP_DB_URL` 所指库；主库 `group_chat_state` 存 `round_count`；`config` 表存 `group_chat_max_rounds` 等（Mini App 可调）。
 - **接力清零**：真人用户新一句时 `set_group_chat_round_count(..., 0)`，覆盖文本、语音/贴纸/图、`document`/`video`/`video_note`/`animation` 及缓冲首次写入共享表用户行；对端接话路径 `increment`。避免仅语音/附件沿用旧计数导致 relay `signal_round_limited`。
 - **@ 判定、随机插话与 peer 幂等**：`get_me()` 的 username/id，无硬编码 handle。对端 bot 明确 @ 本 bot 时必接话；未 @ 本 bot 时，只有最近用户句显式 @ 了另一名 bot 且未 @ 本 bot，才按 `group_chat_interject_probability` 随机插话。relay payload 带 `tg_message_id` 时按具体对端消息判定，旧 payload 回退最近一条对端消息。Telegram 入站与 HTTP relay 共用 `chat_id + sender + tg_message_id` 短期幂等，并对同一 bot 连续分段消息设置短冷却，避免同一助手回复重复触发 LLM。
+- **群聊出站**：`_telegram_deliver_ordered_segments` 在共享库 `pg_try_advisory_lock` 互斥双实例发送；群聊思维链受 `send_cot_in_group_chat`（须总开关 `send_cot_to_telegram`）；流式收尾与工具轮定稿均经 `_telegram_should_send_cot`。详见 `ARCHITECTURE.md` §2.6 / §4.4。
 - **Context 交叉原文**：与 `ARCHITECTURE.md` §3.1 一致；可选 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；注入时附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`。
 
 ## 三、上下文构建与召回

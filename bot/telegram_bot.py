@@ -226,10 +226,11 @@ def _split_telegram_body_parts(text: str) -> List[str]:
 _GROUP_CHAT_MAX_OUTGOING_MESSAGES = 3
 
 
-def _group_chat_newline_send_segments(body_for_db: str) -> List[str]:
+async def _group_chat_newline_send_segments(body_for_db: str) -> List[str]:
     """
-    群聊按换行拆成若干段，至多 ``_GROUP_CHAT_MAX_OUTGOING_MESSAGES`` 段；
-    超过时前几段独立、余下合并为末段。不在此处按字数截断（分段与字数由 system prompt 强制要求模型自律）。
+    群聊按换行拆行后贪心装箱：单块字数上限为 ``group_chat_max_message_chars``，
+    最多 ``_GROUP_CHAT_MAX_OUTGOING_MESSAGES`` 块；前 N-1 块按上限封箱，末块承接剩余行（可略超、不截断）。
+    单行本身超过上限时独占一块，不在行内切分。
     """
     raw = (body_for_db or "").strip()
     if not raw:
@@ -237,12 +238,41 @@ def _group_chat_newline_send_segments(body_for_db: str) -> List[str]:
     lines = [ln.strip() for ln in raw.splitlines() if ln.strip()]
     if not lines:
         return []
-    cap = _GROUP_CHAT_MAX_OUTGOING_MESSAGES
-    if len(lines) <= cap:
-        merged = lines
+
+    raw_limit = await get_database().get_config("group_chat_max_message_chars", "600")
+    try:
+        limit = int(str(raw_limit).strip() or "600")
+    except ValueError:
+        limit = 600
+    limit = max(10, min(3800, limit))
+    max_blocks = _GROUP_CHAT_MAX_OUTGOING_MESSAGES
+
+    blocks: List[str] = []
+    current = ""
+    i = 0
+    while i < len(lines):
+        if len(blocks) == max_blocks - 1:
+            tail_parts: List[str] = []
+            if (current or "").strip():
+                tail_parts.append(current.strip())
+            tail_parts.extend(lines[i:])
+            blocks.append("\n".join(tail_parts))
+            break
+
+        line = lines[i]
+        if not current:
+            current = line
+        elif len(current) + 1 + len(line) <= limit:
+            current = f"{current}\n{line}"
+        else:
+            blocks.append(current)
+            current = line
+        i += 1
     else:
-        merged = lines[: cap - 1] + ["\n".join(lines[cap - 1 :])]
-    return [b.strip() for b in merged if (b or "").strip()]
+        if (current or "").strip():
+            blocks.append(current.strip())
+
+    return [b.strip() for b in blocks if (b or "").strip()]
 
 
 def _sanitize_tts_voice_text(text: str) -> str:
@@ -1819,7 +1849,7 @@ class TelegramBot:
         chat_type = getattr(getattr(base_message, "chat", None), "type", "")
         if chat_type in ("group", "supergroup"):
             # 群聊：按换行拆成至多 3 个逻辑段，每段经 HTML 切分后逐条发出；不在发送端按字数截断。
-            line_blocks = _group_chat_newline_send_segments(body_for_db)
+            line_blocks = await _group_chat_newline_send_segments(body_for_db)
             if not line_blocks:
                 return "", None
             out_chunks: List[str] = []
@@ -1934,6 +1964,39 @@ class TelegramBot:
         base_message 非空时文字用 reply；否则用 send_message（与 _telegram_send_body_via_chat 一致）。
         返回 (首条助手消息 message_id, 是否至少发出过一张表情, 是否成功发送语音)。
         """
+        is_group = base_message is not None and self._is_group_message(base_message)
+        lock_conn = None
+        group_lock_chat_id: Optional[int] = None
+        if is_group and base_message is not None:
+            group_lock_chat_id = int(base_message.chat.id)
+            lock_conn = await get_database().acquire_shared_group_send_lock(
+                group_lock_chat_id, timeout_sec=10.0
+            )
+            if lock_conn is None:
+                logger.warning(
+                    "群聊发送 advisory lock 未获取（超时或未配置 SHARED_GROUP_DB_URL），"
+                    "退化为无锁发送 chat_id=%s",
+                    group_lock_chat_id,
+                )
+
+        try:
+            return await self._telegram_deliver_ordered_segments_impl(
+                bot, chat_id, segments, base_message=base_message
+            )
+        finally:
+            if lock_conn is not None and group_lock_chat_id is not None:
+                await get_database().release_shared_group_send_lock(
+                    lock_conn, int(group_lock_chat_id)
+                )
+
+    async def _telegram_deliver_ordered_segments_impl(
+        self,
+        bot,
+        chat_id: int,
+        segments: List[Tuple[str, str]],
+        *,
+        base_message=None,
+    ) -> Tuple[Optional[str], bool, bool]:
         first_mid: Optional[str] = None
         meme_any = False
         voice_any = False
@@ -2397,18 +2460,29 @@ class TelegramBot:
         chat_id = base_message.chat.id
         done_payload = sse.done_payload
         err_pack = sse.err_pack
+        send_cot = await self._telegram_should_send_cot(base_message)
         think_plain = sse.think_plain
         raw_content = sse.raw_content
-        th_part, body_part = split_thinking_and_content(think_plain or "")
-        if th_part:
-            think_plain = th_part
-        if body_part and not (raw_content or "").strip():
-            raw_content = body_part
-        if not (str(think_plain or "").strip()) and (raw_content or "").strip():
-            tb, bb = split_thinking_and_content(raw_content.strip())
-            if tb.strip():
-                think_plain = tb
-                raw_content = bb if (bb or "").strip() else ""
+        if send_cot:
+            th_part, body_part = split_thinking_and_content(think_plain or "")
+            if th_part:
+                think_plain = th_part
+            if body_part and not (raw_content or "").strip():
+                raw_content = body_part
+            if not (str(think_plain or "").strip()) and (raw_content or "").strip():
+                tb, bb = split_thinking_and_content(raw_content.strip())
+                if tb.strip():
+                    think_plain = tb
+                    raw_content = bb if (bb or "").strip() else ""
+        else:
+            _, body_part = split_thinking_and_content(think_plain or "")
+            if body_part and not (raw_content or "").strip():
+                raw_content = body_part
+            think_plain = ""
+            if (raw_content or "").strip():
+                tb, bb = split_thinking_and_content(raw_content.strip())
+                if tb.strip():
+                    raw_content = bb if (bb or "").strip() else ""
         if done_payload is not None:
             if done_payload.get("guard_refusal_abort") and not (raw_content or "").strip():
                 raw_content = _TELEGRAM_GUARD_ROLEPLAY_FALLBACK
@@ -2443,20 +2517,24 @@ class TelegramBot:
             thinking_stored = sse.think_from_delta or None
         if thinking_stored:
             th_part2, body_part2 = split_thinking_and_content(thinking_stored)
-            thinking_stored = th_part2 or thinking_stored
-            if body_part2 and not raw_content.strip():
+            if send_cot:
+                thinking_stored = th_part2 or thinking_stored
+                if body_part2 and not raw_content.strip():
+                    raw_content = body_part2
+            elif body_part2 and not raw_content.strip():
                 raw_content = body_part2
-        if not (thinking_stored or "").strip() and (str(think_plain or "").strip()):
+        if send_cot and not (thinking_stored or "").strip() and (str(think_plain or "").strip()):
             thinking_stored = str(think_plain).strip()
 
-        await self._telegram_finalize_thinking_blockquote(
-            base_message,
-            bot,
-            chat_id,
-            sse.thinking_msg_id,
-            think_plain,
-            interrupted,
-        )
+        if send_cot:
+            await self._telegram_finalize_thinking_blockquote(
+                base_message,
+                bot,
+                chat_id,
+                sse.thinking_msg_id,
+                think_plain,
+                interrupted,
+            )
 
         cleaned = schedule_update_memory_hits_and_clean_reply(raw_content)
         segments, body_for_db = await parse_telegram_segments_with_memes_async(cleaned)
@@ -2822,18 +2900,19 @@ class TelegramBot:
                         consecutive_tool_error_rounds = 0
                     # 每轮带 tool_calls 的 SSE 在此 continue 前未走 finalize，思维链占位会一直以纯文本编辑，
                     # 永远不会包成 <blockquote expandable>；下一轮又会新建占位。此处先定稿本轮思维链。
-                    _tp_tool = sse.think_plain or ""
-                    _th_part_tool, _ = split_thinking_and_content(_tp_tool)
-                    if _th_part_tool:
-                        _tp_tool = _th_part_tool
-                    await self._telegram_finalize_thinking_blockquote(
-                        base_message,
-                        bot,
-                        chat_id,
-                        sse.thinking_msg_id,
-                        _tp_tool,
-                        sse.interrupted,
-                    )
+                    if await self._telegram_should_send_cot(base_message):
+                        _tp_tool = sse.think_plain or ""
+                        _th_part_tool, _ = split_thinking_and_content(_tp_tool)
+                        if _th_part_tool:
+                            _tp_tool = _th_part_tool
+                        await self._telegram_finalize_thinking_blockquote(
+                            base_message,
+                            bot,
+                            chat_id,
+                            sse.thinking_msg_id,
+                            _tp_tool,
+                            sse.interrupted,
+                        )
                     continue
                 trimmed_raw = _trim_overlap_with_pre_tool_segments(sse.raw_content or "")
                 if trimmed_raw != (sse.raw_content or ""):

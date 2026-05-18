@@ -7,10 +7,13 @@
 await initialize_database()。
 """
 
+import asyncio
 import asyncpg
+import hashlib
 import json
 import logging
 import os
+import time
 import datetime as _dt
 import uuid
 from decimal import Decimal, ROUND_DOWN
@@ -1251,6 +1254,47 @@ class MessageDatabase:
         async with self.shared_group_pool.acquire() as conn:
             await _ensure_shared_group_messages_table(conn)
         return self.shared_group_pool
+
+    @staticmethod
+    def _shared_group_send_lock_key(chat_id: int) -> int:
+        return int(
+            hashlib.md5(f"tg_group_send:{chat_id}".encode()).hexdigest()[:15],
+            16,
+        )
+
+    async def acquire_shared_group_send_lock(
+        self, chat_id: int, timeout_sec: float = 10.0
+    ) -> Optional[asyncpg.Connection]:
+        """
+        尝试在 shared_group_pool 上获取 chat_id 对应的 advisory lock。
+        轮询直到拿到锁或超时，超时返回 None（调用方退化为不加锁直接发）。
+        """
+        pool = await self._ensure_shared_group_pool()
+        if pool is None:
+            return None
+        key = self._shared_group_send_lock_key(chat_id)
+        deadline = time.monotonic() + timeout_sec
+        while True:
+            conn = await pool.acquire()
+            ok = await conn.fetchval("SELECT pg_try_advisory_lock($1::bigint)", key)
+            if ok:
+                return conn
+            await pool.release(conn)
+            if time.monotonic() >= deadline:
+                return None
+            await asyncio.sleep(0.3)
+
+    async def release_shared_group_send_lock(
+        self, conn: asyncpg.Connection, chat_id: int
+    ) -> None:
+        """释放 advisory lock 并归还连接。"""
+        key = self._shared_group_send_lock_key(chat_id)
+        try:
+            await conn.execute("SELECT pg_advisory_unlock($1::bigint)", key)
+        finally:
+            pool = await self._ensure_shared_group_pool()
+            if pool:
+                await pool.release(conn)
 
     async def insert_shared_group_message(
         self,
