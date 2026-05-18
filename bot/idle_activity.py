@@ -66,7 +66,6 @@ _IDLE_TRIGGER_TEXT = (
     "若当前人设已开启 rcommunity 论坛工具，也可用 rcommunity_forum / rcommunity_forum_write 等访问 rhysen 论坛（勿与 Lutopia 混用同一轮空刷）；"
     "可以去X搜索感兴趣的内容、发推、和人类互动；"
     "可以查询天气、热搜、用 get_ai_news 看 AI HOT 上的 AI 资讯或日报（注意单次少拉、别堆多日全文）；可以随便搜搜感兴趣的；"
-    "若当前人设已开启小红书工具，可用 read_xhs_note 读取单篇笔记正文与配图（传入笔记 ID 或小红书链接）；"
     "可以给南杉留言（不要发语音和表情）；也可以什么也不做。"
 )
 
@@ -279,6 +278,9 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         logger.warning("idle activity 跳过：缺少 persona_id")
         return
 
+    # 自主活动不注册小红书工具（主对话 / Telegram 链接触发仍走人设开关）
+    llm.enable_xhs_tool = False
+
     tool_oral = (
         bool(getattr(llm, "enable_lutopia", False))
         or bool(getattr(llm, "enable_rcommunity", False))
@@ -286,7 +288,6 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or bool(getattr(llm, "enable_weibo_tool", False))
         or bool(getattr(llm, "enable_search_tool", False))
         or bool(getattr(llm, "enable_x_tool", False))
-        or bool(getattr(llm, "enable_xhs_tool", False))
         or bool(getattr(llm, "enable_ai_news_tool", False))
         or bool(app_config.ENABLE_WEB_FETCH_TOOL)
     ) and not llm._use_anthropic_messages_api()
