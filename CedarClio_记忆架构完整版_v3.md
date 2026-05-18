@@ -271,7 +271,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 网页搜索
 - X (Twitter)（13 工具，`tools/x_tool.py`；配额 `x_usage_*`。CedarClio 用 `@Clio_Cedar`；reply/引用转推仅原帖 @Clio 或 `read_mentions`；账号见 `X_TOOL_DIRECTIVE`）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
-- 小红书（`search_xhs` / `read_xhs_note` / `get_xhs_feed` / `get_xhs_user` / `like_xhs_note` / `favorite_xhs_note`；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py`）
+- 小红书（当前对外仅 **`read_xhs_note`**；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py` 的 `OPENAI_XHS_TOOLS` / `XHS_TOOL_DIRECTIVE`，其余 5 个 function 在 prompts 中已注释）
 
 **`web_fetch`（网页正文抓取）** 无人设列：仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（`config.py`，默认 true）为真时注册；与记忆内部工具同属「可出现在 OpenAI tools 列表」的旁路能力，但不经由 `persona_configs` 开关。
 
@@ -292,7 +292,8 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 ### 4.2.3 小红书（链接预处理 + CLI 工具，`tools/xhs_tool.py`）
 
 - **依赖**：Python 包 **`xiaohongshu-cli`**（提供 `xhs` 子进程）；Cookie 由环境变量 **`XHS_COOKIE_PATH`** 指向与 CLI 兼容的 `cookies.json`（进程内可按 `APP_NAME` 构造临时 `HOME/.xiaohongshu-cli` 并 symlink，满足 CLI 固定路径约定）。
-- **Telegram 缓冲路径**：在 `build_context` 之前，对正文中的 `xhslink.com` / `xiaohongshu.com` 链接可自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 4 张注入多模态（不占日读配额）；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。实现见 `bot/message_buffer.py` / `bot/telegram_bot.py`（以代码为准）。
+- **对外工具**：`tools/prompts.py` 的 `OPENAI_XHS_TOOLS` 当前仅注册 **`read_xhs_note`**（其余 5 个 schema 已注释；`tools/xhs_tool.py` 内实现仍保留）。
+- **Telegram 缓冲路径**：在 `bot/telegram_bot.py` 的 `telegram_append_xhs_note_to_message`（`build_context` 之前），对正文中的 `xhslink.com` / `xiaohongshu.com` 链接自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 4 张注入多模态（不占日读配额）；字段解析支持 `imageList` / `urlDefault` 与 `items[0].note_card`；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。
 - **工具循环**：与 Lutopia / 天气等并列注册于 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、Discord / idle 路径（`llm/llm_interface.py`、`bot/discord_bot.py`、`bot/idle_activity.py`）。`tool_executions` 照常记录。
 
 ### 4.2.4 rcommunity 论坛 MCP（`tools/rcommunity.py`）
@@ -303,7 +304,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。空闲阈值由 `memory/database.get_latest_idle_user_activity()` 统一判断：主库 `messages` 的真人用户消息（`role='user'` 且 `user_id!='system'`）和共享群表 `shared_group_messages.sender='user'` 取最新时间，私聊/普通通道与群聊都超过阈值才触发；触发提示会注明最后一条活动来自群聊或私聊/普通通道。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
-`[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）。
+`[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具；人设开启小红书工具时提示 **`read_xhs_note`**（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）。
 
 额外支持「星露谷自动模式」：
 
@@ -621,7 +622,7 @@ dispatch 代码位于：
 
 ### 8.8.2 小红书工具（非 MCP、非记忆审批链）
 
-与 `web_fetch` 同属 OpenAI Function Calling 旁路：`tools/xhs_tool.py`；schema 与口播后缀 `tools/prompts.py`（`OPENAI_XHS_TOOLS`、`XHS_TOOL_DIRECTIVE`）。须 **`persona_configs.enable_xhs_tool`** 与 **`ENABLE_XHS_TOOL`** 同时为真；`tool_executions` 照常记录。用量查询 **`GET /api/config/xhs-usage`**。
+与 `web_fetch` 同属 OpenAI Function Calling 旁路：`tools/xhs_tool.py`；当前 schema 仅 **`read_xhs_note`**（`OPENAI_XHS_TOOLS`、`XHS_TOOL_DIRECTIVE`）。须 **`persona_configs.enable_xhs_tool`** 与 **`ENABLE_XHS_TOOL`** 同时为真；`tool_executions` 照常记录。用量查询 **`GET /api/config/xhs-usage`**（读配额；写配额键仍保留供日后恢复点赞/收藏类工具）。
 
 ## 九、外部写入（External Chunk）
 

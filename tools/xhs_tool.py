@@ -432,12 +432,48 @@ def _note_items_from_search_or_feed(data: Any) -> List[Dict[str, Any]]:
 
 
 def _unwrap_note_detail_dict(data: Any) -> dict:
+    """统一为单篇笔记 dict：``note``、``items[0].note_card`` 或已是 note_card。"""
     if not isinstance(data, dict):
         return {}
     inner = data.get("note")
     if isinstance(inner, dict):
         return inner
+    items = data.get("items")
+    if isinstance(items, list) and items:
+        first = items[0]
+        if isinstance(first, dict):
+            card = first.get("note_card")
+            if isinstance(card, dict):
+                return card
     return data
+
+
+def _image_url_from_item(im: Any) -> Optional[str]:
+    """从图片项（字符串或 dict）提取 http(s) URL。"""
+    if isinstance(im, str):
+        s = im.strip()
+        return s if s.startswith("http") else None
+    if not isinstance(im, dict):
+        return None
+    for key in (
+        "url_default",
+        "urlDefault",
+        "url_pre",
+        "urlPre",
+        "url",
+        "origin_url",
+        "originUrl",
+    ):
+        u = im.get(key)
+        if isinstance(u, str) and u.strip().startswith("http"):
+            return u.strip()
+    nested = im.get("info_list") or im.get("infoList")
+    if isinstance(nested, list):
+        for sub in nested:
+            u = _image_url_from_item(sub)
+            if u:
+                return u
+    return None
 
 
 def _extract_note_detail_fields(data: Any) -> Tuple[str, str, List[str]]:
@@ -453,22 +489,21 @@ def _extract_note_detail_fields(data: Any) -> Tuple[str, str, List[str]]:
         or ""
     ).strip()
     urls: List[str] = []
-    for key in ("image_list", "images", "pics"):
+    for key in ("image_list", "imageList", "images", "pics"):
         lst = data.get(key)
-        if isinstance(lst, list):
-            for im in lst:
-                if isinstance(im, str) and im.startswith("http"):
-                    urls.append(im)
-                elif isinstance(im, dict):
-                    u = im.get("url_default") or im.get("url") or im.get("origin_url")
-                    if isinstance(u, str) and u.startswith("http"):
-                        urls.append(u)
+        if not isinstance(lst, list):
+            continue
+        for im in lst:
+            u = _image_url_from_item(im)
+            if u:
+                urls.append(u)
     seen: set[str] = set()
     uniq: List[str] = []
     for u in urls:
         if u not in seen:
             seen.add(u)
             uniq.append(u)
+    logger.info("xhs note detail image_urls_count=%s", len(uniq))
     return title, text, uniq
 
 
@@ -484,7 +519,7 @@ async def _download_image_b64(url: str) -> Optional[Dict[str, str]]:
             if len(raw) > 4_000_000:
                 return None
     except Exception as e:
-        logger.debug("下载小红书图片失败 %s: %s", url[:80], e)
+        logger.warning("下载小红书图片失败 %s: %s", url[:80], e)
         return None
     ct = (r.headers.get("content-type") or "image/jpeg").split(";")[0].strip()
     if not ct.startswith("image/"):

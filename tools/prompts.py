@@ -111,11 +111,15 @@ X_TOOL_DIRECTIVE = (
 )
 
 XHS_TOOL_DIRECTIVE = (
-    "【小红书】可用工具：search_xhs（关键词搜笔记）、read_xhs_note（读单篇详情，含配图摘要）、"
-    "get_xhs_feed（首页推荐）、get_xhs_user（用户主页与 TA 的笔记列表）、like_xhs_note（点赞）、favorite_xhs_note（收藏）。\n"
-    "读类操作（搜索、读文、刷推荐、看用户）累计「日读配额」，按返回条数计；点赞/收藏占用「日写配额」，每次 +1。"
+    "【小红书】可用工具：read_xhs_note（读单篇详情，含配图摘要）。\n"
+    # "search_xhs（关键词搜笔记）、"
+    # "get_xhs_feed（首页推荐）、get_xhs_user（用户主页与 TA 的笔记列表）、"
+    # "like_xhs_note（点赞）、favorite_xhs_note（收藏）。\n"
+    "读文占用「日读配额」，每次 +1。"
+    # "读类操作（搜索、读文、刷推荐、看用户）累计「日读配额」，按返回条数计；"
+    # "点赞/收藏占用「日写配额」，每次 +1。"
     "超限会返回错误，勿反复重试。用户仅发链接时系统可能已自动注入正文与配图，无需重复 read。"
-    "禁止代替用户做未明确同意的点赞/收藏。"
+    # "禁止代替用户做未明确同意的点赞/收藏。"
 )
 
 OPENAI_WEATHER_TOOLS: List[Dict[str, Any]] = [
@@ -492,30 +496,30 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
 ]
 
 OPENAI_XHS_TOOLS: List[Dict[str, Any]] = [
-    {
-        "type": "function",
-        "function": {
-            "name": "search_xhs",
-            "description": "在小红书按关键词搜索笔记（标题/摘要/点赞/note_id）",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "keyword": {"type": "string", "description": "搜索关键词"},
-                    "sort_by": {
-                        "type": "string",
-                        "description": "排序：general 综合、popular 最热、latest 最新",
-                        "enum": ["general", "popular", "latest"],
-                    },
-                    "note_type": {
-                        "type": "string",
-                        "description": "笔记类型",
-                        "enum": ["all", "video", "image"],
-                    },
-                },
-                "required": ["keyword"],
-            },
-        },
-    },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "search_xhs",
+    #         "description": "在小红书按关键词搜索笔记（标题/摘要/点赞/note_id）",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "keyword": {"type": "string", "description": "搜索关键词"},
+    #                 "sort_by": {
+    #                     "type": "string",
+    #                     "description": "排序：general 综合、popular 最热、latest 最新",
+    #                     "enum": ["general", "popular", "latest"],
+    #                 },
+    #                 "note_type": {
+    #                     "type": "string",
+    #                     "description": "笔记类型",
+    #                     "enum": ["all", "video", "image"],
+    #                 },
+    #             },
+    #             "required": ["keyword"],
+    #         },
+    #     },
+    # },
     {
         "type": "function",
         "function": {
@@ -533,56 +537,56 @@ OPENAI_XHS_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_xhs_feed",
-            "description": "获取小红书首页推荐笔记列表",
-            "parameters": {"type": "object", "properties": {}, "required": []},
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_xhs_user",
-            "description": "查看小红书用户主页信息与已发布笔记列表",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "user_id": {"type": "string", "description": "用户 user_id"},
-                },
-                "required": ["user_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "like_xhs_note",
-            "description": "为指定小红书笔记点赞（消耗日写配额）",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "note_id": {"type": "string", "description": "笔记 ID"},
-                },
-                "required": ["note_id"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "favorite_xhs_note",
-            "description": "收藏（书签）指定小红书笔记（消耗日写配额）",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "note_id": {"type": "string", "description": "笔记 ID"},
-                },
-                "required": ["note_id"],
-            },
-        },
-    },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "get_xhs_feed",
+    #         "description": "获取小红书首页推荐笔记列表",
+    #         "parameters": {"type": "object", "properties": {}, "required": []},
+    #     },
+    # },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "get_xhs_user",
+    #         "description": "查看小红书用户主页信息与已发布笔记列表",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "user_id": {"type": "string", "description": "用户 user_id"},
+    #             },
+    #             "required": ["user_id"],
+    #         },
+    #     },
+    # },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "like_xhs_note",
+    #         "description": "为指定小红书笔记点赞（消耗日写配额）",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "note_id": {"type": "string", "description": "笔记 ID"},
+    #             },
+    #             "required": ["note_id"],
+    #         },
+    #     },
+    # },
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "favorite_xhs_note",
+    #         "description": "收藏（书签）指定小红书笔记（消耗日写配额）",
+    #         "parameters": {
+    #             "type": "object",
+    #             "properties": {
+    #                 "note_id": {"type": "string", "description": "笔记 ID"},
+    #             },
+    #             "required": ["note_id"],
+    #         },
+    #     },
+    # },
 ]
 
 TOOL_DIRECTIVES: Dict[str, str] = {
