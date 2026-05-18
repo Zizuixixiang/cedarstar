@@ -679,7 +679,8 @@ async def get_memory_cards(
     user_id: Optional[str] = None,
     character_id: Optional[str] = None,
     dimension: Optional[str] = None,
-    limit: int = 50
+    keyword: Optional[str] = None,
+    limit: int = 50,
 ):
     """获取记忆卡片列表（从真实数据库读取）。"""
     from memory.database import get_database
@@ -688,10 +689,19 @@ async def get_memory_cards(
         db = get_database()
         
         if user_id and character_id:
-            cards = await db.get_memory_cards(user_id, character_id, dimension, limit)
+            cards = await db.get_memory_cards(
+                user_id,
+                character_id,
+                dimension,
+                limit,
+                keyword=(keyword or "").strip() or None,
+            )
         else:
             # 获取所有激活的卡片
-            cards = await db.get_all_active_memory_cards(limit=limit)
+            cards = await db.get_all_active_memory_cards(
+                limit=limit,
+                keyword=(keyword or "").strip() or None,
+            )
         
         return create_response(True, cards, "获取记忆卡片成功")
     except Exception as e:
@@ -764,6 +774,7 @@ async def list_summaries(
     context_only: bool = False,
     starred_only: bool = False,
     session_kind: Optional[str] = None,
+    keyword: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
 ):
@@ -876,6 +887,7 @@ async def list_summaries(
                 source_date_to=d_to,
                 starred_only=starred_only,
                 session_kind=sk,
+                keyword=(keyword or "").strip() or None,
             )
     except ValueError as e:
         return create_response(False, None, str(e))
@@ -1293,12 +1305,12 @@ async def delete_longterm_memory(chroma_doc_id: str):
 
 
 @router.get("/temporal-states")
-async def list_temporal_states(days: Optional[int] = None):
+async def list_temporal_states(days: Optional[int] = None, keyword: Optional[str] = None):
     """列出全部 temporal_states（含已停用），按 created_at 倒序。可选 days 过滤最近 N 天。"""
     from memory.database import list_temporal_states_all
 
     try:
-        rows = await list_temporal_states_all(days=days)
+        rows = await list_temporal_states_all(days=days, keyword=(keyword or "").strip() or None)
         return create_response(True, rows, "获取时效状态成功")
     except Exception as e:
         logger.error(f"获取时效状态失败: {e}")
@@ -1373,12 +1385,18 @@ async def soft_delete_temporal_state(state_id: str):
 
 
 @router.get("/relationship-timeline")
-async def list_relationship_timeline_all(days: Optional[int] = None):
+async def list_relationship_timeline_all(
+    days: Optional[int] = None,
+    keyword: Optional[str] = None,
+):
     """全部关系时间线，按 created_at 倒序。可选 days 过滤最近 N 天。"""
     from memory.database import list_relationship_timeline_all_desc
 
     try:
-        rows = await list_relationship_timeline_all_desc(days=days)
+        rows = await list_relationship_timeline_all_desc(
+            days=days,
+            keyword=(keyword or "").strip() or None,
+        )
         return create_response(True, rows, "获取关系时间线成功")
     except Exception as e:
         logger.error(f"获取关系时间线失败: {e}")
@@ -1559,4 +1577,3 @@ async def reject_approval(approval_id: str, body: ApprovalRejectRequest):
         {"approval_id": approval_id, "status": "rejected"},
         "approval rejected",
     )
-

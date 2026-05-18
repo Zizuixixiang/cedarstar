@@ -806,6 +806,8 @@ async def migrate_database_schema(conn) -> None:
         "ALTER TABLE persona_configs ADD COLUMN IF NOT EXISTS enable_rcommunity INTEGER NOT NULL DEFAULT 0"
     )
 
+    await conn.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm")
+
     index_statements = [
         "CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages (session_id, created_at)",
         "CREATE INDEX IF NOT EXISTS idx_messages_is_summarized ON messages (is_summarized)",
@@ -825,23 +827,29 @@ async def migrate_database_schema(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_summaries_source_date ON summaries (source_date)",
         "CREATE INDEX IF NOT EXISTS idx_summaries_archived_by ON summaries (archived_by)",
         "CREATE INDEX IF NOT EXISTS idx_summaries_is_starred ON summaries (is_starred)",
+        "CREATE INDEX IF NOT EXISTS idx_summaries_summary_text_trgm ON summaries USING GIN (summary_text gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_longterm_source_chunks ON longterm_memories USING GIN (source_chunk_ids)",
         "CREATE INDEX IF NOT EXISTS idx_longterm_is_starred ON longterm_memories (is_starred)",
+        "CREATE INDEX IF NOT EXISTS idx_longterm_memories_content_trgm ON longterm_memories USING GIN (content gin_trgm_ops)",
         (
             "CREATE INDEX IF NOT EXISTS idx_memory_cards_user_character "
             "ON memory_cards (user_id, character_id, dimension, updated_at)"
         ),
         "CREATE INDEX IF NOT EXISTS idx_memory_cards_user_active ON memory_cards (user_id, is_active)",
         "CREATE INDEX IF NOT EXISTS idx_memory_cards_is_active ON memory_cards (is_active)",
+        "CREATE INDEX IF NOT EXISTS idx_memory_cards_content_trgm ON memory_cards USING GIN (content gin_trgm_ops)",
         (
             "CREATE INDEX IF NOT EXISTS idx_temporal_states_expire_active "
             "ON temporal_states (expire_at, is_active)"
         ),
         "CREATE INDEX IF NOT EXISTS idx_temporal_states_is_active ON temporal_states (is_active)",
+        "CREATE INDEX IF NOT EXISTS idx_temporal_states_content_trgm ON temporal_states USING GIN (state_content gin_trgm_ops)",
+        "CREATE INDEX IF NOT EXISTS idx_temporal_states_action_rule_trgm ON temporal_states USING GIN (action_rule gin_trgm_ops)",
         (
             "CREATE INDEX IF NOT EXISTS idx_relationship_timeline_created_at "
             "ON relationship_timeline (created_at)"
         ),
+        "CREATE INDEX IF NOT EXISTS idx_relationship_timeline_content_trgm ON relationship_timeline USING GIN (content gin_trgm_ops)",
         "CREATE INDEX IF NOT EXISTS idx_logs_created_at ON logs (created_at)",
         "CREATE INDEX IF NOT EXISTS idx_token_usage_created_at ON token_usage (created_at)",
         (
@@ -2721,32 +2729,46 @@ class MessageDatabase:
         character_id: str,
         dimension: Optional[str] = None,
         limit: int = 50,
+        keyword: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """获取用户的记忆卡片（仅 is_active=1）。"""
+        kw = (keyword or "").strip()
         async with self.pool.acquire() as conn:
             if dimension:
+                cond = "user_id = $1 AND character_id = $2 AND dimension = $3 AND is_active = 1"
+                params: List[Any] = [user_id, character_id, dimension]
+                if kw:
+                    params.append(f"%{kw}%")
+                    cond += f" AND content ILIKE ${len(params)}"
+                params.append(limit)
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT id, user_id, character_id, dimension, content,
                            updated_at, source_message_id, is_active
                     FROM memory_cards
-                    WHERE user_id = $1 AND character_id = $2 AND dimension = $3 AND is_active = 1
+                    WHERE {cond}
                     ORDER BY updated_at DESC
-                    LIMIT $4
+                    LIMIT ${len(params)}
                     """,
-                    user_id, character_id, dimension, limit,
+                    *params,
                 )
             else:
+                cond = "user_id = $1 AND character_id = $2 AND is_active = 1"
+                params = [user_id, character_id]
+                if kw:
+                    params.append(f"%{kw}%")
+                    cond += f" AND content ILIKE ${len(params)}"
+                params.append(limit)
                 rows = await conn.fetch(
-                    """
+                    f"""
                     SELECT id, user_id, character_id, dimension, content,
                            updated_at, source_message_id, is_active
                     FROM memory_cards
-                    WHERE user_id = $1 AND character_id = $2 AND is_active = 1
+                    WHERE {cond}
                     ORDER BY updated_at DESC
-                    LIMIT $3
+                    LIMIT ${len(params)}
                     """,
-                    user_id, character_id, limit,
+                    *params,
                 )
         cards = [
             {
@@ -3036,6 +3058,7 @@ class MessageDatabase:
         only_unarchived: bool = False,
         starred_only: bool = False,
         session_kind: Optional[str] = None,
+        keyword: Optional[str] = None,
     ) -> Tuple[List[Dict[str, Any]], int]:
         """
         分页查询 summaries；可选 summary_type（chunk/daily）、内容日区间（起止 YYYY-MM-DD，可只填一侧）。
@@ -3089,6 +3112,11 @@ class MessageDatabase:
 
         if starred_only:
             conds.append("is_starred = TRUE")
+
+        kw = (keyword or "").strip()
+        if kw:
+            params.append(f"%{kw}%")
+            conds.append(f"summary_text ILIKE ${len(params)}")
 
         sk = (session_kind or "").strip().lower()
         if sk == "group":
@@ -3437,19 +3465,30 @@ class MessageDatabase:
         logger.debug("获取会话 %s 的未摘要消息: %s 条", session_id, len(messages))
         return messages
 
-    async def get_all_active_memory_cards(self, limit: int = 100) -> List[Dict[str, Any]]:
+    async def get_all_active_memory_cards(
+        self,
+        limit: int = 100,
+        keyword: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """获取所有激活的记忆卡片（全局查询）。"""
+        cond = "is_active = 1"
+        params: List[Any] = []
+        kw = (keyword or "").strip()
+        if kw:
+            params.append(f"%{kw}%")
+            cond += f" AND content ILIKE ${len(params)}"
+        params.append(limit)
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
-                """
+                f"""
                 SELECT id, user_id, character_id, dimension, content,
                        updated_at, source_message_id, is_active
                 FROM memory_cards
-                WHERE is_active = 1
+                WHERE {cond}
                 ORDER BY dimension ASC, updated_at DESC
-                LIMIT $1
+                LIMIT ${len(params)}
                 """,
-                limit,
+                *params,
             )
         cards = [
             {
@@ -4636,19 +4675,30 @@ class MessageDatabase:
             for r in rows
         ]
 
-    async def list_temporal_states_all(self, days: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def list_temporal_states_all(
+        self,
+        days: Optional[int] = None,
+        keyword: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """全部 temporal_states，按 created_at 倒序（管理端）。可选 days 过滤最近 N 天。"""
-        conds = "TRUE"
+        conds = ["TRUE"]
         params: List[Any] = []
         if days is not None and days > 0:
             params.append(days)
-            conds = f"created_at >= NOW() - (${len(params)}::int || ' days')::interval"
+            conds.append(f"created_at >= NOW() - (${len(params)}::int || ' days')::interval")
+        kw = (keyword or "").strip()
+        if kw:
+            params.append(f"%{kw}%")
+            conds.append(
+                f"(COALESCE(state_content, '') ILIKE ${len(params)} "
+                f"OR COALESCE(action_rule, '') ILIKE ${len(params)})"
+            )
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
                 SELECT id, state_content, action_rule, expire_at, is_active, created_at
                 FROM temporal_states
-                WHERE {conds}
+                WHERE {' AND '.join(conds)}
                 ORDER BY created_at DESC
                 """,
                 *params,
@@ -4756,19 +4806,27 @@ class MessageDatabase:
                 is_active,
             )
 
-    async def list_relationship_timeline_all_desc(self, days: Optional[int] = None) -> List[Dict[str, Any]]:
+    async def list_relationship_timeline_all_desc(
+        self,
+        days: Optional[int] = None,
+        keyword: Optional[str] = None,
+    ) -> List[Dict[str, Any]]:
         """全部 relationship_timeline，按 created_at 倒序。可选 days 过滤最近 N 天。"""
-        conds = "TRUE"
+        conds = ["TRUE"]
         params: List[Any] = []
         if days is not None and days > 0:
             params.append(days)
-            conds = f"created_at >= NOW() - (${len(params)}::int || ' days')::interval"
+            conds.append(f"created_at >= NOW() - (${len(params)}::int || ' days')::interval")
+        kw = (keyword or "").strip()
+        if kw:
+            params.append(f"%{kw}%")
+            conds.append(f"COALESCE(content, '') ILIKE ${len(params)}")
         async with self.pool.acquire() as conn:
             rows = await conn.fetch(
                 f"""
                 SELECT id, created_at, event_type, content, source_summary_id
                 FROM relationship_timeline
-                WHERE {conds}
+                WHERE {' AND '.join(conds)}
                 ORDER BY created_at DESC
                 """,
                 *params,
@@ -6443,8 +6501,11 @@ async def get_memory_cards(
     character_id: str,
     dimension: Optional[str] = None,
     limit: int = 50,
+    keyword: Optional[str] = None,
 ) -> List[Dict[str, Any]]:
-    return await get_database().get_memory_cards(user_id, character_id, dimension, limit)
+    return await get_database().get_memory_cards(
+        user_id, character_id, dimension, limit, keyword=keyword
+    )
 
 
 async def get_latest_memory_card_for_dimension(
@@ -6520,6 +6581,7 @@ async def get_summaries_filtered(
     only_unarchived: bool = False,
     starred_only: bool = False,
     session_kind: Optional[str] = None,
+    keyword: Optional[str] = None,
 ) -> Tuple[List[Dict[str, Any]], int]:
     return await get_database().get_summaries_filtered(
         page=page,
@@ -6531,6 +6593,7 @@ async def get_summaries_filtered(
         only_unarchived=only_unarchived,
         starred_only=starred_only,
         session_kind=session_kind,
+        keyword=keyword,
     )
 
 
@@ -6607,8 +6670,11 @@ async def get_recent_relationship_timeline(limit: int = 3) -> List[Dict[str, Any
     return await get_database().get_recent_relationship_timeline(limit)
 
 
-async def list_temporal_states_all(days: Optional[int] = None) -> List[Dict[str, Any]]:
-    return await get_database().list_temporal_states_all(days=days)
+async def list_temporal_states_all(
+    days: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await get_database().list_temporal_states_all(days=days, keyword=keyword)
 
 
 async def update_temporal_state(
@@ -6644,8 +6710,11 @@ async def save_temporal_state(
     )
 
 
-async def list_relationship_timeline_all_desc(days: Optional[int] = None) -> List[Dict[str, Any]]:
-    return await get_database().list_relationship_timeline_all_desc(days=days)
+async def list_relationship_timeline_all_desc(
+    days: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await get_database().list_relationship_timeline_all_desc(days=days, keyword=keyword)
 
 
 async def insert_relationship_timeline_event(
@@ -6721,8 +6790,11 @@ async def get_unsummarized_messages_by_session(
     return await get_database().get_unsummarized_messages_by_session(session_id, limit)
 
 
-async def get_all_active_memory_cards(limit: int = 100) -> List[Dict[str, Any]]:
-    return await get_database().get_all_active_memory_cards(limit)
+async def get_all_active_memory_cards(
+    limit: int = 100,
+    keyword: Optional[str] = None,
+) -> List[Dict[str, Any]]:
+    return await get_database().get_all_active_memory_cards(limit, keyword=keyword)
 
 
 async def get_recent_daily_summaries(

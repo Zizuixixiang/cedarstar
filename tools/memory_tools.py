@@ -98,6 +98,10 @@ OPENAI_MEMORY_TOOLS: List[Dict[str, Any]] = [
                         "description": "仅返回收藏的条目，默认 false",
                         "default": False,
                     },
+                    "keyword": {
+                        "type": "string",
+                        "description": "按摘要正文做关键词过滤，可与日期、类型、收藏过滤同时使用",
+                    },
                     "page": {
                         "type": "integer",
                         "description": "页码，默认 1",
@@ -147,6 +151,10 @@ OPENAI_MEMORY_TOOLS: List[Dict[str, Any]] = [
                             "rules",
                         ],
                     },
+                    "keyword": {
+                        "type": "string",
+                        "description": "按卡片正文做关键词过滤",
+                    },
                     "limit": {
                         "type": "integer",
                         "description": "最大条数，默认 50",
@@ -169,6 +177,10 @@ OPENAI_MEMORY_TOOLS: List[Dict[str, Any]] = [
                         "type": "integer",
                         "description": "仅返回最近 N 天的状态，省略则返回全部",
                     },
+                    "keyword": {
+                        "type": "string",
+                        "description": "按状态内容或行为规则做关键词过滤",
+                    },
                 },
                 "required": [],
             },
@@ -185,6 +197,10 @@ OPENAI_MEMORY_TOOLS: List[Dict[str, Any]] = [
                     "days": {
                         "type": "integer",
                         "description": "仅返回最近 N 天的条目，省略则返回全部",
+                    },
+                    "keyword": {
+                        "type": "string",
+                        "description": "按关系时间线正文做关键词过滤",
                     },
                 },
                 "required": [],
@@ -406,6 +422,8 @@ async def execute_memory_get_summaries(arguments: Dict[str, Any]) -> str:
         params["summary_type"] = str(args["summary_type"]).strip()
     if args.get("starred_only"):
         params["starred_only"] = True
+    if args.get("keyword"):
+        params["keyword"] = str(args["keyword"]).strip()
     params["page"] = int(args.get("page") or 1)
     params["page_size"] = int(args.get("page_size") or 20)
     return await _api_get("/memory/summaries", params)
@@ -418,6 +436,8 @@ async def execute_memory_get_cards(arguments: Dict[str, Any]) -> str:
         params["character_id"] = str(args["character_id"]).strip()
     if args.get("dimension"):
         params["dimension"] = str(args["dimension"]).strip()
+    if args.get("keyword"):
+        params["keyword"] = str(args["keyword"]).strip()
     params["limit"] = int(args.get("limit") or 50)
     return await _api_get("/memory/cards", params)
 
@@ -427,6 +447,8 @@ async def execute_memory_get_temporal_states(arguments: Dict[str, Any]) -> str:
     params: Dict[str, Any] = {}
     if args.get("days"):
         params["days"] = int(args["days"])
+    if args.get("keyword"):
+        params["keyword"] = str(args["keyword"]).strip()
     return await _api_get("/memory/temporal-states", params)
 
 
@@ -435,6 +457,8 @@ async def execute_memory_get_relationship_timeline(arguments: Dict[str, Any]) ->
     params: Dict[str, Any] = {}
     if args.get("days"):
         params["days"] = int(args["days"])
+    if args.get("keyword"):
+        params["keyword"] = str(args["keyword"]).strip()
     return await _api_get("/memory/relationship-timeline", params)
 
 

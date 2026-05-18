@@ -328,11 +328,12 @@ async def get_recent_summaries(
     summary_type: Optional[str] = None,
     only_unarchived: bool = False,
     source_filter: Optional[str] = None,
+    keyword: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
 ) -> str:
     """分页列出 summaries。date: 具体日期 YYYY-MM-DD；days: 最近 N 天。summary_type: chunk/daily/省略=全部。
-    only_unarchived: 仅未归档。source_filter: internal/claude_web/省略=全部。
+    only_unarchived: 仅未归档。source_filter: internal/claude_web/省略=全部。keyword: 按摘要正文关键词过滤。
     """
     try:
         from memory.database import get_summaries_filtered
@@ -353,6 +354,7 @@ async def get_recent_summaries(
             source_date_to=source_date_to,
             source_filter=source_filter,
             only_unarchived=only_unarchived,
+            keyword=(keyword or "").strip() or None,
         )
         return json.dumps({
             "success": True,
@@ -371,16 +373,26 @@ async def get_memory_cards(
     user_id: Optional[str] = None,
     character_id: Optional[str] = None,
     dimension: Optional[str] = None,
+    keyword: Optional[str] = None,
     limit: int = 50,
 ) -> str:
-    """获取记忆卡片列表。不传 user_id/character_id 时返回全部激活卡片。"""
+    """获取记忆卡片列表。不传 user_id/character_id 时返回全部激活卡片。keyword 按卡片正文过滤。"""
     try:
         from memory.database import get_database
         db = get_database()
         if user_id and character_id:
-            cards = await db.get_memory_cards(user_id, character_id, dimension, limit)
+            cards = await db.get_memory_cards(
+                user_id,
+                character_id,
+                dimension,
+                limit,
+                keyword=(keyword or "").strip() or None,
+            )
         else:
-            cards = await db.get_all_active_memory_cards(limit=limit)
+            cards = await db.get_all_active_memory_cards(
+                limit=limit,
+                keyword=(keyword or "").strip() or None,
+            )
         return json.dumps({"success": True, "cards": cards}, ensure_ascii=False, default=str)
     except Exception as e:
         logger.error("get_memory_cards 失败: %s", e)
@@ -388,11 +400,14 @@ async def get_memory_cards(
 
 
 @mcp.tool()
-async def get_temporal_states() -> str:
-    """列出全部 temporal_states（含已停用），按 created_at 倒序。"""
+async def get_temporal_states(
+    days: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> str:
+    """列出 temporal_states（含已停用），按 created_at 倒序。days 限定最近 N 天，keyword 按内容/规则过滤。"""
     try:
         from memory.database import list_temporal_states_all
-        rows = await list_temporal_states_all()
+        rows = await list_temporal_states_all(days=days, keyword=(keyword or "").strip() or None)
         return json.dumps({"success": True, "states": rows}, ensure_ascii=False, default=str)
     except Exception as e:
         logger.error("get_temporal_states 失败: %s", e)
@@ -400,11 +415,17 @@ async def get_temporal_states() -> str:
 
 
 @mcp.tool()
-async def get_relationship_timeline() -> str:
-    """全部关系时间线，按 created_at 倒序。"""
+async def get_relationship_timeline(
+    days: Optional[int] = None,
+    keyword: Optional[str] = None,
+) -> str:
+    """关系时间线，按 created_at 倒序。days 限定最近 N 天，keyword 按正文过滤。"""
     try:
         from memory.database import list_relationship_timeline_all_desc
-        rows = await list_relationship_timeline_all_desc()
+        rows = await list_relationship_timeline_all_desc(
+            days=days,
+            keyword=(keyword or "").strip() or None,
+        )
         return json.dumps({"success": True, "timeline": rows}, ensure_ascii=False, default=str)
     except Exception as e:
         logger.error("get_relationship_timeline 失败: %s", e)
