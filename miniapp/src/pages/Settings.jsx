@@ -86,7 +86,7 @@ const applyFavoriteModelOrder = (favorites, orderList) => {
   return out;
 };
 
-const isConfigActive = (cfg) => cfg?.is_active === 1 || cfg?.is_active === true;
+const isConfigActive = (cfg) => Number(cfg?.is_active) === 1;
 
 const formatTestResultBody = (data, reply) => {
   const lines = [];
@@ -927,11 +927,17 @@ function Settings() {
   };
 
   const handleDeactivate = async (id) => {
-    const res = await apiFetch(`/api/settings/api-configs/${id}/deactivate`, { method: 'PUT' });
-    const data = await res.json();
-    if (data.success) {
-      toast.success('✓ 已取消激活', { autoClose: 2000 });
-      fetchConfigs(activeTabRef.current);
+    try {
+      const res = await apiFetch(`/api/settings/api-configs/${id}/deactivate`, { method: 'PUT' });
+      const data = await res.json();
+      if (data.success) {
+        toast.success('✓ 已取消激活', { autoClose: 2000 });
+        fetchConfigs(activeTabRef.current);
+      } else {
+        toast.error(data.message || '取消激活失败');
+      }
+    } catch {
+      toast.error('网络错误，取消激活失败');
     }
   };
 

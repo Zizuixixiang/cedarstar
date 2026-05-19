@@ -47,6 +47,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `idle_activity_end_hour` | 自主活动允许结束小时（东八区，0-23） |
 | `idle_activity_next_trigger_at` | AI 声明的下次自主活动触发时间（ISO UTC）；空表示未设置，走 `idle_activity_cooldown_min` |
 | `stardew_autoplay` | 星露谷自动模式：为 true 时 idle 调度每 3 分钟触发，`check_and_trigger` 跳过普通 idle 条件并注入 `[STARDEW_AUTO]` 虚拟用户句；助手回复中含 `[STARDEW_STOP]` 时自动写回 false |
+| `api_failover_fail_count_{id}` | 单条 `api_configs` 连续可转移失败次数；达 5 次自动取消激活后清零 |
+| `api_failover_all_failed_alert_latch_{config_type}` | 该类型 API 激活池「全失败」Telegram 是否已提醒（`1`=已发；恢复后清零，告警正文不入 `messages`） |
 | `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
 | `xhs_daily_read_limit` | 小红书工具日读配额上限（`config` 表键；默认 80） |
 | `xhs_daily_write_limit` | 小红书工具日写配额上限（`config` 表键；默认 30） |
@@ -82,6 +84,14 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `analysis`：日终 Step 4 事件聚类、描述与打分；不可用时回退 `summary`
 - `rerank`：长期记忆精排（SiliconFlow Qwen3-Reranker-4B）
 - `tts`：语音合成（MiniMax T2A v2，国内域名 `api.minimaxi.com`）；`api_configs` 中需配置 `api_key` 与 `voice_id`
+
+**激活池与 API 故障转移**（与 `ARCHITECTURE.md` §2.3 一致，`memory/database.py` + `llm/llm_interface.py`）：
+
+- 同一 `config_type` 可多行 `is_active=1`（Mini App「加入激活池」）；`activate` 不取消同类型其它行，`deactivate` 单独取消。
+- `get_active_api_configs` 按 `id ASC`；`LLMInterface.create` 加载整池，HTTP 经 `_post_with_api_failover`：**仅报错时**按 id 切下一渠道，成功不换。
+- 可转移错误含 401/403/429/5xx、超时与连接异常；单渠道内 429/503 仍先 `_post_with_retry`。
+- 同一配置 id 连续可转移失败 **5 次** → 自动 `deactivate`；计数键 `api_failover_fail_count_{id}`；成功或重新激活则清零。
+- 本轮池内全部失败：一次性 Telegram（`TELEGRAM_MAIN_USER_CHAT_ID` + `TELEGRAM_BOT_TOKEN`），latch 键 `api_failover_all_failed_alert_latch_{config_type}`；池空或仅 `.env` 回退时不发。`main.py` 注册 `register_llm_failover_event_loop`。
 
 ### 2.3 `persona_configs`
 
@@ -314,6 +324,8 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 `[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）；自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。
 
 **下次触发时间（可选）**：触发句末尾注入当前北京时间，模型可在回复末尾写 `[NEXT_AT_HH:MM]`（东八区）；系统解析后写入 `idle_activity_next_trigger_at`（UTC ISO，已过时刻则顺延至次日）。调度 tick 在启用检查之后、时段/阈值/冷却之前：若该键为未来时间则跳过；无标记则清空该键并走原冷却与概率。用户可见正文会剥除 `[NEXT_AT_...]`。
+
+**LLM 外层重试**（`bot/idle_activity.py`）：`complete_with_lutopia_tool_loop` 失败且 `_is_retriable_idle_llm_exc` 时最多再试 3 次（间隔 10s / 15s / 30s）；仍失败可向私聊发「自主活动失败」提醒（不入库 `messages`）。与主对话相同，走 API 激活池与 `_post_with_api_failover`。
 
 额外支持「星露谷自动模式」：
 
