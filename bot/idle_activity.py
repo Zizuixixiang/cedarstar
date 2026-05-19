@@ -7,7 +7,8 @@ AI 自主活动（Idle Activity）模块。
 import asyncio
 import logging
 import random
-from datetime import datetime, timezone
+import re
+from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
 import pytz
@@ -20,37 +21,104 @@ from memory.database import save_message
 
 logger = logging.getLogger(__name__)
 
-# 上游 429（限流）时的外层重试节奏；每次延迟与重试次数对齐。
-_RATE_LIMIT_RETRY_DELAYS = (10, 10, 10)
+# 自主活动 LLM 外层重试：每次延迟秒数（共 1 + len 次请求）
+_IDLE_LLM_RETRY_DELAYS = (10, 15, 30)
+_RETRIABLE_HTTP_STATUS = frozenset({401, 403, 429, 500, 502, 503, 504})
 
 
-def _is_rate_limit_exc(exc: BaseException, _seen: Optional[set] = None) -> bool:
-    """识别 HTTP 429 限流：递归解包 ExceptionGroup / __cause__ / __context__。"""
+def _walk_exc_chain(exc: BaseException, _seen: Optional[set] = None):
+    """递归遍历异常链（含 ExceptionGroup）。"""
     if exc is None:
-        return False
+        return
     seen = _seen if _seen is not None else set()
     eid = id(exc)
     if eid in seen:
-        return False
+        return
     seen.add(eid)
-    if isinstance(exc, requests.exceptions.HTTPError):
-        resp = getattr(exc, "response", None)
-        if resp is not None and getattr(resp, "status_code", None) == 429:
-            return True
-    msg = str(exc) or ""
-    if "429" in msg or "rate_limit_exceeded" in msg.lower() or "rate limit" in msg.lower():
-        return True
-    # asyncio.TaskGroup 抛出的 BaseExceptionGroup（Python 3.11+）
+    yield exc
     sub_excs = getattr(exc, "exceptions", None)
     if isinstance(sub_excs, (list, tuple)):
         for sub in sub_excs:
-            if _is_rate_limit_exc(sub, seen):
-                return True
-    if exc.__cause__ is not None and _is_rate_limit_exc(exc.__cause__, seen):
+            yield from _walk_exc_chain(sub, seen)
+    if exc.__cause__ is not None:
+        yield from _walk_exc_chain(exc.__cause__, seen)
+    if exc.__context__ is not None:
+        yield from _walk_exc_chain(exc.__context__, seen)
+
+
+def _http_status_from_exc(exc: BaseException) -> Optional[int]:
+    for node in _walk_exc_chain(exc):
+        if isinstance(node, requests.exceptions.HTTPError):
+            resp = getattr(node, "response", None)
+            if resp is not None:
+                code = getattr(resp, "status_code", None)
+                if isinstance(code, int):
+                    return code
+    return None
+
+
+def _is_retriable_idle_llm_exc(exc: BaseException) -> bool:
+    """自主活动 LLM 可重试：429/5xx/401/403、超时与连接类瞬时故障。"""
+    status = _http_status_from_exc(exc)
+    if status is not None and status in _RETRIABLE_HTTP_STATUS:
         return True
-    if exc.__context__ is not None and _is_rate_limit_exc(exc.__context__, seen):
+    for node in _walk_exc_chain(exc):
+        if isinstance(
+            node,
+            (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+            ),
+        ):
+            return True
+    msg = (str(exc) or "").lower()
+    if not msg:
+        return False
+    if "read timed out" in msg or "timed out" in msg:
         return True
+    if "connection" in msg and ("reset" in msg or "aborted" in msg or "refused" in msg):
+        return True
+    for token in (
+        "rate_limit",
+        "rate limit",
+        "429",
+        "internal server error",
+        "bad gateway",
+        "gateway timeout",
+        "502",
+        "503",
+        "504",
+        "500 server error",
+        "401 client error",
+        "403 client error",
+        "unauthorized",
+        "forbidden",
+    ):
+        if token in msg:
+            return True
     return False
+
+
+def _idle_llm_failure_reason(exc: BaseException) -> str:
+    """失败提醒用简短原因（取异常链上最有代表性的 HTTP 状态）。"""
+    status = _http_status_from_exc(exc)
+    if status == 429:
+        return "上游限流（HTTP 429）"
+    if status == 401:
+        return "上游鉴权失败（HTTP 401）"
+    if status == 403:
+        return "上游拒绝（HTTP 403，常见为额度不足）"
+    if status in (500, 502, 503, 504):
+        return f"上游错误（HTTP {status}）"
+    for node in _walk_exc_chain(exc):
+        if isinstance(node, requests.exceptions.Timeout):
+            return "LLM 请求超时"
+        if isinstance(node, requests.exceptions.ConnectionError):
+            return "LLM 连接失败"
+    msg = str(exc) or ""
+    if "timed out" in msg.lower():
+        return "LLM 请求超时"
+    return type(exc).__name__
 
 # 自主活动档位：只绑定“每次检查命中率”
 IDLE_LEVELS = {
@@ -79,6 +147,12 @@ STARDEW_AUTOPLAY_TRIGGER_TEXT = (
 )
 
 STOP_TAG_STARDEW = "[STARDEW_STOP]"
+NEXT_AT_TAG_PREFIX = "[NEXT_AT_"
+_CONFIG_KEY_NEXT_TRIGGER_AT = "idle_activity_next_trigger_at"
+_NEXT_AT_TAG_RE = re.compile(
+    re.escape(NEXT_AT_TAG_PREFIX) + r"(\d{1,2}):(\d{2})\]",
+    re.IGNORECASE,
+)
 _SHANGHAI_TZ = pytz.timezone("Asia/Shanghai")
 
 # 与落库 / Telegram 发送拼接一致；若模型从历史里模仿写出，先剥掉再统一加一层。
@@ -110,6 +184,46 @@ def _is_truthy(v: Optional[str]) -> bool:
     return str(v or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _append_idle_next_at_hint(text: str) -> str:
+    """在触发文案末尾注入当前北京时间与 [NEXT_AT_HH:MM] 说明。"""
+    now_sh = datetime.now(_SHANGHAI_TZ)
+    hhmm = f"{now_sh.hour:02d}:{now_sh.minute:02d}"
+    return (
+        f"{text}\n当前北京时间 {hhmm}。如需指定下次活动时间，请在回复末尾加上 "
+        f"[NEXT_AT_HH:MM]（24小时制，北京时间），否则不加。"
+    )
+
+
+def _parse_next_at_tag_to_utc(reply_text: str) -> Optional[datetime]:
+    """从回复中解析 [NEXT_AT_HH:MM]（北京时间），返回 UTC aware datetime。"""
+    m = _NEXT_AT_TAG_RE.search(reply_text)
+    if not m:
+        return None
+    hour, minute = int(m.group(1)), int(m.group(2))
+    if hour < 0 or hour > 23 or minute < 0 or minute > 59:
+        return None
+    now_sh = datetime.now(_SHANGHAI_TZ)
+    target_sh = now_sh.replace(hour=hour, minute=minute, second=0, microsecond=0)
+    if target_sh <= now_sh:
+        target_sh += timedelta(days=1)
+    return target_sh.astimezone(timezone.utc)
+
+
+def _strip_next_at_tag(text: str) -> str:
+    """去掉回复中的 [NEXT_AT_...] 标记，避免发给用户。"""
+    return _NEXT_AT_TAG_RE.sub("", text).strip()
+
+
+async def _apply_idle_next_trigger_at(db, reply_text: str) -> None:
+    """根据回复中的 NEXT_AT 标记写入或清空下次触发时间。"""
+    next_utc = _parse_next_at_tag_to_utc(reply_text)
+    if next_utc is not None:
+        await db.set_config(_CONFIG_KEY_NEXT_TRIGGER_AT, next_utc.isoformat())
+        logger.info("[idle] next trigger scheduled at %s (UTC)", next_utc.isoformat())
+    else:
+        await db.set_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "")
+
+
 def _format_shanghai_timestamp(ts: Any) -> Optional[str]:
     """将时间格式化为东八区可读文本：YYYY年M月D日 HH:MM。"""
     if not isinstance(ts, datetime):
@@ -133,6 +247,16 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
     enabled = await db.get_config("idle_activity_enabled", "false")
     if not _is_truthy(enabled):
         return
+
+    next_at_raw = str(await db.get_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "") or "").strip()
+    if next_at_raw:
+        try:
+            next_at_utc = _to_aware_utc(datetime.fromisoformat(next_at_raw))
+            if next_at_utc is not None and datetime.now(timezone.utc) < next_at_utc:
+                logger.debug("[idle] skip tick: waiting for next_trigger_at=%s", next_at_raw)
+                return
+        except ValueError:
+            pass
 
     # 仅在东八区设定时段内允许触发
     now_sh = datetime.now(_SHANGHAI_TZ)
@@ -296,7 +420,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     if stardew_mode:
         idle_trigger_text = STARDEW_AUTOPLAY_TRIGGER_TEXT
     else:
-        idle_trigger_text = _IDLE_TRIGGER_TEXT
+        idle_trigger_text = _append_idle_next_at_hint(_IDLE_TRIGGER_TEXT)
         last_activity = await db.get_latest_idle_user_activity()
         if last_activity and last_activity.get("created_at") is not None:
             last_user_text = _format_shanghai_timestamp(last_activity["created_at"])
@@ -306,7 +430,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
                     if str(last_activity.get("source") or "").lower() == "group"
                     else "私聊/普通通道"
                 )
-                idle_trigger_text = (
+                idle_trigger_text = _append_idle_next_at_hint(
                     f"{_IDLE_TRIGGER_TEXT}\n南杉最后一条{source_text}消息在{last_user_text}。"
                 )
 
@@ -332,7 +456,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     outcome = None
     last_exc: Optional[BaseException] = None
     try:
-        for attempt in range(1 + len(_RATE_LIMIT_RETRY_DELAYS)):
+        for attempt in range(1 + len(_IDLE_LLM_RETRY_DELAYS)):
             try:
                 outcome = await complete_with_lutopia_tool_loop(
                     llm,
@@ -344,19 +468,22 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
                 break
             except Exception as call_exc:
                 last_exc = call_exc
-                if not _is_rate_limit_exc(call_exc) or attempt >= len(_RATE_LIMIT_RETRY_DELAYS):
+                if not _is_retriable_idle_llm_exc(call_exc) or attempt >= len(
+                    _IDLE_LLM_RETRY_DELAYS
+                ):
                     raise
-                delay = _RATE_LIMIT_RETRY_DELAYS[attempt]
+                delay = _IDLE_LLM_RETRY_DELAYS[attempt]
                 logger.warning(
-                    "[idle] LLM 限流(429)，%ss 后重试（第 %s/%s 次）",
+                    "[idle] LLM 可重试错误（%s），%ss 后重试（第 %s/%s 次）",
+                    _idle_llm_failure_reason(call_exc),
                     delay,
                     attempt + 1,
-                    len(_RATE_LIMIT_RETRY_DELAYS),
+                    len(_IDLE_LLM_RETRY_DELAYS),
                 )
                 await asyncio.sleep(delay)
     except Exception as outer_exc:
         tag = "星露谷模式" if stardew_mode else "自主活动"
-        reason = "上游限流（HTTP 429）" if _is_rate_limit_exc(outer_exc) else type(outer_exc).__name__
+        reason = _idle_llm_failure_reason(outer_exc)
         try:
             await tg_bot.send_message(
                 chat_id=chat_id,
@@ -372,6 +499,13 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     reply_text = (outcome.aggregated_assistant_text or outcome.response.content or "").strip()
     reply_text = _strip_leading_idle_assistant_mark(reply_text)
     if not reply_text:
+        return
+
+    reply_text_for_next_at = reply_text
+    reply_text = _strip_next_at_tag(reply_text)
+    if not reply_text:
+        if not stardew_mode:
+            await _apply_idle_next_trigger_at(db, reply_text_for_next_at)
         return
 
     db_content = f"{_IDLE_ASSISTANT_MARK}{reply_text}"
@@ -405,3 +539,6 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     if stardew_mode and STOP_TAG_STARDEW in reply_text:
         await db.set_config("stardew_autoplay", "false")
         logger.info("[idle][stardew] detected STOP, disabled stardew_autoplay")
+
+    if not stardew_mode:
+        await _apply_idle_next_trigger_at(db, reply_text_for_next_at)

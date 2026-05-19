@@ -916,12 +916,21 @@ function Settings() {
     if (!isLoading) fetchTokenStats(period);
   }, [period]);
 
-  /* 激活配置 */
+  /* 加入激活池（同类型可多条，LLM 报错时按 id 顺序切换） */
   const handleActivate = async (id) => {
     const res = await apiFetch(`/api/settings/api-configs/${id}/activate`, { method: 'PUT' });
     const data = await res.json();
     if (data.success) {
-      toast.success('✓ 已激活', { autoClose: 2000 });
+      toast.success('✓ 已加入激活池', { autoClose: 2000 });
+      fetchConfigs(activeTabRef.current);
+    }
+  };
+
+  const handleDeactivate = async (id) => {
+    const res = await apiFetch(`/api/settings/api-configs/${id}/deactivate`, { method: 'PUT' });
+    const data = await res.json();
+    if (data.success) {
+      toast.success('✓ 已取消激活', { autoClose: 2000 });
       fetchConfigs(activeTabRef.current);
     }
   };
@@ -929,7 +938,7 @@ function Settings() {
   /* 删除配置（第一次点击进入待确认态，再次点击才真正删除） */
   const handleDeleteClick = (cfg) => {
     if (cfg.is_active == 1 || cfg.is_active === true) {
-      toast.warning('请先切换到其他配置再删除');
+      toast.warning('请先取消激活后再删除');
       return;
     }
     setConfirmDeleteId(cfg.id);
@@ -1266,7 +1275,7 @@ function Settings() {
                       >
                         {CONFIG_TYPE_LABEL[cfg.config_type] || cfg.config_type}
                       </span>
-                      {isConfigActive(cfg) ? <span className="tag-active">激活中</span> : null}
+                      {isConfigActive(cfg) ? <span className="tag-active">已启用</span> : null}
                     </div>
                     <div className="cfg-compact-body">
                       {cfg.persona_name && (
@@ -1297,9 +1306,13 @@ function Settings() {
                                   {testingConfigId === cfg.id ? '测试中…' : '测试'}
                                 </button>
                               )}
-                              {!isConfigActive(cfg) && (
+                              {isConfigActive(cfg) ? (
+                                <button type="button" className="btn-deactivate" onClick={() => handleDeactivate(cfg.id)}>
+                                  取消激活
+                                </button>
+                              ) : (
                                 <button type="button" className="btn-activate" onClick={() => handleActivate(cfg.id)}>
-                                  设为激活
+                                  加入激活池
                                 </button>
                               )}
                               <button type="button" className="btn-edit" onClick={() => setModalData(cfg)}>编辑</button>

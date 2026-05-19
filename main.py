@@ -333,6 +333,10 @@ async def main_async():
         from memory.database import initialize_database
         await initialize_database()
 
+        from llm.llm_interface import register_llm_failover_event_loop
+
+        register_llm_failover_event_loop(asyncio.get_running_loop())
+
         from tools.lutopia import ensure_lutopia_dm_send_enabled_on_startup
 
         await ensure_lutopia_dm_send_enabled_on_startup()

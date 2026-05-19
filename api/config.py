@@ -68,6 +68,7 @@ DEFAULT_CONFIG = {
     "idle_activity_cooldown_min": 120,
     "idle_activity_start_hour": 8,
     "idle_activity_end_hour": 23,
+    "idle_activity_next_trigger_at": "",  # ISO UTC，空字符串表示未设置
 
     "tts_enabled": 0,
     "tts_speed": 0.95,

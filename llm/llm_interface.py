@@ -39,6 +39,40 @@ from memory.database import get_database
 # 设置日志
 logger = logging.getLogger(__name__)
 
+API_FAILOVER_FAIL_THRESHOLD = 5
+_failover_event_loop: Optional[asyncio.AbstractEventLoop] = None
+
+
+def register_llm_failover_event_loop(loop: asyncio.AbstractEventLoop) -> None:
+    """在 main 启动时注册，供 to_thread 内 LLM 请求调度故障转移副作用。"""
+    global _failover_event_loop
+    _failover_event_loop = loop
+
+
+def _run_failover_on_main_loop(coro, *, wait: bool = False, timeout: float = 10.0):
+    loop = _failover_event_loop
+    if loop is None or not loop.is_running():
+        logger.warning("API 故障转移副作用未执行：主事件循环未注册")
+        return None
+    fut = asyncio.run_coroutine_threadsafe(coro, loop)
+    if wait:
+        try:
+            return fut.result(timeout=timeout)
+        except Exception as e:
+            logger.warning("API 故障转移副作用等待失败: %s", e)
+            return None
+    return None
+
+
+def _api_failover_error_summary(exc: BaseException) -> str:
+    status = _http_status_from_exc(exc)
+    if status is not None:
+        return f"HTTP {status}"
+    msg = (str(exc) or "").strip()
+    if len(msg) > 200:
+        msg = msg[:200] + "…"
+    return msg or type(exc).__name__
+
 
 def tool_loop_json_payload_indicates_error_round(s: str) -> bool:
     """
@@ -1167,6 +1201,129 @@ def _persona_row_enable_xhs_tool(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
+_API_FAILOVER_HTTP_STATUS = frozenset({401, 403, 429, 500, 502, 503, 504})
+
+
+def _walk_exc_chain(exc: BaseException, _seen: Optional[set] = None):
+    if exc is None:
+        return
+    seen = _seen if _seen is not None else set()
+    eid = id(exc)
+    if eid in seen:
+        return
+    seen.add(eid)
+    yield exc
+    sub_excs = getattr(exc, "exceptions", None)
+    if isinstance(sub_excs, (list, tuple)):
+        for sub in sub_excs:
+            yield from _walk_exc_chain(sub, seen)
+    if exc.__cause__ is not None:
+        yield from _walk_exc_chain(exc.__cause__, seen)
+    if exc.__context__ is not None:
+        yield from _walk_exc_chain(exc.__context__, seen)
+
+
+def _http_status_from_exc(exc: BaseException) -> Optional[int]:
+    for node in _walk_exc_chain(exc):
+        if isinstance(node, requests.exceptions.HTTPError):
+            resp = getattr(node, "response", None)
+            if resp is not None:
+                code = getattr(resp, "status_code", None)
+                if isinstance(code, int):
+                    return code
+    return None
+
+
+def is_api_failover_eligible_exc(exc: BaseException) -> bool:
+    """当前 API 渠道失败是否应尝试同类型下一条激活配置。"""
+    status = _http_status_from_exc(exc)
+    if status is not None and status in _API_FAILOVER_HTTP_STATUS:
+        return True
+    for node in _walk_exc_chain(exc):
+        if isinstance(
+            node,
+            (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+            ),
+        ):
+            return True
+    msg = (str(exc) or "").lower()
+    if not msg:
+        return False
+    if "read timed out" in msg or "timed out" in msg:
+        return True
+    if "connection" in msg and ("reset" in msg or "aborted" in msg or "refused" in msg):
+        return True
+    for token in (
+        "rate_limit",
+        "rate limit",
+        "429",
+        "internal server error",
+        "bad gateway",
+        "gateway timeout",
+        "502",
+        "503",
+        "504",
+        "500 server error",
+        "401 client error",
+        "403 client error",
+        "unauthorized",
+        "forbidden",
+    ):
+        if token in msg:
+            return True
+    return False
+
+
+async def _failover_record_failure_db(config_id: int) -> tuple[int, bool]:
+    return await get_database().record_api_config_failover_failure(
+        config_id, threshold=API_FAILOVER_FAIL_THRESHOLD
+    )
+
+
+async def _failover_reset_success_db(config_id: int, config_type: str) -> None:
+    db = get_database()
+    await db.reset_api_config_failover_fail_count(config_id)
+    await db.clear_api_failover_all_failed_alert_latch(config_type)
+
+
+async def _failover_send_all_failed_alert(
+    config_type: str,
+    tried_names: List[str],
+    exc: BaseException,
+    kicked_names: List[str],
+) -> None:
+    from bot.telegram_notify import send_telegram_main_user_text
+
+    if not tried_names:
+        logger.info(
+            "跳过 API 全池失败 Telegram 提醒：激活池为空（config_type=%s）",
+            config_type,
+        )
+        return
+    db = get_database()
+    if not await db.should_send_api_failover_all_failed_alert(config_type):
+        logger.debug(
+            "跳过 API 全池失败 Telegram 提醒：已发过且尚未恢复（config_type=%s）",
+            config_type,
+        )
+        return
+    lines = [
+        f"⚠️ API 激活池已全部失败（{config_type}）",
+        f"本轮已尝试：{', '.join(tried_names) if tried_names else '（无）'}",
+        f"最后错误：{_api_failover_error_summary(exc)}",
+    ]
+    if kicked_names:
+        lines.append(
+            f"以下渠道已连续失败 {API_FAILOVER_FAIL_THRESHOLD} 次，已自动取消激活："
+            + "、".join(kicked_names)
+        )
+    lines.append("请在 Mini App 设置中检查 API 配置或充值后重新加入激活池。")
+    await send_telegram_main_user_text("\n".join(lines))
+    await db.mark_api_failover_all_failed_alert_sent(config_type)
+
+
 class LLMInterface:
     """
     LLM 接口类。
@@ -1279,6 +1436,10 @@ class LLMInterface:
             self.timeout = max(self.timeout, config.LLM_VISION_TIMEOUT)
         self.max_tokens = config.LLM_MAX_TOKENS
         self.temperature = config.LLM_TEMPERATURE
+
+        # 同类型多条激活配置时的故障转移队列（由 create() 填充；同步构造为空）
+        self._api_failover_bindings: List[Dict[str, Any]] = []
+        self._api_failover_index = 0
         
         # 验证配置
         if not self.api_key:
@@ -1295,6 +1456,183 @@ class LLMInterface:
                 logger.warning(f"未知模型 {self.model_name}，使用 OpenAI API 作为默认")
 
     @classmethod
+    async def _resolve_persona_tool_flags(
+        cls, db_cfg: Optional[Dict[str, Any]], config_type: str
+    ) -> Dict[str, bool]:
+        flags = {
+            "enable_lutopia": False,
+            "enable_rcommunity": False,
+            "enable_weather_tool": False,
+            "enable_weibo_tool": False,
+            "enable_search_tool": False,
+            "enable_x_tool": False,
+            "enable_ai_news_tool": False,
+            "enable_xhs_tool": False,
+        }
+        if not db_cfg or config_type not in ("chat", "vision"):
+            return flags
+        pid = db_cfg.get("persona_id")
+        if pid is None:
+            return flags
+        try:
+            pi = int(pid)
+        except (TypeError, ValueError):
+            return flags
+        try:
+            prow = await get_database().get_persona_config(pi)
+        except Exception as e:
+            logger.warning("读取 persona_configs 以解析工具开关失败: %s", e)
+            return flags
+        if not prow:
+            return flags
+        flags["enable_lutopia"] = _persona_row_enable_lutopia(prow)
+        flags["enable_rcommunity"] = _persona_row_enable_rcommunity(prow)
+        flags["enable_weather_tool"] = _persona_row_enable_weather_tool(prow)
+        flags["enable_weibo_tool"] = _persona_row_enable_weibo_tool(prow)
+        flags["enable_search_tool"] = _persona_row_enable_search_tool(prow)
+        flags["enable_x_tool"] = _persona_row_enable_x_tool(prow)
+        flags["enable_ai_news_tool"] = (
+            _persona_row_enable_ai_news_tool(prow) and bool(config.ENABLE_AI_NEWS_TOOL)
+        )
+        flags["enable_xhs_tool"] = (
+            _persona_row_enable_xhs_tool(prow) and bool(config.ENABLE_XHS_TOOL)
+        )
+        return flags
+
+    @classmethod
+    async def _build_api_failover_bindings(
+        cls, config_type: str
+    ) -> List[Dict[str, Any]]:
+        try:
+            rows = await get_database().get_active_api_configs(config_type)
+        except Exception as e:
+            if config_type == "analysis":
+                raise APIConfigLoadError(
+                    f"读取 analysis 激活 API 配置失败: {e}"
+                ) from e
+            logger.warning("读取激活 API 配置列表失败: %s", e)
+            return []
+        bindings: List[Dict[str, Any]] = []
+        for row in rows:
+            flags = await cls._resolve_persona_tool_flags(row, config_type)
+            bindings.append({"row": row, "flags": flags})
+        return bindings
+
+    def _apply_api_failover_binding(self, binding: Dict[str, Any]) -> None:
+        row = binding["row"]
+        flags = binding.get("flags") or {}
+        self.model_name = row.get("model") or config.LLM_MODEL_NAME
+        self.api_key = row.get("api_key") or config.LLM_API_KEY
+        self.api_base = row.get("base_url") or config.LLM_API_BASE
+        try:
+            self.character_id = self._resolve_character_id_from_config(row)
+        except ValueError:
+            self.character_id = None
+        self.enable_lutopia = bool(flags.get("enable_lutopia"))
+        self.enable_rcommunity = bool(flags.get("enable_rcommunity"))
+        self.enable_weather_tool = bool(flags.get("enable_weather_tool"))
+        self.enable_weibo_tool = bool(flags.get("enable_weibo_tool"))
+        self.enable_search_tool = bool(flags.get("enable_search_tool"))
+        self.enable_x_tool = bool(flags.get("enable_x_tool"))
+        self.enable_ai_news_tool = bool(flags.get("enable_ai_news_tool"))
+        self.enable_xhs_tool = bool(flags.get("enable_xhs_tool"))
+        logger.info(
+            "LLM API 故障转移 → [%s] config_type=%s model=%s base_url=%s",
+            row.get("name"),
+            self.config_type,
+            self.model_name,
+            self.api_base,
+        )
+
+    def _current_failover_config_id(self) -> Optional[int]:
+        if not self._api_failover_bindings:
+            return None
+        if self._api_failover_index >= len(self._api_failover_bindings):
+            return None
+        raw = self._api_failover_bindings[self._api_failover_index]["row"].get("id")
+        try:
+            return int(raw) if raw is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    def _current_failover_config_name(self) -> str:
+        if not self._api_failover_bindings:
+            return "（环境变量）"
+        if self._api_failover_index >= len(self._api_failover_bindings):
+            return "?"
+        return str(
+            self._api_failover_bindings[self._api_failover_index]["row"].get("name") or "?"
+        )
+
+    def _failover_tried_names(self) -> List[str]:
+        names: List[str] = []
+        for b in self._api_failover_bindings:
+            n = b.get("row", {}).get("name")
+            if n:
+                names.append(str(n))
+        return names
+
+    def _remove_current_failover_binding(self) -> None:
+        if not self._api_failover_bindings:
+            return
+        if self._api_failover_index >= len(self._api_failover_bindings):
+            return
+        self._api_failover_bindings.pop(self._api_failover_index)
+        if self._api_failover_bindings:
+            if self._api_failover_index >= len(self._api_failover_bindings):
+                self._api_failover_index = len(self._api_failover_bindings) - 1
+            self._apply_api_failover_binding(
+                self._api_failover_bindings[self._api_failover_index]
+            )
+
+    def _advance_api_failover(self) -> bool:
+        """仅在当前渠道报错且未踢出时，切换到池中下一条（成功响应不调用）。"""
+        if self._api_failover_index >= len(self._api_failover_bindings) - 1:
+            return False
+        prev = self._current_failover_config_name()
+        self._api_failover_index += 1
+        self._apply_api_failover_binding(
+            self._api_failover_bindings[self._api_failover_index]
+        )
+        nxt = self._current_failover_config_name()
+        logger.warning(
+            "LLM API 渠道 [%s] 失败，切换下一激活配置 → [%s]（%s/%s）",
+            prev,
+            nxt,
+            self._api_failover_index + 1,
+            len(self._api_failover_bindings),
+        )
+        return True
+
+    def _failover_record_failure_sync(self, config_id: int) -> tuple[int, bool]:
+        result = _run_failover_on_main_loop(
+            _failover_record_failure_db(config_id), wait=True, timeout=10.0
+        )
+        if result is None:
+            return 0, False
+        return result
+
+    def _failover_reset_success_sync(self, config_id: int) -> None:
+        _run_failover_on_main_loop(
+            _failover_reset_success_db(config_id, self.config_type), wait=False
+        )
+
+    def _failover_notify_all_failed_sync(
+        self,
+        exc: BaseException,
+        kicked_names: List[str],
+    ) -> None:
+        _run_failover_on_main_loop(
+            _failover_send_all_failed_alert(
+                self.config_type,
+                self._failover_tried_names(),
+                exc,
+                kicked_names,
+            ),
+            wait=False,
+        )
+
+    @classmethod
     async def create(
         cls,
         model_name: Optional[str] = None,
@@ -1305,78 +1643,44 @@ class LLMInterface:
 
         在 async 上下文中请始终用 ``await LLMInterface.create(...)``
         代替直接 ``LLMInterface(...)``，以确保读取到最新的 DB 激活配置。
+        同类型多条 is_active=1 时按 id 顺序故障转移（见 ``_post_with_api_failover``）。
         """
-        from memory.database import get_database
-        db_cfg: Optional[Dict[str, Any]] = None
-        try:
-            db_cfg = await get_database().get_active_api_config(config_type)
-        except Exception as e:
-            if config_type == "analysis":
-                raise APIConfigLoadError(
-                    f"读取 analysis 激活 API 配置失败: {e}"
-                ) from e
-            logger.warning(f"从数据库读取激活 API 配置失败，将使用环境变量: {e}")
-            db_cfg = None
+        bindings = await cls._build_api_failover_bindings(config_type)
+        db_cfg: Optional[Dict[str, Any]] = (
+            bindings[0]["row"] if bindings else None
+        )
 
         if config_type == "analysis" and not db_cfg:
             raise NoActiveAPIConfigError("analysis 配置未激活")
 
-        enable_lutopia_flag = False
-        enable_rcommunity_flag = False
-        enable_weather_tool_flag = False
-        enable_weibo_tool_flag = False
-        enable_search_tool_flag = False
-        enable_x_tool_flag = False
-        enable_ai_news_tool_flag = False
-        enable_xhs_tool_flag = False
-        if db_cfg and config_type in ("chat", "vision"):
-            pid = db_cfg.get("persona_id")
-            if pid is not None:
-                try:
-                    pi = int(pid)
-                except (TypeError, ValueError):
-                    pi = None
-                if pi is not None:
-                    try:
-                        prow = await get_database().get_persona_config(pi)
-                    except Exception as e:
-                        logger.warning(
-                            "读取 persona_configs 以解析工具开关失败: %s", e
-                        )
-                        prow = None
-                    if prow:
-                        enable_lutopia_flag = _persona_row_enable_lutopia(prow)
-                        enable_rcommunity_flag = _persona_row_enable_rcommunity(prow)
-                        enable_weather_tool_flag = _persona_row_enable_weather_tool(
-                            prow
-                        )
-                        enable_weibo_tool_flag = _persona_row_enable_weibo_tool(prow)
-                        enable_search_tool_flag = _persona_row_enable_search_tool(
-                            prow
-                        )
-                        enable_x_tool_flag = _persona_row_enable_x_tool(prow)
-                        enable_ai_news_tool_flag = (
-                            _persona_row_enable_ai_news_tool(prow)
-                            and bool(config.ENABLE_AI_NEWS_TOOL)
-                        )
-                        enable_xhs_tool_flag = (
-                            _persona_row_enable_xhs_tool(prow)
-                            and bool(config.ENABLE_XHS_TOOL)
-                        )
+        flags = bindings[0]["flags"] if bindings else await cls._resolve_persona_tool_flags(
+            None, config_type
+        )
 
-        return cls(
+        llm = cls(
             model_name=model_name,
             config_type=config_type,
             _db_cfg=db_cfg,
-            _enable_lutopia=enable_lutopia_flag,
-            _enable_rcommunity=enable_rcommunity_flag,
-            _enable_weather_tool=enable_weather_tool_flag,
-            _enable_weibo_tool=enable_weibo_tool_flag,
-            _enable_search_tool=enable_search_tool_flag,
-            _enable_x_tool=enable_x_tool_flag,
-            _enable_ai_news_tool=enable_ai_news_tool_flag,
-            _enable_xhs_tool=enable_xhs_tool_flag,
+            _enable_lutopia=flags["enable_lutopia"],
+            _enable_rcommunity=flags["enable_rcommunity"],
+            _enable_weather_tool=flags["enable_weather_tool"],
+            _enable_weibo_tool=flags["enable_weibo_tool"],
+            _enable_search_tool=flags["enable_search_tool"],
+            _enable_x_tool=flags["enable_x_tool"],
+            _enable_ai_news_tool=flags["enable_ai_news_tool"],
+            _enable_xhs_tool=flags["enable_xhs_tool"],
         )
+        llm._api_failover_bindings = bindings
+        llm._api_failover_index = 0
+        if len(bindings) > 1:
+            names = [b["row"].get("name") for b in bindings]
+            logger.info(
+                "LLM API 故障转移池 config_type=%s 共 %s 条: %s",
+                config_type,
+                len(bindings),
+                " → ".join(str(n) for n in names if n),
+            )
+        return llm
 
     @staticmethod
     def _load_active_config(config_type: str = 'chat') -> Optional[Dict[str, Any]]:
@@ -1440,7 +1744,7 @@ class LLMInterface:
         stream: bool = False,
     ) -> requests.Response:
         """
-        POST JSON；对 HTTP 429 / 5xx 最多重试 5 次（首次 + 5 次重试共 6 次请求），
+        POST JSON；对 HTTP 429 / 503 最多重试 5 次（首次 + 5 次重试共 6 次请求），
         每次重试前等待 2 秒。其他状态码立即 raise_for_status（不重试）。
         """
         headers = self._prepare_headers()
@@ -1460,10 +1764,7 @@ class LLMInterface:
                 timeout=timeout,
                 stream=stream,
             )
-            if (
-                (resp.status_code == 429 or 500 <= resp.status_code <= 599)
-                and attempt < max_attempts - 1
-            ):
+            if resp.status_code in (429, 503) and attempt < max_attempts - 1:
                 logger.warning(
                     "LLM API HTTP %s，等待 2s 后重试（第 %s/5 次重试）",
                     resp.status_code,
@@ -1495,8 +1796,8 @@ class LLMInterface:
                         "（520 多为 CDN/网关（如 Cloudflare）：源站无有效响应、隧道/反代中断或上游崩溃；"
                         "通常不是「密钥错误」（多为 401/403）。请查中转域名、供应商状态或换直连 base_url 对照。）"
                     )
-                elif resp.status_code in (502, 504, 524):
-                    hint = "（502/504/524：网关或上游暂时不可用或超时。）"
+                elif resp.status_code in (502, 504):
+                    hint = "（502/504：网关或上游暂时不可用或超时。）"
                 logger.error(
                     "上游 API 非 2xx: status=%s endpoint=%s body_prefix=%r %s",
                     resp.status_code,
@@ -1506,6 +1807,79 @@ class LLMInterface:
                 )
             resp.raise_for_status()
             return resp
+
+    def _post_with_api_failover(
+        self,
+        url: str,
+        payload: Optional[Dict[str, Any]],
+        timeout: Any,
+        *,
+        stream: bool = False,
+    ) -> requests.Response:
+        """
+        仅在当前渠道请求报错时切换下一激活配置；成功则不换。
+        单渠道连续可转移失败达阈值则自动取消激活；激活池全部失败时 Telegram 提醒（每种类型仅一次，恢复后可再提醒）。
+        """
+        kicked_names: List[str] = []
+        last_exc: Optional[BaseException] = None
+
+        while True:
+            if not self._api_failover_bindings:
+                try:
+                    return self._post_with_retry(
+                        url, payload, timeout, stream=stream
+                    )
+                except Exception as exc:
+                    logger.error(
+                        "LLM 请求失败且无激活 API 池（config_type=%s）: %s",
+                        self.config_type,
+                        exc,
+                    )
+                    raise
+
+            cfg_id = self._current_failover_config_id()
+            try:
+                resp = self._post_with_retry(
+                    url, payload, timeout, stream=stream
+                )
+                if cfg_id is not None:
+                    self._failover_reset_success_sync(cfg_id)
+                return resp
+            except Exception as exc:
+                last_exc = exc
+                if not is_api_failover_eligible_exc(exc):
+                    raise
+
+                if cfg_id is not None:
+                    fail_count, kicked = self._failover_record_failure_sync(cfg_id)
+                    name = self._current_failover_config_name()
+                    if kicked:
+                        kicked_names.append(name)
+                        logger.warning(
+                            "LLM API [%s] 连续失败 %s 次，已自动取消激活（id=%s）",
+                            name,
+                            fail_count,
+                            cfg_id,
+                        )
+                        self._remove_current_failover_binding()
+                        if not self._api_failover_bindings:
+                            self._failover_notify_all_failed_sync(exc, kicked_names)
+                            raise
+                        continue
+                    logger.warning(
+                        "LLM API [%s] 失败 (%s/%s)，尝试下一渠道",
+                        name,
+                        fail_count,
+                        API_FAILOVER_FAIL_THRESHOLD,
+                    )
+
+                if not self._advance_api_failover():
+                    self._failover_notify_all_failed_sync(exc, kicked_names)
+                    raise
+
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError("_post_with_api_failover: 无可用 API 配置")
 
     def _prepare_headers(self) -> Dict[str, str]:
         """
@@ -1842,7 +2216,7 @@ class LLMInterface:
         logger.debug(f"调用 LLM API: {endpoint}, 模型: {self.model_name}")
         
         try:
-            response = self._post_with_retry(endpoint, payload, self.timeout)
+            response = self._post_with_api_failover(endpoint, payload, self.timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -1951,7 +2325,7 @@ class LLMInterface:
         logger.debug(f"消息数量: {len(messages)}")
         
         try:
-            response = self._post_with_retry(endpoint, payload, req_timeout)
+            response = self._post_with_api_failover(endpoint, payload, req_timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -2218,7 +2592,7 @@ class LLMInterface:
         logger.debug(f"消息数量: {len(messages)}")
         
         try:
-            response = self._post_with_retry(endpoint, payload, req_timeout)
+            response = self._post_with_api_failover(endpoint, payload, req_timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -2367,7 +2741,7 @@ class LLMInterface:
             return None
 
         try:
-            resp = self._post_with_retry(
+            resp = self._post_with_api_failover(
                 endpoint,
                 payload,
                 (stream_connect, stream_read),
@@ -2573,7 +2947,7 @@ class LLMInterface:
         logger.debug(f"调用 LLM API (with thinking): {endpoint}, 模型: {self.model_name}")
         
         try:
-            response = self._post_with_retry(endpoint, payload, self.timeout)
+            response = self._post_with_api_failover(endpoint, payload, self.timeout)
             response_data = response.json()
             logger.debug(f"LLM API 响应: {response.status_code}")
             
@@ -2646,8 +3020,6 @@ async def complete_with_lutopia_tool_loop(
         create_lutopia_mcp_session,
         execute_lutopia_function_call,
         save_tool_execution_record,
-        _compress_tool_result_by_length,
-        TOOL_RESULT_LONG_WORDS,
         tool_result_for_model,
     )
     from tools.rcommunity import (
@@ -2979,6 +3351,7 @@ async def complete_with_lutopia_tool_loop(
                         result_str = await execute_lutopia_function_call(
                             nm, raw_args or "{}", mcp_session=mcp_session
                         )
+                        tool_pairs.append((nm, raw_args or "{}", result_str))
                 except Exception as exec_err:
                     logger.exception(
                         "complete_with_lutopia_tool_loop 工具执行异常 tool=%s",
@@ -2988,46 +3361,26 @@ async def complete_with_lutopia_tool_loop(
                         {"error": f"工具执行内部异常: {exec_err}"},
                         ensure_ascii=False,
                     )
-                if nm not in (
-                    "get_weather",
-                    "get_weibo_hot",
-                    "web_search",
-                    "web_fetch",
-                    "get_ai_news",
-                ):
-                    tool_pairs.append((nm, raw_args or "{}", result_str))
                 if not tool_loop_json_payload_indicates_error_round(result_str):
                     round_all_errors = False
                 if on_tool_done:
                     await on_tool_done(nm, result_str)
                 tool_seq += 1
-                context_summary = None
-                if len((result_str or "").strip()) > TOOL_RESULT_LONG_WORDS:
-                    model_result, context_summary = await _compress_tool_result_by_length(
-                        nm, raw_args or "{}", result_str
-                    )
-                else:
-                    model_result = await tool_result_for_model(
-                        nm, raw_args or "{}", result_str
-                    )
-                asyncio.create_task(
-                    save_tool_execution_record(
-                        session_id=session_id,
-                        turn_id=tool_turn_id,
-                        seq=tool_seq,
-                        tool_name=nm,
-                        arguments_json=raw_args or "{}",
-                        result_text=result_str,
-                        result_summary=context_summary,
-                        platform=platform,
-                        user_message_id=user_message_id,
-                    )
+                await save_tool_execution_record(
+                    session_id=session_id,
+                    turn_id=tool_turn_id,
+                    seq=tool_seq,
+                    tool_name=nm,
+                    arguments_json=raw_args or "{}",
+                    result_text=result_str,
+                    platform=platform,
+                    user_message_id=user_message_id,
                 )
                 work.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id") or "",
-                        "content": model_result,
+                        "content": tool_result_for_model(nm, raw_args or "{}", result_str),
                     }
                 )
             if processed_tools == 0:

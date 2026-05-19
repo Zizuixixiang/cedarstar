@@ -298,12 +298,14 @@
 
 .cfg-actions--compact .btn-test,
 .cfg-actions--compact .btn-activate,
+.cfg-actions--compact .btn-deactivate,
 .cfg-actions--compact .btn-edit,
 .cfg-actions--compact .btn-del,
 .cfg-actions--compact .btn-del-confirm,
 .cfg-actions--compact .btn-del-cancel,
 .cfg-actions-row .btn-test,
 .cfg-actions-row .btn-activate,
+.cfg-actions-row .btn-deactivate,
 .cfg-actions-row .btn-edit,
 .cfg-actions-row .btn-del,
 .cfg-actions-row .btn-del-confirm,
@@ -1020,6 +1022,28 @@
 
 .btn-activate:active {
   background: #d4ebd5;
+}
+
+.btn-deactivate {
+  font-size: 0.78rem;
+  color: var(--text-muted, #666);
+  padding: 6px 12px;
+  border: 1px solid var(--industrial-border-color);
+  border-radius: 0;
+  background: #eeeeee;
+  cursor: pointer;
+  font-family: monospace;
+  font-weight: bold;
+  text-transform: uppercase;
+  box-shadow: none;
+  transition: none;
+  white-space: nowrap;
+}
+
+.btn-deactivate:hover {
+  background: #f5f0e8;
+  border-color: #c4a574;
+  color: #8a6d3b;
 }
 
 .btn-edit {

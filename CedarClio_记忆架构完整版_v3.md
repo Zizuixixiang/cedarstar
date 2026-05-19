@@ -45,6 +45,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `idle_activity_cooldown_min` | 两次自主活动之间最小间隔（分钟） |
 | `idle_activity_start_hour` | 自主活动允许开始小时（东八区，0-23） |
 | `idle_activity_end_hour` | 自主活动允许结束小时（东八区，0-23） |
+| `idle_activity_next_trigger_at` | AI 声明的下次自主活动触发时间（ISO UTC）；空表示未设置，走 `idle_activity_cooldown_min` |
 | `stardew_autoplay` | 星露谷自动模式：为 true 时 idle 调度每 3 分钟触发，`check_and_trigger` 跳过普通 idle 条件并注入 `[STARDEW_AUTO]` 虚拟用户句；助手回复中含 `[STARDEW_STOP]` 时自动写回 false |
 | `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
 | `xhs_daily_read_limit` | 小红书工具日读配额上限（`config` 表键；默认 80） |
@@ -311,6 +312,8 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。当启用且满足时段、阈值、冷却与概率条件时，系统会向上下文注入 `[IDLE_TRIGGER]` 用户提示并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。空闲阈值由 `memory/database.get_latest_idle_user_activity()` 统一判断：主库 `messages` 的真人用户消息（`role='user'` 且 `user_id!='system'`）和共享群表 `shared_group_messages.sender='user'` 取最新时间，私聊/普通通道与群聊都超过阈值才触发；触发提示会注明最后一条活动来自群聊或私聊/普通通道。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
 `[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）；自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。
+
+**下次触发时间（可选）**：触发句末尾注入当前北京时间，模型可在回复末尾写 `[NEXT_AT_HH:MM]`（东八区）；系统解析后写入 `idle_activity_next_trigger_at`（UTC ISO，已过时刻则顺延至次日）。调度 tick 在启用检查之后、时段/阈值/冷却之前：若该键为未来时间则跳过；无标记则清空该键并走原冷却与概率。用户可见正文会剥除 `[NEXT_AT_...]`。
 
 额外支持「星露谷自动模式」：
 

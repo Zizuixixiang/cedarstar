@@ -153,7 +153,7 @@ async def delete_api_config(config_id: int):
 
 @router.put("/api-configs/{config_id}/activate")
 async def activate_api_config(config_id: int):
-    """切换当前激活配置。"""
+    """将配置加入激活池（同 config_type 可多条同时激活，按 id 顺序故障转移）。"""
     from memory.database import get_database
     
     db = get_database()
@@ -163,10 +163,22 @@ async def activate_api_config(config_id: int):
     if not existing:
         raise HTTPException(status_code=404, detail="API 配置不存在")
     
-    # 激活该配置
     await db.activate_api_config(config_id)
     
-    return create_response(True, None, "激活成功")
+    return create_response(True, None, "已加入激活池")
+
+
+@router.put("/api-configs/{config_id}/deactivate")
+async def deactivate_api_config(config_id: int):
+    """从激活池移除指定配置（不激活其他条目）。"""
+    from memory.database import get_database
+
+    db = get_database()
+    existing = await db.get_api_config(config_id)
+    if not existing:
+        raise HTTPException(status_code=404, detail="API 配置不存在")
+    await db.deactivate_api_config(config_id)
+    return create_response(True, None, "已取消激活")
 
 
 class FetchModelsRequest(BaseModel):

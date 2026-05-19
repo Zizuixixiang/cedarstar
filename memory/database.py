@@ -5771,37 +5771,105 @@ class MessageDatabase:
         return _rowcount(result) > 0
 
     async def activate_api_config(self, config_id: int) -> bool:
-        """激活指定配置（同类型内唯一激活：先清除同类型所有激活，再设置指定条目）。"""
+        """将指定配置设为激活（同类型可多条同时激活，按 id 顺序参与故障转移）。"""
         async with self.pool.acquire() as conn:
             await self._ensure_api_configs_table(conn)
-            row = await conn.fetchrow(
-                "SELECT config_type FROM api_configs WHERE id = $1", config_id
+            result = await conn.execute(
+                "UPDATE api_configs SET is_active = 1, updated_at = NOW() WHERE id = $1",
+                config_id,
             )
-            if not row:
-                return False
-            cfg_type = row["config_type"] or "chat"
-            async with conn.transaction():
-                await conn.execute(
-                    "UPDATE api_configs SET is_active = 0 WHERE config_type = $1",
-                    cfg_type,
-                )
-                await conn.execute(
-                    "UPDATE api_configs SET is_active = 1, updated_at = NOW() WHERE id = $1",
-                    config_id,
-                )
-        return True
+        ok = _rowcount(result) > 0
+        if ok:
+            await self.reset_api_config_failover_fail_count(config_id)
+            row = await self.get_api_config(config_id)
+            if row:
+                ct = str(row.get("config_type") or "chat").strip() or "chat"
+                await self.clear_api_failover_all_failed_alert_latch(ct)
+        return ok
+
+    def _api_failover_fail_count_key(self, config_id: int) -> str:
+        return f"api_failover_fail_count_{int(config_id)}"
+
+    async def get_api_config_failover_fail_count(self, config_id: int) -> int:
+        raw = await self.get_config(self._api_failover_fail_count_key(config_id), "0")
+        try:
+            return max(0, int(str(raw or "0").strip()))
+        except (TypeError, ValueError):
+            return 0
+
+    async def record_api_config_failover_failure(
+        self, config_id: int, *, threshold: int = 5
+    ) -> tuple[int, bool]:
+        """
+        记录一次可故障转移的失败。返回 (当前连续失败次数, 是否已踢出激活池)。
+        达到 threshold 时自动 deactivate 并清零计数。
+        """
+        key = self._api_failover_fail_count_key(config_id)
+        n = await self.get_api_config_failover_fail_count(config_id) + 1
+        await self.set_config(key, str(n))
+        if n >= threshold:
+            await self.deactivate_api_config(config_id)
+            await self.set_config(key, "0")
+            return n, True
+        return n, False
+
+    async def reset_api_config_failover_fail_count(self, config_id: int) -> None:
+        await self.set_config(self._api_failover_fail_count_key(config_id), "0")
+
+    def _api_failover_alert_latch_key(self, config_type: str) -> str:
+        ct = (config_type or "chat").strip() or "chat"
+        return f"api_failover_all_failed_alert_latch_{ct}"
+
+    async def should_send_api_failover_all_failed_alert(
+        self, config_type: str = "chat"
+    ) -> bool:
+        """全池失败提醒：每种 config_type 仅发一次，直到有渠道成功或重新激活。"""
+        raw = await self.get_config(self._api_failover_alert_latch_key(config_type), "0")
+        return str(raw or "").strip().lower() not in ("1", "true", "yes", "on")
+
+    async def mark_api_failover_all_failed_alert_sent(
+        self, config_type: str = "chat"
+    ) -> None:
+        await self.set_config(self._api_failover_alert_latch_key(config_type), "1")
+
+    async def clear_api_failover_all_failed_alert_latch(
+        self, config_type: str = "chat"
+    ) -> None:
+        """有渠道恢复成功或重新加入激活池后调用，允许下次再告警。"""
+        await self.set_config(self._api_failover_alert_latch_key(config_type), "0")
+
+    async def deactivate_api_config(self, config_id: int) -> bool:
+        """取消指定配置的激活状态。"""
+        async with self.pool.acquire() as conn:
+            await self._ensure_api_configs_table(conn)
+            result = await conn.execute(
+                "UPDATE api_configs SET is_active = 0, updated_at = NOW() WHERE id = $1",
+                config_id,
+            )
+        return _rowcount(result) > 0
+
+    async def get_active_api_configs(
+        self, config_type: str = "chat"
+    ) -> List[Dict[str, Any]]:
+        """获取指定类型的全部激活配置（按 id 升序，用于 API 故障转移轮询）。"""
+        async with self.pool.acquire() as conn:
+            await self._ensure_api_configs_table(conn)
+            rows = await conn.fetch(
+                """
+                SELECT * FROM api_configs
+                WHERE config_type = $1 AND is_active = 1
+                ORDER BY id ASC
+                """,
+                config_type,
+            )
+        return [_r(r) for r in rows]
 
     async def get_active_api_config(
         self, config_type: str = "chat"
     ) -> Optional[Dict[str, Any]]:
-        """获取指定类型的激活配置。"""
-        async with self.pool.acquire() as conn:
-            await self._ensure_api_configs_table(conn)
-            row = await conn.fetchrow(
-                "SELECT * FROM api_configs WHERE config_type = $1 AND is_active = 1 LIMIT 1",
-                config_type,
-            )
-        return _r(row) if row else None
+        """获取指定类型的主激活配置（同类型多条时取 id 最小的一条）。"""
+        configs = await self.get_active_api_configs(config_type)
+        return configs[0] if configs else None
 
     # ------------------------------------------------------------------
     # longterm_memories CRUD
