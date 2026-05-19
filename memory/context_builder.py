@@ -117,6 +117,16 @@ TELEGRAM_GROUP_CONTINUATION_DIRECTIVE = (
     "不要复述、改写或换一种说法重复同一层意思；避免车轱辘话，让对话向前走。"
 )
 
+TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE = (
+    "【群聊】沉浸陪伴，非客服；用人设口吻紧接上文续写，默认中文。"
+    "禁止 ready to help、自称 AI 助手、列工具菜单或请用户补充任务。"
+    "工具照常可用，需用时一句口语带过即可。"
+)
+
+TELEGRAM_GROUP_USER_TURN_HINT = (
+    "[系统提示：群聊。人设口吻紧接上文，守分段规定；禁助手寒暄与能力菜单；工具照常。]"
+)
+
 TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE = (
     "【跨会话情境说明】本块除「今日 chunk 摘要」外，另含来自 Telegram 另一会话（私聊或群聊）的近期原文摘录，"
     "供我把握两边话题的连续性；该摘录不是当前输入框里的逐条消息，参与者与语气可能与当前会话不同。"
@@ -1321,6 +1331,9 @@ class ContextBuilder:
                 full_system_prompt.append(
                     _cache_text_block(TELEGRAM_GROUP_CONTINUATION_DIRECTIVE, cache=False)
                 )
+                full_system_prompt.append(
+                    _cache_text_block(TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE, cache=False)
+                )
 
             # TTS 语气标签注入
             tts_enabled = await get_database().get_config("tts_enabled", "false")
@@ -1517,6 +1530,9 @@ class ContextBuilder:
             if str(session_id).startswith("telegram_group_"):
                 full_system_prompt.append(
                     _cache_text_block(TELEGRAM_GROUP_CONTINUATION_DIRECTIVE, cache=False)
+                )
+                full_system_prompt.append(
+                    _cache_text_block(TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE, cache=False)
                 )
 
             # TTS 语气标签注入

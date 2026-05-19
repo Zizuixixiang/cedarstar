@@ -87,7 +87,10 @@ from memory.database import (
     save_message,
 )
 from memory.micro_batch import trigger_micro_batch_check
-from memory.context_builder import build_context
+from memory.context_builder import (
+    TELEGRAM_GROUP_USER_TURN_HINT,
+    build_context,
+)
 from tools.lutopia import (
     OPENAI_LUTOPIA_TOOLS,
     append_tool_exchange_to_messages,
@@ -1188,7 +1191,7 @@ class TelegramBot:
         other_name = getattr(sender, "username", None) or getattr(sender, "first_name", None) or "other_bot"
         prompt = (
             f"[另一名助手 {other_name} 的发言]：{content}\n\n"
-            "请自然接话，避免重复对方内容。"
+            "紧接上文用人设接话，勿重复对方，禁助手腔。"
         )
         gen = await self._generate_reply_from_buffer(
             session_id=session_id,
@@ -1343,7 +1346,7 @@ class TelegramBot:
                 return {"status": "signal_peer_not_mention_me"}
 
         session_id = self._session_id_for_chat(chat_id, "group")
-        prompt = "[群聊接话信号] 请基于最新群聊上下文自然接话，避免重复前文。"
+        prompt = "[群聊接话信号] 紧接上文用人设接话，勿重复前文，禁助手腔。"
         fake_message = _SendOnlyTelegramMessage(bot_obj, int(chat_id))
         signal_mid = f"peer_signal_{int(datetime.now().timestamp())}"
         new_round_count = await db.increment_group_chat_round_count(chat_id, 1)
@@ -3406,9 +3409,7 @@ class TelegramBot:
             context_user_content = combined_content
             if is_group_session:
                 context_user_content = (
-                    f"{combined_content}\n\n"
-                    "[系统提示：当前是群聊。请尽量一次性输出完整回复，"
-                    "避免主动拆成多条短句；以自然段组织即可。]"
+                    f"{combined_content}\n\n{TELEGRAM_GROUP_USER_TURN_HINT}"
                 ).strip()
             grp_skip_ids: Optional[List[str]] = None
             if is_group_session and buffer_messages:
