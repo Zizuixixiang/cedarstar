@@ -1440,7 +1440,7 @@ class LLMInterface:
         stream: bool = False,
     ) -> requests.Response:
         """
-        POST JSON；对 HTTP 429 / 503 最多重试 5 次（首次 + 5 次重试共 6 次请求），
+        POST JSON；对 HTTP 429 / 5xx 最多重试 5 次（首次 + 5 次重试共 6 次请求），
         每次重试前等待 2 秒。其他状态码立即 raise_for_status（不重试）。
         """
         headers = self._prepare_headers()
@@ -1460,7 +1460,10 @@ class LLMInterface:
                 timeout=timeout,
                 stream=stream,
             )
-            if resp.status_code in (429, 503) and attempt < max_attempts - 1:
+            if (
+                (resp.status_code == 429 or 500 <= resp.status_code <= 599)
+                and attempt < max_attempts - 1
+            ):
                 logger.warning(
                     "LLM API HTTP %s，等待 2s 后重试（第 %s/5 次重试）",
                     resp.status_code,
@@ -1492,8 +1495,8 @@ class LLMInterface:
                         "（520 多为 CDN/网关（如 Cloudflare）：源站无有效响应、隧道/反代中断或上游崩溃；"
                         "通常不是「密钥错误」（多为 401/403）。请查中转域名、供应商状态或换直连 base_url 对照。）"
                     )
-                elif resp.status_code in (502, 504):
-                    hint = "（502/504：网关或上游暂时不可用或超时。）"
+                elif resp.status_code in (502, 504, 524):
+                    hint = "（502/504/524：网关或上游暂时不可用或超时。）"
                 logger.error(
                     "上游 API 非 2xx: status=%s endpoint=%s body_prefix=%r %s",
                     resp.status_code,
@@ -2643,6 +2646,8 @@ async def complete_with_lutopia_tool_loop(
         create_lutopia_mcp_session,
         execute_lutopia_function_call,
         save_tool_execution_record,
+        _compress_tool_result_by_length,
+        TOOL_RESULT_LONG_WORDS,
         tool_result_for_model,
     )
     from tools.rcommunity import (
@@ -2974,7 +2979,6 @@ async def complete_with_lutopia_tool_loop(
                         result_str = await execute_lutopia_function_call(
                             nm, raw_args or "{}", mcp_session=mcp_session
                         )
-                        tool_pairs.append((nm, raw_args or "{}", result_str))
                 except Exception as exec_err:
                     logger.exception(
                         "complete_with_lutopia_tool_loop 工具执行异常 tool=%s",
@@ -2984,26 +2988,46 @@ async def complete_with_lutopia_tool_loop(
                         {"error": f"工具执行内部异常: {exec_err}"},
                         ensure_ascii=False,
                     )
+                if nm not in (
+                    "get_weather",
+                    "get_weibo_hot",
+                    "web_search",
+                    "web_fetch",
+                    "get_ai_news",
+                ):
+                    tool_pairs.append((nm, raw_args or "{}", result_str))
                 if not tool_loop_json_payload_indicates_error_round(result_str):
                     round_all_errors = False
                 if on_tool_done:
                     await on_tool_done(nm, result_str)
                 tool_seq += 1
-                await save_tool_execution_record(
-                    session_id=session_id,
-                    turn_id=tool_turn_id,
-                    seq=tool_seq,
-                    tool_name=nm,
-                    arguments_json=raw_args or "{}",
-                    result_text=result_str,
-                    platform=platform,
-                    user_message_id=user_message_id,
+                context_summary = None
+                if len((result_str or "").strip()) > TOOL_RESULT_LONG_WORDS:
+                    model_result, context_summary = await _compress_tool_result_by_length(
+                        nm, raw_args or "{}", result_str
+                    )
+                else:
+                    model_result = await tool_result_for_model(
+                        nm, raw_args or "{}", result_str
+                    )
+                asyncio.create_task(
+                    save_tool_execution_record(
+                        session_id=session_id,
+                        turn_id=tool_turn_id,
+                        seq=tool_seq,
+                        tool_name=nm,
+                        arguments_json=raw_args or "{}",
+                        result_text=result_str,
+                        result_summary=context_summary,
+                        platform=platform,
+                        user_message_id=user_message_id,
+                    )
                 )
                 work.append(
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id") or "",
-                        "content": tool_result_for_model(nm, raw_args or "{}", result_str),
+                        "content": model_result,
                     }
                 )
             if processed_tools == 0:

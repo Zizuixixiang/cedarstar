@@ -131,7 +131,7 @@ class SiliconFlowEmbedding:
                     logger.debug("SiliconFlow embedding 成功，长度: %s", len(embedding))
                     return embedding
                 raise ValueError(f"SiliconFlow API 响应格式错误: {result}")
-            if response.status_code in (429, 503):
+            if response.status_code == 429 or 500 <= response.status_code <= 599:
                 last_err = Exception(
                     f"SiliconFlow Embedding HTTP {response.status_code}: {response.text[:500]}"
                 )
@@ -200,7 +200,7 @@ class ZhipuEmbedding:
                     logger.debug("智谱 embedding 成功，长度: %s", len(embedding))
                     return embedding
                 raise ValueError(f"智谱 API 响应格式错误: {result}")
-            if response.status_code in (429, 503):
+            if response.status_code == 429 or 500 <= response.status_code <= 599:
                 last_err = Exception(
                     f"智谱 Embedding HTTP {response.status_code}: {response.text[:500]}"
                 )

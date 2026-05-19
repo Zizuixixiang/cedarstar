@@ -46,6 +46,33 @@ LUTOPIA_CALL_TOOL_TIMEOUT_SEC = 75.0
 TOOL_LOG_SNIP_MAX = 200
 BEHAVIOR_DESC_MAX = 80
 TOOL_CONTEXT_SUMMARY_MAX = 150
+TOOL_RESULT_SHORT_WORDS = 300
+TOOL_RESULT_LONG_WORDS = 10000
+TOOL_RESULT_LONG_COMPRESS_MAX_TOKENS = 7000
+TOOL_RESULT_CONTEXT_MAX_TOKENS = 700
+
+_TOOL_RESULT_LONG_COMPRESS_PROMPT = """你是一个工具结果整理助手，负责对工具返回的原始数据做结构化精简。
+任务：将以下工具返回内容压缩到5000字以内。
+规则：
+- 以下内容【禁止删除或改写】：所有标识符类字段（各类ID、编号、序号等）、数值（数量、时间戳、评分等）、专有名词（用户名、标题、URL、域名等）、错误码和错误信息、操作结果状态
+- 可以删除的内容：空字段、重复的元数据、格式化占位符、冗余的嵌套包装层
+- 保留原始结构层级，不要把列表拍平成一段话
+- 如果是列表，每条保留完整，不要合并或省略任何一条
+工具名：{tool_name}
+参数：{arguments}
+原始结果：{raw_result}"""
+
+_TOOL_RESULT_CONTEXT_PROMPT = """你是一个工具结果摘要助手，负责生成供AI跨轮对话使用的简短摘要。
+任务：将以下工具执行结果压缩为200-300字的摘要。
+要求：
+- 主谓宾结构清晰，说明"对什么/谁，执行了什么操作，结果是什么"
+- 以下信息必须原文保留：所有标识符（各类ID、编号）、专有名词（名称、标题、URL）、操作结果状态、错误原因
+- 加上必要背景（操作发生在什么上下文里、输入参数的含义）
+- 如果是列表类结果，每条用一句话概括，格式统一
+- 不要写"工具返回了数据"、"查询成功"这类无信息量的话
+工具名：{tool_name}
+参数：{arguments}
+待摘要内容：{input}"""
 
 
 def _clip_log(text: str, max_len: int = TOOL_LOG_SNIP_MAX) -> str:
@@ -95,10 +122,11 @@ def _tool_result_text_candidates(value: Any) -> List[str]:
     return out
 
 
-def summarize_tool_result_for_context(tool_name: str, arguments_json: str, result_text: str) -> str:
-    """生成下一轮 Context 用的短摘要；不把长 raw 直接塞给模型。短结果直接返回。"""
+def _fallback_summarize_tool_result_for_context(
+    tool_name: str, arguments_json: str, result_text: str
+) -> str:
+    """旧版跨轮摘要规则：抽取可读字段并截断，供 LLM 配置不可用时降级。"""
     raw = (result_text or "").strip()
-    # 短结果直接存，不做摘要
     if len(raw) <= TOOL_CONTEXT_SUMMARY_MAX:
         return raw or "已执行，但没有返回可读结果。"
     summary = ""
@@ -135,12 +163,14 @@ def summarize_tool_result_for_context(tool_name: str, arguments_json: str, resul
     return summary
 
 
-def tool_result_for_model(tool_name: str, arguments_json: str, result_text: str) -> str:
-    """本轮回传给聊天模型的工具结果；长结果先压成短 JSON，防止一次工具吞掉大量 token。"""
+def _fallback_tool_result_for_model(
+    tool_name: str, arguments_json: str, result_text: str
+) -> str:
+    """旧版本轮工具结果规则：超过 6000 字时只返回短摘要 JSON。"""
     raw = result_text or ""
     if len(raw) <= 6000:
         return raw
-    summary = summarize_tool_result_for_context(tool_name, arguments_json, raw)
+    summary = _fallback_summarize_tool_result_for_context(tool_name, arguments_json, raw)
     return json.dumps(
         {
             "summary": summary,
@@ -151,6 +181,135 @@ def tool_result_for_model(tool_name: str, arguments_json: str, result_text: str)
     )
 
 
+def _usable_api_config(row: Optional[Dict[str, Any]]) -> bool:
+    if not row:
+        return False
+    key = str(row.get("api_key") or "").strip()
+    base = str(row.get("base_url") or "").strip()
+    return bool(key and base)
+
+
+async def _active_tool_result_summary_api_config() -> Optional[Dict[str, Any]]:
+    """读取 search_summary 配置；不可用时按搜索压缩链路回退到 summary。"""
+    db = get_database()
+    try:
+        ss = await db.get_active_api_config("search_summary")
+    except Exception as e:
+        logger.warning("读取 search_summary 激活配置失败: %s", e)
+        ss = None
+    if _usable_api_config(ss):
+        return ss
+    try:
+        su = await db.get_active_api_config("summary")
+    except Exception as e:
+        logger.warning("读取 summary 激活配置失败: %s", e)
+        su = None
+    return su if _usable_api_config(su) else None
+
+
+async def _llm_compress_tool_result(prompt: str, *, max_tokens: int) -> str:
+    db_cfg = await _active_tool_result_summary_api_config()
+    if not db_cfg:
+        return ""
+
+    def _run() -> str:
+        from llm.llm_interface import LLMInterface
+
+        llm = LLMInterface(config_type="search_summary", _db_cfg=db_cfg)
+        llm.max_tokens = max_tokens
+        try:
+            llm.temperature = min(float(llm.temperature), 0.25)
+        except (TypeError, ValueError):
+            llm.temperature = 0.2
+        messages = [{"role": "user", "content": prompt}]
+        return llm.generate_with_context(messages)
+
+    try:
+        return (await asyncio.to_thread(_run)).strip()
+    except Exception as e:
+        logger.warning("工具结果 LLM 压缩失败: %s", e)
+        return ""
+
+
+async def _compress_tool_result_by_length(
+    tool_name: str, arguments_json: str, result_text: str
+) -> Tuple[str, str]:
+    """统一按原始结果字数产出 (本轮内容, 跨轮摘要)。"""
+    raw = result_text or ""
+    raw_stripped = raw.strip()
+    if len(raw_stripped) < TOOL_RESULT_SHORT_WORDS:
+        short = raw_stripped or "已执行，但没有返回可读结果。"
+        return raw, short
+
+    if len(raw_stripped) <= TOOL_RESULT_LONG_WORDS:
+        context_prompt = _TOOL_RESULT_CONTEXT_PROMPT.format(
+            tool_name=tool_name,
+            arguments=arguments_json or "{}",
+            input=raw_stripped,
+        )
+        context_summary = await _llm_compress_tool_result(
+            context_prompt,
+            max_tokens=TOOL_RESULT_CONTEXT_MAX_TOKENS,
+        )
+        if not context_summary:
+            context_summary = _fallback_summarize_tool_result_for_context(
+                tool_name, arguments_json, raw
+            )
+        return raw, context_summary
+
+    long_prompt = _TOOL_RESULT_LONG_COMPRESS_PROMPT.format(
+        tool_name=tool_name,
+        arguments=arguments_json or "{}",
+        raw_result=raw_stripped,
+    )
+    model_result = await _llm_compress_tool_result(
+        long_prompt,
+        max_tokens=TOOL_RESULT_LONG_COMPRESS_MAX_TOKENS,
+    )
+    if not model_result:
+        fallback_model = _fallback_tool_result_for_model(tool_name, arguments_json, raw)
+        fallback_context = _fallback_summarize_tool_result_for_context(
+            tool_name, arguments_json, raw
+        )
+        return fallback_model, fallback_context
+
+    context_prompt = _TOOL_RESULT_CONTEXT_PROMPT.format(
+        tool_name=tool_name,
+        arguments=arguments_json or "{}",
+        input=model_result,
+    )
+    context_summary = await _llm_compress_tool_result(
+        context_prompt,
+        max_tokens=TOOL_RESULT_CONTEXT_MAX_TOKENS,
+    )
+    if not context_summary:
+        context_summary = _fallback_summarize_tool_result_for_context(
+            tool_name, arguments_json, model_result
+        )
+    return model_result, context_summary
+
+
+async def summarize_tool_result_for_context(
+    tool_name: str, arguments_json: str, result_text: str
+) -> str:
+    """生成下一轮 Context 用的工具结果摘要。"""
+    _, context_summary = await _compress_tool_result_by_length(
+        tool_name, arguments_json, result_text
+    )
+    return context_summary
+
+
+async def tool_result_for_model(tool_name: str, arguments_json: str, result_text: str) -> str:
+    """本轮回传给聊天模型的工具结果；所有工具统一按原始字数分支。"""
+    raw = result_text or ""
+    if len(raw.strip()) <= TOOL_RESULT_LONG_WORDS:
+        return raw
+    model_result, _ = await _compress_tool_result_by_length(
+        tool_name, arguments_json, result_text
+    )
+    return model_result
+
+
 async def save_tool_execution_record(
     *,
     session_id: Optional[str],
@@ -159,6 +318,7 @@ async def save_tool_execution_record(
     tool_name: str,
     arguments_json: str,
     result_text: str,
+    result_summary: Optional[str] = None,
     platform: Optional[str] = None,
     user_message_id: Optional[int] = None,
     assistant_message_id: Optional[int] = None,
@@ -175,7 +335,9 @@ async def save_tool_execution_record(
             seq=seq,
             tool_name=tool_name,
             arguments_json=arguments_json or "{}",
-            result_summary=summarize_tool_result_for_context(
+            result_summary=result_summary
+            if result_summary is not None
+            else await summarize_tool_result_for_context(
                 tool_name, arguments_json or "{}", result_text
             ),
             result_raw=result_text,
@@ -375,6 +537,241 @@ def _lutopia_write_action_description(first_verb: str, words: List[str]) -> str:
     return ""
 
 
+def _internal_memory_json_dict(raw: str) -> Dict[str, Any]:
+    try:
+        parsed = json.loads(raw or "{}")
+    except json.JSONDecodeError:
+        return {}
+    return parsed if isinstance(parsed, dict) else {}
+
+
+def _rcommunity_memory_args(arguments_json: str) -> Dict[str, Any]:
+    args = _internal_memory_json_dict(arguments_json)
+    req = args.get("request")
+    if isinstance(req, dict):
+        merged = dict(req)
+        for k, v in args.items():
+            if k != "request":
+                merged[k] = v
+        return merged
+    return args
+
+
+def _internal_memory_failure_reason(result_text: str) -> Optional[str]:
+    parsed = _internal_memory_json_dict(result_text)
+    if not parsed:
+        return None
+    err = parsed.get("error")
+    if err is not None and str(err).strip() != "":
+        return str(err).strip()
+    if parsed.get("success") is False:
+        for key in ("message", "summary", "output", "result"):
+            v = parsed.get(key)
+            if v is not None and str(v).strip() != "":
+                return str(v).strip()
+        return "工具返回 success=false"
+    return None
+
+
+def _internal_memory_key_suffix(
+    result_text: str,
+    args: Dict[str, Any],
+    *,
+    keys: Tuple[str, ...],
+    max_bits: int = 4,
+) -> str:
+    seen: set[Tuple[str, str]] = set()
+    bits: List[str] = []
+
+    def _add(key: str, value: Any) -> None:
+        if value is None:
+            return
+        if isinstance(value, (dict, list)):
+            return
+        val = str(value).strip()
+        if not val:
+            return
+        item = (key, val)
+        if item in seen:
+            return
+        seen.add(item)
+        bits.append(f"{key}: {val}")
+
+    def _walk(value: Any) -> None:
+        if len(bits) >= max_bits:
+            return
+        if isinstance(value, dict):
+            for key in keys:
+                if key in value:
+                    _add(key, value.get(key))
+                    if len(bits) >= max_bits:
+                        return
+            for sub in value.values():
+                if isinstance(sub, (dict, list)):
+                    _walk(sub)
+                    if len(bits) >= max_bits:
+                        return
+        elif isinstance(value, list):
+            for item in value:
+                _walk(item)
+                if len(bits) >= max_bits:
+                    return
+
+    _walk(_internal_memory_json_dict(result_text))
+    if len(bits) < max_bits:
+        for m in _RE_RESULT_ID_BITS.finditer(result_text or ""):
+            _add(m.group(1), m.group(2))
+            if len(bits) >= max_bits:
+                break
+    _walk(args)
+    if not bits:
+        return "，关键ID未返回"
+    return "，" + "，".join(bits[:max_bits])
+
+
+def _rcommunity_write_action_description(
+    tool_name: str, action: str, args: Dict[str, Any]
+) -> str:
+    tid = str(args.get("thread_id") or args.get("post_id") or "?").strip() or "?"
+    rid = str(args.get("reply_id") or args.get("comment_id") or "?").strip() or "?"
+    if tool_name == "rcommunity_forum_write":
+        if action == "create":
+            return "已在 rcommunity 发布新帖"
+        if action == "reply":
+            return f"已回复 rcommunity 帖子 #{tid}"
+        if action == "edit":
+            if rid != "?":
+                return f"已编辑 rcommunity 回复 #{rid}"
+            return f"已编辑 rcommunity 帖子 #{tid}"
+        if action in {"delete", "delete_thread"}:
+            return f"已删除 rcommunity 帖子 #{tid}"
+        if action == "delete_reply":
+            return f"已删除 rcommunity 回复 #{rid}"
+    if tool_name == "rcommunity_forum_interact":
+        if action == "pin":
+            return f"已操作 rcommunity 帖子置顶 #{tid}"
+        if action == "bookmark":
+            return f"已操作 rcommunity 帖子收藏 #{tid}"
+        if action == "like":
+            return f"已操作 rcommunity 点赞 #{tid}"
+    return ""
+
+
+def rcommunity_internal_memory_line(
+    tool_name: str, arguments_json: str, result_text: str
+) -> str:
+    nm = (tool_name or "").strip()
+    if nm not in {"rcommunity_forum_write", "rcommunity_forum_interact"}:
+        return ""
+
+    args = _rcommunity_memory_args(arguments_json)
+    action = str(args.get("action") or "").strip()
+    write_actions = {
+        "rcommunity_forum_write": {
+            "create",
+            "reply",
+            "edit",
+            "delete",
+            "delete_thread",
+            "delete_reply",
+        },
+        "rcommunity_forum_interact": {"pin", "bookmark", "like"},
+    }
+    if action not in write_actions.get(nm, set()):
+        return ""
+
+    base = _rcommunity_write_action_description(nm, action, args)
+    if not base:
+        return ""
+
+    err_detail = _internal_memory_failure_reason(result_text)
+    if err_detail is not None:
+        detail = _clip_log(err_detail.replace("\n", " "), 120)
+        return f"[系统内部记忆：{base}，操作失败：{detail}]"
+
+    suffix = _internal_memory_key_suffix(
+        result_text,
+        args,
+        keys=(
+            "thread_id",
+            "reply_id",
+            "comment_id",
+            "post_id",
+            "id",
+            "url",
+        ),
+    )
+    return f"[系统内部记忆：{base}{suffix}]"
+
+
+def _x_write_action_description(tool_name: str, args: Dict[str, Any]) -> str:
+    tid = str(args.get("tweet_id") or "?").strip() or "?"
+    uid = str(args.get("user_id") or args.get("username") or "?").strip() or "?"
+    if tool_name == "post_tweet":
+        return "已发布 X 推文"
+    if tool_name == "reply_tweet":
+        return f"已回复 X 推文 #{tid}"
+    if tool_name == "retweet_tweet":
+        if str(args.get("comment") or "").strip():
+            return f"已引用转推 X 推文 #{tid}"
+        return f"已转推 X 推文 #{tid}"
+    if tool_name == "like_tweet":
+        return f"已点赞 X 推文 #{tid}"
+    if tool_name == "unlike_tweet":
+        return f"已取消点赞 X 推文 #{tid}"
+    if tool_name == "unretweet_tweet":
+        return f"已取消转推 X 推文 #{tid}"
+    if tool_name == "follow_user":
+        return f"已关注 X 用户 {uid}"
+    if tool_name == "unfollow_user":
+        return f"已取消关注 X 用户 {uid}"
+    return ""
+
+
+def x_internal_memory_line(
+    tool_name: str, arguments_json: str, result_text: str
+) -> str:
+    nm = (tool_name or "").strip()
+    write_tools = {
+        "post_tweet",
+        "reply_tweet",
+        "retweet_tweet",
+        "like_tweet",
+        "unlike_tweet",
+        "unretweet_tweet",
+        "follow_user",
+        "unfollow_user",
+    }
+    if nm not in write_tools:
+        return ""
+
+    args = _internal_memory_json_dict(arguments_json)
+    base = _x_write_action_description(nm, args)
+    if not base:
+        return ""
+
+    err_detail = _internal_memory_failure_reason(result_text)
+    if err_detail is not None:
+        detail = _clip_log(err_detail.replace("\n", " "), 120)
+        return f"[系统内部记忆：{base}，操作失败：{detail}]"
+
+    suffix = _internal_memory_key_suffix(
+        result_text,
+        args,
+        keys=(
+            "tweet_id",
+            "source_tweet_id",
+            "in_reply_to",
+            "followed_user_id",
+            "unfollowed_user_id",
+            "user_id",
+            "username",
+            "url",
+        ),
+    )
+    return f"[系统内部记忆：{base}{suffix}]"
+
+
 def lutopia_internal_memory_line(
     name: str, arguments_json: str, result_text: str
 ) -> str:
@@ -430,9 +827,13 @@ def build_lutopia_internal_memory_appendix(
         return ""
     lines: List[str] = []
     for nm, args_j, res in executions:
-        line = lutopia_internal_memory_line(nm, args_j, res)
-        if line.strip():
-            lines.append(line)
+        for line in (
+            lutopia_internal_memory_line(nm, args_j, res),
+            rcommunity_internal_memory_line(nm, args_j, res),
+            x_internal_memory_line(nm, args_j, res),
+        ):
+            if line.strip():
+                lines.append(line)
     return "\n".join(lines)
 
 
@@ -859,21 +1260,31 @@ async def append_tool_exchange_to_messages(
             "web_search",
             "web_fetch",
             "get_ai_news",
-        ) and not is_rcommunity_openai_tool(nm):
+        ):
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:
             await on_tool_done(nm, out)
-        await save_tool_execution_record(
-            session_id=session_id,
-            turn_id=turn_id,
-            seq=seq,
-            tool_name=nm,
-            arguments_json=arg or "{}",
-            result_text=out,
-            platform=platform,
-            user_message_id=user_message_id,
+        context_summary: Optional[str] = None
+        if len((out or "").strip()) > TOOL_RESULT_LONG_WORDS:
+            model_out, context_summary = await _compress_tool_result_by_length(
+                nm, arg or "{}", out
+            )
+        else:
+            model_out = await tool_result_for_model(nm, arg or "{}", out)
+
+        asyncio.create_task(
+            save_tool_execution_record(
+                session_id=session_id,
+                turn_id=turn_id,
+                seq=seq,
+                tool_name=nm,
+                arguments_json=arg or "{}",
+                result_text=out,
+                result_summary=context_summary,
+                platform=platform,
+                user_message_id=user_message_id,
+            )
         )
-        model_out = tool_result_for_model(nm, arg or "{}", out)
         messages.append(
             {"role": "tool", "tool_call_id": tc.get("id") or "", "content": model_out}
         )

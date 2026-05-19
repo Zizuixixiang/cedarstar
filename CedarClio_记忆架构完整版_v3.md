@@ -1,4 +1,4 @@
-v3.1 · 2026-05-14 更新 · rcommunity Streamable HTTP / 工具防卡死 · 小红书链接预处理与 `xhs` 工具 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
+v3.1 · 2026-05-19 更新 · rcommunity Streamable HTTP / 工具防卡死 · 通用工具结果压缩 · `web_search` 原始结果 · 小红书链接预处理与 `xhs` 工具 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -77,7 +77,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `vision`：图片理解
 - `stt`：语音转录
 - `embedding`：向量嵌入（默认 SiliconFlow Qwen3-Embedding-8B，dim=1024；通过 `EMBEDDING_PROVIDER` 环境变量可切回智谱 embedding-3）
-- `search_summary`：网页搜索结果压缩
+- `search_summary`：通用工具结果压缩（`tool_result_for_model` / `summarize_tool_result_for_context` 使用；`web_search` 本身只返回原始搜索拼接文本）
 - `analysis`：日终 Step 4 事件聚类、描述与打分；不可用时回退 `summary`
 - `rerank`：长期记忆精排（SiliconFlow Qwen3-Reranker-4B）
 - `tts`：语音合成（MiniMax T2A v2，国内域名 `api.minimaxi.com`）；`api_configs` 中需配置 `api_key` 与 `voice_id`
@@ -116,7 +116,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `enable_ai_news_tool`（与部署 `ENABLE_AI_NEWS_TOOL` 同时为真才注册 `get_ai_news`）
 - `enable_xhs_tool`（与部署 **`ENABLE_XHS_TOOL`** 同时为真才注册小红书工具集）
 
-补充：`web_fetch`（网页正文抓取）**不是**本表字段；仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（默认 true）控制是否注册，见 **§4.2.1**。
+补充：`web_fetch`（网页正文抓取）**不是**本表字段；仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（默认 true）控制是否注册，见 **§4.2.2**。
 
 ### 2.4 辅助表
 
@@ -251,7 +251,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 用于记录每次工具调用的短摘要与原始结果。摘要上限 150 字（短于 150 直接存原文），DB 兜底截断 1200；原始结果截断 50K，仅供排查。Context 注入与 chunk 摘要均使用 150 字摘要。日终跑批自动清理 7 天前的记录。
+`tool_executions` 用于记录每次工具调用的短摘要与原始结果。摘要生成统一走 `tools/lutopia.py` 的字数分支：原始结果 `<300` 字原样；`300–10000` 字调用 `search_summary`（不可用回退 `summary`，再失败回退旧截断）压到 200–300 字；`>10000` 字先压到 5000 字以内供本轮使用，再二次压到 200–300 字供跨轮上下文与落库摘要使用。DB 仍兜底截断摘要 1200、原始结果 50K；日终跑批自动清理 7 天前的记录。
 
 ## 四、对话与工具
 
@@ -260,6 +260,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - Telegram 通过 webhook 接入
 - Discord 通过 bot gateway 接入
 - 两者都先进入消息缓冲，再统一构建 Context 与调用 LLM
+- LLM POST 对 HTTP 429 与所有 5xx 最多重试 5 次；Embedding 客户端同样对 429 / 5xx 做重试。
 
 ### 4.2 工具开关
 
@@ -270,7 +271,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - 天气
 - 微博热搜
 - 网页搜索
-- X (Twitter)（13 工具，`tools/x_tool.py`；配额 `x_usage_*`。CedarClio 用 `@Clio_Cedar`；reply/引用转推仅原帖 @Clio 或 `read_mentions`；账号见 `X_TOOL_DIRECTIVE`）
+- X (Twitter)（13 工具，`tools/x_tool.py`；配额 `x_usage_*`。CedarClio 用 `@Clio_Cedar`；reply/引用转推仅原帖 @Clio 或 `read_mentions`；账号见 `X_TOOL_DIRECTIVE`；发布/回复/转推/点赞/关注等写操作会生成 `[系统内部记忆：...]` 内部旁白块，发给用户前剥除、落库保留）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 - 小红书（当前对外仅 **`read_xhs_note`**；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py` 的 `OPENAI_XHS_TOOLS` / `XHS_TOOL_DIRECTIVE`，其余 5 个 function 在 prompts 中已注释）
 
@@ -282,24 +283,28 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 工具口播提示由 `memory/context_builder.py` 的 `TOOL_ORAL_COACHING_BLOCK`（`tool_oral_coaching=True` 时）与 `tools/prompts.py` 的各工具包 `TOOL_DIRECTIVES`（经 `build_tool_system_suffix` 注入）共同约束，确保模型在调用工具前先有一句自然口语。
 
-### 4.2.1 网页正文抓取（`web_fetch`，`tools/web_fetch.py`）
+### 4.2.1 网页搜索（`web_search`，`tools/search.py`）
+
+`web_search` 通过 Tavily Search API 拉取最多 **10** 条结果，直接返回按 `[序号] 标题 / URL / 摘要原文` 拼接的纯文本；失败返回纯文本 `暂时无法搜索`。`tools/search.py` 不再调用小模型、不再返回 `{"summary": ...}` JSON，也不再直接读取 `search_summary` 配置。搜索结果过长时统一交给 **通用工具结果压缩层**处理。
+
+### 4.2.2 网页正文抓取（`web_fetch`，`tools/web_fetch.py`）
 
 对用户给出的 http(s) URL：`aiohttp` GET（总超时 10 秒、响应体上限 1MB），`trafilatura.extract` 抽正文；工具返回 JSON（`text` / `error`；正文最多 4000 字符）。**依赖**：`trafilatura`、`lxml_html_clean`（lxml 6+ 必需）、`aiohttp`（见根目录 `requirements.txt`）。**调度**：`complete_with_lutopia_tool_loop`、`append_tool_exchange_to_messages`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`。写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 旁白附录（与 `web_search`、`get_ai_news` 同组排除）。Telegram 缓冲 / Discord / idle 是否走「带 tools 的 OpenAI 兼容流式」与 **`ENABLE_WEB_FETCH_TOOL`** 做逻辑或，避免仅该工具开启时仍走无 tools 路径。
 
-### 4.2.2 AI HOT 资讯（`tools/aihot.py`）
+### 4.2.3 AI HOT 资讯（`tools/aihot.py`）
 
 匿名请求 `https://aihot.virxact.com/api/public` 的 `items` / `daily` / `daily/{date}` / `dailies`（`User-Agent: CedarStar/1.0`）。`dailies` 始终带 `take`（默认 10，硬上限 15）；`daily` / `daily_by_date` 格式化正文有总长度上限（模块常量，当前 10000 字符量级）。`get_ai_news` 写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 拼附录。
 
-### 4.2.3 小红书（链接预处理 + CLI 工具，`tools/xhs_tool.py`）
+### 4.2.4 小红书（链接预处理 + CLI 工具，`tools/xhs_tool.py`）
 
 - **依赖**：Python 包 **`xiaohongshu-cli`**（提供 `xhs` 子进程）；Cookie 由环境变量 **`XHS_COOKIE_PATH`** 指向与 CLI 兼容的 `cookies.json`（进程内可按 `APP_NAME` 构造临时 `HOME/.xiaohongshu-cli` 并 symlink，满足 CLI 固定路径约定）。
 - **对外工具**：`tools/prompts.py` 的 `OPENAI_XHS_TOOLS` 当前仅注册 **`read_xhs_note`**（其余 5 个 schema 已注释；`tools/xhs_tool.py` 内实现仍保留）。
 - **Telegram 缓冲路径**：在 `bot/telegram_bot.py` 的 `telegram_append_xhs_note_to_message`（`build_context` 之前），对正文中的 `xhslink.com` / `xiaohongshu.com` 链接自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 4 张注入多模态（不占日读配额）；字段解析支持 `imageList` / `urlDefault` 与 `items[0].note_card`；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。
 - **工具循环**：与 Lutopia / 天气等并列注册于 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、Discord / idle 路径（`llm/llm_interface.py`、`bot/discord_bot.py`、`bot/idle_activity.py`）。`tool_executions` 照常记录。
 
-### 4.2.4 rcommunity 论坛 MCP（`tools/rcommunity.py`）
+### 4.2.5 rcommunity 论坛 MCP（`tools/rcommunity.py`）
 
-与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；MCP 端点为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`（**`rcommunity_mcp_url()`**），传输为 **Streamable HTTP**（`mcp.client.streamable_http.streamablehttp_client`；超时常量 `RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC` 等见 `tools/rcommunity.py`）。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity 会话；建连失败则 `yield None`。`append_tool_exchange_to_messages` 返回各工具原始 JSON 列表、单工具 try/except；连续 3 轮仅含 `error` 时暂时禁用 tools（`tool_loop_json_payload_indicates_error_round`）。`RCOMMUNITY_TOOL_DIRECTIVE` / `OPENAI_RCOMMUNITY_TOOLS` 写明站方 `action` 枚举。`tool_executions` 照常记录；rcommunity 不进入 Lutopia 流式 `execution_log` 旁白附录。探测：`scripts/list_rcommunity_tools.py`、`scripts/test_rcommunity_connection.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`（本次无新迁移文件）。
+与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；MCP 端点为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`（**`rcommunity_mcp_url()`**），传输为 **Streamable HTTP**（`mcp.client.streamable_http.streamablehttp_client`；超时常量 `RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC` 等见 `tools/rcommunity.py`）。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity 会话；建连失败则 `yield None`。`append_tool_exchange_to_messages` 返回各工具原始 JSON 列表、单工具 try/except；连续 3 轮仅含 `error` 时暂时禁用 tools（`tool_loop_json_payload_indicates_error_round`）。`RCOMMUNITY_TOOL_DIRECTIVE` / `OPENAI_RCOMMUNITY_TOOLS` 写明站方 `action` 枚举。`tool_executions` 照常记录；`rcommunity_forum_write` 的发帖/回复/编辑/删除与 `rcommunity_forum_interact` 的置顶/收藏/点赞会生成 `[系统内部记忆：...]` 内部旁白块，保留 thread/reply/comment/post ID、URL、失败原因等关键字段；发给用户前剥除，落库正文保留。`web_search` / `web_fetch` / `get_ai_news` 等只读旁路工具不进入 Lutopia 行为附录。探测：`scripts/list_rcommunity_tools.py`、`scripts/test_rcommunity_connection.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`（本次无新迁移文件）。
 
 ### 4.3 AI 自主活动（Idle Activity）
 

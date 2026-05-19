@@ -217,7 +217,7 @@ OPENAI_SEARCH_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "web_search",
-            "description": "联网搜索并返回经压缩的网页要点摘要（只读）",
+            "description": "联网搜索并返回网页标题、链接与摘要原文（只读）",
             "parameters": {
                 "type": "object",
                 "properties": {
