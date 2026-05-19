@@ -88,7 +88,10 @@ async def _transcribe_openai_compatible(
     else:
         filename = "voice.ogg"
 
-    headers = {"Authorization": f"Bearer {api_key}"}
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "User-Agent": "CedarStar/1.0",
+    }
     files = {"file": (filename, voice_bytes, mime_type)}
     data = {"model": model, "language": "zh"}
 

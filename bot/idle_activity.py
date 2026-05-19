@@ -189,8 +189,16 @@ def _append_idle_next_at_hint(text: str) -> str:
     now_sh = datetime.now(_SHANGHAI_TZ)
     hhmm = f"{now_sh.hour:02d}:{now_sh.minute:02d}"
     return (
-        f"{text}\n当前北京时间 {hhmm}。如需指定下次活动时间，请在回复末尾加上 "
-        f"[NEXT_AT_HH:MM]（24小时制，北京时间），否则不加。"
+        f"{text}\n\n当前北京时间 {hhmm}。\n"
+        "预约下次自主活动（可选）：若你希望在后续某个固定时刻再自主活动、出去转转"
+        "（不必等南杉先来私聊，到点即触发），\n"
+        "请在本条回复的**最末尾**单独加一行标记 [NEXT_AT_HH:MM]："
+        "HH:MM 为 24 小时制北京时间（例：[NEXT_AT_20:00]）；\n"
+        "若该时刻今天已过，则顺延到次日同一时刻。"
+        "该标记会从发给南杉的正文里剥除，她看不到。\n"
+        "若本轮不需要预约下次时间，不要写该标记，系统将继续按 Mini App 的空闲阈值、"
+        "自主活动冷却与概率档位决定是否再触发。\n"
+        "注意：预约时间建议与当前时间间隔不超过 3 小时，过长会导致这段时间内正常触发也被屏蔽。"
     )
 
 
@@ -248,17 +256,7 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
     if not _is_truthy(enabled):
         return
 
-    next_at_raw = str(await db.get_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "") or "").strip()
-    if next_at_raw:
-        try:
-            next_at_utc = _to_aware_utc(datetime.fromisoformat(next_at_raw))
-            if next_at_utc is not None and datetime.now(timezone.utc) < next_at_utc:
-                logger.debug("[idle] skip tick: waiting for next_trigger_at=%s", next_at_raw)
-                return
-        except ValueError:
-            pass
-
-    # 仅在东八区设定时段内允许触发
+    # 仅在东八区设定时段内允许触发（预约触发与概率触发共用）
     now_sh = datetime.now(_SHANGHAI_TZ)
     try:
         start_hour = int(await db.get_config("idle_activity_start_hour", "8"))
@@ -267,6 +265,26 @@ async def check_and_trigger(telegram_bot_instance, db) -> None:
         start_hour, end_hour = 8, 23
     if now_sh.hour < start_hour or now_sh.hour > end_hour:
         return
+
+    next_at_raw = str(await db.get_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "") or "").strip()
+    if next_at_raw:
+        next_at_utc: Optional[datetime] = None
+        try:
+            next_at_utc = _to_aware_utc(datetime.fromisoformat(next_at_raw))
+        except ValueError:
+            logger.warning("[idle] invalid next_trigger_at=%s, clearing", next_at_raw)
+            await db.set_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "")
+        if next_at_utc is not None:
+            if datetime.now(timezone.utc) < next_at_utc:
+                logger.debug("[idle] skip tick: waiting for next_trigger_at=%s", next_at_raw)
+                return
+            logger.info(
+                "[idle] next_trigger_at due (%s), scheduled trigger",
+                next_at_raw,
+            )
+            await db.set_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "")
+            await trigger_idle_activity(telegram_bot_instance, db)
+            return
 
     level_name = str(await db.get_config("idle_activity_level", "mid") or "mid").strip().lower()
     level = IDLE_LEVELS.get(level_name, IDLE_LEVELS["mid"])
@@ -416,7 +434,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or bool(app_config.ENABLE_WEB_FETCH_TOOL)
     ) and not llm._use_anthropic_messages_api()
 
-    # 把“用户最后发言时间”注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
+    # 把南杉最近回复时间注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
     if stardew_mode:
         idle_trigger_text = STARDEW_AUTOPLAY_TRIGGER_TEXT
     else:
@@ -425,13 +443,8 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         if last_activity and last_activity.get("created_at") is not None:
             last_user_text = _format_shanghai_timestamp(last_activity["created_at"])
             if last_user_text:
-                source_text = (
-                    "群聊"
-                    if str(last_activity.get("source") or "").lower() == "group"
-                    else "私聊/普通通道"
-                )
                 idle_trigger_text = _append_idle_next_at_hint(
-                    f"{_IDLE_TRIGGER_TEXT}\n南杉最后一条{source_text}消息在{last_user_text}。"
+                    f"{_IDLE_TRIGGER_TEXT}\n南杉最近一次回复你在{last_user_text}。"
                 )
 
     # 只把 idle trigger 注入本次推理，不写入 messages 表

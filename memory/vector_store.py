@@ -108,6 +108,7 @@ class SiliconFlowEmbedding:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "CedarStar/1.0",
         }
         data = {
             "model": self.model,
@@ -177,6 +178,7 @@ class ZhipuEmbedding:
         headers = {
             "Authorization": f"Bearer {self.api_key}",
             "Content-Type": "application/json",
+            "User-Agent": "CedarStar/1.0",
         }
         data = {
             "model": self.model,

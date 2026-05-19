@@ -1008,7 +1008,7 @@ async def _invoke_lutopia_mcp_tool(
     if session is not None:
         return await _call(session)
 
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = _auth_headers(token)
     try:
         async with sse_client(
             LUTOPIA_MCP_SSE_URL,
@@ -1045,7 +1045,7 @@ async def create_lutopia_mcp_session() -> AsyncIterator[Optional[Any]]:
         yield None
         return
 
-    headers = {"Authorization": f"Bearer {token}"}
+    headers = _auth_headers(token)
     try:
         async with sse_client(
             LUTOPIA_MCP_SSE_URL,

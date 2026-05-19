@@ -59,6 +59,7 @@ async def minimax_tts(
                 headers={
                     "Authorization": f"Bearer {api_key}",
                     "Content-Type": "application/json",
+                    "User-Agent": "CedarStar/1.0",
                 },
             )
             resp.raise_for_status()

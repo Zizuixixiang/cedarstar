@@ -249,7 +249,14 @@ async def fetch_models(req: FetchModelsRequest):
         async with httpx.AsyncClient(timeout=20.0) as client:
             response = await client.get(
                 f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
+                headers={
+                    "Authorization": f"Bearer {api_key}",
+                    "User-Agent": (
+                        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                        "AppleWebKit/537.36 (KHTML, like Gecko) "
+                        "Chrome/124.0.0.0 Safari/537.36"
+                    ),
+                },
             )
 
         if response.status_code == 200:
@@ -546,7 +553,11 @@ async def test_api_config(config_id: int):
 
     try:
         if config_type == "embedding":
-            headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "CedarStar/1.0",
+            }
             payload = {"model": model, "input": "CedarStar 配置连通性测试"}
             url = f"{base_url}/embeddings"
             async with httpx.AsyncClient(timeout=60.0) as client:
