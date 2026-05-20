@@ -22,8 +22,8 @@ from memory.database import save_message
 logger = logging.getLogger(__name__)
 
 # 自主活动 LLM 外层重试：每次延迟秒数（共 1 + len 次请求）
-_IDLE_LLM_RETRY_DELAYS = (10, 15, 30)
-_RETRIABLE_HTTP_STATUS = frozenset({401, 403, 429, 500, 502, 503, 504})
+_IDLE_LLM_RETRY_DELAYS = (10,)
+_RETRIABLE_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
 
 
 def _walk_exc_chain(exc: BaseException, _seen: Optional[set] = None):
@@ -58,7 +58,7 @@ def _http_status_from_exc(exc: BaseException) -> Optional[int]:
 
 
 def _is_retriable_idle_llm_exc(exc: BaseException) -> bool:
-    """自主活动 LLM 可重试：429/5xx/401/403、超时与连接类瞬时故障。"""
+    """自主活动 LLM 可重试：429/5xx、超时与连接类瞬时故障。"""
     status = _http_status_from_exc(exc)
     if status is not None and status in _RETRIABLE_HTTP_STATUS:
         return True
@@ -89,10 +89,6 @@ def _is_retriable_idle_llm_exc(exc: BaseException) -> bool:
         "503",
         "504",
         "500 server error",
-        "401 client error",
-        "403 client error",
-        "unauthorized",
-        "forbidden",
     ):
         if token in msg:
             return True

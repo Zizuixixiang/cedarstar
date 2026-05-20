@@ -89,7 +89,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 - 同一 `config_type` 可多行 `is_active=1`（Mini App「加入激活池」）；`activate` 不取消同类型其它行，`deactivate` 单独取消。
 - `get_active_api_configs` 按 `id ASC`；`LLMInterface.create` 加载整池，HTTP 经 `_post_with_api_failover`：**仅报错时**按 id 切下一渠道，成功不换。
-- 可转移错误含 401/403/429/500/502/503/504、超时与连接异常；单渠道内这些可转移错误先用同一 key 完成 `_post_with_retry`（最多 6 次、间隔 2s），这一组尝试全部失败后才给该 key 记 1 次连续失败并切下一条。
+- 可转移错误含 401/403/429/500/502/503/504、超时与连接异常；单渠道内 `_post_with_retry` 按错误类型收敛：401/403 不做同渠道重试，直接交给 `_post_with_api_failover` 切下一条；429/5xx、超时与连接异常在同渠道最多初次 + 2 次重试（间隔 2s）。单渠道尝试失败后才给该 key 记 1 次连续失败并切下一条。
 - 同一配置 id 连续可转移失败 **5 次** → 自动 `deactivate`；计数键 `api_failover_fail_count_{id}`；成功或重新激活则清零。
 - 本轮池内全部失败：一次性 Telegram（`TELEGRAM_MAIN_USER_CHAT_ID` + `TELEGRAM_BOT_TOKEN`），latch 键 `api_failover_all_failed_alert_latch_{config_type}`；池空或仅 `.env` 回退时不发。`main.py` 注册 `register_llm_failover_event_loop`。
 
@@ -271,7 +271,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - Telegram 通过 webhook 接入
 - Discord 通过 bot gateway 接入
 - 两者都先进入消息缓冲，再统一构建 Context 与调用 LLM
-- LLM POST 在当前渠道内会先对 401/403/429/500/502/503/504、超时与连接异常最多重试 5 次，再交给激活池故障转移；Embedding 客户端同样对 429 / 5xx 做重试。
+- LLM POST 在当前渠道内对 401/403 不做同渠道重试；对 429/5xx、超时与连接异常最多同渠道重试 2 次，再交给激活池故障转移；Embedding 客户端同样对 429 / 5xx 做重试。
 
 ### 4.2 工具开关
 
@@ -325,7 +325,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 **下次触发时间（可选）**：触发句末尾注入当前北京时间，模型可在回复末尾写 `[NEXT_AT_HH:MM]`（东八区）；系统解析后写入 `idle_activity_next_trigger_at`（UTC ISO，已过时刻则顺延至次日）。`check_and_trigger` 在启用与**时段**（两路径共用）之后分支：未到期则跳过 tick；已到期则清空该键并预约触发（绕过阈值/冷却/概率）；键为空则走概率路径。`trigger_idle_activity` 结束后 `_apply_idle_next_trigger_at` 可根据本轮回复写入新预约。用户可见正文会剥除 `[NEXT_AT_...]`。
 
-**LLM 外层重试**（`bot/idle_activity.py`）：`complete_with_lutopia_tool_loop` 失败且 `_is_retriable_idle_llm_exc` 时最多再试 3 次（间隔 10s / 15s / 30s）；仍失败可向私聊发「自主活动失败」提醒（不入库 `messages`）。与主对话相同，走 API 激活池与 `_post_with_api_failover`。
+**LLM 外层重试**（`bot/idle_activity.py`）：`complete_with_lutopia_tool_loop` 失败且 `_is_retriable_idle_llm_exc` 时最多再试 1 次（间隔 10s），仅覆盖 429/5xx、超时与连接类错误；401/403 不再触发整轮重试。仍失败可向私聊发「自主活动失败」提醒（不入库 `messages`）。与主对话相同，走 API 激活池与 `_post_with_api_failover`。
 
 额外支持「星露谷自动模式」：
 

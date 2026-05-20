@@ -1202,6 +1202,10 @@ def _persona_row_enable_xhs_tool(row: Optional[Dict[str, Any]]) -> bool:
 
 
 _API_FAILOVER_HTTP_STATUS = frozenset({401, 403, 429, 500, 502, 503, 504})
+_NO_CHANNEL_RETRY_HTTP_STATUS = frozenset({401, 403})
+_TRANSIENT_CHANNEL_RETRY_HTTP_STATUS = frozenset({429, 500, 502, 503, 504})
+_TRANSIENT_CHANNEL_MAX_RETRIES = 2
+_TRANSIENT_CHANNEL_RETRY_DELAY_SECONDS = 2
 
 
 def _walk_exc_chain(exc: BaseException, _seen: Optional[set] = None):
@@ -1744,11 +1748,11 @@ class LLMInterface:
         stream: bool = False,
     ) -> requests.Response:
         """
-        POST JSON；对可故障转移错误最多重试 5 次（首次 + 5 次重试共 6 次请求），
-        每次重试前等待 2 秒。同一渠道全部尝试失败后，外层才记一次失败并切换渠道。
+        POST JSON；401/403 不做同渠道重试，直接交给外层 failover；
+        429/5xx/连接错误/超时在同渠道最多重试 2 次，再交给外层 failover。
         """
         headers = self._prepare_headers()
-        max_attempts = 6  # 首次 1 次 + 重试 5 次
+        max_attempts = 1 + _TRANSIENT_CHANNEL_MAX_RETRIES
         active_payload = payload
         image_400_fallbacks = _payload_image_400_fallbacks(
             payload,
@@ -1771,21 +1775,33 @@ class LLMInterface:
             ) as exc:
                 if attempt < max_attempts - 1:
                     logger.warning(
-                        "LLM API 连接/超时错误，等待 2s 后使用同一渠道重试（第 %s/5 次重试）: %s",
+                        "LLM API 连接/超时错误，等待 %ss 后使用同一渠道重试（第 %s/%s 次重试）: %s",
+                        _TRANSIENT_CHANNEL_RETRY_DELAY_SECONDS,
                         attempt + 1,
+                        _TRANSIENT_CHANNEL_MAX_RETRIES,
                         exc,
                     )
-                    time.sleep(2)
+                    time.sleep(_TRANSIENT_CHANNEL_RETRY_DELAY_SECONDS)
                     continue
                 raise
-            if resp.status_code in _API_FAILOVER_HTTP_STATUS and attempt < max_attempts - 1:
+            if resp.status_code in _NO_CHANNEL_RETRY_HTTP_STATUS:
                 logger.warning(
-                    "LLM API HTTP %s，等待 2s 后使用同一渠道重试（第 %s/5 次重试）",
+                    "LLM API HTTP %s，不在同一渠道重试，直接交由外层 failover",
                     resp.status_code,
+                )
+            elif (
+                resp.status_code in _TRANSIENT_CHANNEL_RETRY_HTTP_STATUS
+                and attempt < max_attempts - 1
+            ):
+                logger.warning(
+                    "LLM API HTTP %s，等待 %ss 后使用同一渠道重试（第 %s/%s 次重试）",
+                    resp.status_code,
+                    _TRANSIENT_CHANNEL_RETRY_DELAY_SECONDS,
                     attempt + 1,
+                    _TRANSIENT_CHANNEL_MAX_RETRIES,
                 )
                 resp.close()
-                time.sleep(2)
+                time.sleep(_TRANSIENT_CHANNEL_RETRY_DELAY_SECONDS)
                 continue
             if resp.status_code == 400 and image_400_fallbacks:
                 label, alt_payload = image_400_fallbacks.pop(0)
