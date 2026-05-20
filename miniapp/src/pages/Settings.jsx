@@ -785,8 +785,9 @@ function Settings() {
   };
 
   /* 获取配置列表：优先用传入的 tab，否则读 ref（永远是最新值） */
-  const fetchConfigs = useCallback(async (tab) => {
+  const fetchConfigs = useCallback(async (tab, options = {}) => {
     const t = tab ?? activeTabRef.current;
+    const silent = Boolean(options.silent);
     try {
       const res = await apiFetch(`/api/settings/api-configs?config_type=${t}`);
       const data = await res.json();
@@ -794,11 +795,11 @@ function Settings() {
         setConfigs(data.data || []);
       } else {
         console.error('fetchConfigs failed:', data.message);
-        setConfigs([]);
+        if (!silent) setConfigs([]);
       }
     } catch (error) {
       console.error('fetchConfigs network error:', error);
-      setConfigs([]);
+      if (!silent) setConfigs([]);
     }
   }, []);
 
@@ -833,6 +834,16 @@ function Settings() {
   useEffect(() => {
     if (!isLoading) fetchConfigs(activeTab);
   }, [activeTab]);
+
+  /* 后端可能因连续失败自动移出激活池，打开 Settings 时定时同步状态 */
+  useEffect(() => {
+    if (isLoading) return undefined;
+    const timer = window.setInterval(() => {
+      if (document.visibilityState === 'hidden') return;
+      fetchConfigs(activeTabRef.current, { silent: true });
+    }, 15000);
+    return () => window.clearInterval(timer);
+  }, [isLoading, fetchConfigs]);
 
   const loadUiPreferences = useCallback(async (tab) => {
     try {

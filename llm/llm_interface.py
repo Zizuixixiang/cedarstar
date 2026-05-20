@@ -1744,8 +1744,8 @@ class LLMInterface:
         stream: bool = False,
     ) -> requests.Response:
         """
-        POST JSON；对 HTTP 429 / 503 最多重试 5 次（首次 + 5 次重试共 6 次请求），
-        每次重试前等待 2 秒。其他状态码立即 raise_for_status（不重试）。
+        POST JSON；对可故障转移错误最多重试 5 次（首次 + 5 次重试共 6 次请求），
+        每次重试前等待 2 秒。同一渠道全部尝试失败后，外层才记一次失败并切换渠道。
         """
         headers = self._prepare_headers()
         max_attempts = 6  # 首次 1 次 + 重试 5 次
@@ -1757,16 +1757,30 @@ class LLMInterface:
             stream=stream,
         )
         for attempt in range(max_attempts):
-            resp = requests.post(
-                url,
-                headers=headers,
-                json=active_payload,
-                timeout=timeout,
-                stream=stream,
-            )
-            if resp.status_code in (429, 503) and attempt < max_attempts - 1:
+            try:
+                resp = requests.post(
+                    url,
+                    headers=headers,
+                    json=active_payload,
+                    timeout=timeout,
+                    stream=stream,
+                )
+            except (
+                requests.exceptions.Timeout,
+                requests.exceptions.ConnectionError,
+            ) as exc:
+                if attempt < max_attempts - 1:
+                    logger.warning(
+                        "LLM API 连接/超时错误，等待 2s 后使用同一渠道重试（第 %s/5 次重试）: %s",
+                        attempt + 1,
+                        exc,
+                    )
+                    time.sleep(2)
+                    continue
+                raise
+            if resp.status_code in _API_FAILOVER_HTTP_STATUS and attempt < max_attempts - 1:
                 logger.warning(
-                    "LLM API HTTP %s，等待 2s 后重试（第 %s/5 次重试）",
+                    "LLM API HTTP %s，等待 2s 后使用同一渠道重试（第 %s/5 次重试）",
                     resp.status_code,
                     attempt + 1,
                 )
