@@ -1632,6 +1632,28 @@ class LLMInterface:
             wait=False,
         )
 
+    def _failover_endpoint_for_current_binding(self, original_url: str) -> str:
+        """Rebuild the request endpoint after a failover binding changes api_base."""
+        base = (self.api_base or "").rstrip("/")
+        if not base:
+            return original_url
+        if original_url.rstrip("/").endswith("/chat/completions"):
+            return f"{base}/chat/completions"
+        if original_url.rstrip("/").endswith("/messages"):
+            return f"{base}/messages"
+        return original_url
+
+    def _failover_payload_for_current_binding(
+        self,
+        payload: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        """Keep the model field aligned with the active failover binding."""
+        if payload is None or "model" not in payload:
+            return payload
+        active_payload = dict(payload)
+        active_payload["model"] = self.model_name
+        return active_payload
+
     @classmethod
     async def create(
         cls,
@@ -1853,8 +1875,10 @@ class LLMInterface:
 
             cfg_id = self._current_failover_config_id()
             try:
+                active_url = self._failover_endpoint_for_current_binding(url)
+                active_payload = self._failover_payload_for_current_binding(payload)
                 resp = self._post_with_retry(
-                    url, payload, timeout, stream=stream
+                    active_url, active_payload, timeout, stream=stream
                 )
                 if cfg_id is not None:
                     self._failover_reset_success_sync(cfg_id)
