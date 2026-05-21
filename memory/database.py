@@ -242,6 +242,9 @@ async def _ensure_custom_mcp_tables(conn) -> None:
         "ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS require_approval INTEGER DEFAULT 0"
     )
     await conn.execute(
+        "ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS input_schema TEXT"
+    )
+    await conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers (enabled)"
     )
     await conn.execute(
@@ -2210,7 +2213,8 @@ class MessageDatabase:
             return _rows(
                 await conn.fetch(
                     f"""
-                    SELECT id, server_id, name, description, enabled, require_approval
+                    SELECT id, server_id, name, description, input_schema,
+                           enabled, require_approval
                     FROM mcp_tools
                     {where}
                     ORDER BY name ASC, id ASC
@@ -2223,7 +2227,8 @@ class MessageDatabase:
         async with self.pool.acquire() as conn:
             rec = await conn.fetchrow(
                 """
-                SELECT id, server_id, name, description, enabled, require_approval
+                SELECT id, server_id, name, description, input_schema,
+                       enabled, require_approval
                 FROM mcp_tools
                 WHERE id = $1
                 """,
@@ -2237,22 +2242,27 @@ class MessageDatabase:
         server_id: str,
         name: str,
         description: Optional[str] = None,
+        input_schema: Optional[str] = None,
     ) -> Dict[str, Any]:
         async with self.pool.acquire() as conn:
             rec = await conn.fetchrow(
                 """
                 INSERT INTO mcp_tools (
-                    id, server_id, name, description, enabled, require_approval
+                    id, server_id, name, description, input_schema,
+                    enabled, require_approval
                 )
-                VALUES ($1, $2, $3, $4, 1, 0)
+                VALUES ($1, $2, $3, $4, $5, 1, 0)
                 ON CONFLICT (server_id, name) DO UPDATE
-                SET description = EXCLUDED.description
-                RETURNING id, server_id, name, description, enabled, require_approval
+                SET description = EXCLUDED.description,
+                    input_schema = EXCLUDED.input_schema
+                RETURNING id, server_id, name, description, input_schema,
+                          enabled, require_approval
                 """,
                 str(uuid.uuid4()),
                 str(server_id),
                 str(name),
                 description,
+                input_schema,
             )
             return _r(rec)
 
@@ -2263,7 +2273,8 @@ class MessageDatabase:
                 UPDATE mcp_tools
                 SET enabled = CASE WHEN COALESCE(enabled, 1) = 1 THEN 0 ELSE 1 END
                 WHERE id = $1
-                RETURNING id, server_id, name, description, enabled, require_approval
+                RETURNING id, server_id, name, description, input_schema,
+                          enabled, require_approval
                 """,
                 str(tool_id),
             )
@@ -2278,7 +2289,8 @@ class MessageDatabase:
                     WHEN COALESCE(require_approval, 0) = 1 THEN 0 ELSE 1
                 END
                 WHERE id = $1
-                RETURNING id, server_id, name, description, enabled, require_approval
+                RETURNING id, server_id, name, description, input_schema,
+                          enabled, require_approval
                 """,
                 str(tool_id),
             )

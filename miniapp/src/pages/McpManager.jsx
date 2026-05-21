@@ -27,6 +27,39 @@ function enabledValue(v) {
   return Number(v || 0) === 1;
 }
 
+function parseInputSchema(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object') return raw;
+  if (typeof raw !== 'string' || !raw.trim()) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function formatInputSchemaSummary(raw) {
+  const schema = parseInputSchema(raw);
+  if (!schema || schema.type !== 'object') return null;
+  const required = Array.isArray(schema.required) ? schema.required : [];
+  const props = schema.properties && typeof schema.properties === 'object'
+    ? schema.properties
+    : {};
+  const keys = [
+    ...required,
+    ...Object.keys(props).filter((k) => !required.includes(k)),
+  ];
+  if (keys.length === 0) return '参数：无';
+  const parts = keys.map((key) => {
+    const field = props[key] || {};
+    const req = required.includes(key) ? '必填' : '可选';
+    const hint = field.description ? ` — ${field.description}` : '';
+    return `${key}（${req}）${hint}`;
+  });
+  return `参数：${parts.join('；')}`;
+}
+
 async function readJson(res) {
   const data = await res.json().catch(() => null);
   if (!res.ok) {
@@ -233,16 +266,20 @@ export function McpServerList() {
           >
             <div className="mcp-server-main">
               <div className="mcp-server-title-row">
-                <h2>{server.name || '未命名 Server'}</h2>
-                <div className="mcp-server-status">
+                <div className="mcp-server-name-line">
+                  <h2>{server.name || '未命名 Server'}</h2>
                   <span className={`mcp-badge ${enabledValue(server.enabled) ? 'on' : 'off'}`}>
                     {enabledValue(server.enabled) ? '已启用' : '已关闭'}
                   </span>
-                  {cardMsg?.notice ? <span className="mcp-card-hint">{cardMsg.notice}</span> : null}
-                  {cardMsg?.syncError ? (
-                    <span className="mcp-card-hint mcp-card-hint--error">同步失败：{cardMsg.syncError}</span>
-                  ) : null}
                 </div>
+                {cardMsg?.notice || cardMsg?.syncError ? (
+                  <div className="mcp-server-card-hints">
+                    {cardMsg?.notice ? <span className="mcp-card-hint">{cardMsg.notice}</span> : null}
+                    {cardMsg?.syncError ? (
+                      <span className="mcp-card-hint mcp-card-hint--error">同步失败：{cardMsg.syncError}</span>
+                    ) : null}
+                  </div>
+                ) : null}
               </div>
               <div className="mcp-server-url">{server.url}</div>
               <div className="mcp-server-meta">
@@ -593,9 +630,10 @@ function McpServerForm() {
                 }}
                 onKeyDown={handleKeywordKeyDown}
                 onBlur={() => addKeyword(keywordDraft)}
-                placeholder="留空则每轮对话都注入"
+                placeholder="添加关键词"
               />
             </div>
+            <div className="mcp-hint">留空则每轮对话都注入</div>
           </div>
 
           <div className="mcp-field-row">
@@ -672,11 +710,18 @@ function McpServerForm() {
             </div>
           ) : (
             <div className="mcp-tool-list">
-              {tools.map((tool) => (
+              {tools.map((tool) => {
+                const paramSummary = formatInputSchemaSummary(tool.input_schema);
+                return (
                 <article className="mcp-tool-card" key={tool.id}>
                   <div className="mcp-tool-main">
                     <h3>{tool.name}</h3>
                     <p>{tool.description || '无 description'}</p>
+                    {paramSummary ? (
+                      <p className="mcp-tool-params">{paramSummary}</p>
+                    ) : (
+                      <p className="mcp-tool-params mcp-tool-params--missing">参数：未同步 schema，请点「重新同步」</p>
+                    )}
                   </div>
                   <div className="mcp-tool-switches">
                     <label>
@@ -685,7 +730,8 @@ function McpServerForm() {
                     </label>
                   </div>
                 </article>
-              ))}
+                );
+              })}
             </div>
           )}
         </section>

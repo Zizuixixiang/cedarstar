@@ -156,18 +156,9 @@ async def build_openai_tools(
                     "function": {
                         "name": fn_name,
                         "description": desc,
-                        "parameters": {
-                            "type": "object",
-                            "properties": {
-                                "request": {
-                                    "type": "object",
-                                    "description": "Arguments passed to the MCP tool.",
-                                    "additionalProperties": True,
-                                },
-                            },
-                            "required": [],
-                            "additionalProperties": True,
-                        },
+                        "parameters": _openai_parameters_from_input_schema(
+                            tool.get("input_schema")
+                        ),
                     },
                 }
             )
@@ -324,6 +315,68 @@ def _tool_name(tool: Any) -> str:
     return "" if val is None else str(val)
 
 
+def _tool_input_schema(tool: Any) -> Optional[Dict[str, Any]]:
+    val = getattr(tool, "inputSchema", None)
+    if val is None and isinstance(tool, dict):
+        val = tool.get("inputSchema")
+    if not isinstance(val, dict):
+        return None
+    if val.get("type") != "object":
+        return None
+    return val
+
+
+def _input_schema_from_db(raw: Any) -> Optional[Dict[str, Any]]:
+    if isinstance(raw, dict):
+        schema = raw
+    elif isinstance(raw, str) and raw.strip():
+        try:
+            schema = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+    else:
+        return None
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        return None
+    return schema
+
+
+def _generic_openai_parameters() -> Dict[str, Any]:
+    return {
+        "type": "object",
+        "properties": {
+            "request": {
+                "type": "object",
+                "description": "Arguments passed to the MCP tool.",
+                "additionalProperties": True,
+            },
+        },
+        "required": [],
+        "additionalProperties": True,
+    }
+
+
+def _openai_parameters_from_input_schema(raw: Any) -> Dict[str, Any]:
+    """Use MCP inputSchema for OpenAI tools; fall back to generic wrapper."""
+    schema = _input_schema_from_db(raw)
+    if not schema:
+        return _generic_openai_parameters()
+    out = dict(schema)
+    props = dict(out.get("properties") or {})
+    if "request" not in props:
+        props["request"] = {
+            "type": "object",
+            "description": (
+                "Optional nested arguments; merged with top-level keys before MCP call_tool."
+            ),
+            "additionalProperties": True,
+        }
+        out["properties"] = props
+    if "additionalProperties" not in out:
+        out["additionalProperties"] = True
+    return out
+
+
 async def sync_tools_from_server(server_id: str) -> List[Dict[str, Any]]:
     """List tools from a custom MCP server and upsert them into CedarStar DB."""
     server = await get_mcp_server(server_id)
@@ -341,10 +394,14 @@ async def sync_tools_from_server(server_id: str) -> List[Dict[str, Any]]:
         name = _tool_name(item).strip()
         if not name:
             continue
+        schema = _tool_input_schema(item)
         row = await upsert_mcp_tool_from_sync(
             server_id=server_id,
             name=name,
             description=_tool_description(item).strip() or None,
+            input_schema=(
+                json.dumps(schema, ensure_ascii=False) if schema else None
+            ),
         )
         synced.append(row)
     return synced
