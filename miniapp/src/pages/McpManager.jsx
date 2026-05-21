@@ -7,6 +7,7 @@ import {
   RefreshCw,
   Server,
   Settings2,
+  Sparkles,
   Trash2,
   Wrench,
   X,
@@ -15,6 +16,7 @@ import { apiFetch } from '../apiBase';
 import '../styles/mcp-manager.css';
 
 const MASK = '••••••';
+const IDLE_PROMPT_MAX = 500;
 
 function rowId() {
   if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
@@ -131,6 +133,148 @@ function normalizeKeywords(value) {
   return out;
 }
 
+function normalizeIdlePromptRows(data) {
+  if (Array.isArray(data)) return data;
+  if (Array.isArray(data?.data)) return data.data;
+  return [];
+}
+
+function IdleActivityPromptPanel({ open, onClose }) {
+  const [rows, setRows] = useState([]);
+  const [drafts, setDrafts] = useState({});
+  const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
+
+  const loadRows = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const data = await readJson(await apiFetch('/api/mcp/servers/idle-activity-prompts'));
+      const list = normalizeIdlePromptRows(data);
+      setRows(list);
+      const next = {};
+      list.forEach((row) => {
+        next[String(row.id)] = String(row.idle_activity_prompt || '');
+      });
+      setDrafts(next);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '加载失败');
+      setRows([]);
+      setDrafts({});
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    setNotice('');
+    loadRows();
+  }, [open, loadRows]);
+
+  const saveAll = async () => {
+    setSaving(true);
+    setError('');
+    setNotice('');
+    try {
+      await Promise.all(
+        rows.map(async (row) =>
+          readJson(
+            await apiFetch(`/api/mcp/servers/${encodeURIComponent(row.id)}`, {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                idle_activity_prompt: String(drafts[String(row.id)] || '')
+                  .trim()
+                  .slice(0, IDLE_PROMPT_MAX),
+              }),
+            })
+          )
+        )
+      );
+      setNotice('已保存');
+      await loadRows();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : '保存失败');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (!open) return null;
+
+  const displayName = (row) => {
+    const n = String(row.name || '').trim();
+    return n || '未命名';
+  };
+
+  return (
+    <div
+      className="mcp-idle-overlay"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="mcp-idle-title"
+      onClick={onClose}
+    >
+      <div className="mcp-idle-panel" onClick={(e) => e.stopPropagation()}>
+        <header className="mcp-idle-head">
+          <h2 id="mcp-idle-title">自主活动</h2>
+          <button type="button" className="mcp-icon-btn" onClick={onClose} aria-label="关闭">
+            <X size={16} aria-hidden />
+          </button>
+        </header>
+        {error ? <div className="mcp-alert">{error}</div> : null}
+        {notice ? <div className="mcp-idle-notice">{notice}</div> : null}
+        {loading ? (
+          <p className="mcp-idle-status">加载中…</p>
+        ) : rows.length === 0 ? (
+          <p className="mcp-idle-status">暂无</p>
+        ) : (
+          <div className="mcp-idle-list">
+            {rows.map((row) => {
+              const id = String(row.id);
+              const text = drafts[id] ?? '';
+              const label = `${displayName(row)}：`;
+              return (
+                <div className="mcp-idle-item" key={id}>
+                  <label className="mcp-idle-label" htmlFor={`mcp-idle-${id}`}>
+                    {label}
+                  </label>
+                  <textarea
+                    id={`mcp-idle-${id}`}
+                    className="mcp-idle-textarea"
+                    value={text}
+                    maxLength={IDLE_PROMPT_MAX}
+                    rows={3}
+                    onChange={(e) =>
+                      setDrafts((prev) => ({ ...prev, [id]: e.target.value }))
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
+        <footer className="mcp-idle-footer">
+          <button type="button" className="mcp-secondary-btn" onClick={onClose}>
+            关闭
+          </button>
+          <button
+            type="button"
+            className="mcp-primary-btn"
+            onClick={saveAll}
+            disabled={saving || loading || rows.length === 0}
+          >
+            {saving ? '保存中…' : '保存全部'}
+          </button>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 export function McpServerList() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -150,6 +294,7 @@ export function McpServerList() {
   });
   const [deletingId, setDeletingId] = useState(null);
   const [busyId, setBusyId] = useState(null);
+  const [idlePromptOpen, setIdlePromptOpen] = useState(false);
 
   const loadServers = useCallback(async () => {
     setError('');
@@ -230,9 +375,20 @@ export function McpServerList() {
           <Link className="mcp-back-link" to="/tools" aria-label="返回工具中心">
             <ArrowLeft size={16} aria-hidden />
           </Link>
-          <div>
+          <div className="mcp-title-col">
             <p className="mcp-kicker">CUSTOM MCP</p>
-            <h1>通用 MCP 管理</h1>
+            <div className="mcp-h1-row">
+              <h1>通用 MCP 管理</h1>
+              <button
+                type="button"
+                className="mcp-icon-btn mcp-idle-title-btn"
+                onClick={() => setIdlePromptOpen(true)}
+                aria-label="自主活动"
+                title="自主活动"
+              >
+                <Sparkles size={15} strokeWidth={1.75} aria-hidden />
+              </button>
+            </div>
           </div>
         </div>
         <div className="mcp-head-actions">
@@ -245,6 +401,8 @@ export function McpServerList() {
           </button>
         </div>
       </header>
+
+      <IdleActivityPromptPanel open={idlePromptOpen} onClose={() => setIdlePromptOpen(false)} />
 
       {error ? <div className="mcp-alert">操作失败：{error}</div> : null}
 
@@ -353,6 +511,7 @@ function McpServerForm() {
     url: '',
     trigger_keywords: [],
     allow_idle: false,
+    idle_activity_prompt: '',
   });
   const [headers, setHeaders] = useState([]);
   const [keywordDraft, setKeywordDraft] = useState('');
@@ -389,6 +548,7 @@ function McpServerForm() {
         url: row.url || '',
         trigger_keywords: normalizeKeywords(row.trigger_keywords),
         allow_idle: Boolean(row.allow_idle),
+        idle_activity_prompt: row.idle_activity_prompt || '',
       });
       setHeaders([]);
       await loadTools(row.id);
@@ -495,6 +655,7 @@ function McpServerForm() {
         headers: headerRowsToJson(headers, !isNew),
         trigger_keywords: normalizeKeywords(form.trigger_keywords),
         allow_idle: Boolean(form.allow_idle),
+        idle_activity_prompt: String(form.idle_activity_prompt || '').trim().slice(0, IDLE_PROMPT_MAX),
       };
       const res = await apiFetch(
         isNew ? '/api/mcp/servers' : `/api/mcp/servers/${encodeURIComponent(serverId)}`,
@@ -643,6 +804,23 @@ function McpServerForm() {
             </div>
             <Switch checked={Boolean(form.allow_idle)} onChange={(value) => setField('allow_idle', value)} label="允许自主活动使用" />
           </div>
+
+          {form.allow_idle ? (
+            <label className="mcp-field">
+              <span className="mcp-label">自主活动说明（可选）</span>
+              <textarea
+                className="mcp-idle-textarea mcp-idle-textarea--form"
+                value={form.idle_activity_prompt}
+                maxLength={IDLE_PROMPT_MAX}
+                rows={4}
+                onChange={(e) => setField('idle_activity_prompt', e.target.value)}
+                placeholder="自主活动触发时会拼在虚拟用户句末尾；段首由系统自动加，此处只写正文"
+              />
+              <div className="mcp-hint">
+                {String(form.idle_activity_prompt || '').length}/{IDLE_PROMPT_MAX}
+              </div>
+            </label>
+          ) : null}
 
           <div className="mcp-field">
             <div className="mcp-field-head">

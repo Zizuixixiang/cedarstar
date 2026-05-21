@@ -35,6 +35,7 @@ class McpServerCreate(BaseModel):
     enabled: int = 1
     trigger_keywords: List[str] = []
     allow_idle: bool = False
+    idle_activity_prompt: str = ""
 
 
 class McpServerUpdate(BaseModel):
@@ -45,6 +46,14 @@ class McpServerUpdate(BaseModel):
     enabled: Optional[int] = None
     trigger_keywords: Optional[List[str]] = None
     allow_idle: Optional[bool] = None
+    idle_activity_prompt: Optional[str] = None
+
+
+_IDLE_ACTIVITY_PROMPT_MAX_LEN = 500
+
+
+def _normalize_idle_activity_prompt(value: Optional[str]) -> str:
+    return str(value or "").strip()[:_IDLE_ACTIVITY_PROMPT_MAX_LEN]
 
 
 def _validate_transport(value: str) -> str:
@@ -107,6 +116,28 @@ def _mask_server(row: Dict[str, Any]) -> Dict[str, Any]:
     out["headers"] = ""
     out["trigger_keywords"] = _keywords_from_store(out.get("trigger_keywords"))
     out["allow_idle"] = bool(int(out.get("allow_idle") or 0))
+    out["idle_activity_prompt"] = str(out.get("idle_activity_prompt") or "").strip()
+    return out
+
+
+@router.get("/servers/idle-activity-prompts")
+async def api_list_idle_activity_mcp_prompts():
+    """已启用且允许自主活动的 MCP，供 Mini App 填写 idle 说明。"""
+    rows = await list_mcp_servers(enabled_only=False)
+    out: List[Dict[str, Any]] = []
+    for row in rows:
+        if int(row.get("enabled") or 0) != 1:
+            continue
+        if int(row.get("allow_idle") or 0) != 1:
+            continue
+        masked = _mask_server(row)
+        out.append(
+            {
+                "id": masked["id"],
+                "name": masked["name"],
+                "idle_activity_prompt": masked["idle_activity_prompt"],
+            }
+        )
     return out
 
 
@@ -132,6 +163,7 @@ async def api_create_mcp_server(payload: McpServerCreate):
         enabled=1 if int(payload.enabled or 0) else 0,
         trigger_keywords=_normalize_keywords_for_store(payload.trigger_keywords),
         allow_idle=1 if payload.allow_idle else 0,
+        idle_activity_prompt=_normalize_idle_activity_prompt(payload.idle_activity_prompt),
     )
     return _mask_server(row)
 
@@ -165,6 +197,11 @@ async def api_update_mcp_server(server_id: str, payload: McpServerUpdate):
         update["update_trigger_keywords"] = True
     if payload.allow_idle is not None:
         update["allow_idle"] = 1 if payload.allow_idle else 0
+    if payload.idle_activity_prompt is not None:
+        update["idle_activity_prompt"] = _normalize_idle_activity_prompt(
+            payload.idle_activity_prompt
+        )
+        update["update_idle_activity_prompt"] = True
 
     row = await update_mcp_server(server_id, **update)
     if not row:

@@ -127,6 +127,31 @@ IDLE_LEVELS = {
     "high": {"trigger_prob": 1.0},
 }
 
+_IDLE_CUSTOM_MCP_PROMPT_HEADER = "【自主活动可用的自定义 MCP】"
+
+
+async def _append_idle_custom_mcp_prompt_suffix(db, text: str) -> str:
+    """拼接用户为 allow_idle MCP 手写的说明；仅加固定段首，正文原样、按库内顺序。"""
+    try:
+        servers = await db.list_mcp_servers(enabled_only=False)
+    except Exception as e:
+        logger.warning("[idle] 读取 MCP 自主活动说明失败: %s", e)
+        return text
+    lines: list[str] = []
+    for row in servers or []:
+        if int(row.get("enabled") or 0) != 1:
+            continue
+        if int(row.get("allow_idle") or 0) != 1:
+            continue
+        body = str(row.get("idle_activity_prompt") or "").strip()
+        if body:
+            lines.append(body)
+    if not lines:
+        return text
+    block = _IDLE_CUSTOM_MCP_PROMPT_HEADER + "\n" + "\n".join(lines)
+    return f"{text.rstrip()}\n\n{block}"
+
+
 _IDLE_TRIGGER_TEXT = (
     "[IDLE_TRIGGER] 南杉有一段时间没来，你可以趁现在自由活动一下。"
     "可以做的事：可以去星露谷看看；可以翻翻记忆，整理记忆；"
@@ -447,6 +472,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
                 idle_trigger_text = _append_idle_next_at_hint(
                     f"{_IDLE_TRIGGER_TEXT}\n南杉最近一次回复你在{last_user_text}。"
                 )
+    idle_trigger_text = await _append_idle_custom_mcp_prompt_suffix(db, idle_trigger_text)
 
     # 只把 idle trigger 注入本次推理，不写入 messages 表
     context = await build_context(

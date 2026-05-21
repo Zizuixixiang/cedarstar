@@ -144,7 +144,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `transactions` | 零花钱流水（收入/支出、分类、余额快照、审批预留字段） |
 | `pocket_money_config` | 零花钱配置（月额度、下月额度、年化利率） |
 | `pocket_money_job_log` | 零花钱日任务执行日志（按日期+任务类型+character 唯一） |
-| `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle） |
+| `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle / idle_activity_prompt） |
 | `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / input_schema / enabled / require_approval；`input_schema` 为 MCP `inputSchema` JSON；`require_approval` 本轮仅存储） |
 
 ### 2.5 token_usage / tool_executions 观测口径
@@ -156,7 +156,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 ### 2.6 Telegram 双实例、共享群表与接力（与 CedarStar 同构）
 
-- **共享表**：`shared_group_messages` 存于 `SHARED_GROUP_DB_URL` 所指库；主库 `group_chat_state` 存 `round_count`；`config` 表存 `group_chat_max_rounds` 等（Mini App 可调）。
+- **主库与群聊库**：CedarClio 的 `DATABASE_URL` 指向本实例主库（部署上常见 **`cedarclio_db`**）；CedarStar 主库常见 **`cedarstar_db`**——**不是同一个 PostgreSQL database**。`shared_group_messages` 在 **`SHARED_GROUP_DB_URL`**（两边通常同为 `cedarclio_db`）；`group_chat_state.round_count` 在**各自主库**。Chroma 用 `CHROMA_COLLECTION_NAME` 与 CedarStar 隔离。详见 **`ARCHITECTURE.md` §2.6** 双实例表。
+- **共享表**：`shared_group_messages` 存于 `SHARED_GROUP_DB_URL` 所指库；`config` 表存 `group_chat_max_rounds` 等（Mini App 可调，读**当前实例主库**）。
 - **接力清零**：真人用户新一句时 `set_group_chat_round_count(..., 0)`，覆盖文本、语音/贴纸/图、`document`/`video`/`video_note`/`animation` 及缓冲首次写入共享表用户行；对端接话路径 `increment`。避免仅语音/附件沿用旧计数导致 relay `signal_round_limited`。
 - **@ 判定、随机插话与 peer 幂等**：`get_me()` 的 username/id，无硬编码 handle。对端 bot 明确 @ 本 bot 时必接话；未 @ 本 bot 时，只有最近用户句显式 @ 了另一名 bot 且未 @ 本 bot，才按 `group_chat_interject_probability` 随机插话。relay payload 带 `tg_message_id` 时按具体对端消息判定，旧 payload 回退最近一条对端消息。Telegram 入站与 HTTP relay 共用 `chat_id + sender + tg_message_id` 短期幂等，并对同一 bot 连续分段消息设置短冷却，避免同一助手回复重复触发 LLM。
 - **群聊出站**：`_telegram_deliver_ordered_segments` 在共享库 `pg_try_advisory_lock` 互斥双实例发送；群聊思维链受 `send_cot_in_group_chat`（须总开关 `send_cot_to_telegram`）；流式收尾与工具轮定稿均经 `_telegram_should_send_cot`。详见 `ARCHITECTURE.md` §2.6 / §4.4。
@@ -326,7 +327,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 通用自定义 MCP 由部署开关 **`ENABLE_CUSTOM_MCP`** 与 DB 双层控制；为 false 时 `build_openai_tools()` 返回空列表，不连接任何自定义 MCP。
 
-- `mcp_servers` 存 server 配置：`id`、`name`、`transport`（`sse` 或 `streamable_http`）、`url`、`headers`（JSON 字符串，API 不回显明文）、`enabled`、`trigger_keywords`（JSON 数组字符串；NULL 或空表示普通对话每轮注入）、`allow_idle`（1 表示自主活动可注入）。
+- `mcp_servers` 存 server 配置：`id`、`name`、`transport`（`sse` 或 `streamable_http`）、`url`、`headers`（JSON 字符串，API 不回显明文）、`enabled`、`trigger_keywords`（JSON 数组字符串；NULL 或空表示普通对话每轮注入）、`allow_idle`（1 表示自主活动可注入）、`idle_activity_prompt`（自主活动 trigger 可选拼接说明，见 `ARCHITECTURE.md` §4.2.7）。
 - `mcp_tools` 存同步到的工具：`server_id`、`name`、`description`、`input_schema`（MCP `inputSchema` JSON）、`enabled`、`require_approval`；`require_approval` 当前只存储，不参与执行审批。`input_schema` 列由主库 `memory/database.py` 启动迁移 `ADD COLUMN IF NOT EXISTS`。
 - REST 路由挂在 `/api/mcp`，Mini App「工具中心 → MCP 管理」（`/mcp`）提供 server 增删改、headers、触发关键词、自主活动授权、同步工具和单工具启用状态管理；工具列表展示参数摘要。
 - `sync_tools_from_server(server_id)` 连接指定 server 执行 `list_tools()` 并 upsert（含 `input_schema`）；新工具默认启用，已存在工具保留原开关。
@@ -466,7 +467,7 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 「时光机历史」（`/history`）：私聊列表为 **`GET /api/history`** → **`memory/database.get_messages_filtered`**，查主库 **`messages`** 时固定排除 **`session_id` 前缀 `telegram_group_`** 的 Telegram 群聊行；群聊列表为 **`GET /api/messages?type=group`**（`get_messages_by_type`，共享群消息）。编辑/删除按 tab 分流：私聊走 `/api/history/{id}`，群聊走 `PATCH /api/messages/{id}` 与 `DELETE /api/messages/{id}`，直接按共享群表主键更新或删除；前端删除使用自定义确认弹窗，不使用 `window.confirm`。详见 `ARCHITECTURE.md` §7。
 
-「工具中心」包含 **MCP 管理**入口（`/mcp`）：维护通用自定义 MCP server、headers、触发关键词、自主活动授权、工具同步和单工具启用状态；对应 REST 路由为 `/api/mcp`。
+「工具中心」包含 **MCP 管理**入口（`/mcp`）：维护 server、headers、触发关键词、`allow_idle`、按 server 填写 `idle_activity_prompt`（列表页 ✦ 弹窗 / 编辑页）、工具同步与启用；`GET /api/mcp/servers/idle-activity-prompts`；对应 REST `/api/mcp`。详见 `ARCHITECTURE.md` §4.2.7 / §7。
 
 ### 7.4 待审批
 

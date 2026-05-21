@@ -236,6 +236,9 @@ async def _ensure_custom_mcp_tables(conn) -> None:
         "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS allow_idle INTEGER DEFAULT 0"
     )
     await conn.execute(
+        "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS idle_activity_prompt TEXT DEFAULT ''"
+    )
+    await conn.execute(
         "ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS enabled INTEGER DEFAULT 1"
     )
     await conn.execute(
@@ -2062,7 +2065,7 @@ class MessageDatabase:
     async def list_mcp_servers(self, *, enabled_only: bool = False) -> List[Dict[str, Any]]:
         sql = (
             "SELECT id, name, transport, url, headers, enabled, "
-            "trigger_keywords, allow_idle FROM mcp_servers"
+            "trigger_keywords, allow_idle, idle_activity_prompt FROM mcp_servers"
         )
         if enabled_only:
             sql += " WHERE enabled = 1"
@@ -2075,7 +2078,7 @@ class MessageDatabase:
             rec = await conn.fetchrow(
                 """
                 SELECT id, name, transport, url, headers, enabled,
-                       trigger_keywords, allow_idle
+                       trigger_keywords, allow_idle, idle_activity_prompt
                 FROM mcp_servers
                 WHERE id = $1
                 """,
@@ -2093,6 +2096,7 @@ class MessageDatabase:
         enabled: int = 1,
         trigger_keywords: Optional[str] = None,
         allow_idle: int = 0,
+        idle_activity_prompt: str = "",
     ) -> Dict[str, Any]:
         server_id = str(uuid.uuid4())
         async with self.pool.acquire() as conn:
@@ -2100,11 +2104,11 @@ class MessageDatabase:
                 """
                 INSERT INTO mcp_servers (
                     id, name, transport, url, headers, enabled,
-                    trigger_keywords, allow_idle
+                    trigger_keywords, allow_idle, idle_activity_prompt
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
                 RETURNING id, name, transport, url, headers, enabled,
-                          trigger_keywords, allow_idle
+                          trigger_keywords, allow_idle, idle_activity_prompt
                 """,
                 server_id,
                 str(name),
@@ -2114,6 +2118,7 @@ class MessageDatabase:
                 int(enabled),
                 trigger_keywords,
                 int(allow_idle),
+                str(idle_activity_prompt or ""),
             )
             return _r(rec)
 
@@ -2130,6 +2135,8 @@ class MessageDatabase:
         trigger_keywords: Optional[str] = None,
         update_trigger_keywords: bool = False,
         allow_idle: Optional[int] = None,
+        idle_activity_prompt: Optional[str] = None,
+        update_idle_activity_prompt: bool = False,
     ) -> Optional[Dict[str, Any]]:
         sets: List[str] = []
         vals: List[Any] = []
@@ -2152,6 +2159,8 @@ class MessageDatabase:
             add("trigger_keywords", trigger_keywords)
         if allow_idle is not None:
             add("allow_idle", int(allow_idle))
+        if update_idle_activity_prompt:
+            add("idle_activity_prompt", str(idle_activity_prompt or ""))
         if not sets:
             return await self.get_mcp_server(server_id)
         vals.append(str(server_id))
@@ -2162,7 +2171,7 @@ class MessageDatabase:
                 SET {", ".join(sets)}
                 WHERE id = ${len(vals)}
                 RETURNING id, name, transport, url, headers, enabled,
-                          trigger_keywords, allow_idle
+                          trigger_keywords, allow_idle, idle_activity_prompt
                 """,
                 *vals,
             )
@@ -2189,7 +2198,7 @@ class MessageDatabase:
                 SET enabled = CASE WHEN COALESCE(enabled, 1) = 1 THEN 0 ELSE 1 END
                 WHERE id = $1
                 RETURNING id, name, transport, url, headers, enabled,
-                          trigger_keywords, allow_idle
+                          trigger_keywords, allow_idle, idle_activity_prompt
                 """,
                 str(server_id),
             )
