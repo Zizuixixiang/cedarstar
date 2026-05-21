@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { RefreshCw, Wrench, TrendingUp } from 'lucide-react';
+import { RefreshCw, ServerCog, Wrench, TrendingUp } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import '../styles/tools-center.css';
 
@@ -220,6 +220,18 @@ export default function ToolsCenter() {
                   <StatusBadge enabled={Number(toolSwitches[item.key] || 0) === 1} />
                 </div>
               ))}
+            </div>
+          </section>
+
+          <section className="tools-card">
+            <div className="tools-card-head">
+              <div className="tools-card-title">
+                <ServerCog size={16} aria-hidden />
+                MCP 管理
+              </div>
+              <Link className="tools-link-btn" to="/mcp">
+                打开管理页
+              </Link>
             </div>
           </section>
 

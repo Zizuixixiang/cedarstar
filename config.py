@@ -81,6 +81,19 @@ class Config:
         )
 
     @property
+    def ENABLE_CUSTOM_MCP(self) -> bool:
+        """
+        是否启用通用自定义 MCP 工具（部署侧总开关）。
+        默认开启；设为 false 时不注册自定义 MCP tools，且不会主动建立连接。
+        """
+        return os.getenv("ENABLE_CUSTOM_MCP", "true").lower() in (
+            "true",
+            "1",
+            "yes",
+            "on",
+        )
+
+    @property
     def RCOMMUNITY_MCP_TOKEN(self) -> Optional[str]:
         """rcommunity MCP 鉴权 token（与 URL ``?token=`` 一致）；未设置则该论坛工具不可用。"""
         t = (os.getenv("RCOMMUNITY_MCP_TOKEN") or "").strip()

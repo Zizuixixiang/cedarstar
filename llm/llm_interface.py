@@ -3038,17 +3038,19 @@ async def complete_with_lutopia_tool_loop(
     platform: Optional[str] = None,
     *,
     max_tool_rounds: int = 8,
-    on_tool_start: Optional[Callable[[str], Awaitable[None]]] = None,
-    on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    on_tool_start: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    on_tool_done: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
     on_assistant_partial_text: Optional[Callable[[str], Awaitable[None]]] = None,
     session_id: Optional[str] = None,
     user_message_id: Optional[int] = None,
+    is_idle: bool = False,
 ) -> LutopiaToolLoopOutcome:
     """
     OpenAI 兼容路径：附带 Lutopia Forum tools，循环执行 function call 直至模型不再请求工具。
     Anthropic 路径不应调用本函数（其 ``generate_with_context_and_tracking`` 未传 tools）。
 
-    ``on_tool_start`` / ``on_tool_done``：可选，单次工具执行前后回调（如 Telegram typing）。
+    ``on_tool_start(name, arguments_json)`` / ``on_tool_done(name, arguments_json, result)``：
+    可选，单次工具执行前后回调（如 Telegram 状态提示）。
     ``on_assistant_partial_text``：仅在有 ``tool_calls`` 的轮次、且该轮 assistant 正文非空时调用，
     用于向用户先发「口播」；**最后一轮**无工具时的正文由调用方照常发送，此处不再回调。
     """
@@ -3094,6 +3096,30 @@ async def complete_with_lutopia_tool_loop(
     from tools.x_tool import execute_x_function_call
     from tools.xhs_tool import execute_xhs_function_call
     from tools.web_fetch import execute_web_fetch_function_call
+    from tools.custom_mcp import (
+        build_openai_tools as build_custom_mcp_openai_tools,
+        dispatch_tool_call as dispatch_custom_mcp_tool_call,
+        load_enabled_servers as load_custom_mcp_enabled_servers,
+    )
+
+    def _latest_user_message_text(ms: List[Dict[str, Any]]) -> str:
+        for msg in reversed(ms or []):
+            if msg.get("role") != "user":
+                continue
+            content = msg.get("content")
+            if isinstance(content, str):
+                return content
+            if isinstance(content, list):
+                parts: List[str] = []
+                for item in content:
+                    if isinstance(item, dict):
+                        text = item.get("text")
+                        if isinstance(text, str):
+                            parts.append(text)
+                return "\n".join(parts)
+        return ""
+
+    latest_user_message = _latest_user_message_text(messages)
 
     tools_list: List[Dict[str, Any]] = []
     suffix_keys: List[str] = []
@@ -3126,6 +3152,18 @@ async def complete_with_lutopia_tool_loop(
     if getattr(llm, "enable_ai_news_tool", False):
         tools_list.extend(OPENAI_AIHOT_TOOLS)
         suffix_keys.append("aihot")
+    if config.ENABLE_CUSTOM_MCP:
+        try:
+            custom_mcp_servers = await load_custom_mcp_enabled_servers()
+            custom_mcp_tools = await build_custom_mcp_openai_tools(
+                custom_mcp_servers,
+                user_message=latest_user_message,
+                is_idle=is_idle,
+            )
+            if custom_mcp_tools:
+                tools_list.extend(custom_mcp_tools)
+        except Exception as e:
+            logger.warning("加载自定义 MCP tools 失败: %s", e, exc_info=True)
     tools_payload: Optional[List[Dict[str, Any]]] = (
         tools_list if tools_list else None
     )
@@ -3283,7 +3321,7 @@ async def complete_with_lutopia_tool_loop(
                 if not isinstance(raw_args, str):
                     raw_args = json.dumps(raw_args if raw_args is not None else {}, ensure_ascii=False)
                 if on_tool_start:
-                    await on_tool_start(nm)
+                    await on_tool_start(nm, raw_args or "{}")
                 try:
                     if nm == "get_weather":
                         try:
@@ -3381,6 +3419,11 @@ async def complete_with_lutopia_tool_loop(
                         except json.JSONDecodeError:
                             args_wf = {}
                         result_str = await execute_web_fetch_function_call(nm, args_wf)
+                    elif nm.startswith("mcp_"):
+                        result_str = await dispatch_custom_mcp_tool_call(
+                            nm, raw_args or "{}"
+                        )
+                        tool_pairs.append((nm, raw_args or "{}", result_str))
                     elif is_rcommunity_openai_tool(nm):
                         result_str = await execute_rcommunity_function_call(
                             nm, raw_args or "{}", mcp_session=rcommunity_session
@@ -3402,7 +3445,7 @@ async def complete_with_lutopia_tool_loop(
                 if not tool_loop_json_payload_indicates_error_round(result_str):
                     round_all_errors = False
                 if on_tool_done:
-                    await on_tool_done(nm, result_str)
+                    await on_tool_done(nm, raw_args or "{}", result_str)
                 tool_seq += 1
                 await save_tool_execution_record(
                     session_id=session_id,

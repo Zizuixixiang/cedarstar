@@ -199,6 +199,62 @@ async def _ensure_pending_approvals_table(conn) -> None:
     logger.debug("pending_approvals table checked")
 
 
+async def _ensure_custom_mcp_tables(conn) -> None:
+    """Ensure CedarStar custom MCP management tables exist."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS mcp_servers (
+            id TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            transport TEXT NOT NULL,
+            url TEXT NOT NULL,
+            headers TEXT,
+            enabled INTEGER DEFAULT 1,
+            trigger_keywords TEXT DEFAULT NULL,
+            allow_idle INTEGER DEFAULT 0
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS mcp_tools (
+            id TEXT PRIMARY KEY,
+            server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+            name TEXT NOT NULL,
+            description TEXT,
+            enabled INTEGER DEFAULT 1,
+            require_approval INTEGER DEFAULT 0
+        )
+    """)
+    await conn.execute(
+        "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS headers TEXT"
+    )
+    await conn.execute(
+        "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS enabled INTEGER DEFAULT 1"
+    )
+    await conn.execute(
+        "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS trigger_keywords TEXT DEFAULT NULL"
+    )
+    await conn.execute(
+        "ALTER TABLE mcp_servers ADD COLUMN IF NOT EXISTS allow_idle INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS enabled INTEGER DEFAULT 1"
+    )
+    await conn.execute(
+        "ALTER TABLE mcp_tools ADD COLUMN IF NOT EXISTS require_approval INTEGER DEFAULT 0"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mcp_servers_enabled ON mcp_servers (enabled)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mcp_tools_server_enabled "
+        "ON mcp_tools (server_id, enabled)"
+    )
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_mcp_tools_server_name_unique "
+        "ON mcp_tools (server_id, name)"
+    )
+    logger.debug("custom MCP tables checked")
+
+
 async def _migrate_audit_and_approval_timestamps_to_naive_shanghai(conn) -> None:
     """
     将 mcp_audit_log / pending_approvals 的 TIMESTAMPTZ 列迁移为 TIMESTAMP（东八区墙钟）。
@@ -671,6 +727,7 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_model_favorites_table(conn)
     await _ensure_mcp_audit_log_table(conn)
     await _ensure_pending_approvals_table(conn)
+    await _ensure_custom_mcp_tables(conn)
     await _migrate_audit_and_approval_timestamps_to_naive_shanghai(conn)
     await conn.execute(
         """
@@ -1148,6 +1205,31 @@ class MessageDatabase:
                         key TEXT PRIMARY KEY,
                         value TEXT NOT NULL,
                         updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+
+                # custom MCP management
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS mcp_servers (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        transport TEXT NOT NULL,
+                        url TEXT NOT NULL,
+                        headers TEXT,
+                        enabled INTEGER DEFAULT 1,
+                        trigger_keywords TEXT DEFAULT NULL,
+                        allow_idle INTEGER DEFAULT 0
+                    )
+                """)
+
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS mcp_tools (
+                        id TEXT PRIMARY KEY,
+                        server_id TEXT NOT NULL REFERENCES mcp_servers(id) ON DELETE CASCADE,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        enabled INTEGER DEFAULT 1,
+                        require_approval INTEGER DEFAULT 0
                     )
                 """)
 
@@ -1969,6 +2051,238 @@ class MessageDatabase:
             return int(str(status).split()[-1])
         except Exception:
             return 0
+
+    # ------------------------------------------------------------------
+    # custom MCP management
+    # ------------------------------------------------------------------
+
+    async def list_mcp_servers(self, *, enabled_only: bool = False) -> List[Dict[str, Any]]:
+        sql = (
+            "SELECT id, name, transport, url, headers, enabled, "
+            "trigger_keywords, allow_idle FROM mcp_servers"
+        )
+        if enabled_only:
+            sql += " WHERE enabled = 1"
+        sql += " ORDER BY name ASC, id ASC"
+        async with self.pool.acquire() as conn:
+            return _rows(await conn.fetch(sql))
+
+    async def get_mcp_server(self, server_id: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                SELECT id, name, transport, url, headers, enabled,
+                       trigger_keywords, allow_idle
+                FROM mcp_servers
+                WHERE id = $1
+                """,
+                str(server_id),
+            )
+            return _r(rec) if rec else None
+
+    async def create_mcp_server(
+        self,
+        *,
+        name: str,
+        transport: str,
+        url: str,
+        headers: Optional[str] = None,
+        enabled: int = 1,
+        trigger_keywords: Optional[str] = None,
+        allow_idle: int = 0,
+    ) -> Dict[str, Any]:
+        server_id = str(uuid.uuid4())
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                INSERT INTO mcp_servers (
+                    id, name, transport, url, headers, enabled,
+                    trigger_keywords, allow_idle
+                )
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                RETURNING id, name, transport, url, headers, enabled,
+                          trigger_keywords, allow_idle
+                """,
+                server_id,
+                str(name),
+                str(transport),
+                str(url),
+                headers,
+                int(enabled),
+                trigger_keywords,
+                int(allow_idle),
+            )
+            return _r(rec)
+
+    async def update_mcp_server(
+        self,
+        server_id: str,
+        *,
+        name: Optional[str] = None,
+        transport: Optional[str] = None,
+        url: Optional[str] = None,
+        headers: Optional[str] = None,
+        update_headers: bool = False,
+        enabled: Optional[int] = None,
+        trigger_keywords: Optional[str] = None,
+        update_trigger_keywords: bool = False,
+        allow_idle: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        sets: List[str] = []
+        vals: List[Any] = []
+
+        def add(col: str, val: Any) -> None:
+            vals.append(val)
+            sets.append(f"{col} = ${len(vals)}")
+
+        if name is not None:
+            add("name", str(name))
+        if transport is not None:
+            add("transport", str(transport))
+        if url is not None:
+            add("url", str(url))
+        if update_headers:
+            add("headers", headers)
+        if enabled is not None:
+            add("enabled", int(enabled))
+        if update_trigger_keywords:
+            add("trigger_keywords", trigger_keywords)
+        if allow_idle is not None:
+            add("allow_idle", int(allow_idle))
+        if not sets:
+            return await self.get_mcp_server(server_id)
+        vals.append(str(server_id))
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                f"""
+                UPDATE mcp_servers
+                SET {", ".join(sets)}
+                WHERE id = ${len(vals)}
+                RETURNING id, name, transport, url, headers, enabled,
+                          trigger_keywords, allow_idle
+                """,
+                *vals,
+            )
+            return _r(rec) if rec else None
+
+    async def delete_mcp_server(self, server_id: str) -> int:
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM mcp_tools WHERE server_id = $1",
+                    str(server_id),
+                )
+                status = await conn.execute(
+                    "DELETE FROM mcp_servers WHERE id = $1",
+                    str(server_id),
+                )
+        return _rowcount(status)
+
+    async def toggle_mcp_server(self, server_id: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                UPDATE mcp_servers
+                SET enabled = CASE WHEN COALESCE(enabled, 1) = 1 THEN 0 ELSE 1 END
+                WHERE id = $1
+                RETURNING id, name, transport, url, headers, enabled,
+                          trigger_keywords, allow_idle
+                """,
+                str(server_id),
+            )
+            return _r(rec) if rec else None
+
+    async def list_mcp_tools(
+        self,
+        *,
+        server_id: Optional[str] = None,
+        enabled_only: bool = False,
+    ) -> List[Dict[str, Any]]:
+        clauses: List[str] = []
+        vals: List[Any] = []
+        if server_id is not None:
+            vals.append(str(server_id))
+            clauses.append(f"server_id = ${len(vals)}")
+        if enabled_only:
+            clauses.append("enabled = 1")
+        where = " WHERE " + " AND ".join(clauses) if clauses else ""
+        async with self.pool.acquire() as conn:
+            return _rows(
+                await conn.fetch(
+                    f"""
+                    SELECT id, server_id, name, description, enabled, require_approval
+                    FROM mcp_tools
+                    {where}
+                    ORDER BY name ASC, id ASC
+                    """,
+                    *vals,
+                )
+            )
+
+    async def get_mcp_tool(self, tool_id: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                SELECT id, server_id, name, description, enabled, require_approval
+                FROM mcp_tools
+                WHERE id = $1
+                """,
+                str(tool_id),
+            )
+            return _r(rec) if rec else None
+
+    async def upsert_mcp_tool_from_sync(
+        self,
+        *,
+        server_id: str,
+        name: str,
+        description: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                INSERT INTO mcp_tools (
+                    id, server_id, name, description, enabled, require_approval
+                )
+                VALUES ($1, $2, $3, $4, 1, 0)
+                ON CONFLICT (server_id, name) DO UPDATE
+                SET description = EXCLUDED.description
+                RETURNING id, server_id, name, description, enabled, require_approval
+                """,
+                str(uuid.uuid4()),
+                str(server_id),
+                str(name),
+                description,
+            )
+            return _r(rec)
+
+    async def toggle_mcp_tool_enabled(self, tool_id: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                UPDATE mcp_tools
+                SET enabled = CASE WHEN COALESCE(enabled, 1) = 1 THEN 0 ELSE 1 END
+                WHERE id = $1
+                RETURNING id, server_id, name, description, enabled, require_approval
+                """,
+                str(tool_id),
+            )
+            return _r(rec) if rec else None
+
+    async def toggle_mcp_tool_approval(self, tool_id: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            rec = await conn.fetchrow(
+                """
+                UPDATE mcp_tools
+                SET require_approval = CASE
+                    WHEN COALESCE(require_approval, 0) = 1 THEN 0 ELSE 1
+                END
+                WHERE id = $1
+                RETURNING id, server_id, name, description, enabled, require_approval
+                """,
+                str(tool_id),
+            )
+            return _r(rec) if rec else None
 
     async def cleanup_tool_executions(self, days: int = 7) -> int:
         """清理超过 N 天的工具执行记录。"""
@@ -6943,6 +7257,55 @@ async def get_tool_executions_for_message_range(
 
 async def cleanup_tool_executions(days: int = 7) -> int:
     return await get_database().cleanup_tool_executions(days)
+
+
+async def list_mcp_servers(*, enabled_only: bool = False) -> List[Dict[str, Any]]:
+    return await get_database().list_mcp_servers(enabled_only=enabled_only)
+
+
+async def get_mcp_server(server_id: str) -> Optional[Dict[str, Any]]:
+    return await get_database().get_mcp_server(server_id)
+
+
+async def create_mcp_server(**kwargs) -> Dict[str, Any]:
+    return await get_database().create_mcp_server(**kwargs)
+
+
+async def update_mcp_server(server_id: str, **kwargs) -> Optional[Dict[str, Any]]:
+    return await get_database().update_mcp_server(server_id, **kwargs)
+
+
+async def delete_mcp_server(server_id: str) -> int:
+    return await get_database().delete_mcp_server(server_id)
+
+
+async def toggle_mcp_server(server_id: str) -> Optional[Dict[str, Any]]:
+    return await get_database().toggle_mcp_server(server_id)
+
+
+async def list_mcp_tools(
+    *, server_id: Optional[str] = None, enabled_only: bool = False
+) -> List[Dict[str, Any]]:
+    return await get_database().list_mcp_tools(
+        server_id=server_id,
+        enabled_only=enabled_only,
+    )
+
+
+async def get_mcp_tool(tool_id: str) -> Optional[Dict[str, Any]]:
+    return await get_database().get_mcp_tool(tool_id)
+
+
+async def upsert_mcp_tool_from_sync(**kwargs) -> Dict[str, Any]:
+    return await get_database().upsert_mcp_tool_from_sync(**kwargs)
+
+
+async def toggle_mcp_tool_enabled(tool_id: str) -> Optional[Dict[str, Any]]:
+    return await get_database().toggle_mcp_tool_enabled(tool_id)
+
+
+async def toggle_mcp_tool_approval(tool_id: str) -> Optional[Dict[str, Any]]:
+    return await get_database().toggle_mcp_tool_approval(tool_id)
 
 
 async def insert_pending_approval(

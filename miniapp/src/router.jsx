@@ -22,6 +22,7 @@ import Settings from './pages/Settings.jsx';
 import Observability from './pages/Observability.jsx';
 import Approvals from './pages/Approvals.jsx';
 import ToolsCenter from './pages/ToolsCenter.jsx';
+import McpServerForm, { McpServerList } from './pages/McpManager.jsx';
 
 export const navItems = [
   { Icon: LayoutDashboard, text: '控制台概览', path: '/' },
@@ -44,6 +45,9 @@ export const routes = [
   { path: '/history', element: <History /> },
   { path: '/logs', element: <Logs /> },
   { path: '/tools', element: <ToolsCenter /> },
+  { path: '/mcp', element: <McpServerList /> },
+  { path: '/mcp/new', element: <McpServerForm /> },
+  { path: '/mcp/:serverId', element: <McpServerForm /> },
   { path: '/config', element: <Config /> },
   { path: '/settings', element: <Settings /> },
   { path: '/observability', element: <Observability /> },

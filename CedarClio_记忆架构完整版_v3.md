@@ -1,4 +1,4 @@
-v3.1 · 2026-05-19 更新 · rcommunity Streamable HTTP / 工具防卡死 · 通用工具结果压缩 · `web_search` 原始结果 · 小红书链接预处理与 `xhs` 工具 · `web_fetch` 网页正文工具 · AI HOT · TTS · 零花钱 · 业务 SSE · 实现以代码为准
+v3.2 · 2026-05-22 更新 · 通用自定义 MCP 管理 + 关键词懒注入 + 自主活动 MCP 控制 · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -127,7 +127,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `enable_ai_news_tool`（与部署 `ENABLE_AI_NEWS_TOOL` 同时为真才注册 `get_ai_news`）
 - `enable_xhs_tool`（与部署 **`ENABLE_XHS_TOOL`** 同时为真才注册小红书工具集）
 
-补充：`web_fetch`（网页正文抓取）**不是**本表字段；仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（默认 true）控制是否注册，见 **§4.2.2**。
+补充：`web_fetch`（网页正文抓取）**不是**本表字段；仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（默认 true）控制是否注册，见 **§4.2.2**。通用自定义 MCP 同样不是人设字段；部署总开关为 **`ENABLE_CUSTOM_MCP`**，server / tool 级开关存 `mcp_servers` 与 `mcp_tools`，见 **§4.2.6**。
 
 ### 2.4 辅助表
 
@@ -144,6 +144,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `transactions` | 零花钱流水（收入/支出、分类、余额快照、审批预留字段） |
 | `pocket_money_config` | 零花钱配置（月额度、下月额度、年化利率） |
 | `pocket_money_job_log` | 零花钱日任务执行日志（按日期+任务类型+character 唯一） |
+| `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle） |
+| `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / enabled / require_approval；审批字段本轮仅存储） |
 
 ### 2.5 token_usage / tool_executions 观测口径
 
@@ -288,6 +290,8 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 **`web_fetch`（网页正文抓取）** 无人设列：仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（`config.py`，默认 true）为真时注册；与记忆内部工具同属「可出现在 OpenAI tools 列表」的旁路能力，但不经由 `persona_configs` 开关。
 
+**通用自定义 MCP** 无人设列：仅环境变量 **`ENABLE_CUSTOM_MCP`**（`config.py`，默认 true）为真时参与工具构建，具体 server 与工具开关来自 `mcp_servers` / `mcp_tools`，见 **§4.2.6**。
+
 另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。
 
 另：环境变量 **`ENABLE_XHS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设 **`enable_xhs_tool`** 同时为真才注册小红书 OpenAI tools。进程读配额键 `xhs_read_usage_YYYY-MM-DD`、`xhs_write_usage_YYYY-MM-DD`；上限可调键见 **§2.1**；Mini App / API 见 **`GET /api/config/xhs-usage`**（`api/config.py`）。
@@ -318,11 +322,26 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；MCP 端点为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`（**`rcommunity_mcp_url()`**），传输为 **Streamable HTTP**（`mcp.client.streamable_http.streamablehttp_client`；超时常量 `RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC` 等见 `tools/rcommunity.py`）。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity 会话；建连失败则 `yield None`。`append_tool_exchange_to_messages` 返回各工具原始 JSON 列表、单工具 try/except；连续 3 轮仅含 `error` 时暂时禁用 tools（`tool_loop_json_payload_indicates_error_round`）。`RCOMMUNITY_TOOL_DIRECTIVE` / `OPENAI_RCOMMUNITY_TOOLS` 写明站方 `action` 枚举。`tool_executions` 照常记录；`rcommunity_forum_write` 的发帖/回复/编辑/删除与 `rcommunity_forum_interact` 的置顶/收藏/点赞会生成 `[系统内部记忆：...]` 内部旁白块，保留 thread/reply/comment/post ID、URL、失败原因等关键字段；发给用户前剥除，落库正文保留。`web_search` / `web_fetch` / `get_ai_news` 等只读旁路工具不进入 Lutopia 行为附录。探测：`scripts/list_rcommunity_tools.py`、`scripts/test_rcommunity_connection.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`（本次无新迁移文件）。
 
+### 4.2.6 通用自定义 MCP（`tools/custom_mcp.py`）
+
+通用自定义 MCP 由部署开关 **`ENABLE_CUSTOM_MCP`** 与 DB 双层控制；为 false 时 `build_openai_tools()` 返回空列表，不连接任何自定义 MCP。
+
+- `mcp_servers` 存 server 配置：`id`、`name`、`transport`（`sse` 或 `streamable_http`）、`url`、`headers`（JSON 字符串，API 不回显明文）、`enabled`、`trigger_keywords`（JSON 数组字符串；NULL 或空表示普通对话每轮注入）、`allow_idle`（1 表示自主活动可注入）。
+- `mcp_tools` 存同步到的工具：`server_id`、`name`、`description`、`enabled`、`require_approval`；`require_approval` 当前只存储，不参与执行审批。
+- REST 路由挂在 `/api/mcp`，Mini App「工具中心 → MCP 管理」（`/mcp`）提供 server 增删改、headers、触发关键词、自主活动授权、同步工具和单工具启用状态管理。
+- `sync_tools_from_server(server_id)` 连接指定 server 执行 `list_tools()` 并 upsert；新工具默认启用，已存在工具保留原开关。
+- OpenAI 函数名格式为 `mcp_{server_id}_{tool_name}`；执行时按前缀解析 server，使用 `sse_client` 或 `streamablehttp_client` 连接后 `call_tool()`，headers 从 DB JSON 直接注入。
+- `list_tools()` / `call_tool()` 超时统一 **75s**，结果序列化为字符串并写入常规工具记录。Telegram 工具状态尽量显示 `已调用{server_name}MCP（简短概况）`。
+
+懒注入规则：普通对话下，`trigger_keywords` 为空则每轮注入，非空则仅当最新用户消息命中任一关键词（大小写不敏感）才注入；自主活动下只注入 `allow_idle=1` 的 server，不看关键词。
+
 ### 4.3 AI 自主活动（Idle Activity）
 
 进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。启用且处于允许时段后：`idle_activity_next_trigger_at` **已到期**则走预约触发（直接 `trigger_idle_activity`，不看空闲阈值、冷却与概率）；**无预约**时则须满足空闲阈值、自主活动冷却与概率档位后，再注入 `[IDLE_TRIGGER]` 并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。空闲阈值由 `memory/database.get_latest_idle_user_activity()` 统一判断：主库 `messages` 的真人用户消息（`role='user'` 且 `user_id!='system'`）和共享群表 `shared_group_messages.sender='user'` 取最新时间，私聊/普通通道与群聊都超过阈值才触发；触发提示会注明最后一条活动来自群聊或私聊/普通通道。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
 `[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）；自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。
+
+通用自定义 MCP 在自主活动中只受 `ENABLE_CUSTOM_MCP` 与 `mcp_servers.allow_idle=1` 控制；未显式允许的 server 不会注入 idle 工具列表。
 
 **下次触发时间（可选）**：触发句末尾注入当前北京时间，模型可在回复末尾写 `[NEXT_AT_HH:MM]`（东八区）；系统解析后写入 `idle_activity_next_trigger_at`（UTC ISO，已过时刻则顺延至次日）。`check_and_trigger` 在启用与**时段**（两路径共用）之后分支：未到期则跳过 tick；已到期则清空该键并预约触发（绕过阈值/冷却/概率）；键为空则走概率路径。`trigger_idle_activity` 结束后 `_apply_idle_next_trigger_at` 可根据本轮回复写入新预约。用户可见正文会剥除 `[NEXT_AT_...]`。
 
@@ -445,6 +464,8 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 - 前端用蓝色「本轮」标签标记最近一次 context 实际注入的摘要和长期记忆。
 
 「时光机历史」（`/history`）：私聊列表为 **`GET /api/history`** → **`memory/database.get_messages_filtered`**，查主库 **`messages`** 时固定排除 **`session_id` 前缀 `telegram_group_`** 的 Telegram 群聊行；群聊列表为 **`GET /api/messages?type=group`**（`get_messages_by_type`，共享群消息）。编辑/删除按 tab 分流：私聊走 `/api/history/{id}`，群聊走 `PATCH /api/messages/{id}` 与 `DELETE /api/messages/{id}`，直接按共享群表主键更新或删除；前端删除使用自定义确认弹窗，不使用 `window.confirm`。详见 `ARCHITECTURE.md` §7。
+
+「工具中心」包含 **MCP 管理**入口（`/mcp`）：维护通用自定义 MCP server、headers、触发关键词、自主活动授权、工具同步和单工具启用状态；对应 REST 路由为 `/api/mcp`。
 
 ### 7.4 待审批
 

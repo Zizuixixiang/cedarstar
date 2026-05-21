@@ -5,7 +5,7 @@ API 路由汇总模块。
 """
 from fastapi import APIRouter
 
-from api import autonomous, observability, peer, pocket_money, sensor, stream, weather
+from api import autonomous, custom_mcp, observability, peer, pocket_money, sensor, stream, weather
 from api import stardew
 from api.messages import router as messages_router
 from api.dashboard import router as dashboard_router
@@ -36,6 +36,7 @@ api_router.include_router(weather.router, prefix="/weather", tags=["weather"])
 api_router.include_router(stream.router, prefix="/stream", tags=["stream"])
 api_router.include_router(pocket_money.router, prefix="/pocket-money", tags=["pocket money"])
 api_router.include_router(stardew.router, prefix="/stardew", tags=["stardew"])
+api_router.include_router(custom_mcp.router, prefix="/mcp", tags=["custom mcp"])
 
 # Top-level approval aliases for Mini App: /api/approvals
 api_router.add_api_route("/approvals", list_approvals, methods=["GET"], tags=["memory approvals"])

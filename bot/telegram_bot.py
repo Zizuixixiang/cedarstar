@@ -97,6 +97,7 @@ from tools.lutopia import (
     build_lutopia_internal_memory_appendix,
     create_lutopia_mcp_session,
     strip_lutopia_user_facing_assistant_text,
+    telegram_tool_display_label,
 )
 from tools.rcommunity import (
     OPENAI_RCOMMUNITY_TOOLS,
@@ -1824,23 +1825,14 @@ class TelegramBot:
         return head + e_b + tail
 
     @staticmethod
-    def _telegram_lutopia_tool_display_name(tool_name: str) -> str:
-        t = (tool_name or "").strip()
-        if t == "get_weather":
-            return "天气"
-        if t == "get_weibo_hot":
-            return "微博热搜"
-        if t == "web_search":
-            return "网页搜索"
-        if t == "web_fetch":
-            return "网页抓取"
-        if t == "get_ai_news":
-            return "AI 资讯"
-        if t.startswith("lutopia_"):
-            return t[8:] or t
-        if t.startswith("rcommunity_"):
-            return "rcommunity论坛·" + (t[11:] or t)
-        return t or "tool"
+    async def _telegram_lutopia_tool_display_name(
+        tool_name: str, arguments_json: str = ""
+    ) -> str:
+        if (tool_name or "").strip().startswith("mcp_"):
+            from tools.custom_mcp import telegram_tool_display_label as custom_mcp_label
+
+            return await custom_mcp_label(tool_name)
+        return telegram_tool_display_label(tool_name, arguments_json)
 
     async def _telegram_send_body_segments(
         self, base_message, cleaned_with_separators: str, bot=None
@@ -2648,7 +2640,23 @@ class TelegramBot:
         Sirius + OpenAI 兼容路径：首轮起携带 Lutopia tools；若模型发起 function call，
         执行后把 tool 结果追加进对话再继续 SSE，直至得到面向用户的正文。
         """
+        def _latest_user_message_text(ms: List[Dict[str, Any]]) -> str:
+            for msg in reversed(ms or []):
+                if msg.get("role") != "user":
+                    continue
+                content = msg.get("content")
+                if isinstance(content, str):
+                    return content
+                if isinstance(content, list):
+                    parts: List[str] = []
+                    for item in content:
+                        if isinstance(item, dict) and isinstance(item.get("text"), str):
+                            parts.append(item["text"])
+                    return "\n".join(parts)
+            return ""
+
         cur_messages = copy.deepcopy(messages)
+        latest_user_message = _latest_user_message_text(messages)
         tools_list: List[Dict[str, Any]] = []
         suffix_keys: List[str] = []
         from tools.memory_tools import OPENAI_MEMORY_TOOLS
@@ -2681,6 +2689,23 @@ class TelegramBot:
         if getattr(llm, "enable_ai_news_tool", False):
             tools_list.extend(OPENAI_AIHOT_TOOLS)
             suffix_keys.append("aihot")
+        if config.ENABLE_CUSTOM_MCP:
+            try:
+                from tools.custom_mcp import (
+                    build_openai_tools as build_custom_mcp_openai_tools,
+                    load_enabled_servers as load_custom_mcp_enabled_servers,
+                )
+
+                custom_mcp_servers = await load_custom_mcp_enabled_servers()
+                custom_mcp_tools = await build_custom_mcp_openai_tools(
+                    custom_mcp_servers,
+                    user_message=latest_user_message,
+                    is_idle=False,
+                )
+                if custom_mcp_tools:
+                    tools_list.extend(custom_mcp_tools)
+            except Exception as e:
+                logger.warning("Telegram 流式加载自定义 MCP tools 失败: %s", e, exc_info=True)
         if suffix_keys:
             inject_tool_suffix_into_messages(
                 cur_messages, build_tool_system_suffix(suffix_keys)
@@ -2855,14 +2880,18 @@ class TelegramBot:
                             rc,
                         )
 
-                    async def _lutopia_on_start(tool_name: str) -> None:
+                    async def _lutopia_on_start(
+                        tool_name: str, args_json: str
+                    ) -> None:
                         await self._telegram_lutopia_notify_tool_before(
-                            bot, chat_id, tool_name
+                            bot, chat_id, tool_name, args_json
                         )
 
-                    async def _lutopia_on_done(tool_name: str, out: str) -> None:
+                    async def _lutopia_on_done(
+                        tool_name: str, args_json: str, out: str
+                    ) -> None:
                         await self._telegram_lutopia_notify_tool_after(
-                            bot, chat_id, tool_name, out
+                            bot, chat_id, tool_name, args_json, out
                         )
 
                     raw_tool_outputs = await append_tool_exchange_to_messages(
@@ -2935,10 +2964,10 @@ class TelegramBot:
             return _merge_stream_outcome(outcome)
 
     async def _telegram_lutopia_notify_tool_before(
-        self, bot: Any, chat_id: int, tool_name: str
+        self, bot: Any, chat_id: int, tool_name: str, arguments_json: str = ""
     ) -> None:
-        """工具执行前仅发送 typing，不向用户推送工具状态行。"""
-        del tool_name
+        """工具执行前发送 typing（不向用户推送状态行）。"""
+        del tool_name, arguments_json
         try:
             await bot.send_chat_action(chat_id=chat_id, action="typing")
         except Exception as e:
@@ -2949,10 +2978,15 @@ class TelegramBot:
             )
 
     async def _telegram_lutopia_notify_tool_after(
-        self, bot: Any, chat_id: int, tool_name: str, result_json: str
+        self,
+        bot: Any,
+        chat_id: int,
+        tool_name: str,
+        arguments_json: str,
+        result_json: str,
     ) -> None:
         """工具结束后发一行纯文本状态（无 HTML / blockquote）。"""
-        disp = self._telegram_lutopia_tool_display_name(tool_name)
+        label = await self._telegram_lutopia_tool_display_name(tool_name, arguments_json)
         ok = True
         try:
             parsed = json.loads(result_json)
@@ -2968,7 +3002,8 @@ class TelegramBot:
                 tool_name,
                 (result_json or "")[:800],
             )
-        text = f"✅ 已调用{disp}" if ok else f"❌ {disp}调用失败"
+        fail_core = label[1:] if label.startswith("已") else label
+        text = f"✅ {label}" if ok else f"❌ {fail_core}失败"
         if len(text) > 4096:
             suf = _TELEGRAM_PLAIN_TRUNC_SUFFIX
             text = text[: 4096 - len(suf)] + suf
@@ -3360,6 +3395,7 @@ class TelegramBot:
             xhs_on = bool(getattr(llm, "enable_xhs_tool", False)) and config.ENABLE_XHS_TOOL
             ai_news_on = bool(getattr(llm, "enable_ai_news_tool", False))
             web_fetch_on = bool(config.ENABLE_WEB_FETCH_TOOL)
+            custom_mcp_on = bool(config.ENABLE_CUSTOM_MCP)
             oral = (
                 lutopia_on
                 or rcommunity_on
@@ -3370,6 +3406,7 @@ class TelegramBot:
                 or xhs_on
                 or ai_news_on
                 or web_fetch_on
+                or custom_mcp_on
             ) and not is_anthropic
             llm_images = images or None
             if bot is not None:
@@ -3450,10 +3487,11 @@ class TelegramBot:
                 or xhs_on
                 or ai_news_on
                 or web_fetch_on
+                or custom_mcp_on
             ):
                 llm_path = (
                     "openai_compatible → _telegram_stream_thinking_and_reply_with_lutopia "
-                    "→ generate_stream(tools=Lutopia±rcommunity±天气±微博±搜索±X±小红书±AI资讯±网页抓取)（persona/环境工具开关）"
+                    "→ generate_stream(tools=Lutopia±rcommunity±天气±微博±搜索±X±小红书±AI资讯±网页抓取±自定义MCP)（persona/环境工具开关）"
                 )
             else:
                 llm_path = (
@@ -3536,6 +3574,7 @@ class TelegramBot:
                     )
                     or getattr(llm, "enable_ai_news_tool", False)
                     or bool(config.ENABLE_WEB_FETCH_TOOL)
+                    or bool(config.ENABLE_CUSTOM_MCP)
                 ):
                     outcome = await self._telegram_stream_thinking_and_reply_with_lutopia(
                         llm,
@@ -3885,9 +3924,10 @@ class TelegramBot:
                 or xhs_oral
                 or bool(getattr(llm, "enable_ai_news_tool", False))
                 or bool(config.ENABLE_WEB_FETCH_TOOL)
+                or bool(config.ENABLE_CUSTOM_MCP)
             ) and not llm._use_anthropic_messages_api()
             logger.info(
-                "oral=%s lutopia=%s rcommunity=%s weather=%s weibo=%s search=%s x=%s xhs=%s ai_news=%s web_fetch=%s anthropic=%s",
+                "oral=%s lutopia=%s rcommunity=%s weather=%s weibo=%s search=%s x=%s xhs=%s ai_news=%s web_fetch=%s custom_mcp=%s anthropic=%s",
                 oral,
                 getattr(llm, "enable_lutopia", False),
                 getattr(llm, "enable_rcommunity", False),
@@ -3898,6 +3938,7 @@ class TelegramBot:
                 xhs_oral,
                 getattr(llm, "enable_ai_news_tool", False),
                 config.ENABLE_WEB_FETCH_TOOL,
+                config.ENABLE_CUSTOM_MCP,
                 llm._use_anthropic_messages_api(),
             )
             context = await build_context(
@@ -3919,14 +3960,16 @@ class TelegramBot:
             if oral:
                 if telegram_bot is not None:
 
-                    async def _lutopia_on_start(n: str) -> None:
+                    async def _lutopia_on_start(n: str, args_json: str) -> None:
                         await self._telegram_lutopia_notify_tool_before(
-                            telegram_bot, cid, n
+                            telegram_bot, cid, n, args_json
                         )
 
-                    async def _lutopia_on_done(n: str, out: str) -> None:
+                    async def _lutopia_on_done(
+                        n: str, args_json: str, out: str
+                    ) -> None:
                         await self._telegram_lutopia_notify_tool_after(
-                            telegram_bot, cid, n, out
+                            telegram_bot, cid, n, args_json, out
                         )
 
                     async def _partial(txt: str) -> None:

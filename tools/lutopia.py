@@ -349,11 +349,113 @@ async def save_tool_execution_record(
         logger.warning("保存工具执行记录失败: %s", e)
 
 
-def lutopia_tool_display_name(name: str) -> str:
-    t = (name or "").strip()
+def _lutopia_read_action_description(first_verb: str, words: List[str]) -> str:
+    """读操作的自然语言（以「已」开头，供 Telegram 状态行等复用）。"""
+    w = words or []
+    second = w[1] if len(w) > 1 else ""
+    rest = " ".join(w[1:]).strip() if len(w) > 1 else ""
+    if first_verb == "list":
+        return "已浏览论坛帖子列表"
+    if first_verb == "search":
+        return f"已搜索论坛「{rest}」" if rest else "已搜索论坛"
+    if first_verb == "wander":
+        return "已在论坛随机逛逛"
+    if first_verb == "show":
+        return f"已查看帖子 #{second or '?'}"
+    if first_verb == "comment-show":
+        return f"已查看帖子 #{second or '?'} 的评论"
+    if first_verb == "inbox":
+        return "已查看论坛私信收件箱"
+    if first_verb == "whoami":
+        return "已查看论坛账号信息"
+    if first_verb == "dm-settings":
+        return "已查看论坛私信设置"
+    return ""
+
+
+def telegram_tool_display_label(tool_name: str, arguments_json: str = "") -> str:
+    """
+    Telegram 等面向用户的状态行：工具名 + 参数 → 中文简述。
+    返回值通常以「已」开头，便于拼成「✅ 已查看帖子 #12」。
+    """
+    t = (tool_name or "").strip()
+    if t == "lutopia_get_guide":
+        try:
+            args = json.loads(arguments_json or "{}")
+            if isinstance(args, dict):
+                sec = str(args.get("section") or "").strip()
+                if sec:
+                    return f"已查阅论坛指南（{sec}）"
+        except json.JSONDecodeError:
+            pass
+        return "已查阅论坛操作指南"
+
+    static: Dict[str, str] = {
+        "get_weather": "已查询天气",
+        "get_weibo_hot": "已查看微博热搜",
+        "web_search": "已搜索网页",
+        "web_fetch": "已抓取网页",
+        "get_ai_news": "已获取 AI 资讯",
+        "memory_search": "已检索记忆",
+        "memory_get_summaries": "已读取对话摘要",
+        "memory_get_cards": "已读取记忆卡片",
+        "memory_get_temporal_states": "已读取时序状态",
+        "memory_get_relationship_timeline": "已读取关系时间线",
+        "memory_get_approval_status": "已查询审批状态",
+        "memory_update_request": "已提交记忆更新",
+        "read_xhs_note": "已阅读小红书笔记",
+    }
+    if t in static:
+        return static[t]
+
+    if t.startswith("rcommunity_"):
+        try:
+            args = _rcommunity_memory_args(arguments_json)
+        except Exception:
+            args = {}
+        action = str(args.get("action") or "").strip()
+        desc = _rcommunity_action_description(t, action, args)
+        if desc:
+            return desc
+        short = {
+            "rcommunity_forum": "论坛",
+            "rcommunity_forum_write": "论坛发帖",
+            "rcommunity_forum_interact": "论坛互动",
+            "rcommunity_chat": "聊天室",
+            "rcommunity_profile": "个人页",
+        }.get(t, t[11:] if t.startswith("rcommunity_") else t)
+        return f"已操作社区论坛·{short}"
+
+    x_desc = _x_action_description(t, _internal_memory_json_dict(arguments_json))
+    if x_desc:
+        return x_desc
+
+    if t == "lutopia_cli":
+        _cmd, words = _lutopia_parse_cli_command(arguments_json)
+        if not words:
+            return "已操作论坛"
+        first = words[0].lower()
+        write_desc = _lutopia_write_action_description(first, words)
+        if write_desc:
+            return write_desc
+        read_desc = _lutopia_read_action_description(first, words)
+        if read_desc:
+            return read_desc
+        return f"已执行论坛命令：{_cmd[:60]}" if _cmd else "已操作论坛"
+
+    if t.startswith("mcp_"):
+        return f"已调用 MCP 工具·{t[4:] or t}"
     if t.startswith("lutopia_"):
-        return t[8:] or t
-    return t or "tool"
+        return f"已操作论坛·{t[8:] or t}"
+    return f"已调用 {t}" if t else "已调用工具"
+
+
+def lutopia_tool_display_name(name: str) -> str:
+    """行为记录等场景的短名；优先走 ``telegram_tool_display_label``。"""
+    label = telegram_tool_display_label(name, "")
+    if label.startswith("已"):
+        return label[1:]
+    return label or "tool"
 
 
 def _behavior_result_short_description(parsed: Dict[str, Any], raw_fallback: str) -> str:
@@ -629,32 +731,89 @@ def _internal_memory_key_suffix(
     return "，" + "，".join(bits[:max_bits])
 
 
+def _rcommunity_action_description(
+    tool_name: str, action: str, args: Dict[str, Any]
+) -> str:
+    """rcommunity 五类 MCP 工具 → 中文简述（以「已」开头）。"""
+    tid = str(args.get("thread_id") or args.get("post_id") or "?").strip() or "?"
+    rid = str(args.get("reply_id") or args.get("comment_id") or "?").strip() or "?"
+    category = str(args.get("category") or "").strip()
+    query = str(args.get("query") or "").strip()
+    channel = str(args.get("channel") or "大厅").strip() or "大厅"
+    username = str(args.get("username") or "").strip()
+
+    if tool_name == "rcommunity_forum":
+        if action == "browse":
+            return (
+                f"已浏览社区论坛「{category}」版块"
+                if category
+                else "已浏览社区论坛版块列表"
+            )
+        if action == "read":
+            return f"已阅读社区论坛帖子 #{tid}"
+        if action == "search":
+            return (
+                f"已搜索社区论坛「{query}」"
+                if query
+                else "已搜索社区论坛"
+            )
+        if action == "honor":
+            return "已查看社区论坛星章墙"
+    if tool_name == "rcommunity_forum_write":
+        if action == "create":
+            return "已在社区论坛发布新帖"
+        if action == "reply":
+            return f"已回复社区论坛帖子 #{tid}"
+        if action == "edit":
+            if rid != "?":
+                return f"已编辑社区论坛回复 #{rid}"
+            return f"已编辑社区论坛帖子 #{tid}"
+        if action in {"delete", "delete_thread"}:
+            return f"已删除社区论坛帖子 #{tid}"
+        if action == "delete_reply":
+            return f"已删除社区论坛回复 #{rid}"
+    if tool_name == "rcommunity_forum_interact":
+        if action == "pin":
+            return f"已置顶社区论坛帖子 #{tid}"
+        if action == "bookmark":
+            return f"已收藏社区论坛帖子 #{tid}"
+        if action == "like":
+            return f"已点赞社区论坛帖子 #{tid}"
+        if action == "vote":
+            return f"已在社区论坛帖子 #{tid} 投票"
+    if tool_name == "rcommunity_chat":
+        if action == "send":
+            return f"已在社区论坛「{channel}」聊天室发消息"
+        if action == "read":
+            return f"已读取社区论坛「{channel}」聊天记录"
+        if action == "delete":
+            return f"已删除社区论坛「{channel}」聊天消息"
+    if tool_name == "rcommunity_profile":
+        if action == "get":
+            return "已查看社区论坛个人资料"
+        if action == "update":
+            return "已更新社区论坛个人资料"
+        if action == "my_threads":
+            return "已查看我在社区论坛的帖子"
+        if action == "my_replies":
+            return "已查看我在社区论坛的回复"
+        if action == "my_bookmarks":
+            return "已查看社区论坛收藏夹"
+        if action == "notifications":
+            return "已查看社区论坛通知"
+        if action == "view_user":
+            return (
+                f"已查看社区论坛用户 {username}"
+                if username
+                else "已查看社区论坛用户主页"
+            )
+    return ""
+
+
 def _rcommunity_write_action_description(
     tool_name: str, action: str, args: Dict[str, Any]
 ) -> str:
-    tid = str(args.get("thread_id") or args.get("post_id") or "?").strip() or "?"
-    rid = str(args.get("reply_id") or args.get("comment_id") or "?").strip() or "?"
-    if tool_name == "rcommunity_forum_write":
-        if action == "create":
-            return "已在 rcommunity 发布新帖"
-        if action == "reply":
-            return f"已回复 rcommunity 帖子 #{tid}"
-        if action == "edit":
-            if rid != "?":
-                return f"已编辑 rcommunity 回复 #{rid}"
-            return f"已编辑 rcommunity 帖子 #{tid}"
-        if action in {"delete", "delete_thread"}:
-            return f"已删除 rcommunity 帖子 #{tid}"
-        if action == "delete_reply":
-            return f"已删除 rcommunity 回复 #{rid}"
-    if tool_name == "rcommunity_forum_interact":
-        if action == "pin":
-            return f"已操作 rcommunity 帖子置顶 #{tid}"
-        if action == "bookmark":
-            return f"已操作 rcommunity 帖子收藏 #{tid}"
-        if action == "like":
-            return f"已操作 rcommunity 点赞 #{tid}"
-    return ""
+    return _rcommunity_action_description(tool_name, action, args)
 
 
 def rcommunity_internal_memory_line(
@@ -704,28 +863,50 @@ def rcommunity_internal_memory_line(
     return f"[系统内部记忆：{base}{suffix}]"
 
 
-def _x_write_action_description(tool_name: str, args: Dict[str, Any]) -> str:
+def _x_action_description(tool_name: str, args: Dict[str, Any]) -> str:
+    """X / 推特工具 → 中文简述（以「已」开头）。"""
     tid = str(args.get("tweet_id") or "?").strip() or "?"
-    uid = str(args.get("user_id") or args.get("username") or "?").strip() or "?"
+    uid = str(args.get("user_id") or "?").strip() or "?"
+    uname = str(args.get("username") or "").strip()
+    query = str(args.get("query") or "").strip()
+
     if tool_name == "post_tweet":
-        return "已发布 X 推文"
+        return "已在推特发布推文"
     if tool_name == "reply_tweet":
-        return f"已回复 X 推文 #{tid}"
+        return f"已回复推特推文 #{tid}"
     if tool_name == "retweet_tweet":
         if str(args.get("comment") or "").strip():
-            return f"已引用转推 X 推文 #{tid}"
-        return f"已转推 X 推文 #{tid}"
+            return f"已引用转推推特推文 #{tid}"
+        return f"已转推推特推文 #{tid}"
     if tool_name == "like_tweet":
-        return f"已点赞 X 推文 #{tid}"
+        return f"已点赞推特推文 #{tid}"
     if tool_name == "unlike_tweet":
-        return f"已取消点赞 X 推文 #{tid}"
+        return f"已取消点赞推特推文 #{tid}"
     if tool_name == "unretweet_tweet":
-        return f"已取消转推 X 推文 #{tid}"
+        return f"已取消转推推特推文 #{tid}"
     if tool_name == "follow_user":
-        return f"已关注 X 用户 {uid}"
+        return f"已关注推特用户（ID {uid}）"
     if tool_name == "unfollow_user":
-        return f"已取消关注 X 用户 {uid}"
+        return f"已取消关注推特用户（ID {uid}）"
+    if tool_name == "read_mentions":
+        return "已查看推特 @提及"
+    if tool_name == "search_tweets":
+        return f"已搜索推特「{query}」" if query else "已搜索推特"
+    if tool_name == "get_timeline":
+        return "已浏览推特关注时间线"
+    if tool_name == "get_user":
+        return (
+            f"已查看推特用户 @{uname}"
+            if uname
+            else "已查看推特用户资料"
+        )
+    if tool_name == "get_followers":
+        return "已查看推特粉丝列表"
     return ""
+
+
+def _x_write_action_description(tool_name: str, args: Dict[str, Any]) -> str:
+    return _x_action_description(tool_name, args)
 
 
 def x_internal_memory_line(
@@ -1122,8 +1303,8 @@ async def append_tool_exchange_to_messages(
     assistant_text: str,
     tool_calls: List[Dict[str, Any]],
     *,
-    on_tool_start: Optional[Callable[[str], Awaitable[None]]] = None,
-    on_tool_done: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    on_tool_start: Optional[Callable[[str, str], Awaitable[None]]] = None,
+    on_tool_done: Optional[Callable[[str, str, str], Awaitable[None]]] = None,
     execution_log: Optional[List[Tuple[str, str, str]]] = None,
     mcp_session: Optional[Any] = None,
     rcommunity_mcp_session: Optional[Any] = None,
@@ -1136,7 +1317,8 @@ async def append_tool_exchange_to_messages(
     将一轮 assistant.tool_calls 及对应 tool 结果追加到 messages（原地修改）。
     ``tool_calls`` 为流式或非流式解析后的简表（id / name / arguments）。
 
-    ``on_tool_start`` / ``on_tool_done``：可选，分别在单次工具执行前后回调（如 Telegram 状态提示）。
+    ``on_tool_start(name, arguments_json)`` / ``on_tool_done(name, arguments_json, result)``：
+    可选，分别在单次工具执行前后回调（如 Telegram 状态提示）。
 
     ``mcp_session``：由 ``create_lutopia_mcp_session()`` 提供时复用 MCP 连接；未传则每次工具调用单独建连。
     ``rcommunity_mcp_session``：rcommunity 论坛 MCP 会话（``create_rcommunity_mcp_session()``，Streamable HTTP）。
@@ -1181,7 +1363,7 @@ async def append_tool_exchange_to_messages(
         if not isinstance(arg, str):
             arg = json.dumps(arg if arg is not None else {}, ensure_ascii=False)
         if on_tool_start:
-            await on_tool_start(nm)
+            await on_tool_start(nm, arg or "{}")
         try:
             if nm == "memory_search":
                 args_mem = _safe_load_tool_args(arg, nm)
@@ -1219,6 +1401,9 @@ async def append_tool_exchange_to_messages(
             elif nm == "web_fetch":
                 args_wf = _safe_load_tool_args(arg, nm)
                 out = await execute_web_fetch_function_call(nm, args_wf)
+            elif nm.startswith("mcp_"):
+                from tools.custom_mcp import dispatch_tool_call as dispatch_custom_mcp_tool_call
+                out = await dispatch_custom_mcp_tool_call(nm, arg or "{}")
             elif nm in (
                 "post_tweet", "read_mentions", "like_tweet", "unlike_tweet",
                 "retweet_tweet", "unretweet_tweet",
@@ -1263,7 +1448,7 @@ async def append_tool_exchange_to_messages(
         ):
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:
-            await on_tool_done(nm, out)
+            await on_tool_done(nm, arg or "{}", out)
         context_summary: Optional[str] = None
         if len((out or "").strip()) > TOOL_RESULT_LONG_WORDS:
             model_out, context_summary = await _compress_tool_result_by_length(

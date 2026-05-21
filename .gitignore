@@ -173,6 +173,8 @@ backup_*.sql
 # CedarStar specific
 repair.py
 .clinerules
+local_services/
+routers/
 cedarstar.log
 cedarstar.db
 cedarstar/cedarstar.db
