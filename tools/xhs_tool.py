@@ -527,6 +527,65 @@ async def _download_image_b64(url: str) -> Optional[Dict[str, str]]:
     return {"data": base64.b64encode(raw).decode("ascii"), "mime_type": ct}
 
 
+async def _summarize_xhs_images_with_vision(
+    images: List[Dict[str, str]],
+    *,
+    title: str = "",
+    text: str = "",
+) -> str:
+    """用 vision 配置把小红书配图转成文本，供工具调用链继续理解图片。"""
+    if not images:
+        return ""
+    try:
+        from llm.llm_interface import LLMInterface, build_user_multimodal_content
+
+        llm = await LLMInterface.create(config_type="vision")
+        prompt_parts = [
+            "请阅读这篇小红书笔记的配图，并用中文输出给后续对话模型使用的图片摘要。",
+            "要求：逐张说明画面主体、人物/物品、可见文字、颜色与关键信息；最后给一段整体判断。",
+            "不要说你无法看到图片；如果某张图信息少，也请如实概括。",
+        ]
+        if title:
+            prompt_parts.append(f"笔记标题：{title[:300]}")
+        if text:
+            prompt_parts.append(f"笔记正文：{text[:1200]}")
+        prompt = "\n".join(prompt_parts)
+        vision_images: List[Dict[str, Any]] = []
+        for idx, im in enumerate(images, start=1):
+            b64 = im.get("data")
+            if not isinstance(b64, str) or not b64:
+                continue
+            vision_images.append(
+                {
+                    "type": "image",
+                    "data": b64,
+                    "mime_type": im.get("mime_type") or "image/jpeg",
+                    "label": f"小红书笔记配图{idx}",
+                }
+            )
+        if not vision_images:
+            return ""
+        content = build_user_multimodal_content(
+            llm.api_base,
+            llm.model_name,
+            prompt,
+            vision_images,
+        )
+        messages = [{"role": "user", "content": content}]
+
+        def _call() -> str:
+            resp = llm.generate_with_context_and_tracking(messages)
+            return resp.content or ""
+
+        summary = (await asyncio.to_thread(_call)).strip()
+        if len(summary) > 4000:
+            summary = summary[:4000] + "..."
+        return summary
+    except Exception as e:
+        logger.warning("小红书配图 vision 摘要失败: %s", e)
+        return ""
+
+
 # ---------------------------------------------------------------------------
 # 公开 API
 # ---------------------------------------------------------------------------
@@ -570,8 +629,10 @@ async def search_xhs(
 async def read_xhs_note(
     note_id_or_url: str,
     *,
-    max_images: int = 4,
+    max_images: int = 6,
     apply_read_quota: bool = True,
+    include_image_data: bool = True,
+    summarize_images: bool = True,
 ) -> Dict[str, Any]:
     """读帖子详情；``note_id_or_url`` 可为笔记 ID 或含 token 的完整 URL。图片为 base64。"""
     arg = (note_id_or_url or "").strip()
@@ -599,20 +660,33 @@ async def read_xhs_note(
         b = await _download_image_b64(u)
         if b:
             images_out.append(b)
+    image_summary = ""
+    if summarize_images:
+        image_summary = await _summarize_xhs_images_with_vision(
+            images_out,
+            title=title,
+            text=text,
+        )
     if apply_read_quota:
         await _inc_read(1)
-    return {
+    out: Dict[str, Any] = {
         "success": True,
         "note_id": nid or arg,
         "title": title,
         "text": text,
-        "images": images_out,
+        "image_count": len(images_out),
+        "image_summary": image_summary,
         **(
             await get_xhs_usage_today()
             if apply_read_quota
             else {}
         ),
     }
+    if include_image_data:
+        out["images"] = images_out
+    else:
+        out["images_omitted"] = bool(images_out)
+    return out
 
 
 async def _expand_xhslink_com_to_discovery_url(short_url: str) -> Optional[str]:
@@ -656,15 +730,21 @@ async def _expand_xhslink_com_to_discovery_url(short_url: str) -> Optional[str]:
 async def read_xhs_note_from_url(
     url: str,
     *,
-    max_images: int = 4,
+    max_images: int = 6,
     apply_read_quota: bool = False,
+    include_image_data: bool = True,
+    summarize_images: bool = True,
 ) -> Dict[str, Any]:
     """供 Telegram 链接触发（默认不占日读配额）；短链展开在 ``read_xhs_note`` 内统一处理。"""
     u = (url or "").strip()
     if not u:
         return {"success": False, "error": "url 为空"}
     return await read_xhs_note(
-        u, max_images=max_images, apply_read_quota=apply_read_quota
+        u,
+        max_images=max_images,
+        apply_read_quota=apply_read_quota,
+        include_image_data=include_image_data,
+        summarize_images=summarize_images,
     )
 
 
@@ -823,7 +903,10 @@ async def execute_xhs_function_call(name: str, arguments: Dict[str, Any]) -> str
                 note_type=args.get("note_type"),
             )
         elif name == "read_xhs_note":
-            out = await read_xhs_note(str(args.get("note_id") or ""))
+            out = await read_xhs_note(
+                str(args.get("note_id") or ""),
+                include_image_data=False,
+            )
         elif name == "get_xhs_feed":
             out = await get_xhs_feed()
         elif name == "get_xhs_user":
@@ -847,7 +930,7 @@ async def telegram_append_xhs_note_to_message(
     text_for_llm: Optional[str],
 ) -> Tuple[str, str, List[Dict[str, Any]], str]:
     """
-    检测小红书链接，拉取首条笔记概要 + 最多 4 张图，追加到 LLM 文本并合并 images。
+    检测小红书链接，拉取首条笔记概要 + 最多 6 张图，追加到 LLM 文本并合并 images。
     失败仅打日志，不抛错。
     """
     if not config.ENABLE_XHS_TOOL:
@@ -863,7 +946,12 @@ async def telegram_append_xhs_note_to_message(
         return base_raw, base_llm, imgs, base_tfl
     url = urls[0]
     try:
-        detail = await read_xhs_note_from_url(url, max_images=4, apply_read_quota=False)
+        detail = await read_xhs_note_from_url(
+            url,
+            max_images=6,
+            apply_read_quota=False,
+            summarize_images=False,
+        )
     except Exception as e:
         logger.warning("Telegram 小红书链接预处理失败: %s", e)
         return base_raw, base_llm, imgs, base_tfl

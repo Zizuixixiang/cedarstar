@@ -310,7 +310,8 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 - **依赖**：Python 包 **`xiaohongshu-cli`**（提供 `xhs` 子进程）；Cookie 由环境变量 **`XHS_COOKIE_PATH`** 指向与 CLI 兼容的 `cookies.json`（进程内可按 `APP_NAME` 构造临时 `HOME/.xiaohongshu-cli` 并 symlink，满足 CLI 固定路径约定）。
 - **对外工具**：`tools/prompts.py` 的 `OPENAI_XHS_TOOLS` 当前仅注册 **`read_xhs_note`**（其余 5 个 schema 已注释；`tools/xhs_tool.py` 内实现仍保留）。
-- **Telegram 缓冲路径**：在 `bot/telegram_bot.py` 的 `telegram_append_xhs_note_to_message`（`build_context` 之前），对正文中的 `xhslink.com` / `xiaohongshu.com` 链接自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 4 张注入多模态（不占日读配额）；字段解析支持 `imageList` / `urlDefault` 与 `items[0].note_card`；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。
+- **Telegram 缓冲路径**：在 `bot/telegram_bot.py` 的 `telegram_append_xhs_note_to_message`（`build_context` 之前），对正文中的 `xhslink.com` / `xiaohongshu.com` 链接自动拉取首条笔记标题与正文并追加 `[小红书笔记]…`，配图最多 6 张注入多模态（不占日读配额）；字段解析支持 `imageList` / `urlDefault` 与 `items[0].note_card`；**仅当 `ENABLE_XHS_TOOL` 为真**；失败仅打日志不阻断。
+- **工具调用配图摘要**：`read_xhs_note` 下载最多 6 张配图后，会用 `vision` 配置生成 `image_summary` 文本。OpenAI function 工具结果默认不把 base64 图像数据回填给模型，只回传标题、正文、图片数量与视觉摘要；Telegram 链接预处理仍注入真实多模态图片。
 - **工具循环**：与 Lutopia / 天气等并列注册于 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、Discord / idle 路径（`llm/llm_interface.py`、`bot/discord_bot.py`、`bot/idle_activity.py`）。`tool_executions` 照常记录。
 
 ### 4.2.5 rcommunity 论坛 MCP（`tools/rcommunity.py`）

@@ -3394,7 +3394,7 @@ async def complete_with_lutopia_tool_loop(
                     {
                         "role": "tool",
                         "tool_call_id": tc.get("id") or "",
-                        "content": tool_result_for_model(nm, raw_args or "{}", result_str),
+                        "content": await tool_result_for_model(nm, raw_args or "{}", result_str),
                     }
                 )
             if processed_tools == 0:
