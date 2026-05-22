@@ -743,11 +743,16 @@ def _openai_compatible_messages(
     messages: List[Dict[str, Any]],
     *,
     preserve_cache_control: bool = False,
+    preserve_reasoning_content: bool = False,
 ) -> List[Dict[str, Any]]:
     """移除 Anthropic 专用 cache_control block 形态，避免 OpenAI 兼容网关拒绝。"""
     out: List[Dict[str, Any]] = []
     for msg in messages:
         m = dict(msg)
+        if not preserve_reasoning_content:
+            m.pop("reasoning_content", None)
+            m.pop("reasoning", None)
+            m.pop("thinking", None)
         c = m.get("content")
         if isinstance(c, list):
             has_image = any(
@@ -796,6 +801,28 @@ def _openrouter_claude_provider_preferences(
         "order": [OPENROUTER_CLAUDE_PROVIDER],
         "allow_fallbacks": False,
     }
+
+
+def _is_deepseek_official_endpoint(
+    api_base: Optional[str],
+    model_name: Optional[str],
+) -> bool:
+    s = f"{api_base or ''} {model_name or ''}".lower()
+    return "api.deepseek.com" in s and "deepseek" in s
+
+
+def _assistant_tool_call_missing_reasoning(messages: Any) -> bool:
+    if not isinstance(messages, list):
+        return False
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        if msg.get("role") != "assistant" or not msg.get("tool_calls"):
+            continue
+        rc = msg.get("reasoning_content")
+        if not isinstance(rc, str) or not rc.strip():
+            return True
+    return False
 
 
 def _strip_cache_control_from_blocks(value: Any) -> Any:
@@ -1665,6 +1692,14 @@ class LLMInterface:
             return payload
         active_payload = dict(payload)
         active_payload["model"] = self.model_name
+        if _is_deepseek_official_endpoint(self.api_base, self.model_name):
+            messages = active_payload.get("messages")
+            if _assistant_tool_call_missing_reasoning(messages):
+                active_payload["thinking"] = {"type": "disabled"}
+                logger.warning(
+                    "DeepSeek thinking disabled for this failover request: "
+                    "assistant tool_calls lack reasoning_content from previous channel"
+                )
         return active_payload
 
     @classmethod
@@ -2009,6 +2044,9 @@ class LLMInterface:
                     self.model_name,
                 )
                 or _is_cedargate_proxy(self.api_base),
+                preserve_reasoning_content=(
+                    "deepseek" in f"{self.api_base or ''} {self.model_name or ''}".lower()
+                ),
             ),
             "max_tokens": self._openai_max_tokens(),
             "temperature": self.temperature,
@@ -3321,6 +3359,8 @@ async def complete_with_lutopia_tool_loop(
                     if isinstance(tc, dict)
                 ],
             }
+            if last.thinking:
+                assistant_message["reasoning_content"] = last.thinking
             work.append(assistant_message)
             await _ensure_mcp_sessions_for_round(last.tool_calls or [])
             processed_tools = 0
