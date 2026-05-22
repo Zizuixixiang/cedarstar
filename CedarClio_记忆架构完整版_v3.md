@@ -89,7 +89,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 
 - 同一 `config_type` 可多行 `is_active=1`（Mini App「加入激活池」）；`activate` 不取消同类型其它行，`deactivate` 单独取消。
 - `get_active_api_configs` 按 `id ASC`；`LLMInterface.create` 加载整池，HTTP 经 `_post_with_api_failover`：**仅报错时**按 id 切下一渠道，成功不换。
-- 可转移错误含 401/403/429/500/502/503/504、超时与连接异常；单渠道内这些可转移错误先用同一 key 完成 `_post_with_retry`（最多 6 次、间隔 2s），这一组尝试全部失败后才给该 key 记 1 次连续失败并切下一条。
+- 可转移错误含 401/403/429、所有 HTTP 5xx（含 Cloudflare / CDN 常见 520-524）、超时与连接异常；单渠道内这些可转移错误先用同一 key 完成 `_post_with_retry`（最多 6 次、间隔 2s），这一组尝试全部失败后才给该 key 记 1 次连续失败并切下一条。
 - 同一配置 id 连续可转移失败 **5 次** → 自动 `deactivate`；计数键 `api_failover_fail_count_{id}`；成功或重新激活则清零。
 - 本轮池内全部失败：一次性 Telegram（`TELEGRAM_MAIN_USER_CHAT_ID` + `TELEGRAM_BOT_TOKEN`），latch 键 `api_failover_all_failed_alert_latch_{config_type}`；池空或仅 `.env` 回退时不发。`main.py` 注册 `register_llm_failover_event_loop`。
 

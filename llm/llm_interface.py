@@ -1201,7 +1201,13 @@ def _persona_row_enable_xhs_tool(row: Optional[Dict[str, Any]]) -> bool:
         return str(v).strip().lower() in ("1", "true", "yes", "on")
 
 
-_API_FAILOVER_HTTP_STATUS = frozenset({401, 403, 429, 500, 502, 503, 504})
+_API_FAILOVER_HTTP_STATUS = frozenset({401, 403, 429})
+
+
+def _is_api_failover_http_status(status: Optional[int]) -> bool:
+    if status is None:
+        return False
+    return status in _API_FAILOVER_HTTP_STATUS or 500 <= status <= 599
 
 
 def _walk_exc_chain(exc: BaseException, _seen: Optional[set] = None):
@@ -1237,7 +1243,7 @@ def _http_status_from_exc(exc: BaseException) -> Optional[int]:
 def is_api_failover_eligible_exc(exc: BaseException) -> bool:
     """当前 API 渠道失败是否应尝试同类型下一条激活配置。"""
     status = _http_status_from_exc(exc)
-    if status is not None and status in _API_FAILOVER_HTTP_STATUS:
+    if _is_api_failover_http_status(status):
         return True
     for node in _walk_exc_chain(exc):
         if isinstance(
@@ -1262,9 +1268,16 @@ def is_api_failover_eligible_exc(exc: BaseException) -> bool:
         "internal server error",
         "bad gateway",
         "gateway timeout",
+        "connection timed out",
         "502",
         "503",
         "504",
+        "522",
+        "520 server error",
+        "521 server error",
+        "522 server error",
+        "523 server error",
+        "524 server error",
         "500 server error",
         "401 client error",
         "403 client error",
@@ -1800,7 +1813,7 @@ class LLMInterface:
                     time.sleep(2)
                     continue
                 raise
-            if resp.status_code in _API_FAILOVER_HTTP_STATUS and attempt < max_attempts - 1:
+            if _is_api_failover_http_status(resp.status_code) and attempt < max_attempts - 1:
                 logger.warning(
                     "LLM API HTTP %s，等待 2s 后使用同一渠道重试（第 %s/5 次重试）",
                     resp.status_code,
@@ -1827,9 +1840,9 @@ class LLMInterface:
                         "（400 常见：模型名与上游不符、当前模型不支持 tools/function、"
                         "max_tokens/参数超出范围、或 messages 格式被拒；可暂时关闭人设里的工具开关对照试验。）"
                     )
-                elif resp.status_code == 520:
+                elif 520 <= resp.status_code <= 524:
                     hint = (
-                        "（520 多为 CDN/网关（如 Cloudflare）：源站无有效响应、隧道/反代中断或上游崩溃；"
+                        "（520-524 多为 CDN/网关（如 Cloudflare）：源站无有效响应、隧道/反代中断、超时或上游崩溃；"
                         "通常不是「密钥错误」（多为 401/403）。请查中转域名、供应商状态或换直连 base_url 对照。）"
                     )
                 elif resp.status_code in (502, 504):
