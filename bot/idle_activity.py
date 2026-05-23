@@ -297,6 +297,7 @@ _IDLE_TRIGGER_TEXT = (
     "若当前人设已开启 rcommunity 论坛工具，也可用 rcommunity_forum / rcommunity_forum_write 等访问 rhysen 论坛（勿与 Lutopia 混用同一轮空刷）；"
     "可以去X搜索感兴趣的内容、发推、和人类互动；"
     "可以查询天气、热搜、用 get_ai_news 看 AI HOT 上的 AI 资讯或日报（注意单次少拉、别堆多日全文）；可以随便搜搜感兴趣的；"
+    "如果希望稍后再醒来继续自主活动，可以调用 schedule_next_wakeup 设置下次醒来时间；"
     "可以给南杉留言（不要发语音和表情）；也可以什么也不做。"
 )
 
