@@ -313,7 +313,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 工具口播提示由 `memory/context_builder.py` 的 `TOOL_ORAL_COACHING_BLOCK`（`tool_oral_coaching=True` 时）与 `tools/prompts.py` 的各工具包 `TOOL_DIRECTIVES`（经 `build_tool_system_suffix` 注入）共同约束，确保模型在调用工具前先有一句自然口语。
 
-游戏管理工具（`tools/game_tools.py`）包含 `game_start`、`game_end`、`game_update`，只在 `active_game_session_id` 指向未结束 session 时注入 OpenAI tools 与 `GAME_TOOL_DIRECTIVE`。执行路径在 `complete_with_lutopia_tool_loop` 与 Telegram 流式工具路径中注册，`tools/lutopia.py` 按 `game_` 前缀分发到本地 DB 操作，不需要 MCP。`game_update` 仅允许 `per_turn` 游戏进行中覆盖 `state_json`；`on_end` 存档型游戏进行中只允许追加 `turn_data`，最终状态由 `game_end` 写入。
+游戏管理工具（`tools/game_tools.py`）包含 `game_start`、`game_end`、`game_update`，OpenAI tools 注入拆为两组：`OPENAI_GAME_START_TOOLS` 仅含 `game_start`，始终注入，让模型可在普通对话中创建并激活游戏；`OPENAI_GAME_ACTIVE_TOOLS` 含 `game_end` / `game_update`，只在 `active_game_session_id` 指向未结束 session 时注入。对应 system 后缀在 `tools/prompts.py` 中拆为 `game_start` 与 `game_active` 两段。执行路径在 `complete_with_lutopia_tool_loop` 与 Telegram 流式工具路径中注册，`tools/lutopia.py` 按 `game_` 前缀分发到本地 DB 操作，不需要 MCP。`game_update` 仅允许 `per_turn` 游戏进行中覆盖 `state_json`；`on_end` 存档型游戏进行中只允许追加 `turn_data`，最终状态由 `game_end` 写入。
 
 ### 4.2.1 网页搜索（`web_search`，`tools/search.py`）
 
@@ -487,7 +487,7 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 「工具中心」包含 **MCP 管理**入口（`/mcp`）：维护 server、headers、触发关键词、`allow_idle`、按 server 填写 `idle_activity_prompt`（列表页 ✦ 弹窗 / 编辑页）、工具同步与启用；`GET /api/mcp/servers/idle-activity-prompts`；对应 REST `/api/mcp`。详见 `ARCHITECTURE.md` §4.2.7 / §7。
 
-「游戏模式」（`/game`）：管理 `game_sessions` 与 `game_turns`，列表按进行中 / 已结束分组，可新建、编辑、激活/停止、结束、删除 session；当前游戏 Tab 展示活跃 session 的规则、参与者、`state_json` 与 turns。JSON 字段用 textarea + `JSON.parse` 校验；确认弹窗为自定义组件，不用 `window.confirm`。REST 前缀 `/api/game`，见 `api/game.py`。
+「游戏模式」（`/game`）：管理 `game_sessions` 与 `game_turns`，页头沿用 MCP 管理页的紧凑返回/刷新/新增布局；列表按进行中 / 已结束分组，可新建、编辑、激活/停止、结束、删除 session；当前游戏 Tab 展示活跃 session 的规则、参与者、`state_json` 与 turns。助手配置页「自主活动」下方另有「游戏模式」状态入口：读取 `GET /api/game/active` 与 `GET /api/game/sessions/{id}`，可停止当前活跃游戏并跳转 `/game` 管理，但不在配置页创建/激活游戏。JSON 字段用 textarea + `JSON.parse` 校验；确认弹窗为自定义组件，不用 `window.confirm`。REST 前缀 `/api/game`，见 `api/game.py`。
 
 ### 7.4 待审批
 
@@ -647,7 +647,7 @@ MCP `api_admin` scope 额外提供 4 个管理写入工具（均走审批）：
 
 **REST（`/api/game`，`X-Cedarstar-Token` 鉴权）：** `GET/POST /sessions`；`GET/PUT/DELETE /sessions/{id}`；`PUT /sessions/{id}/state`；`POST /sessions/{id}/end`；`GET/POST /sessions/{id}/turns`；`GET/PUT /active`；`PUT/DELETE /turns/{turn_id}`。
 
-**Context / 回复处理 / 工具：** 活跃 session 触发轻量游戏 context（见 §3.0.1）。`bot/game_mode.py` 解析并剥除 `[GAME_STATE]` / `[GAME_TURN]`，更新状态和 turn 记录。`tools/game_tools.py` 提供 `game_start` / `game_end` / `game_update`，只在游戏模式下注入，纯本地 DB 操作，不经 MCP。
+**Context / 回复处理 / 工具：** 活跃 session 触发轻量游戏 context（见 §3.0.1）。`bot/game_mode.py` 解析并剥除 `[GAME_STATE]` / `[GAME_TURN]`，更新状态和 turn 记录。`tools/game_tools.py` 提供 `game_start` / `game_end` / `game_update`：`game_start` 始终注入以允许从普通对话开局；`game_end` / `game_update` 仅在游戏模式下注入。三者均为本地 DB 操作，不经 MCP。
 
 ### 8.8 内部记忆工具（OpenAI Function Calling）
 

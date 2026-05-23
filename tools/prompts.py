@@ -86,11 +86,19 @@ MEMORY_TOOL_DIRECTIVE = (
     "请求需经用户在 Mini App 确认后才会生效。审批被同意/拒绝时聊天里会出现『[系统通知] 南杉同意/拒绝了你「xxx」的申请』，看到通知就知道结果了，不必再追问；如需主动复查可调用 memory_get_approval_status。禁止每轮都调用。"
 )
 
-GAME_TOOL_DIRECTIVE = (
+GAME_START_TOOL_DIRECTIVE = (
     "你有以下游戏管理工具可用：\n"
-    "- game_start：开始新游戏。需要提供游戏类型、名称、规则、参与者和状态模式。\n"
+    "- game_start：开始新游戏。需要提供游戏类型、名称、规则、参与者和状态模式。"
+)
+
+GAME_ACTIVE_TOOL_DIRECTIVE = (
+    "当前有活跃游戏，你还可以使用以下游戏管理工具：\n"
     "- game_end：结束当前游戏，可附带总结和最终状态。\n"
     "- game_update：补更游戏状态或追加本轮记录，用于遗漏 [GAME_STATE] / [GAME_TURN] 标记时的补救。"
+)
+
+GAME_TOOL_DIRECTIVE = "\n".join(
+    [GAME_START_TOOL_DIRECTIVE, GAME_ACTIVE_TOOL_DIRECTIVE]
 )
 
 SEARCH_TOOL_DIRECTIVE = (
@@ -599,6 +607,8 @@ OPENAI_XHS_TOOLS: List[Dict[str, Any]] = [
 TOOL_DIRECTIVES: Dict[str, str] = {
     "memory": MEMORY_TOOL_DIRECTIVE,
     "game": GAME_TOOL_DIRECTIVE,
+    "game_start": GAME_START_TOOL_DIRECTIVE,
+    "game_active": GAME_ACTIVE_TOOL_DIRECTIVE,
     "lutopia": LUTOPIA_TOOL_DIRECTIVE,
     "rcommunity": RCOMMUNITY_TOOL_DIRECTIVE,
     "weather": WEATHER_TOOL_DIRECTIVE,

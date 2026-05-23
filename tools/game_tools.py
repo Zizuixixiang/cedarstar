@@ -8,7 +8,7 @@ from typing import Any, Dict, List
 logger = logging.getLogger(__name__)
 
 
-OPENAI_GAME_TOOLS: List[Dict[str, Any]] = [
+OPENAI_GAME_START_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -48,6 +48,10 @@ OPENAI_GAME_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+]
+
+
+OPENAI_GAME_ACTIVE_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
@@ -90,6 +94,11 @@ OPENAI_GAME_TOOLS: List[Dict[str, Any]] = [
             },
         },
     },
+]
+
+OPENAI_GAME_TOOLS: List[Dict[str, Any]] = [
+    *OPENAI_GAME_START_TOOLS,
+    *OPENAI_GAME_ACTIVE_TOOLS,
 ]
 
 

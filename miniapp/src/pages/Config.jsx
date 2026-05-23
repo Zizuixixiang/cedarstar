@@ -4,6 +4,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
+import { Link } from 'react-router-dom';
 import { apiFetch } from '../apiBase';
 import '../styles/config.css';
 
@@ -129,6 +130,14 @@ function mergeConfigApiPayload(payload) {
   const params = { ...DEFAULT_CONFIG, ...rest };
   const lastSaved = _meta?.updated_at ? parseConfigUpdatedAt(_meta.updated_at) : null;
   return { params, lastSaved };
+}
+
+async function readApiData(response) {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.success === false) {
+    throw new Error(data.detail || data.message || data.error || `HTTP ${response.status}`);
+  }
+  return data.data;
 }
 
 const CONFIG_METADATA = [
@@ -382,6 +391,9 @@ function Config() {
   const [isSavingIdleCard, setIsSavingIdleCard] = useState(false);
   const [stardewAutoplay, setStardewAutoplay] = useState(false);
   const [stardewSaving, setStardewSaving] = useState(false);
+  const [activeGame, setActiveGame] = useState(null);
+  const [activeGameLoading, setActiveGameLoading] = useState(true);
+  const [activeGameSaving, setActiveGameSaving] = useState(false);
 
   // 显示 toast
   const showToast = useCallback((message, type = 'success') => {
@@ -427,6 +439,31 @@ function Config() {
   useEffect(() => {
     fetchConfig();
   }, [fetchConfig]);
+
+  const fetchActiveGame = useCallback(async () => {
+    setActiveGameLoading(true);
+    try {
+      const active = await readApiData(await apiFetch('/api/game/active'));
+      const sessionId = active?.session_id || null;
+      if (!sessionId) {
+        setActiveGame(null);
+        return;
+      }
+      const session = await readApiData(
+        await apiFetch(`/api/game/sessions/${encodeURIComponent(sessionId)}`)
+      );
+      setActiveGame(session ? { ...session, id: session.id || sessionId } : { id: sessionId });
+    } catch (error) {
+      console.error('获取活跃游戏失败:', error);
+      setActiveGame(null);
+    } finally {
+      setActiveGameLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchActiveGame();
+  }, [fetchActiveGame]);
 
   useEffect(() => {
     let cancelled = false;
@@ -702,6 +739,25 @@ function Config() {
       showToast('网络错误', 'error');
     } finally {
       setStardewSaving(false);
+    }
+  };
+
+  const stopActiveGame = async () => {
+    if (activeGameSaving) return;
+    setActiveGameSaving(true);
+    try {
+      await readApiData(await apiFetch('/api/game/active', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: null }),
+      }));
+      setActiveGame(null);
+      showToast('已停止游戏', 'success');
+    } catch (error) {
+      console.error('停止游戏失败:', error);
+      showToast(error.message || '停止游戏失败', 'error');
+    } finally {
+      setActiveGameSaving(false);
     }
   };
 
@@ -996,6 +1052,43 @@ function Config() {
                 {stardewSaving ? '…' : '星露谷模式'}
               </button>
             </div>
+          </div>
+        </div>
+        <hr className="config-divider" />
+
+        <div className="config-item">
+          <div className="config-info">
+            <div className="config-name">游戏模式</div>
+            <div className="config-desc">
+              {activeGameLoading ? (
+                '正在读取当前游戏状态。'
+              ) : activeGame ? (
+                <>
+                  <span className="config-game-title">{activeGame.display_name || activeGame.id}</span>
+                  <span className="config-game-type">{activeGame.game_type || 'unknown'}</span>
+                </>
+              ) : (
+                '当前没有活跃游戏。'
+              )}
+            </div>
+          </div>
+          <div className="config-controls config-game-controls">
+            <span className={`config-game-status ${activeGame ? 'is-active' : ''}`}>
+              {activeGame ? '进行中' : '未开启'}
+            </span>
+            {activeGame && (
+              <button
+                type="button"
+                className="config-btn-secondary config-btn-telegram-inline-save"
+                onClick={stopActiveGame}
+                disabled={activeGameSaving}
+              >
+                {activeGameSaving ? '停止中…' : '停止游戏'}
+              </button>
+            )}
+            <Link className="config-offline-toggle" to="/game">
+              游戏管理
+            </Link>
           </div>
         </div>
         <hr className="config-divider" />

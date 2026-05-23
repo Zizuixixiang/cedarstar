@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Gamepad2, Plus, RefreshCw } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { ArrowLeft, Plus, RefreshCw } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import '../styles/game.css';
 
@@ -430,20 +431,6 @@ export default function Game() {
 
   const listContent = (
     <>
-      <div className="game-toolbar">
-        <div>
-          <h2>游戏列表</h2>
-          <p>管理 game_sessions 与 turn 记录。</p>
-        </div>
-        <div className="game-toolbar-actions">
-          <button type="button" className="game-icon-btn" onClick={loadAll} title="刷新">
-            <RefreshCw size={17} aria-hidden />
-          </button>
-          <button type="button" className="add-button" onClick={() => setSessionModal({})}>
-            <Plus size={16} aria-hidden /> 新建游戏
-          </button>
-        </div>
-      </div>
       {loading ? <div className="tab-loading">加载中…</div> : (
         <div className="game-sections">
           <section>
@@ -517,6 +504,25 @@ export default function Game() {
 
   return (
     <div className="game-container">
+      <header className="game-page-head">
+        <div className="game-title-line">
+          <Link className="game-back-link" to="/config" aria-label="返回助手配置">
+            <ArrowLeft size={16} aria-hidden />
+          </Link>
+          <div className="game-title-col">
+            <p className="game-kicker">GAME MODE</p>
+            <h1>游戏模式</h1>
+          </div>
+        </div>
+        <div className="game-head-actions">
+          <button type="button" className="game-icon-btn" onClick={loadAll} title="刷新" aria-label="刷新">
+            <RefreshCw size={16} aria-hidden />
+          </button>
+          <button type="button" className="game-primary-btn" onClick={() => setSessionModal({})}>
+            <Plus size={16} aria-hidden /> 新建游戏
+          </button>
+        </div>
+      </header>
       <div className="game-tabs">
         <button type="button" className={tab === 'list' ? 'active' : ''} onClick={() => setTab('list')}>游戏列表</button>
         <button type="button" className={tab === 'current' ? 'active' : ''} onClick={() => setTab('current')}>当前游戏</button>

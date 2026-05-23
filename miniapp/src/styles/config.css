@@ -112,7 +112,11 @@
 }
 
 /* 线下极速：闸刀式物理开关（燕麦关 / 墨绿开） */
-.config-offline-toggle {
+.config-offline-toggle,
+a.config-offline-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   padding: 10px 22px;
   min-width: 118px;
   font-family: monospace;
@@ -125,6 +129,7 @@
   box-shadow: 4px 4px 0 #1a1a1a;
   background: #e8e4da;
   color: var(--text-main);
+  text-decoration: none;
   transition: none;
 }
 
@@ -293,6 +298,49 @@
   flex-basis: 100%;
   display: flex;
   justify-content: flex-end;
+}
+
+.config-game-controls {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.config-game-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid rgba(44, 54, 40, 0.34);
+  background: #eeeeee;
+  color: var(--text-sub);
+  font-family: monospace;
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.config-game-status.is-active {
+  border-color: var(--status-green);
+  background: rgba(94, 132, 105, 0.12);
+  color: var(--status-green);
+}
+
+.config-game-title {
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.config-game-type {
+  display: inline-flex;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border: 1px solid rgba(44, 54, 40, 0.28);
+  background: rgba(44, 54, 40, 0.05);
+  font-family: monospace;
+  font-size: 0.78rem;
+  color: var(--text-sub);
 }
 
 /* MAX_CHARS 可能三位数，略加宽数字区 */
@@ -612,14 +660,14 @@
   font-family: monospace;
   font-weight: bold;
   text-transform: uppercase;
-  background: #e8e4da;
+  background: #f6f2e8;
   border: 2px solid #1a1a1a;
   color: var(--text-main);
   box-shadow: 3px 3px 0 var(--shadow-color-deep);
 }
 
 .config-btn-secondary.config-btn-telegram-inline-save:hover:not(:disabled) {
-  background: #ddd8cc;
+  background: #eee7d8;
   filter: brightness(0.99);
 }
 
@@ -689,24 +737,33 @@
   font-weight: bold;
   letter-spacing: 0.03em;
   color: #fff;
-  border: 1px solid var(--industrial-border-color);
-  background: var(--accent);
-  box-shadow: none;
+  border: 2px solid var(--text-main);
+  background: #2d4a3f;
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
 }
 
 .config-btn-footer-primary:hover:not(:disabled) {
-  background: #c9302c;
+  background: #355849;
 }
 
 .config-btn-footer-primary:active:not(:disabled) {
-  background: #ac2925;
+  transform: translate(1px, 1px);
+  box-shadow: 2px 2px 0 var(--shadow-color-deep);
 }
 
 .config-btn-footer-primary:disabled {
-  opacity: 0.4;
+  opacity: 0.62;
   cursor: not-allowed;
   box-shadow: none;
   transform: none;
+}
+
+.config-btn-footer-primary.has-changes {
+  background: var(--accent);
+}
+
+.config-btn-footer-primary.has-changes:hover:not(:disabled) {
+  background: #c9302c;
 }
 
 @media (max-width: 767px) {

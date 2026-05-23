@@ -9,6 +9,8 @@ from tools.prompts import (
     OPENAI_XHS_TOOLS,
     OPENAI_X_TOOLS,
     TOOL_DIRECTIVES,
+    GAME_ACTIVE_TOOL_DIRECTIVE,
+    GAME_START_TOOL_DIRECTIVE,
     GAME_TOOL_DIRECTIVE,
     SEARCH_TOOL_DIRECTIVE,
     WEATHER_TOOL_DIRECTIVE,
@@ -25,7 +27,12 @@ from tools.lutopia import (
     execute_lutopia_function_call,
     get_lutopia_token,
 )
-from tools.game_tools import OPENAI_GAME_TOOLS, execute_game_function_call
+from tools.game_tools import (
+    OPENAI_GAME_ACTIVE_TOOLS,
+    OPENAI_GAME_START_TOOLS,
+    OPENAI_GAME_TOOLS,
+    execute_game_function_call,
+)
 
 from tools.rcommunity import (
     OPENAI_RCOMMUNITY_TOOLS,
@@ -48,11 +55,15 @@ __all__ = [
     "OPENAI_XHS_TOOLS",
     "OPENAI_X_TOOLS",
     "TOOL_DIRECTIVES",
+    "GAME_ACTIVE_TOOL_DIRECTIVE",
+    "GAME_START_TOOL_DIRECTIVE",
     "GAME_TOOL_DIRECTIVE",
     "build_tool_system_suffix",
     "inject_tool_suffix_into_messages",
     "OPENAI_LUTOPIA_TOOLS",
     "OPENAI_RCOMMUNITY_TOOLS",
+    "OPENAI_GAME_ACTIVE_TOOLS",
+    "OPENAI_GAME_START_TOOLS",
     "OPENAI_GAME_TOOLS",
     "append_tool_exchange_to_messages",
     "create_lutopia_mcp_session",

@@ -2671,17 +2671,20 @@ class TelegramBot:
         from tools.memory_tools import OPENAI_MEMORY_TOOLS
         tools_list.extend(OPENAI_MEMORY_TOOLS)
         suffix_keys.append("memory")
+        from tools.game_tools import OPENAI_GAME_ACTIVE_TOOLS, OPENAI_GAME_START_TOOLS
+
+        tools_list.extend(OPENAI_GAME_START_TOOLS)
+        suffix_keys.append("game_start")
         try:
             from memory.database import get_active_game_session_id
-            from tools.game_tools import OPENAI_GAME_TOOLS
 
             active_game_session_id = await get_active_game_session_id()
         except Exception as e:
             logger.warning("Telegram 流式读取活跃游戏 session 失败: %s", e)
             active_game_session_id = None
         if active_game_session_id:
-            tools_list.extend(OPENAI_GAME_TOOLS)
-            suffix_keys.append("game")
+            tools_list.extend(OPENAI_GAME_ACTIVE_TOOLS)
+            suffix_keys.append("game_active")
         if config.ENABLE_WEB_FETCH_TOOL:
             tools_list.extend(OPENAI_WEB_FETCH_TOOLS)
             suffix_keys.append("web_fetch")
