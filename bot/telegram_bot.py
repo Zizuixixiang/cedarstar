@@ -117,6 +117,7 @@ from tools.prompts import (
     build_tool_system_suffix,
     inject_tool_suffix_into_messages,
 )
+from tools.wakeup_tool import OPENAI_WAKEUP_TOOLS
 from tools.meme import search_meme_async, send_meme
 
 
@@ -2675,6 +2676,8 @@ class TelegramBot:
 
         tools_list.extend(OPENAI_GAME_START_TOOLS)
         suffix_keys.append("game_start")
+        tools_list.extend(OPENAI_WAKEUP_TOOLS)
+        suffix_keys.append("wakeup")
         try:
             from memory.database import get_active_game_session_id
 
@@ -3555,18 +3558,47 @@ class TelegramBot:
                     "抱歉，内部错误：缺少消息上下文。", None, False
                 )
 
+            has_builtin_tools = True  # schedule_next_wakeup 是内置工具，始终可用。
+            tools_enabled = (
+                getattr(llm, "enable_lutopia", False)
+                or getattr(llm, "enable_rcommunity", False)
+                or getattr(llm, "enable_weather_tool", False)
+                or getattr(llm, "enable_weibo_tool", False)
+                or getattr(llm, "enable_search_tool", False)
+                or getattr(llm, "enable_x_tool", False)
+                or (
+                    getattr(llm, "enable_xhs_tool", False)
+                    and config.ENABLE_XHS_TOOL
+                )
+                or getattr(llm, "enable_ai_news_tool", False)
+                or bool(config.ENABLE_WEB_FETCH_TOOL)
+                or bool(config.ENABLE_CUSTOM_MCP)
+                or has_builtin_tools
+            )
+
             if llm._use_anthropic_messages_api():
                 cur_m: List[Dict[str, Any]] = messages
                 llm_resp: Any = None
                 last_hit = False
                 for attempt in range(2):
                     snap = cur_m
-                    llm_resp = await asyncio.to_thread(
-                        lambda m=snap: llm.generate_with_context_and_tracking(
-                            m, platform=Platform.TELEGRAM,
-                            cacheable_ratio=cacheable_ratio,
+                    if tools_enabled:
+                        outcome_tools = await complete_with_lutopia_tool_loop(
+                            llm,
+                            snap,
+                            platform=Platform.TELEGRAM,
+                            session_id=session_id,
+                            user_message_id=user_row_id if 'user_row_id' in locals() else None,
                         )
-                    )
+                        llm_resp = copy.copy(outcome_tools.response)
+                        llm_resp.content = outcome_tools.aggregated_assistant_text
+                    else:
+                        llm_resp = await asyncio.to_thread(
+                            lambda m=snap: llm.generate_with_context_and_tracking(
+                                m, platform=Platform.TELEGRAM,
+                                cacheable_ratio=cacheable_ratio,
+                            )
+                        )
                     raw_txt = llm_resp.content or ""
                     safe, hit = truncate_accumulator_at_first_refusal(raw_txt)
                     last_hit = hit
@@ -3593,21 +3625,7 @@ class TelegramBot:
                     llm_resp, base_message, bot, game_session=game_session
                 )
             else:
-                if (
-                    getattr(llm, "enable_lutopia", False)
-                    or getattr(llm, "enable_rcommunity", False)
-                    or getattr(llm, "enable_weather_tool", False)
-                    or getattr(llm, "enable_weibo_tool", False)
-                    or getattr(llm, "enable_search_tool", False)
-                    or getattr(llm, "enable_x_tool", False)
-                    or (
-                        getattr(llm, "enable_xhs_tool", False)
-                        and config.ENABLE_XHS_TOOL
-                    )
-                    or getattr(llm, "enable_ai_news_tool", False)
-                    or bool(config.ENABLE_WEB_FETCH_TOOL)
-                    or bool(config.ENABLE_CUSTOM_MCP)
-                ):
+                if tools_enabled:
                     outcome = await self._telegram_stream_thinking_and_reply_with_lutopia(
                         llm,
                         messages,
@@ -3948,6 +3966,7 @@ class TelegramBot:
                 bool(getattr(llm, "enable_xhs_tool", False))
                 and config.ENABLE_XHS_TOOL
             )
+            has_builtin_tools = True  # schedule_next_wakeup 是内置工具，始终可用。
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
                 or bool(getattr(llm, "enable_rcommunity", False))
@@ -3959,7 +3978,8 @@ class TelegramBot:
                 or bool(getattr(llm, "enable_ai_news_tool", False))
                 or bool(config.ENABLE_WEB_FETCH_TOOL)
                 or bool(config.ENABLE_CUSTOM_MCP)
-            ) and not llm._use_anthropic_messages_api()
+                or has_builtin_tools
+            )
             logger.info(
                 "oral=%s lutopia=%s rcommunity=%s weather=%s weibo=%s search=%s x=%s xhs=%s ai_news=%s web_fetch=%s custom_mcp=%s anthropic=%s",
                 oral,

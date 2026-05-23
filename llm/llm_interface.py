@@ -2092,7 +2092,11 @@ class LLMInterface:
             )
         return payload
     
-    def _prepare_anthropic_payload(self, messages: List[Dict[str, Any]]) -> Dict[str, Any]:
+    def _prepare_anthropic_payload(
+        self,
+        messages: List[Dict[str, Any]],
+        tools: Optional[List[Dict[str, Any]]] = None,
+    ) -> Dict[str, Any]:
         """
         准备 Anthropic Claude API 的请求负载。
         
@@ -2105,7 +2109,7 @@ class LLMInterface:
         # 转换消息格式
         has_images = messages_contain_multimodal_images(messages)
         system_message: Optional[Union[str, List[Dict[str, Any]]]] = None
-        claude_messages = []
+        non_system_messages: List[Dict[str, Any]] = []
         
         for msg in messages:
             if msg["role"] == "system":
@@ -2121,12 +2125,11 @@ class LLMInterface:
                 else:
                     system_message = c if isinstance(c, str) else str(c)
             else:
-                claude_messages.append({
-                    "role": msg["role"],
-                    "content": _strip_cache_control_from_blocks(msg["content"])
-                    if has_images
-                    else msg["content"]
-                })
+                non_system_messages.append(msg)
+        claude_messages = _openai_chat_messages_to_anthropic_messages(non_system_messages)
+        if has_images:
+            for msg in claude_messages:
+                msg["content"] = _strip_cache_control_from_blocks(msg.get("content"))
         
         payload = {
             "model": self.model_name,
@@ -2139,6 +2142,10 @@ class LLMInterface:
             if has_images:
                 system_message = _strip_cache_control_from_blocks(system_message)
             payload["system"] = system_message
+
+        anthropic_tools = _openai_tools_specs_to_anthropic(tools)
+        if anthropic_tools:
+            payload["tools"] = anthropic_tools
 
         # Extended thinking
         thinking_budget = int(os.getenv("LLM_THINKING_BUDGET", "0"))
@@ -2211,9 +2218,18 @@ class LLMInterface:
         blocks = response_data.get("content") or []
         text_parts: List[str] = []
         thinking_parts: List[str] = []
+        tool_calls_out: List[Dict[str, Any]] = []
         for block in blocks:
             if isinstance(block, dict) and block.get("type") == "text":
                 text_parts.append(block.get("text") or "")
+            elif isinstance(block, dict) and block.get("type") == "tool_use":
+                tool_calls_out.append(
+                    {
+                        "id": block.get("id") or "",
+                        "name": block.get("name") or "",
+                        "arguments": json.dumps(block.get("input") or {}, ensure_ascii=False),
+                    }
+                )
             elif isinstance(block, dict) and block.get("type") in (
                 "thinking",
                 "redacted_thinking",
@@ -2249,7 +2265,7 @@ class LLMInterface:
             finish_reason=response_data.get("stop_reason"),
             raw_response=response_data,
             thinking="\n".join(p for p in thinking_parts if p.strip()) or None,
-            tool_calls=None,
+            tool_calls=tool_calls_out or None,
         )
     
     def generate(
@@ -2266,7 +2282,7 @@ class LLMInterface:
             prompt: 用户提示
             system_prompt: 系统提示，用于指导模型行为
             conversation_history: 对话历史，格式为 [{"role": "user", "content": "..."}, ...]
-            tools: OpenAI 兼容 tools（仅 OpenAI 路径写入 payload；Anthropic 路径忽略）
+            tools: OpenAI 兼容 tools；Anthropic 路径会转换为 Messages API tools。
             
         Returns:
             LLMResponse: LLM 响应
@@ -2294,7 +2310,7 @@ class LLMInterface:
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
-            payload = self._prepare_anthropic_payload(messages)
+            payload = self._prepare_anthropic_payload(messages, tools)
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
@@ -2399,7 +2415,7 @@ class LLMInterface:
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
-            payload = self._prepare_anthropic_payload(messages)
+            payload = self._prepare_anthropic_payload(messages, tools)
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
@@ -2644,7 +2660,7 @@ class LLMInterface:
         Args:
             messages: 完整的消息数组，包含 system、user、assistant 消息
             platform: 平台标识（可选）
-            tools: OpenAI 兼容 tools 列表（仅 OpenAI 路径生效；Anthropic 路径忽略）
+            tools: OpenAI 兼容 tools 列表；Anthropic 路径会转换为 Messages API tools。
             timeout_override_seconds: 本次调用专用超时时间（秒），不影响实例默认配置
             cacheable_ratio: v3 架构稳定部分的字符占比 (0.0~1.0)，由 context builder 计算
             
@@ -2661,7 +2677,7 @@ class LLMInterface:
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
-            payload = self._prepare_anthropic_payload(messages)
+            payload = self._prepare_anthropic_payload(messages, tools)
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
@@ -3025,7 +3041,7 @@ class LLMInterface:
         # 根据 API 基址 / 模型选择端点
         if self._use_anthropic_messages_api():
             endpoint = f"{self.api_base}/messages"
-            payload = self._prepare_anthropic_payload(messages)
+            payload = self._prepare_anthropic_payload(messages, tools)
             parse_func = self._parse_anthropic_response
         else:
             endpoint = f"{self.api_base}/chat/completions"
@@ -3097,8 +3113,7 @@ async def complete_with_lutopia_tool_loop(
     is_idle: bool = False,
 ) -> LutopiaToolLoopOutcome:
     """
-    OpenAI 兼容路径：附带 Lutopia Forum tools，循环执行 function call 直至模型不再请求工具。
-    Anthropic 路径不应调用本函数（其 ``generate_with_context_and_tracking`` 未传 tools）。
+    工具路径：附带内部 tools，循环执行 function/tool call 直至模型不再请求工具。
 
     ``on_tool_start(name, arguments_json)`` / ``on_tool_done(name, arguments_json, result)``：
     可选，单次工具执行前后回调（如 Telegram 状态提示）。
@@ -3134,6 +3149,7 @@ async def complete_with_lutopia_tool_loop(
         OPENAI_GAME_START_TOOLS,
         execute_game_function_call,
     )
+    from tools.wakeup_tool import OPENAI_WAKEUP_TOOLS, execute_wakeup_function_call
     from tools.prompts import (
         OPENAI_AIHOT_TOOLS,
         OPENAI_SEARCH_TOOLS,
@@ -3183,6 +3199,8 @@ async def complete_with_lutopia_tool_loop(
     suffix_keys.append("memory")
     tools_list.extend(OPENAI_GAME_START_TOOLS)
     suffix_keys.append("game_start")
+    tools_list.extend(OPENAI_WAKEUP_TOOLS)
+    suffix_keys.append("wakeup")
     try:
         from memory.database import get_active_game_session_id
 
@@ -3495,6 +3513,12 @@ async def complete_with_lutopia_tool_loop(
                         except json.JSONDecodeError:
                             args_wf = {}
                         result_str = await execute_web_fetch_function_call(nm, args_wf)
+                    elif nm == "schedule_next_wakeup":
+                        try:
+                            args_wakeup: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_wakeup = {}
+                        result_str = await execute_wakeup_function_call(nm, args_wakeup)
                     elif nm.startswith("mcp_"):
                         result_str = await dispatch_custom_mcp_tool_call(
                             nm, raw_args or "{}"

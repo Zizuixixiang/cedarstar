@@ -425,6 +425,7 @@ class DiscordBot:
         try:
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = await LLMInterface.create()
+            has_builtin_tools = True  # schedule_next_wakeup 是内置工具，始终可用。
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
                 or bool(getattr(llm, "enable_rcommunity", False))
@@ -435,7 +436,8 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_xhs_tool", False))
                 or bool(getattr(llm, "enable_ai_news_tool", False))
                 or bool(config.ENABLE_WEB_FETCH_TOOL)
-            ) and not llm._use_anthropic_messages_api()
+                or has_builtin_tools
+            )
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(
                 session_id,
@@ -578,6 +580,7 @@ class DiscordBot:
             
             # 每次动态创建 LLMInterface，以读取最新激活配置（支持热更新）
             llm = await LLMInterface.create()
+            has_builtin_tools = True  # schedule_next_wakeup 是内置工具，始终可用。
             oral = (
                 bool(getattr(llm, "enable_lutopia", False))
                 or bool(getattr(llm, "enable_rcommunity", False))
@@ -588,7 +591,8 @@ class DiscordBot:
                 or bool(getattr(llm, "enable_xhs_tool", False))
                 or bool(getattr(llm, "enable_ai_news_tool", False))
                 or bool(config.ENABLE_WEB_FETCH_TOOL)
-            ) and not llm._use_anthropic_messages_api()
+                or has_builtin_tools
+            )
             # 使用 context builder 构建完整的对话上下文
             context = await build_context(
                 session_id, 

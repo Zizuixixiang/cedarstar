@@ -357,13 +357,13 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。启用且处于允许时段后：`idle_activity_next_trigger_at` **已到期**则走预约触发（直接 `trigger_idle_activity`，不看空闲阈值、冷却与概率）；**无预约**时则须满足空闲阈值、自主活动冷却与概率档位后，再注入 `[IDLE_TRIGGER]` 并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。空闲阈值由 `memory/database.get_latest_idle_user_activity()` 统一判断：主库 `messages` 的真人用户消息（`role='user'` 且 `user_id!='system'`）和共享群表 `shared_group_messages.sender='user'` 取最新时间，私聊/普通通道与群聊都超过阈值才触发；触发提示会注明最后一条活动来自群聊或私聊/普通通道。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
-`[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）；自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。
+`[IDLE_TRIGGER]` 固定文案中会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具（见 `bot/idle_activity.py` 的 `_IDLE_TRIGGER_TEXT`）；自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。内置 `schedule_next_wakeup` 工具始终随工具循环注入，不受人设开关控制，用于模型直接预约下次自主唤醒。
 
 通用自定义 MCP 在自主活动中只受 `ENABLE_CUSTOM_MCP` 与 `mcp_servers.allow_idle=1` 控制；未显式允许的 server 不会注入 idle 工具列表。
 
 **Idle context 裁剪**：自主活动路径在 `build_context` 前执行 daily 预压缩，并传 `skip_vector_search=True` 跳过长期向量/BM25 召回与远古 daily 补充，降低空闲自发消息的延迟与 token 压力；temporal states、memory cards、relationship timeline、压缩后的 daily、chunk summaries、最近消息和工具记录仍照常拼装。
 
-**下次触发时间（可选）**：触发句末尾注入当前北京时间，模型可在回复末尾写 `[NEXT_AT_HH:MM]`（东八区）；系统解析后写入 `idle_activity_next_trigger_at`（UTC ISO，已过时刻则顺延至次日）。`check_and_trigger` 在启用与**时段**（两路径共用）之后分支：未到期则跳过 tick；已到期则清空该键并预约触发（绕过阈值/冷却/概率）；键为空则走概率路径。`trigger_idle_activity` 结束后 `_apply_idle_next_trigger_at` 可根据本轮回复写入新预约。用户可见正文会剥除 `[NEXT_AT_...]`。
+**下次触发时间（可选）**：触发句末尾注入当前北京时间，模型可二选一预约：调用 `schedule_next_wakeup` 工具（`time_hhmm` 为北京时间 `HH:MM`，今天已过则顺延次日；`delay_minutes` 为 N 分钟后；两者都传时 `time_hhmm` 优先），或在回复末尾写 `[NEXT_AT_HH:MM]`（东八区）作为兜底文本标记。两条路径最终写入 `idle_activity_next_trigger_at`（UTC ISO）。工具路径还会临时写入 `idle_next_trigger_set_by_tool=true`；`trigger_idle_activity` 收尾检测到该 flag 后清空它，并跳过文本解析，避免覆盖工具写入的预约。`check_and_trigger` 在启用与**时段**（两路径共用）之后分支：未到期则跳过 tick；已到期则清空该键并预约触发（绕过阈值/冷却/概率）；键为空则走概率路径。用户可见正文会剥除 `[NEXT_AT_...]`。
 
 **LLM 外层重试**（`bot/idle_activity.py`）：`complete_with_lutopia_tool_loop` 失败且 `_is_retriable_idle_llm_exc` 时最多再试 3 次（间隔 10s / 15s / 30s）；仍失败可向私聊发「自主活动失败」提醒（不入库 `messages`）。与主对话相同，走 API 激活池与 `_post_with_api_failover`。
 
@@ -689,11 +689,17 @@ dispatch 代码位于：
 - `bot/telegram_bot.py` → `_telegram_stream_thinking_and_reply_with_lutopia`
 - `tools/lutopia.py` → `append_tool_exchange_to_messages`
 
-### 8.8.1 网页抓取 `web_fetch`（非 MCP、非记忆审批链）
+### 8.8.1 自主唤醒预约 `schedule_next_wakeup`（非 MCP、非记忆审批链）
+
+与记忆工具并列出现在同一套 Function Calling 工具循环中，但不调用 `/api` 记忆 REST，也不走 MCP。实现 `tools/wakeup_tool.py`；schema 为 `OPENAI_WAKEUP_TOOLS`，system 后缀为 `tools/prompts.py` 的 `WAKEUP_TOOL_DIRECTIVE`。该工具无 Mini App / 人设开关，始终注册到 `complete_with_lutopia_tool_loop` 与 Telegram 流式工具路径；Telegram / Discord / idle 的工具循环进入条件也把它视为内置可用工具。参数 `time_hhmm`（北京时间 `HH:MM`）与 `delay_minutes` 至少传一项，两者同时存在时 `time_hhmm` 优先。执行后写入 `config.idle_activity_next_trigger_at` 与临时 flag `config.idle_next_trigger_set_by_tool=true`，供 idle 收尾跳过 `[NEXT_AT_HH:MM]` 文本解析。该工具结果照常写入 `tool_executions`，但在 Lutopia 流式路径上不进入 `execution_log` 旁白附录。
+
+Anthropic `/messages` 路径会把 OpenAI tools schema 转换为 Anthropic `tools`，并把返回的 `tool_use` block 归一为内部 `tool_calls`，因此 CedarGate / Claude 配置下同样可使用该工具。
+
+### 8.8.2 网页抓取 `web_fetch`（非 MCP、非记忆审批链）
 
 与上表记忆工具并列出现在同一套 OpenAI Function Calling 工具循环中，但**不**调用 `/api` 记忆 REST，也不走 MCP。实现 `tools/web_fetch.py`；schema 与 system 后缀 `tools/prompts.py`（`OPENAI_WEB_FETCH_TOOLS`、`WEB_FETCH_TOOL_DIRECTIVE`）。部署开关 **`ENABLE_WEB_FETCH_TOOL`**（默认 true），**无人设 Mini App 开关**。`tool_executions` 照常记录；`execution_log` 排除名单见 `tools/lutopia.py`（与 `web_search` 等一致）。
 
-### 8.8.2 小红书工具（非 MCP、非记忆审批链）
+### 8.8.3 小红书工具（非 MCP、非记忆审批链）
 
 与 `web_fetch` 同属 OpenAI Function Calling 旁路：`tools/xhs_tool.py`；当前 schema 仅 **`read_xhs_note`**（`OPENAI_XHS_TOOLS`、`XHS_TOOL_DIRECTIVE`）。须 **`persona_configs.enable_xhs_tool`** 与 **`ENABLE_XHS_TOOL`** 同时为真；`tool_executions` 照常记录。用量查询 **`GET /api/config/xhs-usage`**（读配额；写配额键仍保留供日后恢复点赞/收藏类工具）。
 

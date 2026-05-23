@@ -359,6 +359,9 @@ def _append_idle_next_at_hint(text: str) -> str:
         "HH:MM 为 24 小时制北京时间（例：[NEXT_AT_20:00]）；\n"
         "若该时刻今天已过，则顺延到次日同一时刻。"
         "该标记会从发给南杉的正文里剥除，她看不到。\n"
+        "也可以直接调用 schedule_next_wakeup 工具来设置，效果相同且工具方式更可靠。"
+        "工具参数为 time_hhmm（北京时间 HH:MM）或 delay_minutes（多少分钟后）。"
+        "两种方式选一个用即可，不要同时用。\n"
         "若本轮不需要预约下次时间，不要写该标记，系统将继续按 Mini App 的空闲阈值、"
         "自主活动冷却与概率档位决定是否再触发。\n"
         "注意：预约时间建议与当前时间间隔不超过 3 小时，过长会导致这段时间内正常触发也被屏蔽。"
@@ -393,6 +396,16 @@ async def _apply_idle_next_trigger_at(db, reply_text: str) -> None:
         logger.info("[idle] next trigger scheduled at %s (UTC)", next_utc.isoformat())
     else:
         await db.set_config(_CONFIG_KEY_NEXT_TRIGGER_AT, "")
+
+
+async def _apply_idle_next_trigger_at_unless_tool_set(db, reply_text: str) -> None:
+    """工具已设置预约时，跳过文本标记解析，避免覆盖工具写入值。"""
+    tool_already_set = await db.get_config("idle_next_trigger_set_by_tool", "false")
+    if tool_already_set == "true":
+        await db.set_config("idle_next_trigger_set_by_tool", "")
+        logger.info("[idle] next trigger already scheduled by tool; skip text marker parsing")
+        return
+    await _apply_idle_next_trigger_at(db, reply_text)
 
 
 def _format_shanghai_timestamp(ts: Any) -> Optional[str]:
@@ -586,6 +599,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     # 自主活动不注册小红书工具（主对话 / Telegram 链接触发仍走人设开关）
     llm.enable_xhs_tool = False
 
+    has_idle_builtin_tools = True  # schedule_next_wakeup 是 idle 内置工具，始终可用。
     tool_oral = (
         bool(getattr(llm, "enable_lutopia", False))
         or bool(getattr(llm, "enable_rcommunity", False))
@@ -596,7 +610,8 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or bool(getattr(llm, "enable_ai_news_tool", False))
         or bool(app_config.ENABLE_WEB_FETCH_TOOL)
         or bool(app_config.ENABLE_CUSTOM_MCP)
-    ) and not llm._use_anthropic_messages_api()
+        or has_idle_builtin_tools
+    )
 
     # 把南杉最近回复时间注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
     if stardew_mode:
@@ -687,7 +702,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     reply_text = _strip_next_at_tag(reply_text)
     if not reply_text:
         if not stardew_mode:
-            await _apply_idle_next_trigger_at(db, reply_text_for_next_at)
+            await _apply_idle_next_trigger_at_unless_tool_set(db, reply_text_for_next_at)
         return
 
     db_content = f"{_IDLE_ASSISTANT_MARK}{reply_text}"
@@ -723,4 +738,4 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         logger.info("[idle][stardew] detected STOP, disabled stardew_autoplay")
 
     if not stardew_mode:
-        await _apply_idle_next_trigger_at(db, reply_text_for_next_at)
+        await _apply_idle_next_trigger_at_unless_tool_set(db, reply_text_for_next_at)

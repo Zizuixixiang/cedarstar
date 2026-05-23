@@ -38,6 +38,7 @@ from tools.search import execute_search_function_call
 from tools.web_fetch import execute_web_fetch_function_call
 from tools.weather import execute_weather_function_call
 from tools.weibo import execute_weibo_function_call
+from tools.wakeup_tool import execute_wakeup_function_call
 
 logger = logging.getLogger(__name__)
 
@@ -407,6 +408,7 @@ def telegram_tool_display_label(tool_name: str, arguments_json: str = "") -> str
         "game_start": "已开始游戏",
         "game_end": "已结束游戏",
         "game_update": "已更新游戏",
+        "schedule_next_wakeup": "已预约下次自主唤醒",
         "read_xhs_note": "已阅读小红书笔记",
     }
     if t in static:
@@ -1408,6 +1410,9 @@ async def append_tool_exchange_to_messages(
             elif nm == "web_fetch":
                 args_wf = _safe_load_tool_args(arg, nm)
                 out = await execute_web_fetch_function_call(nm, args_wf)
+            elif nm == "schedule_next_wakeup":
+                args_wakeup = _safe_load_tool_args(arg, nm)
+                out = await execute_wakeup_function_call(nm, args_wakeup)
             elif nm.startswith("mcp_"):
                 from tools.custom_mcp import dispatch_tool_call as dispatch_custom_mcp_tool_call
                 out = await dispatch_custom_mcp_tool_call(nm, arg or "{}")
@@ -1452,6 +1457,7 @@ async def append_tool_exchange_to_messages(
             "web_search",
             "web_fetch",
             "get_ai_news",
+            "schedule_next_wakeup",
         ):
             execution_log.append((nm, arg or "{}", out))
         if on_tool_done:

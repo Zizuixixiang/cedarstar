@@ -57,8 +57,9 @@ cedarstar/
 - 助手落库用 `combined_raw`（不含引用前缀），LLM 上下文用 `combined_content`
 
 **工具调用（OpenAI 兼容 tools）**
-- `execution_log` 不记录 `get_weather`、`get_weibo_hot`、`web_search`、`web_fetch`、`get_ai_news`
+- `execution_log` 不记录 `get_weather`、`get_weibo_hot`、`web_search`、`web_fetch`、`get_ai_news`、`schedule_next_wakeup`
 - 工具结果压缩统一走 `tools/lutopia.py` 的字数分支；`web_search` 返回 Tavily 原始拼接文本，由通用工具压缩层处理
+- `schedule_next_wakeup` 是内置工具，无人设开关；需同时接入 `complete_with_lutopia_tool_loop`、Telegram 流式工具 schema、`append_tool_exchange_to_messages` 和 Anthropic `tool_use` 解析
 - Lutopia 走 MCP（`mcp` Python 包 + SSE），不直接 HTTP 调论坛接口
 
 **前端**
@@ -80,7 +81,7 @@ cedarstar/
 - 数据库时间参数绑定前统一转为 Python 类型（`date.fromisoformat` 等），不传字符串给 asyncpg
 - asyncpg 位置参数用 `$N`，不用 `?`
 - 日志可恢复路径用 `WARNING`，硬故障用 `ERROR`
-- 新增工具（`tools/` 下）：在 `tools/prompts.py` 注册 directive 和 OpenAI tools schema，在 `LLMInterface.complete_with_lutopia_tool_loop` 合并
+- 新增工具（`tools/` 下）：在 `tools/prompts.py` 注册 directive 和 OpenAI tools schema，在 `LLMInterface.complete_with_lutopia_tool_loop` 合并；若 Telegram 流式路径也要可见，还要同步 `bot/telegram_bot.py` 的 `_telegram_stream_thinking_and_reply_with_lutopia` schema 列表
 - 游戏模式使用 `config.active_game_session_id` 切换轻量 context；相关 DDL 在 `migrate_database_schema` 中，改表后 CedarStar / CedarClio 两边都要重启或分别跑迁移
 
 **前端**

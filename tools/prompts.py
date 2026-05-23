@@ -111,6 +111,13 @@ WEB_FETCH_TOOL_DIRECTIVE = (
     "仅在用户提供了明确 URL、或需要阅读原文时再调用；禁止每轮都调用。"
 )
 
+WAKEUP_TOOL_DIRECTIVE = (
+    "【自主唤醒预约】在自主活动/idle 触发中，你可以调用 schedule_next_wakeup 预约下次自主唤醒时间。"
+    "time_hhmm 填北京时间 HH:MM（今天已过则顺延明天）；delay_minutes 填多少分钟后触发；"
+    "两者都填时 time_hhmm 优先。"
+    "若已经调用该工具，就不要再在最终回复末尾写 [NEXT_AT_HH:MM]；两种方式选一个即可。"
+)
+
 X_TOOL_DIRECTIVE = (
     "【X (Twitter)】工具：post_tweet、read_mentions、like_tweet/unlike_tweet、retweet_tweet、unretweet_tweet、"
     "reply_tweet、search_tweets、get_timeline、get_user、follow_user/unfollow_user、get_followers。\n"
@@ -616,6 +623,7 @@ TOOL_DIRECTIVES: Dict[str, str] = {
     "aihot": AIHOT_TOOL_DIRECTIVE,
     "search": SEARCH_TOOL_DIRECTIVE,
     "web_fetch": WEB_FETCH_TOOL_DIRECTIVE,
+    "wakeup": WAKEUP_TOOL_DIRECTIVE,
     "x": X_TOOL_DIRECTIVE,
     "xhs": XHS_TOOL_DIRECTIVE,
 }

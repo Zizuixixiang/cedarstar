@@ -13,6 +13,7 @@ from tools.prompts import (
     GAME_START_TOOL_DIRECTIVE,
     GAME_TOOL_DIRECTIVE,
     SEARCH_TOOL_DIRECTIVE,
+    WAKEUP_TOOL_DIRECTIVE,
     WEATHER_TOOL_DIRECTIVE,
     WEIBO_HOT_TOOL_DIRECTIVE,
     XHS_TOOL_DIRECTIVE,
@@ -33,6 +34,7 @@ from tools.game_tools import (
     OPENAI_GAME_TOOLS,
     execute_game_function_call,
 )
+from tools.wakeup_tool import OPENAI_WAKEUP_TOOLS, execute_wakeup_function_call
 
 from tools.rcommunity import (
     OPENAI_RCOMMUNITY_TOOLS,
@@ -45,6 +47,7 @@ __all__ = [
     "LUTOPIA_TOOL_DIRECTIVE",
     "RCOMMUNITY_TOOL_DIRECTIVE",
     "SEARCH_TOOL_DIRECTIVE",
+    "WAKEUP_TOOL_DIRECTIVE",
     "WEATHER_TOOL_DIRECTIVE",
     "WEIBO_HOT_TOOL_DIRECTIVE",
     "XHS_TOOL_DIRECTIVE",
@@ -65,6 +68,7 @@ __all__ = [
     "OPENAI_GAME_ACTIVE_TOOLS",
     "OPENAI_GAME_START_TOOLS",
     "OPENAI_GAME_TOOLS",
+    "OPENAI_WAKEUP_TOOLS",
     "append_tool_exchange_to_messages",
     "create_lutopia_mcp_session",
     "create_rcommunity_mcp_session",
@@ -72,5 +76,6 @@ __all__ = [
     "execute_lutopia_function_call",
     "execute_rcommunity_function_call",
     "execute_game_function_call",
+    "execute_wakeup_function_call",
     "get_lutopia_token",
 ]
