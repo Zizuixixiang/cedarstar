@@ -1421,6 +1421,8 @@ class ContextBuilder:
         exclude_message_id: Optional[int] = None,
         short_term_dedup_user_text: Optional[str] = None,
         group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
+        daily_summaries_override: Optional[List[Dict[str, Any]]] = None,
+        skip_vector_search: bool = False,
     ) -> Dict[str, Any]:
         """
         构建完整的对话上下文。
@@ -1477,9 +1479,20 @@ class ContextBuilder:
             relationship_timeline_section = await self._build_relationship_timeline_section()
             
             # 3. 长期记忆（向量）；4. daily；5. chunk（与 _assemble_full_system_prompt 拼接顺序一致）
-            vector_search_section = await self._build_vector_search_section(session_id, user_message)
+            if skip_vector_search:
+                self._last_longterm_results = []
+                self._last_longterm_summary_ids = []
+                vector_search_section = ""
+            else:
+                vector_search_section = await self._build_vector_search_section(
+                    session_id,
+                    user_message,
+                )
             archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
-            daily_summaries_section = await self._build_daily_summaries_section(session_id)
+            daily_summaries_section = await self._build_daily_summaries_section(
+                session_id,
+                daily_summaries_override=daily_summaries_override,
+            )
             chunk_summaries_section = await self._build_chunk_summaries_section(session_id)
             recent_tool_section = await self._build_recent_tool_executions_section(session_id)
             logger.info(
@@ -1975,7 +1988,11 @@ class ContextBuilder:
             self._last_memory_card_dimensions = []
             return ""
     
-    async def _build_daily_summaries_section(self, session_id: Optional[str] = None) -> str:
+    async def _build_daily_summaries_section(
+        self,
+        session_id: Optional[str] = None,
+        daily_summaries_override: Optional[List[Dict[str, Any]]] = None,
+    ) -> str:
         """
         构建 daily summary 部分。
         
@@ -1987,9 +2004,12 @@ class ContextBuilder:
         """
         try:
             self._last_daily_summary_ids = []
-            daily_summaries = await get_recent_daily_summaries(
-                limit=await _context_max_daily_summaries_limit(),
-            )
+            if daily_summaries_override is not None:
+                daily_summaries = list(daily_summaries_override)
+            else:
+                daily_summaries = await get_recent_daily_summaries(
+                    limit=await _context_max_daily_summaries_limit(),
+                )
 
             if not daily_summaries:
                 return ""
@@ -3033,6 +3053,8 @@ async def build_context(
     exclude_message_id: Optional[int] = None,
     short_term_dedup_user_text: Optional[str] = None,
     group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
+    daily_summaries_override: Optional[List[Dict[str, Any]]] = None,
+    skip_vector_search: bool = False,
 ) -> Dict[str, Any]:
     """
     构建对话上下文的便捷函数。
@@ -3059,6 +3081,8 @@ async def build_context(
         exclude_message_id=exclude_message_id,
         short_term_dedup_user_text=short_term_dedup_user_text,
         group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
+        daily_summaries_override=daily_summaries_override,
+        skip_vector_search=skip_vector_search,
     )
 
 
