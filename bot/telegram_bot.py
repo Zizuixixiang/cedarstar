@@ -51,6 +51,7 @@ from telegram.ext import (
 from telegram.request import HTTPXRequest
 
 from bot.message_buffer import MessageBuffer, ordered_media_type_from_buffer
+from bot.game_mode import process_game_mode_response
 from bot.markdown_telegram_html import (
     markdown_to_telegram_safe_html,
     prefix_safe_html_by_max_len,
@@ -2072,7 +2073,7 @@ class TelegramBot:
         return first_mid, meme_any, voice_any
 
     async def _telegram_deliver_prefetched_llm_response(
-        self, llm_resp: Any, base_message, bot
+        self, llm_resp: Any, base_message, bot, game_session: Optional[Dict[str, Any]] = None
     ) -> _TelegramStreamOutcome:
         """非流式 LLM 结果：思维链 blockquote + 正文分段（与流式结束态一致）。"""
         send_cot = await self._telegram_should_send_cot(base_message)
@@ -2106,7 +2107,10 @@ class TelegramBot:
             await self._send_text_near_base(
                 base_message, bot, html_th, parse_mode="HTML"
             )
-        cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
+        content_for_user = await process_game_mode_response(
+            llm_resp.content or "", game_session
+        ) if game_session else (llm_resp.content or "")
+        cleaned = schedule_update_memory_hits_and_clean_reply(content_for_user)
         segments, body_for_db = await parse_telegram_segments_with_memes_async(cleaned)
         has_text_seg = any(
             k == "text" and (s or "").strip() for k, s in segments
@@ -2450,6 +2454,7 @@ class TelegramBot:
         bot,
         *,
         had_pre_tool_text: bool = False,
+        game_session: Optional[Dict[str, Any]] = None,
     ) -> _TelegramStreamOutcome:
         """定稿思维链 + 发送正文，组装缓冲 outcome。"""
         chat_id = base_message.chat.id
@@ -2531,6 +2536,8 @@ class TelegramBot:
                 interrupted,
             )
 
+        if game_session:
+            raw_content = await process_game_mode_response(raw_content, game_session)
         cleaned = schedule_update_memory_hits_and_clean_reply(raw_content)
         segments, body_for_db = await parse_telegram_segments_with_memes_async(cleaned)
         has_text_seg = any(
@@ -2603,6 +2610,7 @@ class TelegramBot:
         base_message,
         bot,
         cacheable_ratio: float = 0.0,
+        game_session: Optional[Dict[str, Any]] = None,
     ) -> _TelegramStreamOutcome:
         cur_messages: List[Dict[str, Any]] = messages
         sse: Optional[_TelegramSseRound] = None
@@ -2623,7 +2631,7 @@ class TelegramBot:
             break
         assert sse is not None
         return await self._telegram_finalize_sse_round_outcome(
-            sse, base_message, bot
+            sse, base_message, bot, game_session=game_session
         )
 
     async def _telegram_stream_thinking_and_reply_with_lutopia(
@@ -2635,6 +2643,7 @@ class TelegramBot:
         session_id: Optional[str] = None,
         user_message_id: Optional[int] = None,
         cacheable_ratio: float = 0.0,
+        game_session: Optional[Dict[str, Any]] = None,
     ) -> _TelegramStreamOutcome:
         """
         Sirius + OpenAI 兼容路径：首轮起携带 Lutopia tools；若模型发起 function call，
@@ -2662,6 +2671,17 @@ class TelegramBot:
         from tools.memory_tools import OPENAI_MEMORY_TOOLS
         tools_list.extend(OPENAI_MEMORY_TOOLS)
         suffix_keys.append("memory")
+        try:
+            from memory.database import get_active_game_session_id
+            from tools.game_tools import OPENAI_GAME_TOOLS
+
+            active_game_session_id = await get_active_game_session_id()
+        except Exception as e:
+            logger.warning("Telegram 流式读取活跃游戏 session 失败: %s", e)
+            active_game_session_id = None
+        if active_game_session_id:
+            tools_list.extend(OPENAI_GAME_TOOLS)
+            suffix_keys.append("game")
         if config.ENABLE_WEB_FETCH_TOOL:
             tools_list.extend(OPENAI_WEB_FETCH_TOOLS)
             suffix_keys.append("web_fetch")
@@ -2950,7 +2970,11 @@ class TelegramBot:
                 if trimmed_raw != (sse.raw_content or ""):
                     sse = sse._replace(raw_content=trimmed_raw)
                 outcome = await self._telegram_finalize_sse_round_outcome(
-                    sse, base_message, bot, had_pre_tool_text=bool(pre_tool_segments)
+                    sse,
+                    base_message,
+                    bot,
+                    had_pre_tool_text=bool(pre_tool_segments),
+                    game_session=game_session,
                 )
                 return _merge_stream_outcome(outcome)
             assert sse is not None
@@ -2959,7 +2983,11 @@ class TelegramBot:
             if trimmed_raw != (sse.raw_content or ""):
                 sse = sse._replace(raw_content=trimmed_raw)
             outcome = await self._telegram_finalize_sse_round_outcome(
-                sse, base_message, bot, had_pre_tool_text=bool(pre_tool_segments)
+                sse,
+                base_message,
+                bot,
+                had_pre_tool_text=bool(pre_tool_segments),
+                game_session=game_session,
             )
             return _merge_stream_outcome(outcome)
 
@@ -3472,6 +3500,7 @@ class TelegramBot:
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
             cacheable_ratio = context.get("cacheable_ratio", 0.0)
+            game_session = context.get("game_session")
             if not messages:
                 messages = [{"role": "user", "content": combined_content}]
 
@@ -3558,7 +3587,7 @@ class TelegramBot:
                     )
 
                 outcome = await self._telegram_deliver_prefetched_llm_response(
-                    llm_resp, base_message, bot
+                    llm_resp, base_message, bot, game_session=game_session
                 )
             else:
                 if (
@@ -3584,11 +3613,13 @@ class TelegramBot:
                         session_id=session_id,
                         user_message_id=user_row_id if 'user_row_id' in locals() else None,
                         cacheable_ratio=cacheable_ratio,
+                        game_session=game_session,
                     )
                 else:
                     outcome = await self._telegram_stream_thinking_and_reply(
                         llm, messages, base_message, bot,
                         cacheable_ratio=cacheable_ratio,
+                        game_session=game_session,
                     )
 
             # 用户消息已在上方先行落库；此处仅处理助手侧 persist 标记
@@ -3953,6 +3984,7 @@ class TelegramBot:
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
             cacheable_ratio = context.get("cacheable_ratio", 0.0)
+            game_session = context.get("game_session")
             if not messages:
                 messages = [{"role": "user", "content": content}]
 
@@ -3997,8 +4029,11 @@ class TelegramBot:
                     )
                 llm_resp = outcome.response
                 lutopia_appendix = outcome.behavior_appendix or ""
+                user_facing_text = await process_game_mode_response(
+                    outcome.aggregated_assistant_text, game_session
+                ) if game_session else outcome.aggregated_assistant_text
                 cleaned = schedule_update_memory_hits_and_clean_reply(
-                    outcome.aggregated_assistant_text
+                    user_facing_text
                 )
             else:
 
@@ -4009,7 +4044,10 @@ class TelegramBot:
                     )
 
                 llm_resp = await asyncio.to_thread(_call)
-                cleaned = schedule_update_memory_hits_and_clean_reply(llm_resp.content or "")
+                user_facing_text = await process_game_mode_response(
+                    llm_resp.content or "", game_session
+                ) if game_session else (llm_resp.content or "")
+                cleaned = schedule_update_memory_hits_and_clean_reply(user_facing_text)
             think_plain = (llm_resp.thinking or "").strip()
             if telegram_bot and think_plain:
                 html_th = self._telegram_thinking_blockquote_html(think_plain)

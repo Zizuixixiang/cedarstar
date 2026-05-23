@@ -32,6 +32,7 @@ from tools.memory_tools import (
     execute_memory_get_approval_status,
     execute_memory_update_request,
 )
+from tools.game_tools import execute_game_function_call
 from tools.aihot import execute_get_ai_news_function_call
 from tools.search import execute_search_function_call
 from tools.web_fetch import execute_web_fetch_function_call
@@ -403,6 +404,9 @@ def telegram_tool_display_label(tool_name: str, arguments_json: str = "") -> str
         "memory_get_relationship_timeline": "已读取关系时间线",
         "memory_get_approval_status": "已查询审批状态",
         "memory_update_request": "已提交记忆更新",
+        "game_start": "已开始游戏",
+        "game_end": "已结束游戏",
+        "game_update": "已更新游戏",
         "read_xhs_note": "已阅读小红书笔记",
     }
     if t in static:
@@ -1386,6 +1390,9 @@ async def append_tool_exchange_to_messages(
             elif nm == "memory_update_request":
                 args_mem_up = _safe_load_tool_args(arg, nm)
                 out = await execute_memory_update_request(args_mem_up)
+            elif nm.startswith("game_"):
+                args_game = _safe_load_tool_args(arg, nm)
+                out = await execute_game_function_call(nm, args_game)
             elif nm == "get_weather":
                 args_d = _safe_load_tool_args(arg, nm)
                 out = await execute_weather_function_call(nm, args_d)

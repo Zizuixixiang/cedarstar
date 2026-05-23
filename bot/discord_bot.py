@@ -28,6 +28,7 @@ from llm.llm_interface import (
     complete_with_lutopia_tool_loop,
 )
 from bot.message_buffer import MessageBuffer, ordered_media_type_from_buffer
+from bot.game_mode import process_game_mode_response
 from bot.reply_citations import schedule_update_memory_hits_and_clean_reply
 from bot.stt_client import transcribe_voice
 from bot.vision_caption import schedule_generate_image_caption
@@ -448,6 +449,7 @@ class DiscordBot:
             # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
+            game_session = context.get("game_session")
             
             # 如果没有构建出有效的 messages，使用最小化版本
             if not messages:
@@ -463,8 +465,11 @@ class DiscordBot:
                     user_message_id=user_row_id if 'user_row_id' in locals() else None,
                 )
                 llm_resp = outcome.response
+                user_facing_text = await process_game_mode_response(
+                    outcome.aggregated_assistant_text, game_session
+                ) if game_session else outcome.aggregated_assistant_text
                 reply_display = schedule_update_memory_hits_and_clean_reply(
-                    outcome.aggregated_assistant_text
+                    user_facing_text
                 )
                 reply = reply_display
                 lutopia_appendix = outcome.behavior_appendix or ""
@@ -472,7 +477,10 @@ class DiscordBot:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
                 )
-                reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
+                user_facing_text = await process_game_mode_response(
+                    llm_resp.content or "", game_session
+                ) if game_session else (llm_resp.content or "")
+                reply = schedule_update_memory_hits_and_clean_reply(user_facing_text)
                 reply_display = reply
             
             # 保存用户消息到数据库（使用原始内容，不含引用前缀）
@@ -592,6 +600,7 @@ class DiscordBot:
             # 提取 system prompt 和 messages
             system_prompt = context.get("system_prompt", "")
             messages = context.get("messages", [])
+            game_session = context.get("game_session")
             
             # 如果没有构建出有效的 messages，使用最小化版本
             if not messages:
@@ -607,8 +616,11 @@ class DiscordBot:
                     user_message_id=user_row_id if 'user_row_id' in locals() else None,
                 )
                 llm_resp = outcome.response
+                user_facing_text = await process_game_mode_response(
+                    outcome.aggregated_assistant_text, game_session
+                ) if game_session else outcome.aggregated_assistant_text
                 reply_display = schedule_update_memory_hits_and_clean_reply(
-                    outcome.aggregated_assistant_text
+                    user_facing_text
                 )
                 reply = reply_display
                 lutopia_appendix = outcome.behavior_appendix or ""
@@ -616,7 +628,10 @@ class DiscordBot:
                 llm_resp = llm.generate_with_context_and_tracking(
                     messages, platform=Platform.DISCORD
                 )
-                reply = schedule_update_memory_hits_and_clean_reply(llm_resp.content)
+                user_facing_text = await process_game_mode_response(
+                    llm_resp.content or "", game_session
+                ) if game_session else (llm_resp.content or "")
+                reply = schedule_update_memory_hits_and_clean_reply(user_facing_text)
                 reply_display = reply
             
             # 保存用户消息到数据库

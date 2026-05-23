@@ -77,6 +77,19 @@ def _rows(records) -> List[Dict[str, Any]]:
     return [_r(rec) for rec in records]
 
 
+def _game_session_row(record) -> Dict[str, Any]:
+    item = _r(record)
+    for key in ("state_json", "config_json", "participants"):
+        item[key] = _json_load_if_needed(item.get(key))
+    return item
+
+
+def _game_turn_row(record) -> Dict[str, Any]:
+    item = _r(record)
+    item["turn_data"] = _json_load_if_needed(item.get("turn_data"))
+    return item
+
+
 def _json_load_if_needed(v: Any) -> Any:
     """Decode JSONB values only when asyncpg returns strings."""
     if isinstance(v, str):
@@ -737,6 +750,41 @@ async def migrate_database_schema(conn) -> None:
     await _migrate_audit_and_approval_timestamps_to_naive_shanghai(conn)
     await conn.execute(
         """
+        CREATE TABLE IF NOT EXISTS game_sessions (
+            id TEXT PRIMARY KEY DEFAULT gen_random_uuid()::TEXT,
+            game_type VARCHAR(64) NOT NULL,
+            display_name VARCHAR(256),
+            system_prompt TEXT,
+            state_json JSONB DEFAULT '{}'::JSONB,
+            config_json JSONB DEFAULT '{}'::JSONB,
+            participants JSONB DEFAULT '[]'::JSONB,
+            state_mode VARCHAR(16) NOT NULL DEFAULT 'on_end',
+            summary TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            ended_at TIMESTAMP
+        )
+        """
+    )
+    await conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS game_turns (
+            id BIGSERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL REFERENCES game_sessions(id),
+            turn_idx INTEGER NOT NULL,
+            turn_data JSONB NOT NULL DEFAULT '{}'::JSONB,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_game_turns_session ON game_turns(session_id, turn_idx)"
+    )
+    await conn.execute(
+        "ALTER TABLE messages ADD COLUMN IF NOT EXISTS game_session_id TEXT REFERENCES game_sessions(id)"
+    )
+    await conn.execute(
+        """
         CREATE TABLE IF NOT EXISTS transactions (
             id BIGSERIAL PRIMARY KEY,
             character_id TEXT NOT NULL,
@@ -967,6 +1015,7 @@ async def migrate_database_schema(conn) -> None:
             ("tts_intensity", "0"),
             ("tts_timbre", "0"),
             ("tts_api_key", ""),
+            ("active_game_session_id", ""),
         ],
     )
 
@@ -2410,6 +2459,7 @@ class MessageDatabase:
         is_summarized: int = 0,
         thinking: Optional[str] = None,
         platform_file_id: Optional[str] = None,
+        game_session_id: Optional[str] = None,
     ) -> int:
         """
         保存一条消息到数据库。
@@ -2428,19 +2478,22 @@ class MessageDatabase:
         mt = None if media_type is None else str(media_type)
         tking = None if thinking is None else str(thinking)
         pfid = None if platform_file_id is None else str(platform_file_id)
+        gsid = None if game_session_id is None else str(game_session_id)
+        if gsid is None:
+            gsid = await self.get_active_game_session_id()
         async with self.pool.acquire() as conn:
             new_id = await conn.fetchval(
                 """
                 INSERT INTO messages (
                     role, content, session_id, user_id, channel_id, message_id,
                     character_id, platform, media_type, image_caption, vision_processed,
-                    is_summarized, thinking, platform_file_id
+                    is_summarized, thinking, platform_file_id, game_session_id
                 )
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
                 RETURNING id
                 """,
                 role, content, session_id, uid, cid, mid,
-                chrid, plat, mt, image_caption, vp, is_sum, tking, pfid,
+                chrid, plat, mt, image_caption, vp, is_sum, tking, pfid, gsid,
             )
         logger.debug(
             "保存消息成功: ID=%s, role=%s, session=%s, platform=%s, "
@@ -5653,6 +5706,271 @@ class MessageDatabase:
         return updated
 
     # ------------------------------------------------------------------
+    # game mode
+    # ------------------------------------------------------------------
+
+    async def create_game_session(
+        self,
+        game_type: str,
+        display_name: Optional[str],
+        system_prompt: Optional[str],
+        config_json: Optional[Dict[str, Any]],
+        participants: Optional[List[Any]],
+        state_mode: str,
+    ) -> Dict[str, Any]:
+        mode = (state_mode or "on_end").strip()
+        if mode not in {"per_turn", "on_end"}:
+            mode = "on_end"
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO game_sessions (
+                    game_type, display_name, system_prompt, config_json,
+                    participants, state_mode
+                )
+                VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6)
+                RETURNING *
+                """,
+                str(game_type),
+                display_name,
+                system_prompt,
+                json.dumps(config_json or {}, ensure_ascii=False),
+                json.dumps(participants or [], ensure_ascii=False),
+                mode,
+            )
+        return _game_session_row(row)
+
+    async def get_game_session(self, session_id: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM game_sessions WHERE id = $1",
+                str(session_id),
+            )
+        return _game_session_row(row) if row else None
+
+    async def update_game_session_state(
+        self, session_id: str, state_json: Dict[str, Any]
+    ) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                """
+                UPDATE game_sessions
+                SET state_json = $2::jsonb, updated_at = NOW()
+                WHERE id = $1
+                """,
+                str(session_id),
+                json.dumps(state_json or {}, ensure_ascii=False),
+            )
+        return _rowcount(result) > 0
+
+    async def update_game_session(self, session_id: str, **fields) -> Optional[Dict[str, Any]]:
+        allowed = {
+            "display_name",
+            "system_prompt",
+            "config_json",
+            "state_json",
+            "participants",
+            "state_mode",
+        }
+        updates: List[str] = []
+        params: List[Any] = [str(session_id)]
+        for key, value in fields.items():
+            if key not in allowed:
+                continue
+            if key == "state_mode" and value not in {"per_turn", "on_end"}:
+                continue
+            params.append(json.dumps(value, ensure_ascii=False) if key in {"config_json", "state_json", "participants"} else value)
+            cast = "::jsonb" if key in {"config_json", "state_json", "participants"} else ""
+            updates.append(f"{key} = ${len(params)}{cast}")
+        if not updates:
+            return await self.get_game_session(session_id)
+        updates.append("updated_at = NOW()")
+        sql = f"""
+            UPDATE game_sessions
+            SET {', '.join(updates)}
+            WHERE id = $1
+            RETURNING *
+        """
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(sql, *params)
+        return _game_session_row(row) if row else None
+
+    async def end_game_session(
+        self,
+        session_id: str,
+        summary: Optional[str],
+        state_json: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        async with self.pool.acquire() as conn:
+            if state_json is None:
+                result = await conn.execute(
+                    """
+                    UPDATE game_sessions
+                    SET summary = $2, ended_at = NOW(), updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    str(session_id),
+                    summary,
+                )
+            else:
+                result = await conn.execute(
+                    """
+                    UPDATE game_sessions
+                    SET summary = $2, state_json = $3::jsonb,
+                        ended_at = NOW(), updated_at = NOW()
+                    WHERE id = $1
+                    """,
+                    str(session_id),
+                    summary,
+                    json.dumps(state_json or {}, ensure_ascii=False),
+                )
+        return _rowcount(result) > 0
+
+    async def list_game_sessions(
+        self, game_type: Optional[str] = None, active_only: bool = False
+    ) -> List[Dict[str, Any]]:
+        where: List[str] = []
+        params: List[Any] = []
+        if game_type:
+            params.append(str(game_type))
+            where.append(f"game_type = ${len(params)}")
+        if active_only:
+            where.append("ended_at IS NULL")
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT *
+                FROM game_sessions
+                {where_sql}
+                ORDER BY updated_at DESC, created_at DESC
+                """,
+                *params,
+            )
+        return [_game_session_row(row) for row in rows]
+
+    async def delete_game_session(self, session_id: str) -> bool:
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "UPDATE messages SET game_session_id = NULL WHERE game_session_id = $1",
+                    str(session_id),
+                )
+                await conn.execute(
+                    "DELETE FROM game_turns WHERE session_id = $1",
+                    str(session_id),
+                )
+                result = await conn.execute(
+                    "DELETE FROM game_sessions WHERE id = $1",
+                    str(session_id),
+                )
+        return _rowcount(result) > 0
+
+    async def add_game_turn(
+        self, session_id: str, turn_idx: int, turn_data: Dict[str, Any]
+    ) -> int:
+        async with self.pool.acquire() as conn:
+            row_id = await conn.fetchval(
+                """
+                INSERT INTO game_turns (session_id, turn_idx, turn_data)
+                VALUES ($1, $2, $3::jsonb)
+                RETURNING id
+                """,
+                str(session_id),
+                int(turn_idx),
+                json.dumps(turn_data or {}, ensure_ascii=False),
+            )
+        return int(row_id)
+
+    async def get_game_turns(
+        self, session_id: str, limit: Optional[int] = None
+    ) -> List[Dict[str, Any]]:
+        params: List[Any] = [str(session_id)]
+        limit_sql = ""
+        if limit is not None:
+            params.append(max(1, int(limit)))
+            limit_sql = f"LIMIT ${len(params)}"
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                f"""
+                SELECT *
+                FROM game_turns
+                WHERE session_id = $1
+                ORDER BY turn_idx ASC
+                {limit_sql}
+                """,
+                *params,
+            )
+        return [_game_turn_row(row) for row in rows]
+
+    async def get_latest_turn_idx(self, session_id: str) -> int:
+        async with self.pool.acquire() as conn:
+            value = await conn.fetchval(
+                "SELECT COALESCE(MAX(turn_idx), 0) FROM game_turns WHERE session_id = $1",
+                str(session_id),
+            )
+        return int(value or 0)
+
+    async def update_game_turn(
+        self, turn_id: int, turn_data: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                UPDATE game_turns
+                SET turn_data = $2::jsonb
+                WHERE id = $1
+                RETURNING *
+                """,
+                int(turn_id),
+                json.dumps(turn_data or {}, ensure_ascii=False),
+            )
+        return _game_turn_row(row) if row else None
+
+    async def delete_game_turn(self, turn_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM game_turns WHERE id = $1",
+                int(turn_id),
+            )
+        return _rowcount(result) > 0
+
+    async def get_active_game_session_id(self) -> Optional[str]:
+        value = await self.get_config("active_game_session_id", "")
+        value = (value or "").strip()
+        if not value:
+            return None
+        async with self.pool.acquire() as conn:
+            exists = await conn.fetchval(
+                "SELECT 1 FROM game_sessions WHERE id = $1 AND ended_at IS NULL",
+                value,
+            )
+        if exists:
+            return value
+        await self.set_active_game_session_id(None)
+        return None
+
+    async def set_active_game_session_id(self, session_id: Optional[str]) -> bool:
+        return await self.set_config(
+            "active_game_session_id",
+            str(session_id).strip() if session_id else "",
+        )
+
+    async def end_active_game(
+        self,
+        summary: Optional[str] = None,
+        final_state: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        session_id = await self.get_active_game_session_id()
+        if not session_id:
+            return False
+        ended = await self.end_game_session(
+            session_id, summary=summary, state_json=final_state
+        )
+        await self.set_active_game_session_id(None)
+        return ended
+
+    # ------------------------------------------------------------------
     # config
     # ------------------------------------------------------------------
 
@@ -6758,6 +7076,7 @@ async def save_message(
     is_summarized: int = 0,
     thinking: Optional[str] = None,
     platform_file_id: Optional[str] = None,
+    game_session_id: Optional[str] = None,
 ) -> int:
     # 与 MessageDatabase.save_message 一致：asyncpg TEXT 绑定必须为 str
     uid = None if user_id is None else str(user_id)
@@ -6766,6 +7085,7 @@ async def save_message(
     chrid = None if character_id is None else str(character_id)
     plat = None if platform is None else str(platform)
     mt = None if media_type is None else str(media_type)
+    gsid = None if game_session_id is None else str(game_session_id)
     return await get_database().save_message(
         role,
         content,
@@ -6781,6 +7101,7 @@ async def save_message(
         is_summarized,
         thinking,
         platform_file_id,
+        gsid,
     )
 
 
@@ -7485,6 +7806,75 @@ async def list_pocket_money_transactions(*, limit: int = 100, offset: int = 0) -
 
 async def delete_pocket_money_transaction(tx_id: int) -> Tuple[bool, Decimal]:
     return await get_database().delete_pocket_money_transaction(tx_id)
+
+
+async def create_game_session(
+    game_type,
+    display_name,
+    system_prompt,
+    config_json,
+    participants,
+    state_mode,
+) -> Dict[str, Any]:
+    return await get_database().create_game_session(
+        game_type, display_name, system_prompt, config_json, participants, state_mode
+    )
+
+
+async def get_game_session(session_id) -> Optional[Dict[str, Any]]:
+    return await get_database().get_game_session(session_id)
+
+
+async def update_game_session_state(session_id, state_json) -> bool:
+    return await get_database().update_game_session_state(session_id, state_json)
+
+
+async def update_game_session(session_id, **fields) -> Optional[Dict[str, Any]]:
+    return await get_database().update_game_session(session_id, **fields)
+
+
+async def end_game_session(session_id, summary, state_json=None) -> bool:
+    return await get_database().end_game_session(session_id, summary, state_json)
+
+
+async def list_game_sessions(game_type=None, active_only=False) -> List[Dict[str, Any]]:
+    return await get_database().list_game_sessions(game_type, active_only)
+
+
+async def delete_game_session(session_id) -> bool:
+    return await get_database().delete_game_session(session_id)
+
+
+async def add_game_turn(session_id, turn_idx, turn_data) -> int:
+    return await get_database().add_game_turn(session_id, turn_idx, turn_data)
+
+
+async def get_game_turns(session_id, limit=None) -> List[Dict[str, Any]]:
+    return await get_database().get_game_turns(session_id, limit)
+
+
+async def get_latest_turn_idx(session_id) -> int:
+    return await get_database().get_latest_turn_idx(session_id)
+
+
+async def update_game_turn(turn_id, turn_data) -> Optional[Dict[str, Any]]:
+    return await get_database().update_game_turn(turn_id, turn_data)
+
+
+async def delete_game_turn(turn_id) -> bool:
+    return await get_database().delete_game_turn(turn_id)
+
+
+async def get_active_game_session_id() -> Optional[str]:
+    return await get_database().get_active_game_session_id()
+
+
+async def set_active_game_session_id(session_id: Optional[str]) -> bool:
+    return await get_database().set_active_game_session_id(session_id)
+
+
+async def end_active_game(summary=None, final_state=None) -> bool:
+    return await get_database().end_active_game(summary, final_state)
 
 
 async def upsert_pocket_money_job_log(

@@ -15,6 +15,7 @@ Context 构建模块。
 """
 
 import logging
+import json
 import math
 import re
 import time
@@ -32,13 +33,17 @@ from memory.retrieval import (
 from memory.database import (
     get_all_active_memory_cards,
     get_all_active_temporal_states,
+    get_active_game_session_id,
     get_database,
+    get_game_session,
+    get_game_turns,
     get_recent_relationship_timeline,
     get_recent_daily_summaries,
     get_recent_tool_executions,
     get_today_chunk_summaries,
     get_unsummarized_messages_desc,
     get_recent_summarized_messages_desc,
+    set_active_game_session_id,
 )
 from memory.micro_batch import fetch_active_persona_display_names
 from memory.shanghai_dt import (
@@ -126,6 +131,20 @@ TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE = (
 TELEGRAM_GROUP_USER_TURN_HINT = (
     "[系统提示：群聊。人设口吻紧接上文，守分段规定；禁助手寒暄与能力菜单；工具照常。]"
 )
+
+GAME_MODE_CONTEXT_BLOCK = """# 当前游戏模式
+
+你正在与{participants}进行「{display_name}」({game_type})。
+请按照下方游戏规则进行，同时保持你自己的人设和说话风格。
+
+## 游戏规则
+{system_prompt}
+
+## 当前游戏状态
+{state_json}
+
+## 游戏历史记录
+{game_turns}"""
 
 TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE = (
     "【跨会话情境说明】本块除「今日 chunk 摘要」外，另含来自 Telegram 另一会话（私聊或群聊）的近期原文摘录，"
@@ -1218,6 +1237,178 @@ class ContextBuilder:
                 if r.get("id")
             },
         }
+
+    async def _build_game_persona_prompt(self) -> str:
+        """游戏模式只注入核心人设字段，跳过 NSFW 与线下模式。"""
+        try:
+            db = get_database()
+            active = await db.get_active_api_config("chat")
+            persona_id = active.get("persona_id") if active else None
+            if not persona_id:
+                return config.SYSTEM_PROMPT
+            row = await db.pool.fetchrow(
+                "SELECT * FROM persona_configs WHERE id = $1", int(persona_id)
+            )
+            if not row:
+                return config.SYSTEM_PROMPT
+            data = dict(row)
+
+            def _s(key: str) -> str:
+                return _persona_field_str(data, key)
+
+            parts: List[str] = []
+            exist_lines: List[str] = []
+            if _s("char_name"):
+                exist_lines.append(f"你的名字是 {_s('char_name')}。")
+            if _s("char_identity"):
+                exist_lines.append(_s("char_identity"))
+            if exist_lines:
+                parts.append("【存在定义】\n" + "\n".join(exist_lines))
+
+            image_parts: List[str] = []
+            if _s("char_personality"):
+                image_parts.append(_s("char_personality"))
+            if _s("char_appearance"):
+                image_parts.append("外在形象：\n" + _s("char_appearance"))
+            if image_parts:
+                parts.append("【内在人格和外在形象】\n" + "\n\n".join(image_parts))
+
+            if _s("char_speech_style"):
+                parts.append("【表达契约】\n说话风格与格式硬规范：\n" + _s("char_speech_style"))
+
+            return "\n\n".join(parts).strip() or config.SYSTEM_PROMPT
+        except Exception as e:
+            logger.warning("构建游戏模式人设失败，回退 SYSTEM_PROMPT: %s", e)
+            return config.SYSTEM_PROMPT
+
+    async def build_game_context(
+        self,
+        session_id: str,
+        user_message: str,
+        game_session: Dict[str, Any],
+        images: Optional[List[Dict[str, Any]]] = None,
+        llm_user_text: Optional[str] = None,
+        telegram_segment_hint: bool = False,
+        exclude_message_id: Optional[int] = None,
+        short_term_dedup_user_text: Optional[str] = None,
+        group_recent_skip_tg_message_ids: Optional[Sequence[str]] = None,
+    ) -> Dict[str, Any]:
+        system_prompt = await self._build_game_persona_prompt()
+        memory_cards_section = await self._build_memory_cards_section()
+
+        daily_rows = await get_recent_daily_summaries(limit=1)
+        daily_rows.reverse()
+        self._last_daily_summary_ids = [
+            int(s["id"]) for s in daily_rows if s.get("id") is not None
+        ]
+        daily_sections: List[str] = []
+        for summary in daily_rows:
+            raw_date = summary.get("source_date") or summary.get("created_at")
+            formatted_date = format_shanghai_date_iso(raw_date) or (
+                str(raw_date)[:10] if raw_date else ""
+            )
+            daily_sections.append(
+                f"### {formatted_date or '未知日期'}\n{summary.get('summary_text') or ''}"
+            )
+        daily_summaries_section = (
+            "# 每日摘要\n\n" + "\n\n".join(daily_sections)
+            if daily_sections
+            else ""
+        )
+
+        state = game_session.get("state_json") or {}
+        state_text = (
+            json.dumps(state, ensure_ascii=False, indent=2)
+            if state
+            else "新游戏，尚无状态"
+        )
+        turns = await get_game_turns(game_session.get("id"))
+        turn_lines = []
+        for turn in turns:
+            data = json.dumps(
+                turn.get("turn_data") or {}, ensure_ascii=False, separators=(",", ":")
+            )
+            turn_lines.append(f"第{turn.get('turn_idx')}轮: {data}")
+        participants = game_session.get("participants") or []
+        if isinstance(participants, list):
+            participants_text = "、".join(str(p) for p in participants if str(p).strip())
+        else:
+            participants_text = str(participants)
+        game_block = GAME_MODE_CONTEXT_BLOCK.format(
+            participants=participants_text or "玩家",
+            display_name=game_session.get("display_name") or game_session.get("game_type") or "未命名游戏",
+            game_type=game_session.get("game_type") or "",
+            system_prompt=game_session.get("system_prompt") or "未设置",
+            state_json=state_text,
+            game_turns="\n".join(turn_lines) if turn_lines else "暂无历史记录",
+        )
+        if game_session.get("state_mode") == "per_turn":
+            state_instruction = (
+                "每轮回复末尾，你必须输出 [GAME_STATE]{更新后的完整状态JSON}[/GAME_STATE] 块。"
+                "只输出变化后的完整状态。该块会被系统解析，不会发送给用户。"
+            )
+        else:
+            state_instruction = (
+                "当游戏session结束（用户说停/你判断该存档了）时，在回复末尾输出 "
+                "[GAME_STATE]{当前完整状态JSON}[/GAME_STATE] 块。进行中不需要输出该块。"
+            )
+        turn_instruction = (
+            "每轮回复末尾，你还必须输出 [GAME_TURN]{本轮发生事件的JSON摘要}[/GAME_TURN] 块。"
+            "该块会被系统解析记录，不会发送给用户。"
+        )
+
+        _dedup = (
+            short_term_dedup_user_text
+            if short_term_dedup_user_text is not None
+            and str(short_term_dedup_user_text).strip()
+            else user_message
+        )
+        recent_messages_section = await self._build_recent_messages_section(
+            session_id,
+            exclude_message_id,
+            current_user_text=_dedup,
+            group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
+        )
+        cut = (
+            llm_user_text
+            if images and (llm_user_text is not None and str(llm_user_text).strip())
+            else user_message
+        )
+        current_user_message = self._build_current_user_message(cut, images)
+        blocks: List[Any] = [
+            _cache_text_block(
+                "\n\n".join(
+                    s for s in [system_prompt, memory_cards_section, daily_summaries_section] if s
+                ),
+                cache=True,
+            ),
+            _cache_text_block(
+                "\n\n".join([game_block, state_instruction, turn_instruction]),
+                cache=False,
+            ),
+        ]
+        if telegram_segment_hint:
+            blocks.append(_cache_text_block(await format_telegram_reply_segment_hint(), cache=False))
+            if str(session_id).startswith("telegram_group_"):
+                blocks.append(
+                    _cache_text_block(await format_telegram_group_segment_directive(), cache=False)
+                )
+        messages = self._assemble_messages(
+            blocks, recent_messages_section, current_user_message
+        )
+        logger.info(
+            "game context built: session=%s game_session=%s messages_count=%s",
+            session_id,
+            game_session.get("id"),
+            len(messages),
+        )
+        self._record_context_trace(session_id, user_message)
+        return {
+            "system_prompt": blocks,
+            "messages": messages,
+            "cacheable_ratio": 0.0,
+            "game_session": game_session,
+        }
     
     async def build_context(
         self,
@@ -1258,6 +1449,23 @@ class ContextBuilder:
             Dict[str, Any]: 包含 system prompt 和 messages 数组的结构
         """
         try:
+            active_game_id = await get_active_game_session_id()
+            if active_game_id:
+                game_session = await get_game_session(active_game_id)
+                if game_session and not game_session.get("ended_at"):
+                    return await self.build_game_context(
+                        session_id,
+                        user_message,
+                        game_session,
+                        images=images,
+                        llm_user_text=llm_user_text,
+                        telegram_segment_hint=telegram_segment_hint,
+                        exclude_message_id=exclude_message_id,
+                        short_term_dedup_user_text=short_term_dedup_user_text,
+                        group_recent_skip_tg_message_ids=group_recent_skip_tg_message_ids,
+                    )
+                await set_active_game_session_id(None)
+
             # 1. 获取 system prompt
             system_prompt = await self._build_system_prompt()
 
