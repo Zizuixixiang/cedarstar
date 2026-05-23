@@ -507,6 +507,47 @@ async def put_ui_preferences(body: UiPreferencesBody):
     return create_response(True, None, "已保存")
 
 
+def _api_config_test_stream_fallback_eligible(exc: BaseException) -> bool:
+    """部分网关非流式请求返回 400 / stream_required，测试端点改走 generate_stream。"""
+    if "stream_required" in str(exc):
+        return True
+    resp = getattr(exc, "response", None)
+    if resp is not None and getattr(resp, "status_code", None) == 400:
+        return True
+    return False
+
+
+def _collect_generate_stream_text(llm: Any, messages: List[Dict[str, Any]]) -> str:
+    """同步消费 generate_stream，拼接 content chunk 为完整回复文本。"""
+    gen = llm.generate_stream(messages)
+    content_parts: List[str] = []
+    while True:
+        try:
+            kind, chunk = next(gen)
+        except StopIteration as e:
+            fin = e.value if isinstance(e.value, dict) else {}
+            text = fin.get("content")
+            if not isinstance(text, str) or not text.strip():
+                text = "".join(content_parts)
+            return text or ""
+        if kind == "content" and chunk:
+            content_parts.append(chunk)
+
+
+def _api_config_test_generate_reply(llm: Any, messages: List[Dict[str, Any]]) -> str:
+    """测试用 LLM 调用：优先非流式，stream_required/400 时 fallback 到流式收集。"""
+    try:
+        return llm.generate_with_context(messages)
+    except Exception as e:
+        if not _api_config_test_stream_fallback_eligible(e):
+            raise
+        logger.info(
+            "api config test: generate_with_context failed (%s), retrying via generate_stream",
+            e,
+        )
+        return _collect_generate_stream_text(llm, messages)
+
+
 def _extract_chat_reply(data: Any) -> str:
     if not isinstance(data, dict):
         return str(data)[:2000]
@@ -600,7 +641,9 @@ async def test_api_config(config_id: int):
         llm.max_tokens = 32
         t_llm = time.perf_counter()
         try:
-            reply = await asyncio.to_thread(llm.generate_with_context, messages)
+            reply = await asyncio.to_thread(
+                _api_config_test_generate_reply, llm, messages
+            )
         finally:
             llm.max_tokens = prev_max_tokens
         llm_ms = int((time.perf_counter() - t_llm) * 1000)
