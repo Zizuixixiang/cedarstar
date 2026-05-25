@@ -176,6 +176,16 @@ def _group_transcript_speaker_bracket(sender_raw: str, *, user_bracket_label: st
     return tail if tail else "?"
 
 
+def _prepend_group_reply_to_author(content: str, row: Dict[str, Any]) -> str:
+    """把共享群表里的引用作者还原成只进 LLM context 的前缀行。"""
+    reply_to_author = str(row.get("reply_to_author") or "").strip()
+    body = str(content or "").strip()
+    if not reply_to_author:
+        return body
+    prefix = f"[回复了 {reply_to_author}]"
+    return f"{prefix}\n{body}" if body else prefix
+
+
 async def _telegram_group_chunk_viewpoint_line() -> str:
     """注入「## 群聊摘要」下：第一人称说明方括号标签与「我」在摘要中的指代（与 chunk 摘要任务、人设叙述一致）。"""
     char_name, user_name = await fetch_active_persona_display_names()
@@ -2294,6 +2304,7 @@ class ContextBuilder:
                     )
                 else:
                     text = strip_lutopia_behavior_appendix(raw)
+                text = _prepend_group_reply_to_author(str(text), row)
             else:
                 msg_role = row.get("role")
                 role_cn = "用户" if msg_role == "user" else "助手"
@@ -2926,6 +2937,7 @@ class ContextBuilder:
                         body = str(
                             strip_lutopia_behavior_appendix(content)
                         ).strip()
+                    body = _prepend_group_reply_to_author(body, row)
                     if not body:
                         continue
                     out.append(

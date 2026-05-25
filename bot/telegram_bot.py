@@ -1063,6 +1063,7 @@ class TelegramBot:
             if not self._mark_group_seen(self._group_user_seen, user_seen_key):
                 logger.info("群聊用户消息重复触发已忽略: %s", user_seen_key)
                 return
+            reply_to_author = self._extract_reply_author(message)
             shared_persisted_tg: Optional[str] = str(message_id)
             inserted = await get_database().insert_shared_group_message(
                 chat_id=str(chat_id),
@@ -1071,6 +1072,7 @@ class TelegramBot:
                 tg_message_id=str(message_id),
                 platform=Platform.TELEGRAM,
                 vision_processed=1,
+                reply_to_author=reply_to_author,
             )
             if inserted is not None:
                 _, shared_persisted_tg = inserted
@@ -3323,6 +3325,12 @@ class TelegramBot:
                             bool(m.get("shared_user_persisted"))
                             for m in (buffer_messages or [])
                         )
+                        reply_to_author = None
+                        for bm in buffer_messages or []:
+                            candidate = str(bm.get("reply_to_author") or "").strip()
+                            if candidate:
+                                reply_to_author = candidate
+                                break
                         shared_tg_message_id = str(
                             getattr(base_message, "message_id", message_id)
                         )
@@ -3354,6 +3362,7 @@ class TelegramBot:
                                     platform=Platform.TELEGRAM,
                                     media_type=media_t,
                                     vision_processed=0,
+                                    reply_to_author=reply_to_author,
                                 )
                                 logger.warning(
                                     "群聊带图回写未命中，已 fallback insert: session_id=%s tg=%s",
@@ -3377,6 +3386,7 @@ class TelegramBot:
                                 platform=Platform.TELEGRAM,
                                 media_type=media_t,
                                 vision_processed=0 if has_img else 1,
+                                reply_to_author=reply_to_author,
                             )
                             # 纯文本群消息在 handle_message 入口已清零；语音/贴纸/图等走缓冲才写共享表，
                             # 此处与「新用户发言」对齐，避免沿用旧 round_count 导致 relay signal_round_limited。
@@ -3745,34 +3755,94 @@ class TelegramBot:
             )
 
     @staticmethod
-    def _extract_reply_prefix(message) -> str:
+    def _tg_message_media_desc(m) -> str:
+        if not m:
+            return ""
+        checks = [
+            ("photo", "图片"),
+            ("sticker", "贴纸"),
+            ("voice", "语音"),
+            ("video", "视频"),
+            ("video_note", "视频消息"),
+            ("animation", "动图"),
+            ("document", "文件"),
+            ("audio", "音频"),
+            ("poll", "投票"),
+            ("location", "位置"),
+            ("contact", "联系人"),
+        ]
+        for attr, label in checks:
+            if getattr(m, attr, None):
+                return f"[{label}消息]"
+        return "[非文本消息]"
+
+    @staticmethod
+    def _tg_reply_author_display(u, sender_chat=None) -> str:
+        if not u:
+            if sender_chat:
+                title = (getattr(sender_chat, "title", None) or "").strip()
+                if title:
+                    return title
+                username = getattr(sender_chat, "username", None)
+                if username:
+                    return f"@{username}"
+            return "未知用户"
+        full = (getattr(u, "full_name", None) or "").strip()
+        if full:
+            return full
+        un = getattr(u, "username", None)
+        if un:
+            return f"@{un}"
+        first = getattr(u, "first_name", None)
+        if first:
+            return str(first).strip()
+        uid = getattr(u, "id", None)
+        return f"用户{uid}" if uid is not None else "未知用户"
+
+    @classmethod
+    def _external_reply_author_display(cls, ext) -> str:
+        origin = getattr(ext, "origin", None)
+        if not origin:
+            return "未知用户"
+        sender_user = getattr(origin, "sender_user", None)
+        if sender_user:
+            return cls._tg_reply_author_display(sender_user)
+        hidden_name = (getattr(origin, "sender_user_name", None) or "").strip()
+        if hidden_name:
+            return hidden_name
+        author_signature = (getattr(origin, "author_signature", None) or "").strip()
+        if author_signature:
+            return author_signature
+        sender_chat = getattr(origin, "sender_chat", None) or getattr(origin, "chat", None)
+        if sender_chat:
+            return cls._tg_reply_author_display(None, sender_chat)
+        return "未知用户"
+
+    @classmethod
+    def _extract_reply_author(cls, message) -> Optional[str]:
+        """提取用户引用对象的作者标签；无引用则返回 None。"""
+        replied = getattr(message, "reply_to_message", None)
+        external_reply = getattr(message, "external_reply", None)
+        quote = getattr(message, "quote", None)
+        if replied:
+            return cls._tg_reply_author_display(
+                getattr(replied, "from_user", None),
+                getattr(replied, "sender_chat", None),
+            )
+        if external_reply:
+            return cls._external_reply_author_display(external_reply)
+        if quote:
+            return "未知用户"
+        return None
+
+    @classmethod
+    def _extract_reply_prefix(cls, message) -> str:
         """若用户引用了某条消息，返回前缀提示字符串（发给 LLM，用户不可见）；否则返回空字符串。"""
         replied = getattr(message, "reply_to_message", None)
         quote = getattr(message, "quote", None)
         external_reply = getattr(message, "external_reply", None)
         if not replied and not quote and not external_reply:
             return ""
-
-        def _tg_message_media_desc(m) -> str:
-            if not m:
-                return ""
-            checks = [
-                ("photo", "图片"),
-                ("sticker", "贴纸"),
-                ("voice", "语音"),
-                ("video", "视频"),
-                ("video_note", "视频消息"),
-                ("animation", "动图"),
-                ("document", "文件"),
-                ("audio", "音频"),
-                ("poll", "投票"),
-                ("location", "位置"),
-                ("contact", "联系人"),
-            ]
-            for attr, label in checks:
-                if getattr(m, attr, None):
-                    return f"[{label}消息]"
-            return "[非文本消息]"
 
         text = ""
         if replied:
@@ -3784,62 +3854,14 @@ class TelegramBot:
         if not text and quote:
             text = (getattr(quote, "text", None) or "").strip()
         if not text and external_reply:
-            text = _tg_message_media_desc(external_reply)
+            text = cls._tg_message_media_desc(external_reply)
         if not text:
-            text = _tg_message_media_desc(replied)
+            text = cls._tg_message_media_desc(replied)
         _MAX_QUOTE = 30
         if len(text) > _MAX_QUOTE:
             text = text[:_MAX_QUOTE] + "……"
 
-        def _tg_reply_author_display(u, sender_chat=None) -> str:
-            if not u:
-                if sender_chat:
-                    title = (getattr(sender_chat, "title", None) or "").strip()
-                    if title:
-                        return title
-                    username = getattr(sender_chat, "username", None)
-                    if username:
-                        return f"@{username}"
-                return "未知用户"
-            full = (getattr(u, "full_name", None) or "").strip()
-            if full:
-                return full
-            un = getattr(u, "username", None)
-            if un:
-                return f"@{un}"
-            first = getattr(u, "first_name", None)
-            if first:
-                return str(first).strip()
-            uid = getattr(u, "id", None)
-            return f"用户{uid}" if uid is not None else "未知用户"
-
-        def _external_reply_author_display(ext) -> str:
-            origin = getattr(ext, "origin", None)
-            if not origin:
-                return "未知用户"
-            sender_user = getattr(origin, "sender_user", None)
-            if sender_user:
-                return _tg_reply_author_display(sender_user)
-            hidden_name = (getattr(origin, "sender_user_name", None) or "").strip()
-            if hidden_name:
-                return hidden_name
-            author_signature = (getattr(origin, "author_signature", None) or "").strip()
-            if author_signature:
-                return author_signature
-            sender_chat = getattr(origin, "sender_chat", None) or getattr(origin, "chat", None)
-            if sender_chat:
-                return _tg_reply_author_display(None, sender_chat)
-            return "未知用户"
-
-        if replied:
-            author = _tg_reply_author_display(
-                getattr(replied, "from_user", None),
-                getattr(replied, "sender_chat", None),
-            )
-        elif external_reply:
-            author = _external_reply_author_display(external_reply)
-        else:
-            author = "未知用户"
+        author = cls._extract_reply_author(message) or "未知用户"
         return (
             f"[系统上下文：用户正在回复 {author} 的消息「{text}」。"
             "此信息只用于理解上下文，禁止在回答中复述这段括号内容。]\n\n"
@@ -3876,6 +3898,7 @@ class TelegramBot:
             message_id: 消息ID
         """
         reply_prefix = self._extract_reply_prefix(message)
+        reply_to_author = self._extract_reply_author(message)
         vis = content or ""
         extras = _xhs_hidden_urls_from_telegram_text_link_entities(message)
         llm_body = (vis.rstrip() + "\n" + "\n".join(extras)).strip() if extras else vis
@@ -3894,6 +3917,7 @@ class TelegramBot:
                 "from_sticker": from_sticker,
                 "shared_user_persisted": shared_user_persisted,
                 "shared_persisted_tg_message_id": shared_persisted_tg_message_id,
+                "reply_to_author": reply_to_author,
                 "timestamp": asyncio.get_event_loop().time(),
             },
         )

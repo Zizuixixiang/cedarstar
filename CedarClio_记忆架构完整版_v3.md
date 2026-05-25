@@ -1,4 +1,4 @@
-v3.3 · 2026-05-24 更新 · Idle context 跳过长期召回 + daily 预压缩 · 实现以代码为准
+v3.4 · 2026-05-25 更新 · 群聊引用作者持久化 · 实现以代码为准
 
 # CedarClio 记忆系统架构完整版 v3
 
@@ -163,11 +163,11 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 ### 2.6 Telegram 双实例、共享群表与接力（与 CedarStar 同构）
 
 - **主库与群聊库**：CedarClio 的 `DATABASE_URL` 指向本实例主库（部署上常见 **`cedarclio_db`**）；CedarStar 主库常见 **`cedarstar_db`**——**不是同一个 PostgreSQL database**。`shared_group_messages` 在 **`SHARED_GROUP_DB_URL`**（两边通常同为 `cedarclio_db`）；`group_chat_state.round_count` 在**各自主库**。Chroma 用 `CHROMA_COLLECTION_NAME` 与 CedarStar 隔离。详见 **`ARCHITECTURE.md` §2.6** 双实例表。
-- **共享表**：`shared_group_messages` 存于 `SHARED_GROUP_DB_URL` 所指库；`config` 表存 `group_chat_max_rounds` 等（Mini App 可调，读**当前实例主库**）。
+- **共享表**：`shared_group_messages` 存于 `SHARED_GROUP_DB_URL` 所指库；`reply_to_author TEXT DEFAULT NULL` 只保存用户引用消息时的被回复者作者名/标签，不保存被回复全文；`config` 表存 `group_chat_max_rounds` 等（Mini App 可调，读**当前实例主库**）。
 - **游戏模式表**：`game_sessions` / `game_turns` 与 `messages.game_session_id` 存当前实例主库，不进入共享群表；`config.active_game_session_id` 为空表示普通模式，有值表示当前启用游戏模式。DDL 由 `memory/database.py` 启动迁移确保，改表后 CedarClio 与 CedarStar 两边都要重启或分别跑迁移。
 - **接力清零**：真人用户新一句时 `set_group_chat_round_count(..., 0)`，覆盖文本、语音/贴纸/图、`document`/`video`/`video_note`/`animation` 及缓冲首次写入共享表用户行；对端接话路径 `increment`。避免仅语音/附件沿用旧计数导致 relay `signal_round_limited`。
 - **@ 判定、随机插话与 peer 幂等**：`get_me()` 的 username/id，无硬编码 handle。对端 bot 明确 @ 本 bot 时必接话；未 @ 本 bot 时，只有最近用户句显式 @ 了另一名 bot 且未 @ 本 bot，才按 `group_chat_interject_probability` 随机插话。relay payload 带 `tg_message_id` 时按具体对端消息判定，旧 payload 回退最近一条对端消息。Telegram 入站与 HTTP relay 共用 `chat_id + sender + tg_message_id` 短期幂等，并对同一 bot 连续分段消息设置短冷却，避免同一助手回复重复触发 LLM。
-- **回复引用上下文**：Telegram 缓冲路径通过 `_extract_reply_prefix()` 将用户正在回复的消息作为不可见系统上下文注入 LLM，来源覆盖 `reply_to_message`、Telegram `quote` 与 `external_reply`；文本优先取原消息正文/图注，其次取 quote 文本，仍无文本时用 `[图片消息]`、`[贴纸消息]`、`[语音]` 等媒体描述。作者名兼容 `from_user`、匿名/频道 `sender_chat` 与 external reply origin；该前缀只用于理解上下文，不写入用户可见正文。
+- **回复引用上下文**：Telegram 缓冲路径通过 `_extract_reply_prefix()` 将用户正在回复的消息作为不可见系统上下文注入本轮 LLM，来源覆盖 `reply_to_message`、Telegram `quote` 与 `external_reply`；文本优先取原消息正文/图注，其次取 quote 文本，仍无文本时用 `[图片消息]`、`[贴纸消息]`、`[语音]` 等媒体描述。作者名兼容 `from_user`、匿名/频道 `sender_chat` 与 external reply origin；共享群用户行另把作者标签写入 `shared_group_messages.reply_to_author`。后续从 DB 拼 transcript 时若该字段非空，会在正文前插入 `[回复了 {reply_to_author}]`，使 Clio/Sirius 两边都能看到引用关系。
 - **群聊出站**：`_telegram_deliver_ordered_segments` 在共享库 `pg_try_advisory_lock` 互斥双实例发送；群聊思维链受 `send_cot_in_group_chat`（须总开关 `send_cot_to_telegram`）；流式收尾与工具轮定稿均经 `_telegram_should_send_cot`。详见 `ARCHITECTURE.md` §2.6 / §4.4。
 - **Context 交叉原文**：与 `ARCHITECTURE.md` §3.1 一致；可选 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；注入时附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`。
 
@@ -215,7 +215,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 8. 未归档 chunk summaries（`get_today_chunk_summaries()` **全局**未归档 chunk，不按当前 `session_id` 过滤）
 9. 动态内容（当前时间、工具记录、结束语）
 10. 最近消息
-    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。为避免两名助手在 API 中均被标成同一 `assistant` role 导致指代混淆，这些历史行在 LLM **messages** 里一律 **`role=user`**，单条正文为「方括号标签 + 换行 + 原内容」（用户行仍注入发送时间等既有逻辑，助手行仍 `strip_lutopia_behavior_appendix`）。system 在 `telegram_segment_hint` 时另含 **`format_telegram_group_segment_directive()`**（群聊分段/字数/最多 3 段，专业或情绪向场景可酌情略超每段字数）、**`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`** 与 **`TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE`**（禁助手腔，工具照常）；用户轮次尾注 **`TELEGRAM_GROUP_USER_TURN_HINT`**。详见 `ARCHITECTURE.md` §3.1。「## 群聊摘要」下第一行由 **`_telegram_group_chunk_viewpoint_line()`** 说明方括号、本实例 Clio/Sirius（**`MessageDatabase._shared_summary_actor()`**，依据 `APP_NAME` / `TELEGRAM_GROUP_PEER_RELAY_APP_ID`）及摘要中「我」与 **`char_name`** 的对齐。对端群聊摘录 **`_build_telegram_peer_recent_for_system`** 亦用 **`[Clio]` / `[Sirius]` / 用户称呼**。
+    - **`telegram_group_*`（共享群表）**：`_build_recent_messages_section` 从 `shared_group_messages` 取近期行；每条正文前用方括号标说话人——**用户**为激活 chat 人设的 `user_name`，两名助手固定为 **`[Clio]`**、**`[Sirius]`**（与表字段 `sender` 一致）。为避免两名助手在 API 中均被标成同一 `assistant` role 导致指代混淆，这些历史行在 LLM **messages** 里一律 **`role=user`**，单条正文为「方括号标签 + 换行 + 原内容」；若共享行 `reply_to_author` 非空，正文前另插入 `[回复了 {reply_to_author}]` 作为仅进 context 的引用关系提示。用户行仍注入发送时间等既有逻辑，助手行仍 `strip_lutopia_behavior_appendix`。system 在 `telegram_segment_hint` 时另含 **`format_telegram_group_segment_directive()`**（群聊分段/字数/最多 3 段，专业或情绪向场景可酌情略超每段字数）、**`TELEGRAM_GROUP_CONTINUATION_DIRECTIVE`** 与 **`TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE`**（禁助手腔，工具照常）；用户轮次尾注 **`TELEGRAM_GROUP_USER_TURN_HINT`**。详见 `ARCHITECTURE.md` §3.1。「## 群聊摘要」下第一行由 **`_telegram_group_chunk_viewpoint_line()`** 说明方括号、本实例 Clio/Sirius（**`MessageDatabase._shared_summary_actor()`**，依据 `APP_NAME` / `TELEGRAM_GROUP_PEER_RELAY_APP_ID`）及摘要中「我」与 **`char_name`** 的对齐。对端群聊摘录 **`_build_telegram_peer_recent_for_system`** 亦用 **`[Clio]` / `[Sirius]` / 用户称呼**，并同样还原 `[回复了 ...]` 引用行。
 11. 当前用户消息
 
 **Telegram 群/私聊交叉原文**：在「今日对话摘要」块内两类 chunk 之间插入对端近期原文（`memory/context_builder.py`）；依赖 `TELEGRAM_MAIN_USER_CHAT_ID` 与 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；非空摘录时标题下附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`（与群聊续话等说明同属 `memory/context_builder.py` 常量）。详见 `ARCHITECTURE.md` §2.6 / §3.1。

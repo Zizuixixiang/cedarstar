@@ -588,6 +588,7 @@ async def _ensure_shared_group_messages_table(conn) -> None:
             media_type TEXT,
             image_caption TEXT,
             vision_processed INTEGER DEFAULT 1,
+            reply_to_author TEXT DEFAULT NULL,
             UNIQUE(chat_id, tg_message_id, sender)
         )
         """
@@ -601,6 +602,9 @@ async def _ensure_shared_group_messages_table(conn) -> None:
     )
     await conn.execute(
         "ALTER TABLE shared_group_messages ADD COLUMN IF NOT EXISTS is_summarized_sirius INTEGER NOT NULL DEFAULT 0"
+    )
+    await conn.execute(
+        "ALTER TABLE shared_group_messages ADD COLUMN IF NOT EXISTS reply_to_author TEXT DEFAULT NULL"
     )
     await conn.execute(
         """
@@ -1454,6 +1458,7 @@ class MessageDatabase:
         media_type: Optional[str] = None,
         image_caption: Optional[str] = None,
         vision_processed: int = 1,
+        reply_to_author: Optional[str] = None,
     ) -> Optional[Tuple[int, str]]:
         """
         写入共享群聊消息。
@@ -1467,6 +1472,7 @@ class MessageDatabase:
         sender_norm = str(sender or "").strip().lower()
         if sender_norm not in {"user", "clio", "sirius"}:
             raise ValueError(f"invalid sender: {sender}")
+        reply_to_author_norm = str(reply_to_author or "").strip() or None
         async with pool.acquire() as conn:
             if sender_norm == "user":
                 # 防止同一用户消息在短时间内被不同链路重复写入共享表（例如原始入站与缓冲回写）。
@@ -1491,9 +1497,9 @@ class MessageDatabase:
                 """
                 INSERT INTO shared_group_messages (
                     chat_id, sender, content, tg_message_id, is_summarized_clio, is_summarized_sirius,
-                    platform, thinking, media_type, image_caption, vision_processed
+                    platform, thinking, media_type, image_caption, vision_processed, reply_to_author
                 )
-                VALUES ($1, $2, $3, $4, 0, 0, $5, $6, $7, $8, $9)
+                VALUES ($1, $2, $3, $4, 0, 0, $5, $6, $7, $8, $9, $10)
                 ON CONFLICT (chat_id, tg_message_id, sender) DO NOTHING
                 RETURNING id, tg_message_id
                 """,
@@ -1506,6 +1512,7 @@ class MessageDatabase:
                 media_type,
                 image_caption,
                 int(vision_processed),
+                reply_to_author_norm,
             )
             if row is not None:
                 return int(row["id"]), str(row["tg_message_id"])
@@ -1535,7 +1542,8 @@ class MessageDatabase:
             rows = await conn.fetch(
                 f"""
                 SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized,
-                       created_at, platform, thinking, media_type, image_caption, vision_processed
+                       created_at, platform, thinking, media_type, image_caption, vision_processed,
+                       reply_to_author
                 FROM shared_group_messages
                 WHERE chat_id = $1
                 ORDER BY created_at DESC
@@ -1562,7 +1570,8 @@ class MessageDatabase:
             rows = await conn.fetch(
                 f"""
                 SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized,
-                       created_at, platform, thinking, media_type, image_caption, vision_processed
+                       created_at, platform, thinking, media_type, image_caption, vision_processed,
+                       reply_to_author
                 FROM shared_group_messages
                 WHERE chat_id = $1 AND {summary_col} = 0
                   AND created_at >= $3
@@ -1593,7 +1602,8 @@ class MessageDatabase:
             rows = await conn.fetch(
                 f"""
                 SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized,
-                       created_at, platform, thinking, media_type, image_caption, vision_processed
+                       created_at, platform, thinking, media_type, image_caption, vision_processed,
+                       reply_to_author
                 FROM shared_group_messages
                 WHERE chat_id = $1 AND {summary_col} = 1
                   AND created_at >= $3
@@ -2876,7 +2886,8 @@ class MessageDatabase:
                 rows = await conn.fetch(
                     f"""
                     SELECT id, chat_id, sender, content, tg_message_id, {summary_col} AS is_summarized, created_at,
-                           platform, thinking, media_type, image_caption, vision_processed
+                           platform, thinking, media_type, image_caption, vision_processed,
+                           reply_to_author
                     FROM shared_group_messages
                     {where_clause}
                     ORDER BY created_at DESC
@@ -2900,6 +2911,7 @@ class MessageDatabase:
                     "media_type": r["media_type"],
                     "image_caption": r["image_caption"],
                     "vision_processed": int(r["vision_processed"] or 0),
+                    "reply_to_author": r["reply_to_author"],
                 }
                 for r in rows
             ]
