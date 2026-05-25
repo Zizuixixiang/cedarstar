@@ -9,10 +9,10 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天机器人系统，支持
 | 层级 | 技术 |
 |------|------|
 | 后端 | Python、FastAPI、PostgreSQL（asyncpg） |
-| 向量与检索 | ChromaDB、BM25（jieba + rank_bm25）、Cohere Rerank（可选） |
+| 向量与检索 | ChromaDB、BM25（jieba + rank_bm25）、SiliconFlow / OpenAI 兼容 Rerank（可选） |
 | 机器人 | discord.py、python-telegram-bot |
 | LLM | OpenAI 兼容 API、Anthropic Claude（可配置） |
-| 向量嵌入 | 智谱 AI embedding-3 |
+| 向量嵌入 | SiliconFlow Qwen3-Embedding-8B（默认）/ 智谱 AI embedding-3（可切换） |
 | 前端 | React、Vite（`miniapp/`） |
 
 ## 目录结构（简略）

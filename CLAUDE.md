@@ -10,8 +10,8 @@
 - 后端：Python / FastAPI / PostgreSQL（asyncpg 连接池）/ ChromaDB
 - Bot：python-telegram-bot（webhook 模式）/ discord.py（可选）
 - LLM：OpenAI 兼容 API + Anthropic Claude（可配置）
-- Embedding：智谱 embedding-3（1024 维，主记忆）/ 硅基流动 BAAI/bge-m3（表情包）
-- 检索：ChromaDB + BM25（jieba）+ Cohere Rerank
+- Embedding：SiliconFlow Qwen3-Embedding-8B（默认，1024 维，主记忆）/ 智谱 embedding-3（可通过 `EMBEDDING_PROVIDER=zhipu` 切换）/ 硅基流动 BAAI/bge-m3（表情包）
+- 检索：ChromaDB + BM25（jieba）+ SiliconFlow / OpenAI 兼容 Rerank
 - 前端：React 18 + Vite（无 UI 组件库）
 
 ---
@@ -47,7 +47,7 @@ cedarstar/
 - Token 落库用 `generate_with_context_and_tracking`，不用 `generate_with_context`
 
 **记忆系统**
-- 向量写入用 1024 维（智谱 embedding-3 必须传 `dimensions: 1024`）
+- 向量写入用 1024 维（SiliconFlow Qwen3-Embedding-8B / 智谱 embedding-3 均保持 1024 维）
 - `meme_pack` Chroma 集合与主记忆集合完全隔离，不得混用
 - Chroma doc_id 命名约定：`daily_{batch_date}`、`daily_{batch_date}_event_N`、`manual_{uuid}`
 

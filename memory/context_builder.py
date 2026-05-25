@@ -1484,10 +1484,24 @@ class ContextBuilder:
                 self._last_longterm_summary_ids = []
                 vector_search_section = ""
             else:
-                vector_search_section = await self._build_vector_search_section(
-                    session_id,
-                    user_message,
-                )
+                rerank_enabled = await _rerank_enabled()
+                if rerank_enabled:
+                    try:
+                        vector_search_section = await self._build_vector_search_section_async(
+                            user_message,
+                            session_id,
+                        )
+                    except Exception as e:
+                        logger.warning("主路径 Rerank 长期记忆召回失败，回退旧路径: %s", e)
+                        vector_search_section = await self._build_vector_search_section(
+                            session_id,
+                            user_message,
+                        )
+                else:
+                    vector_search_section = await self._build_vector_search_section(
+                        session_id,
+                        user_message,
+                    )
             archived_daily_section = await self._build_archived_daily_supplement_section(session_id)
             daily_summaries_section = await self._build_daily_summaries_section(
                 session_id,

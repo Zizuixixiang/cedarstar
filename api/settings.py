@@ -39,7 +39,17 @@ def _east8_week_start_naive():
 
 
 ALLOWED_API_CONFIG_TYPES: FrozenSet[str] = frozenset(
-    {"chat", "summary", "vision", "stt", "tts", "embedding", "search_summary", "analysis"}
+    {
+        "chat",
+        "summary",
+        "vision",
+        "stt",
+        "tts",
+        "embedding",
+        "rerank",
+        "search_summary",
+        "analysis",
+    }
 )
 
 
@@ -584,7 +594,7 @@ async def test_api_config(config_id: int):
 
     if not api_key or not base_url:
         return create_response(False, None, "配置缺少 API Key 或 Base URL")
-    if not model and config_type in CHAT_LIKE_CONFIG_TYPES:
+    if not model and config_type in CHAT_LIKE_CONFIG_TYPES.union({"rerank"}):
         return create_response(False, None, "请先填写模型名再测试")
 
     if config_type == "stt":
@@ -628,6 +638,57 @@ async def test_api_config(config_id: int):
                         "raw": raw,
                         "http_status": response.status_code,
                         "message_count": 1,
+                    },
+                    "测试成功",
+                )
+
+        if config_type == "rerank":
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "CedarStar/1.0",
+            }
+            endpoint = f"{base_url}/rerank"
+            if base_url.endswith("/rerank"):
+                endpoint = base_url
+            payload = {
+                "model": model,
+                "query": "南杉问起长期记忆召回和 reranker 是否启用",
+                "documents": [
+                    "长期记忆召回采用向量检索和 BM25 双路召回。",
+                    "Telegram 语音转文字使用 STT API 配置。",
+                    "Reranker 会对候选记忆做语义精排并返回 relevance_score。",
+                ],
+                "return_documents": False,
+            }
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                response = await client.post(endpoint, headers=headers, json=payload)
+                try:
+                    raw = response.json()
+                except Exception:
+                    raw = {"_raw_text": (response.text or "")[:4000]}
+                if response.status_code >= 400:
+                    detail = raw if isinstance(raw, dict) else {"_raw_text": str(raw)}
+                    return create_response(
+                        False,
+                        {"http_status": response.status_code, "raw": detail},
+                        f"测试失败: HTTP {response.status_code}",
+                    )
+                results = raw.get("results") if isinstance(raw, dict) else None
+                top = results[0] if isinstance(results, list) and results else {}
+                reply = "rerank 测试成功"
+                if isinstance(top, dict):
+                    reply = (
+                        f"rerank 测试成功，top index={top.get('index')} "
+                        f"score={top.get('relevance_score')}"
+                    )
+                return create_response(
+                    True,
+                    {
+                        "reply": reply,
+                        "raw": raw,
+                        "http_status": response.status_code,
+                        "message_count": len(payload["documents"]),
                     },
                     "测试成功",
                 )

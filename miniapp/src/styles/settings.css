@@ -959,7 +959,8 @@
   /* background: rgba(27, 111, 122, 0.14); */
 }
 
-.cfg-type-tag.embedding-type {
+.cfg-type-tag.embedding-type,
+.cfg-type-tag.rerank-type {
   /* color: #5c4d7a; */
   /* background: rgba(92, 77, 122, 0.14); */
 }

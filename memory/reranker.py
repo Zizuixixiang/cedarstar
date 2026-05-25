@@ -13,8 +13,8 @@ from typing import List, Dict, Any, Optional
 
 logger = logging.getLogger(__name__)
 
-# SiliconFlow Rerank API endpoint
-RERANK_API_URL = "https://api.siliconflow.cn/v1/rerank"
+# SiliconFlow Rerank API defaults
+RERANK_API_BASE_URL = "https://api.siliconflow.cn/v1"
 RERANK_MODEL = "Qwen/Qwen3-Reranker-4B"
 
 
@@ -30,12 +30,31 @@ class Reranker:
     使用 SiliconFlow Qwen3-Reranker-4B API 对检索结果进行重排序。
     """
 
-    def __init__(self, api_key: Optional[str] = None, timeout: float = 3.0):
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        timeout: float = 3.0,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+    ):
         self.api_key = api_key or os.getenv("SILICONFLOW_API_KEY", "")
         if not self.api_key:
             raise ValueError("SILICONFLOW_API_KEY 未设置，请检查 .env 文件")
         self.timeout = timeout
-        logger.info("Reranker 初始化完成，模型: %s, timeout: %.1fs", RERANK_MODEL, self.timeout)
+        self.base_url = (base_url or RERANK_API_BASE_URL).rstrip("/")
+        self.model = (model or RERANK_MODEL).strip() or RERANK_MODEL
+        logger.info(
+            "Reranker 初始化完成，模型: %s, base_url: %s, timeout: %.1fs",
+            self.model,
+            self.base_url,
+            self.timeout,
+        )
+
+    @property
+    def endpoint(self) -> str:
+        if self.base_url.endswith("/rerank"):
+            return self.base_url
+        return f"{self.base_url}/rerank"
 
     async def rerank(
         self,
@@ -63,7 +82,7 @@ class Reranker:
             raise RerankFallbackException("query 为空，跳过 rerank")
 
         payload: Dict[str, Any] = {
-            "model": RERANK_MODEL,
+            "model": self.model,
             "query": query,
             "documents": documents,
             "return_documents": False,
@@ -81,7 +100,7 @@ class Reranker:
             timeout_obj = aiohttp.ClientTimeout(total=self.timeout)
             async with aiohttp.ClientSession(timeout=timeout_obj) as session:
                 async with session.post(
-                    RERANK_API_URL, json=payload, headers=headers
+                    self.endpoint, json=payload, headers=headers
                 ) as resp:
                     if resp.status != 200:
                         body = await resp.text()
@@ -120,7 +139,21 @@ async def get_reranker() -> Reranker:
     """获取全局 Reranker 单例。"""
     global _reranker_instance
     if _reranker_instance is None:
-        _reranker_instance = Reranker()
+        cfg = None
+        try:
+            from memory.database import get_database
+
+            cfg = await get_database().get_active_api_config("rerank")
+        except Exception as e:
+            logger.debug("读取激活 rerank API 配置失败，回退环境变量: %s", e)
+        if cfg:
+            _reranker_instance = Reranker(
+                api_key=(cfg.get("api_key") or "").strip(),
+                base_url=(cfg.get("base_url") or RERANK_API_BASE_URL).strip(),
+                model=(cfg.get("model") or RERANK_MODEL).strip(),
+            )
+        else:
+            _reranker_instance = Reranker()
     return _reranker_instance
 
 
@@ -201,7 +234,7 @@ async def test_reranker() -> None:
 
     try:
         reranker = Reranker()
-        print(f"Reranker 初始化成功，模型: {RERANK_MODEL}")
+        print(f"Reranker 初始化成功，模型: {reranker.model}")
 
         test_query = "南杉的记忆系统修改"
         test_docs = [

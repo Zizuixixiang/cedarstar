@@ -24,6 +24,7 @@ const CONFIG_TYPE_LABEL = {
   stt: '语音转录',
   tts: '语音合成',
   embedding: 'Embedding',
+  rerank: 'Reranker',
   search_summary: '搜索摘要',
   analysis: '分析',
 };
@@ -35,6 +36,7 @@ const CONFIG_TYPE_CLASS = {
   stt: 'stt-type',
   tts: 'tts-type',
   embedding: 'embedding-type',
+  rerank: 'rerank-type',
   search_summary: 'search-summary-type',
   analysis: 'analysis-type',
 };
@@ -46,6 +48,7 @@ const EMPTY_TAB_TIP = {
   stt: '暂无语音转录 API 配置，点击右上角新增（可用硅基流动 OpenAI 兼容，或选择火山引擎原生 ASR）',
   tts: '暂无语音合成 API 配置，点击右上角新增（MiniMax T2A v2，填写 API Key 即可）',
   embedding: '暂无 Embedding 配置，点击右上角新增（表情包向量用硅基流动 OpenAI 兼容 /v1/embeddings）',
+  rerank: '暂无 Reranker 配置，点击右上角新增（用于长期记忆候选精排，Base URL 通常填 OpenAI 兼容 /v1）',
   search_summary: '暂无搜索摘要模型配置，点击右上角新增（用于压缩 Tavily 结果；未填时可回退已激活的摘要 API）',
   analysis: '暂无分析模型配置，点击右上角新增（用于 Step 4 结构化提取与打分）',
 };
@@ -57,7 +60,7 @@ const CHAT_LIKE_CONFIG_TYPES = new Set([
   'chat', 'summary', 'vision', 'search_summary', 'analysis',
 ]);
 
-const TESTABLE_CONFIG_TYPES = new Set([...CHAT_LIKE_CONFIG_TYPES, 'embedding']);
+const TESTABLE_CONFIG_TYPES = new Set([...CHAT_LIKE_CONFIG_TYPES, 'embedding', 'rerank']);
 
 const normBaseUrl = (url) => (url || '').trim().replace(/\/$/, '');
 
@@ -479,6 +482,12 @@ function ConfigModal({
                 <span className="type-radio-text">Embedding</span>
               </label>
               <label className="type-radio-label">
+                <input type="radio" name="config_type" value="rerank"
+                  checked={form.config_type === 'rerank'}
+                  onChange={() => set('config_type', 'rerank')} />
+                <span className="type-radio-text">Reranker</span>
+              </label>
+              <label className="type-radio-label">
                 <input type="radio" name="config_type" value="search_summary"
                   checked={form.config_type === 'search_summary'}
                   onChange={() => set('config_type', 'search_summary')} />
@@ -498,6 +507,7 @@ function ConfigModal({
               {form.config_type === 'stt' && '用于 Telegram/Discord 语音转文字；默认支持 OpenAI 兼容 /audio/transcriptions，也支持火山引擎原生 ASR 分支'}
               {form.config_type === 'tts' && '用于 Telegram 私聊语音输出（MiniMax T2A v2）；填写 API Key 和 Voice ID，激活后文字消息后会追发语音'}
               {form.config_type === 'embedding' && '用于表情包 Chroma 检索（硅基流动 BAAI/bge-m3，OpenAI 兼容 /v1/embeddings）；需在列表中激活'}
+              {form.config_type === 'rerank' && '用于长期记忆候选精排（如 SiliconFlow Qwen3-Reranker-4B）；Base URL 通常填写到 /v1，需在列表中激活'}
               {form.config_type === 'search_summary' && '用于 web_search：把 Tavily 多条结果压成短摘要（建议小模型）；未激活本类型时回退「摘要 API」'}
               {form.config_type === 'analysis' && '用于日终 Step 4 的事件聚类、描述与打分；未激活时 Step 4 回退摘要 API，仍不可用则使用兜底'}
             </div>
@@ -760,7 +770,7 @@ function ConfigModal({
 
 /* ─── 主页面 ─── */
 function Settings() {
-  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt' | 'embedding' | 'search_summary' | 'analysis'
+  const [activeTab, setActiveTab] = useState('chat'); // 'chat' | 'summary' | 'vision' | 'stt' | 'embedding' | 'rerank' | 'search_summary' | 'analysis'
   const activeTabRef = useRef('chat'); // 用 ref 追踪最新 activeTab，避免闭包陷阱
   const configTabsRef = useHorizontalDragScroll();
   const periodTabsRef = useHorizontalDragScroll();
@@ -980,7 +990,7 @@ function Settings() {
   /* 弹窗保存后：按保存的配置类型刷新；若与当前 Tab 不一致则切换 Tab（避免摘要配在对话 Tab 下仍拉 chat 列表） */
   const handleSaved = (savedConfigType) => {
     setModalData(null);
-    const nextTab = ['chat', 'summary', 'vision', 'stt', 'embedding', 'search_summary', 'analysis'].includes(savedConfigType)
+    const nextTab = ['chat', 'summary', 'vision', 'stt', 'embedding', 'rerank', 'search_summary', 'analysis'].includes(savedConfigType)
       ? savedConfigType
       : activeTabRef.current;
     if (nextTab !== activeTabRef.current) {
@@ -1179,6 +1189,12 @@ function Settings() {
               onClick={() => switchTab('embedding')}
             >
               Embedding
+            </button>
+            <button
+              className={`config-tab ${activeTab === 'rerank' ? 'active' : ''}`}
+              onClick={() => switchTab('rerank')}
+            >
+              Reranker
             </button>
             <button
               className={`config-tab ${activeTab === 'search_summary' ? 'active' : ''}`}
