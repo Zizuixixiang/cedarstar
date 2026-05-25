@@ -85,6 +85,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `rerank`：长期记忆精排（SiliconFlow Qwen3-Reranker-4B）
 - `tts`：语音合成（MiniMax T2A v2，国内域名 `api.minimaxi.com`）；`api_configs` 中需配置 `api_key` 与 `voice_id`
 
+`summary` 调用统一经 `await SummaryLLMInterface.create()` 绑定当前激活的 summary 配置（不可用时回退 `.env` 的 `SUMMARY_*`），后台摘要有效超时为 `max(SUMMARY_TIMEOUT, SUMMARY_BACKGROUND_TIMEOUT)`；`SUMMARY_BACKGROUND_TIMEOUT` 默认 300 秒，覆盖微批摘要、日终今日小传与 idle daily 预压缩等后台任务，避免被实时聊天短超时截断。
+
 **激活池与 API 故障转移**（与 `ARCHITECTURE.md` §2.3 一致，`memory/database.py` + `llm/llm_interface.py`）：
 
 - 同一 `config_type` 可多行 `is_active=1`（Mini App「加入激活池」）；`activate` 不取消同类型其它行，`deactivate` 单独取消。
@@ -164,6 +166,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - **游戏模式表**：`game_sessions` / `game_turns` 与 `messages.game_session_id` 存当前实例主库，不进入共享群表；`config.active_game_session_id` 为空表示普通模式，有值表示当前启用游戏模式。DDL 由 `memory/database.py` 启动迁移确保，改表后 CedarClio 与 CedarStar 两边都要重启或分别跑迁移。
 - **接力清零**：真人用户新一句时 `set_group_chat_round_count(..., 0)`，覆盖文本、语音/贴纸/图、`document`/`video`/`video_note`/`animation` 及缓冲首次写入共享表用户行；对端接话路径 `increment`。避免仅语音/附件沿用旧计数导致 relay `signal_round_limited`。
 - **@ 判定、随机插话与 peer 幂等**：`get_me()` 的 username/id，无硬编码 handle。对端 bot 明确 @ 本 bot 时必接话；未 @ 本 bot 时，只有最近用户句显式 @ 了另一名 bot 且未 @ 本 bot，才按 `group_chat_interject_probability` 随机插话。relay payload 带 `tg_message_id` 时按具体对端消息判定，旧 payload 回退最近一条对端消息。Telegram 入站与 HTTP relay 共用 `chat_id + sender + tg_message_id` 短期幂等，并对同一 bot 连续分段消息设置短冷却，避免同一助手回复重复触发 LLM。
+- **回复引用上下文**：Telegram 缓冲路径通过 `_extract_reply_prefix()` 将用户正在回复的消息作为不可见系统上下文注入 LLM，来源覆盖 `reply_to_message`、Telegram `quote` 与 `external_reply`；文本优先取原消息正文/图注，其次取 quote 文本，仍无文本时用 `[图片消息]`、`[贴纸消息]`、`[语音]` 等媒体描述。作者名兼容 `from_user`、匿名/频道 `sender_chat` 与 external reply origin；该前缀只用于理解上下文，不写入用户可见正文。
 - **群聊出站**：`_telegram_deliver_ordered_segments` 在共享库 `pg_try_advisory_lock` 互斥双实例发送；群聊思维链受 `send_cot_in_group_chat`（须总开关 `send_cot_to_telegram`）；流式收尾与工具轮定稿均经 `_telegram_should_send_cot`。详见 `ARCHITECTURE.md` §2.6 / §4.4。
 - **Context 交叉原文**：与 `ARCHITECTURE.md` §3.1 一致；可选 `TELEGRAM_CONTEXT_GROUP_CHAT_ID` 或单群自动推断；注入时附带 `TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE`。
 
@@ -377,7 +380,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），日常互动须保留因果与情感语境（含正反示例，避免仅用形容词概括情绪）；`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致）。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），日常互动须保留因果与情感语境（含正反示例，避免仅用形容词概括情绪）；`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致），并使用后台摘要超时下限 `SUMMARY_BACKGROUND_TIMEOUT`。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 
@@ -386,7 +389,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 日终跑批由进程内 `schedule_daily_batch()` 按数据库 `daily_batch_hour` 配置定时触发（东八区），按业务日执行六步。`run_daily_batch.py` 保留为独立命令行入口（手动补跑 / 重试子进程调用）。
 
 1. Step 1：到期 temporal_states 结算
-2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；日常互动要求保留能体现情感的因果逻辑与关键互动细节；prompt 另要求材料要点不得漏写、须按各事件实际发生的时间先后顺序记载；摘要 LLM 经 `_call_summary_llm_custom`，输出 `max_tokens` 下限 3000（`min(8192, max(base, 3000))`）；摘要链路统一注入 CedarStar/CedarClio 角色背景块）。注入当日 chunk 时，时间范围 preamble 与每条 chunk 标题使用**内容日** `COALESCE(source_date, created_at)`（上海时区格式），与 Context / 记忆日记本列表口径一致，而非仅用 `summaries.created_at` 写入时间。
+2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；日常互动要求保留能体现情感的因果逻辑与关键互动细节；prompt 另要求材料要点不得漏写、须按各事件实际发生的时间先后顺序记载；摘要 LLM 经 `_call_summary_llm_custom`，输出 `max_tokens` 下限 3000（`min(8192, max(base, 3000))`），HTTP 超时取 `SummaryLLMInterface.timeout`，即 `max(SUMMARY_TIMEOUT, SUMMARY_BACKGROUND_TIMEOUT)`；摘要链路统一注入 CedarStar/CedarClio 角色背景块）。注入当日 chunk 时，时间范围 preamble 与每条 chunk 标题使用**内容日** `COALESCE(source_date, created_at)`（上海时区格式），与 Context / 记忆日记本列表口径一致，而非仅用 `summaries.created_at` 写入时间。
 3. Step 3：记忆卡片 Upsert + relationship_timeline
 4. Step 3.5：从今日小传提取时效状态操作
 5. Step 4：事件聚类 + 描述打分 + 长期事件入库

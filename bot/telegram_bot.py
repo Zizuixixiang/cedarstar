@@ -3748,19 +3748,58 @@ class TelegramBot:
     def _extract_reply_prefix(message) -> str:
         """若用户引用了某条消息，返回前缀提示字符串（发给 LLM，用户不可见）；否则返回空字符串。"""
         replied = getattr(message, "reply_to_message", None)
-        if not replied:
+        quote = getattr(message, "quote", None)
+        external_reply = getattr(message, "external_reply", None)
+        if not replied and not quote and not external_reply:
             return ""
-        text = (
-            getattr(replied, "text", None) or getattr(replied, "caption", None) or ""
-        ).strip()
+
+        def _tg_message_media_desc(m) -> str:
+            if not m:
+                return ""
+            checks = [
+                ("photo", "图片"),
+                ("sticker", "贴纸"),
+                ("voice", "语音"),
+                ("video", "视频"),
+                ("video_note", "视频消息"),
+                ("animation", "动图"),
+                ("document", "文件"),
+                ("audio", "音频"),
+                ("poll", "投票"),
+                ("location", "位置"),
+                ("contact", "联系人"),
+            ]
+            for attr, label in checks:
+                if getattr(m, attr, None):
+                    return f"[{label}消息]"
+            return "[非文本消息]"
+
+        text = ""
+        if replied:
+            text = (
+                getattr(replied, "text", None)
+                or getattr(replied, "caption", None)
+                or ""
+            ).strip()
+        if not text and quote:
+            text = (getattr(quote, "text", None) or "").strip()
+        if not text and external_reply:
+            text = _tg_message_media_desc(external_reply)
         if not text:
-            return ""
+            text = _tg_message_media_desc(replied)
         _MAX_QUOTE = 30
         if len(text) > _MAX_QUOTE:
             text = text[:_MAX_QUOTE] + "……"
 
-        def _tg_reply_author_display(u) -> str:
+        def _tg_reply_author_display(u, sender_chat=None) -> str:
             if not u:
+                if sender_chat:
+                    title = (getattr(sender_chat, "title", None) or "").strip()
+                    if title:
+                        return title
+                    username = getattr(sender_chat, "username", None)
+                    if username:
+                        return f"@{username}"
                 return "未知用户"
             full = (getattr(u, "full_name", None) or "").strip()
             if full:
@@ -3774,8 +3813,33 @@ class TelegramBot:
             uid = getattr(u, "id", None)
             return f"用户{uid}" if uid is not None else "未知用户"
 
-        from_user = getattr(replied, "from_user", None)
-        author = _tg_reply_author_display(from_user)
+        def _external_reply_author_display(ext) -> str:
+            origin = getattr(ext, "origin", None)
+            if not origin:
+                return "未知用户"
+            sender_user = getattr(origin, "sender_user", None)
+            if sender_user:
+                return _tg_reply_author_display(sender_user)
+            hidden_name = (getattr(origin, "sender_user_name", None) or "").strip()
+            if hidden_name:
+                return hidden_name
+            author_signature = (getattr(origin, "author_signature", None) or "").strip()
+            if author_signature:
+                return author_signature
+            sender_chat = getattr(origin, "sender_chat", None) or getattr(origin, "chat", None)
+            if sender_chat:
+                return _tg_reply_author_display(None, sender_chat)
+            return "未知用户"
+
+        if replied:
+            author = _tg_reply_author_display(
+                getattr(replied, "from_user", None),
+                getattr(replied, "sender_chat", None),
+            )
+        elif external_reply:
+            author = _external_reply_author_display(external_reply)
+        else:
+            author = "未知用户"
         return (
             f"[系统上下文：用户正在回复 {author} 的消息「{text}」。"
             "此信息只用于理解上下文，禁止在回答中复述这段括号内容。]\n\n"

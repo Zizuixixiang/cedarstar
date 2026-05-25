@@ -211,6 +211,7 @@ Thumbs.db
 Desktop.ini
 chroma_db/
 chroma_db_backup_old/
+chroma_db_dirty_*/
 miniapp/node_modules/
 portal/node_modules/
 backups/

@@ -432,6 +432,11 @@ class SummaryLLMInterface:
     使用独立的摘要 API 配置，与主 LLM 配置分离。
     生产路径请用 ``await SummaryLLMInterface.create()`` 读取 Mini App 激活的 summary 配置。
     """
+
+    @staticmethod
+    def _background_timeout(timeout: int) -> int:
+        """后台摘要允许比实时聊天更长的等待时间。"""
+        return max(int(timeout or 0), config.SUMMARY_BACKGROUND_TIMEOUT)
     
     def __init__(self):
         """
@@ -441,7 +446,7 @@ class SummaryLLMInterface:
         self.model_name = config.SUMMARY_MODEL_NAME
         self.api_key = config.SUMMARY_API_KEY
         self.api_base = config.SUMMARY_API_BASE
-        self.timeout = config.SUMMARY_TIMEOUT
+        self.timeout = self._background_timeout(config.SUMMARY_TIMEOUT)
         self.max_tokens = config.SUMMARY_MAX_TOKENS
         
         # 如果没有设置摘要 API 配置，回退到主 LLM 配置
@@ -451,7 +456,7 @@ class SummaryLLMInterface:
             self.model_name = main_llm.model_name
             self.api_key = main_llm.api_key
             self.api_base = main_llm.api_base
-            self.timeout = main_llm.timeout
+            self.timeout = self._background_timeout(main_llm.timeout)
             self.max_tokens = min(main_llm.max_tokens, 500)  # 摘要使用较小的 token 数
         
         # 验证配置

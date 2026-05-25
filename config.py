@@ -436,6 +436,18 @@ class Config:
             return int(os.getenv("SUMMARY_TIMEOUT", "60"))
         except ValueError:
             return 60
+
+    @property
+    def SUMMARY_BACKGROUND_TIMEOUT(self) -> int:
+        """
+        后台摘要任务的最低 API 调用超时时间（秒）。
+
+        日终跑批、微批摘要、自主活动摘要预压缩都在后台执行，允许比实时聊天等待更久。
+        """
+        try:
+            return max(1, int(os.getenv("SUMMARY_BACKGROUND_TIMEOUT", "300")))
+        except ValueError:
+            return 300
     
     @property
     def SUMMARY_MAX_TOKENS(self) -> int:
