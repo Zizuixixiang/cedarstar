@@ -989,6 +989,7 @@ async def migrate_database_schema(conn) -> None:
             ("context_archived_daily_limit", "3"),
             ("archived_daily_min_hits", "2"),
             ("starred_boost_factor", "1.2"),
+            ("rerank_blend_weight", "0.7"),
             ("group_chat_silent_mode", "0"),
             ("group_chat_max_rounds", "3"),
             ("group_chat_max_message_chars", "600"),

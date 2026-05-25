@@ -536,6 +536,19 @@ async def _starred_boost_factor_value() -> float:
     return 1.2
 
 
+async def _rerank_blend_weight_value() -> float:
+    """rerank 语义分在融合公式里的权重，余量给 decay_score；默认 0.7。"""
+    try:
+        raw = await get_database().get_config("rerank_blend_weight")
+        if raw is not None and str(raw).strip() != "":
+            return max(0.0, min(1.0, float(str(raw).strip())))
+    except (ValueError, TypeError):
+        pass
+    except Exception as e:
+        logger.debug("读取 rerank_blend_weight 失败，使用默认 0.7: %s", e)
+    return 0.7
+
+
 async def _context_archived_daily_limit() -> int:
     """远古 daily 补充条数：优先 config 表 context_archived_daily_limit，否则默认 3。"""
     try:
@@ -716,6 +729,25 @@ def _time_decay_factor(metadata: Dict[str, Any], half_life_days: int, now_ts: fl
     if half_life_days <= 0:
         return 1.0
     return math.exp(-math.log(2) / half_life_days * age)
+
+
+def _source_age_days(metadata: Dict[str, Any], now_ts: float) -> float:
+    """按事件发生日计算年龄；优先 source_date/date，缺失时回退 created_at/last_access_ts。"""
+    md = metadata or {}
+    for key in ("source_date", "date", "created_at"):
+        raw = md.get(key)
+        if not raw:
+            continue
+        try:
+            s = str(raw).strip()
+            if len(s) == 10 and s[4] == "-" and s[7] == "-":
+                dt = datetime.fromisoformat(f"{s}T00:00:00+08:00")
+            else:
+                dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            return max(0.0, (now_ts - dt.timestamp()) / 86400.0)
+        except (TypeError, ValueError):
+            continue
+    return _memory_age_days(md, now_ts)
 
 
 def _is_starred(metadata: Dict[str, Any]) -> bool:
@@ -1014,6 +1046,43 @@ def _decay_resurrection_raw(metadata: Dict[str, Any], age_days: float) -> float:
     effective_hl = float(hl) * (1.0 + arousal)
     exp_part = math.exp(-math.log(2) / effective_hl * age_days)
     return base * exp_part * (1.0 + 0.35 * math.log(1 + hits))
+
+
+async def _rerank_success_decay_score(metadata: Dict[str, Any], now_ts: float) -> float:
+    """rerank 成功路径的 decay_score：base_score * time_decay * hits_boost。"""
+    md = metadata or {}
+    try:
+        arousal = float(md.get("arousal", 0.1))
+    except (TypeError, ValueError):
+        arousal = 0.1
+    arousal = max(0.0, min(1.0, arousal))
+
+    try:
+        raw_hl = md.get("halflife_days")
+        halflife_days = float(raw_hl) if raw_hl is not None and str(raw_hl).strip() != "" else 0.0
+    except (TypeError, ValueError):
+        halflife_days = 0.0
+    if halflife_days <= 0:
+        halflife_days = float(await _half_life_by_event_type(str(md.get("event_type") or "")))
+
+    effective_hl = max(1.0, float(halflife_days) * (1.0 + arousal))
+    if _is_starred(md):
+        time_decay = 1.0
+    else:
+        days_elapsed = _source_age_days(md, now_ts)
+        time_decay = math.exp(-math.log(2) * days_elapsed / effective_hl)
+
+    try:
+        base_score = float(md.get("base_score", md.get("score", 5.0)))
+    except (TypeError, ValueError):
+        base_score = 5.0
+    try:
+        hits = int(md.get("hits", 0))
+    except (TypeError, ValueError):
+        hits = 0
+    hits = max(0, hits)
+    hits_boost = 1.0 + 0.35 * math.log(1 + hits)
+    return base_score * time_decay * hits_boost
 
 
 def fuse_rerank_with_time_decay(
@@ -2625,10 +2694,7 @@ class ContextBuilder:
 
             if enabled:
                 try:
-                    docs = [(c.get("text") or "") for c in all_results]
-                    raw = await sf_rerank(
-                        rerank_query, all_results, timeout=timeout
-                    )
+                    await sf_rerank(rerank_query, all_results, timeout=timeout)
                     rerank_ok = True
                     logger.debug("Rerank 成功，候选 %d 条有分数", len(all_results))
                 except RerankFallbackException as e:
@@ -2668,21 +2734,30 @@ class ContextBuilder:
                 self._last_longterm_results = []
                 return ""
 
-            # 6) 加权阶段：final_score = rerank_score * starred_boost * time_decay
+            # 6) 加权阶段：
+            # fusion_score = (w * rerank_score + (1-w) * norm_decay_score) * starred_boost
             now_ts = time.time()
             starred_boost = await _starred_boost_factor_value()
-            for c in passed:
+            blend_weight = await _rerank_blend_weight_value()
+            decay_scores = [
+                await _rerank_success_decay_score(c.get("metadata") or {}, now_ts)
+                for c in passed
+            ]
+            dmin, dmax = min(decay_scores), max(decay_scores)
+
+            def norm_decay(i: int) -> float:
+                if dmax <= dmin:
+                    return 1.0
+                return (decay_scores[i] - dmin) / (dmax - dmin)
+
+            for i, c in enumerate(passed):
                 md = c.get("metadata") or {}
-                rs = c.get("rerank_score", 0.0)
-                et = md.get("event_type", "")
-                hl = await _half_life_by_event_type(et)
+                rs = max(0.0, min(1.0, float(c.get("rerank_score", 0.0) or 0.0)))
                 boost = starred_boost if _is_starred(md) else 1.0
-                # starred 不衰减
-                if _is_starred(md):
-                    td = 1.0
-                else:
-                    td = _time_decay_factor(md, hl, now_ts)
-                c["fusion_score"] = rs * boost * td
+                c["decay_score"] = decay_scores[i]
+                c["fusion_score"] = (
+                    blend_weight * rs + (1.0 - blend_weight) * norm_decay(i)
+                ) * boost
 
             passed.sort(key=lambda x: x.get("fusion_score", 0.0), reverse=True)
 

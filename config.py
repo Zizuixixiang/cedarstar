@@ -541,6 +541,19 @@ class Config:
             return 8
 
     @property
+    def RERANK_BLEND_WEIGHT(self) -> float:
+        """
+        获取 rerank 语义分在融合公式里的权重，余量给 decay_score。
+
+        Returns:
+            float: 0.0-1.0，默认为 0.7
+        """
+        try:
+            return max(0.0, min(1.0, float(os.getenv("RERANK_BLEND_WEIGHT", "0.7"))))
+        except ValueError:
+            return 0.7
+
+    @property
     def ZHIPU_API_KEY(self) -> Optional[str]:
         """
         获取智谱 AI API 密钥。

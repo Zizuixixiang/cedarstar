@@ -43,6 +43,7 @@ const DEFAULT_CONFIG = {
   context_archived_daily_limit: 3,
   archived_daily_min_hits: 2,
   starred_boost_factor: 1.2,
+  rerank_blend_weight: 0.7,
   daily_batch_hour: 23,
   relationship_timeline_limit: 3,
   gc_stale_days: 180,
@@ -229,6 +230,15 @@ const CONFIG_METADATA = [
     hint: '1 表示不加权，默认 1.2',
     min: 1,
     max: 3,
+    step: 0.05,
+  },
+  {
+    key: 'rerank_blend_weight',
+    name: 'Rerank 融合权重',
+    description: 'rerank语义分在融合公式里的权重，余量给decay_score',
+    hint: '0 完全按重要度/半衰期/情绪强度/命中数排序，1 完全按 rerank 语义分排序，默认 0.7',
+    min: 0,
+    max: 1,
     step: 0.05,
   },
   {
