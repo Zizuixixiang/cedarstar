@@ -69,6 +69,7 @@ from bot.vision_caption import schedule_generate_image_caption
 from config import config, validate_config, Platform
 from llm.llm_interface import (
     LLMInterface,
+    TELEGRAM_EMPTY_REPLY_PROMPT_APPEND,
     TELEGRAM_GUARD_PROMPT_APPEND,
     append_guard_hint_to_last_user_message,
     build_user_multimodal_content,
@@ -213,6 +214,9 @@ def _is_stream_read_timeout_exc(exc: BaseException) -> bool:
 
 # 流式读超时后最多重试次数（不含首次请求，共 1+ 此次 次 HTTP）
 STREAM_READ_TIMEOUT_MAX_RETRIES = 3
+
+# 同步 Telegram 流式：Guard / 空回复静默重试合计最多尝试次数（含首次）
+TELEGRAM_SSE_SYNC_MAX_ATTEMPTS = 3
 
 
 def _normalize_telegram_reply_segment_markers(text: str) -> str:
@@ -711,6 +715,121 @@ class TelegramBot:
             group_cot_cfg = await db.get_config("send_cot_in_group_chat", "0")
             return self._is_truthy_config_value(group_cot_cfg)
         return True
+
+    async def _telegram_effectively_empty_reply(
+        self,
+        *,
+        base_message,
+        raw_content: str,
+        think_plain: str,
+        guard_refusal_abort: bool = False,
+        tool_calls: Optional[List[Any]] = None,
+        game_session: Optional[Dict[str, Any]] = None,
+    ) -> bool:
+        """
+        与 _telegram_finalize_sse_round_outcome 的 sent_something 判定一致（不含 had_pre_tool_text）。
+        True 表示本轮若直接收尾会落入「未得到有效回复」。
+        """
+        if isinstance(tool_calls, list) and len(tool_calls) > 0:
+            return False
+        raw = raw_content or ""
+        think = think_plain or ""
+        if guard_refusal_abort and not raw.strip():
+            return False
+        if output_guard_blocks_model_text(raw):
+            return False
+        send_cot = await self._telegram_should_send_cot(base_message)
+        if send_cot:
+            th_part, body_part = split_thinking_and_content(think)
+            if th_part:
+                think = th_part
+            if body_part and not raw.strip():
+                raw = body_part
+            if not think.strip() and raw.strip():
+                tb, bb = split_thinking_and_content(raw.strip())
+                if tb.strip():
+                    think = tb
+                    raw = bb if (bb or "").strip() else ""
+        else:
+            _, body_part = split_thinking_and_content(think)
+            if body_part and not raw.strip():
+                raw = body_part
+            think = ""
+            if raw.strip():
+                tb, bb = split_thinking_and_content(raw.strip())
+                if tb.strip():
+                    raw = bb if (bb or "").strip() else ""
+        if game_session:
+            raw = await process_game_mode_response(raw, game_session)
+        cleaned = schedule_update_memory_hits_and_clean_reply(raw)
+        segments, _body_for_db = await parse_telegram_segments_with_memes_async(
+            cleaned
+        )
+        has_text_seg = any(
+            k == "text" and (s or "").strip() for k, s in segments
+        )
+        has_meme_seg = any(
+            k == "meme" and (s or "").strip() for k, s in segments
+        )
+        if has_text_seg or think.strip() or has_meme_seg:
+            return False
+        return True
+
+    async def _telegram_stream_sse_with_sync_retries(
+        self,
+        llm: LLMInterface,
+        messages: List[Dict[str, Any]],
+        base_message,
+        bot,
+        *,
+        tools: Optional[List[Dict[str, Any]]] = None,
+        cacheable_ratio: float = 0.0,
+        game_session: Optional[Dict[str, Any]] = None,
+    ) -> _TelegramSseRound:
+        """单轮 SSE：Guard 拒答 / 空正文各可触发一次静默重试（共用 attempt 上限）。"""
+        cur_messages = messages
+        sse: Optional[_TelegramSseRound] = None
+        for attempt in range(TELEGRAM_SSE_SYNC_MAX_ATTEMPTS):
+            sse = await self._telegram_stream_llm_one_sse_round(
+                llm,
+                cur_messages,
+                base_message,
+                bot,
+                tools=tools,
+                cacheable_ratio=cacheable_ratio,
+            )
+            if sse.err_pack is not None:
+                break
+            fin = sse.done_payload or {}
+            if fin.get("guard_refusal_abort") and attempt < TELEGRAM_SSE_SYNC_MAX_ATTEMPTS - 1:
+                cur_messages = append_guard_hint_to_last_user_message(
+                    cur_messages, TELEGRAM_GUARD_PROMPT_APPEND
+                )
+                logger.warning(
+                    "CedarClio Guard：同步链路流式掐断或拒答，正在静默重试一次"
+                )
+                continue
+            if await self._telegram_effectively_empty_reply(
+                base_message=base_message,
+                raw_content=sse.raw_content or "",
+                think_plain=sse.think_plain or "",
+                guard_refusal_abort=bool(fin.get("guard_refusal_abort")),
+                tool_calls=fin.get("tool_calls")
+                if isinstance(fin.get("tool_calls"), list)
+                else None,
+                game_session=game_session,
+            ) and attempt < TELEGRAM_SSE_SYNC_MAX_ATTEMPTS - 1:
+                cur_messages = append_guard_hint_to_last_user_message(
+                    cur_messages, TELEGRAM_EMPTY_REPLY_PROMPT_APPEND
+                )
+                logger.warning(
+                    "Telegram 流式空回复，正在静默重试一次（attempt=%s）",
+                    attempt + 1,
+                )
+                continue
+            break
+        assert sse is not None
+        return sse
 
     @staticmethod
     def _strip_tts_markers(text: str) -> str:
@@ -2615,24 +2734,14 @@ class TelegramBot:
         cacheable_ratio: float = 0.0,
         game_session: Optional[Dict[str, Any]] = None,
     ) -> _TelegramStreamOutcome:
-        cur_messages: List[Dict[str, Any]] = messages
-        sse: Optional[_TelegramSseRound] = None
-        for attempt in range(2):
-            sse = await self._telegram_stream_llm_one_sse_round(
-                llm, cur_messages, base_message, bot,
-                cacheable_ratio=cacheable_ratio,
-            )
-            fin = sse.done_payload or {}
-            if fin.get("guard_refusal_abort") and attempt == 0:
-                cur_messages = append_guard_hint_to_last_user_message(
-                    messages, TELEGRAM_GUARD_PROMPT_APPEND
-                )
-                logger.warning(
-                    "CedarClio Guard：同步链路流式掐断或拒答，正在静默重试一次"
-                )
-                continue
-            break
-        assert sse is not None
+        sse = await self._telegram_stream_sse_with_sync_retries(
+            llm,
+            messages,
+            base_message,
+            bot,
+            cacheable_ratio=cacheable_ratio,
+            game_session=game_session,
+        )
         return await self._telegram_finalize_sse_round_outcome(
             sse, base_message, bot, game_session=game_session
         )
@@ -2875,26 +2984,15 @@ class TelegramBot:
                 tools_send: Optional[List[Dict[str, Any]]] = (
                     None if force_disable_tools_stream else tools_param
                 )
-                for attempt in range(2):
-                    sse = await self._telegram_stream_llm_one_sse_round(
-                        llm,
-                        cur_messages,
-                        base_message,
-                        bot,
-                        tools=tools_send,
-                        cacheable_ratio=cacheable_ratio,
-                    )
-                    fin = sse.done_payload or {}
-                    if fin.get("guard_refusal_abort") and attempt == 0:
-                        cur_messages = append_guard_hint_to_last_user_message(
-                            cur_messages, TELEGRAM_GUARD_PROMPT_APPEND
-                        )
-                        logger.warning(
-                            "CedarClio Guard：同步链路流式掐断或拒答，正在静默重试一次（含 Lutopia 工具）"
-                        )
-                        continue
-                    break
-                assert sse is not None
+                sse = await self._telegram_stream_sse_with_sync_retries(
+                    llm,
+                    cur_messages,
+                    base_message,
+                    bot,
+                    tools=tools_send,
+                    cacheable_ratio=cacheable_ratio,
+                    game_session=game_session,
+                )
                 fin = sse.done_payload or {}
                 tc = fin.get("tool_calls")
                 if isinstance(tc, list) and len(tc) > 0:
@@ -3590,7 +3688,7 @@ class TelegramBot:
                 cur_m: List[Dict[str, Any]] = messages
                 llm_resp: Any = None
                 last_hit = False
-                for attempt in range(2):
+                for attempt in range(TELEGRAM_SSE_SYNC_MAX_ATTEMPTS):
                     snap = cur_m
                     if tools_enabled:
                         outcome_tools = await complete_with_lutopia_tool_loop(
@@ -3613,12 +3711,27 @@ class TelegramBot:
                     safe, hit = truncate_accumulator_at_first_refusal(raw_txt)
                     last_hit = hit
                     llm_resp.content = safe
-                    if hit and attempt == 0:
+                    if hit and attempt < TELEGRAM_SSE_SYNC_MAX_ATTEMPTS - 1:
                         cur_m = append_guard_hint_to_last_user_message(
-                            messages, TELEGRAM_GUARD_PROMPT_APPEND
+                            cur_m, TELEGRAM_GUARD_PROMPT_APPEND
                         )
                         logger.warning(
                             "CedarClio Guard（Anthropic）：拒答片段，正在静默重试一次"
+                        )
+                        continue
+                    if await self._telegram_effectively_empty_reply(
+                        base_message=base_message,
+                        raw_content=llm_resp.content or "",
+                        think_plain=(llm_resp.thinking or ""),
+                        guard_refusal_abort=hit,
+                        game_session=game_session,
+                    ) and attempt < TELEGRAM_SSE_SYNC_MAX_ATTEMPTS - 1:
+                        cur_m = append_guard_hint_to_last_user_message(
+                            cur_m, TELEGRAM_EMPTY_REPLY_PROMPT_APPEND
+                        )
+                        logger.warning(
+                            "Telegram（Anthropic）空回复，正在静默重试一次（attempt=%s）",
+                            attempt + 1,
                         )
                         continue
                     break
