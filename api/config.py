@@ -44,6 +44,8 @@ DEFAULT_CONFIG = {
     "archived_daily_min_hits": 2,
     "starred_boost_factor": 1.2,
     "rerank_blend_weight": 0.7,
+    "rerank_score_floor": 0.3,
+    "rerank_starred_floor": 0.15,
     "daily_batch_hour": 23.0,
     "relationship_timeline_limit": 3,
     "gc_stale_days": 180,
@@ -129,6 +131,10 @@ async def _load_config_from_db() -> Dict[str, Any]:
                         config[key] = max(0.5, min(1.0, float(value)))
                     elif key == "rerank_blend_weight":
                         config[key] = max(0.0, min(1.0, float(value)))
+                    elif key == "rerank_score_floor":
+                        config[key] = max(0.05, min(0.8, float(value)))
+                    elif key == "rerank_starred_floor":
+                        config[key] = max(0.05, min(0.5, float(value)))
                     else:
                         config[key] = float(value)
                 except (ValueError, TypeError):
@@ -247,6 +253,10 @@ async def update_config(new_config: Dict[str, Any]):
                         config[key] = max(0.5, min(1.0, float(value)))
                     elif key == "rerank_blend_weight":
                         config[key] = max(0.0, min(1.0, float(value)))
+                    elif key == "rerank_score_floor":
+                        config[key] = max(0.05, min(0.8, float(value)))
+                    elif key == "rerank_starred_floor":
+                        config[key] = max(0.05, min(0.5, float(value)))
                     else:
                         config[key] = float(value)
                     updated = True

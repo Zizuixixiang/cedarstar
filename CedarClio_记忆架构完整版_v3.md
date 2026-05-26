@@ -55,8 +55,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `xhs_daily_write_limit` | 小红书工具日写配额上限（`config` 表键；默认 30） |
 | `rerank_enabled` | 是否启用 SiliconFlow Rerank 精排，默认 true |
 | `rerank_candidate_size` | rerank 候选集大小上限，默认 50 |
-| `rerank_score_floor` | 非收藏事件的 rerank 分数阈值，默认 0.3 |
-| `rerank_starred_floor` | 收藏事件的 rerank 分数阈值，默认 0.15 |
+| `rerank_score_floor` | 非收藏事件的 rerank 分数阈值，默认 0.3；Mini App Config 可调范围 0.05-0.8，步长 0.05 |
+| `rerank_starred_floor` | 收藏事件的 rerank 分数阈值，默认 0.15；Mini App Config 可调范围 0.05-0.5，步长 0.05 |
 | `rerank_query_max_chars` | 构建 rerank query 的最大字符数，默认 300 |
 | `rerank_query_turns` | 构建 rerank query 取最近几轮对话，默认 2 |
 | `rerank_timeout_sec` | rerank API 超时秒数，默认 3.0 |
@@ -476,6 +476,7 @@ Config 页管理运行参数，包括：
 - 缓冲延迟
 - 摘要阈值
 - 最近原文条数
+- Rerank 融合权重、召回阈值（`rerank_score_floor`）与收藏阈值（`rerank_starred_floor`）
 - Telegram 分段参数
 
 ### 7.3 Memory
