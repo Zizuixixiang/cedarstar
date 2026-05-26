@@ -479,23 +479,6 @@ async def _longterm_date_cutoff_iso() -> Optional[str]:
         return None
 
 
-def _append_chroma_date_cutoff(
-    where: Optional[Dict[str, Any]],
-    cutoff_date: Optional[str],
-) -> Optional[Dict[str, Any]]:
-    """给 Chroma where 追加 date < cutoff_date；已有 $and 时直接追加。"""
-    if not cutoff_date:
-        return where
-    cutoff_cond: Dict[str, Any] = {"date": {"$lt": cutoff_date}}
-    if not where:
-        return cutoff_cond
-    if "$and" in where and isinstance(where.get("$and"), list):
-        merged = dict(where)
-        merged["$and"] = list(where.get("$and") or []) + [cutoff_cond]
-        return merged
-    return {"$and": [where, cutoff_cond]}
-
-
 def _longterm_result_before_cutoff(
     result: Dict[str, Any],
     cutoff_date: Optional[str],
@@ -2631,10 +2614,7 @@ class ContextBuilder:
 
             tk = await _retrieval_top_k()
             cutoff_date = await _longterm_date_cutoff_iso()
-            lt_where = _append_chroma_date_cutoff(
-                chroma_where_longterm_summary_types(user_message),
-                cutoff_date,
-            )
+            lt_where = chroma_where_longterm_summary_types(user_message)
             lt_types = longterm_allowed_summary_types(user_message)
             vector_results = search_memory(
                 multi_turn_query, top_k=tk, where=lt_where
@@ -2727,10 +2707,7 @@ class ContextBuilder:
             import asyncio
             loop = asyncio.get_event_loop()
             cutoff_date = await _longterm_date_cutoff_iso()
-            lt_where = _append_chroma_date_cutoff(
-                chroma_where_longterm_summary_types(user_message),
-                cutoff_date,
-            )
+            lt_where = chroma_where_longterm_summary_types(user_message)
             lt_types = longterm_allowed_summary_types(user_message)
             vector_future = loop.run_in_executor(
                 None, partial(search_memory, user_message, tk, lt_where)
