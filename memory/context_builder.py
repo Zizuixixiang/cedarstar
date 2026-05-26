@@ -2710,10 +2710,10 @@ class ContextBuilder:
             lt_where = chroma_where_longterm_summary_types(user_message)
             lt_types = longterm_allowed_summary_types(user_message)
             vector_future = loop.run_in_executor(
-                None, partial(search_memory, user_message, tk, lt_where)
+                None, partial(search_memory, rerank_query, tk, lt_where)
             )
             bm25_future = loop.run_in_executor(
-                None, partial(search_bm25, user_message, tk, lt_types)
+                None, partial(search_bm25, rerank_query, tk, lt_types)
             )
             vector_results, bm25_results = await asyncio.gather(vector_future, bm25_future)
             logger.debug(
