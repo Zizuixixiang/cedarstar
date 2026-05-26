@@ -24,7 +24,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `buffer_delay` | 消息缓冲延迟 |
 | `chunk_threshold` | 微批摘要阈值 |
 | `short_term_limit` | 最近原文消息条数 |
-| `context_max_daily_summaries` | Context 中纳入最近 N 天的 daily 摘要 |
+| `context_max_daily_summaries` | Context 中纳入最近 N 天的 daily 摘要；长期记忆召回会排除该窗口内的 `date`，避免与 daily 重复 |
 | `context_max_longterm` | Context 中长期记忆注入条数 |
 | `event_split_max` | Step 4 单日事件拆分上限 |
 | `mmr_lambda` | 长期记忆 MMR 相关性权重 |
@@ -229,7 +229,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 **`_build_vector_search_section_async`（主路径在 `rerank_enabled=true` 时调用；`build_context_async` 也复用）**：采用双路检索 + Rerank 精排 + 阈值过滤 + 记录自身衰减分融合 + MMR 多样性筛选：
 
 1. **构建 rerank query**：取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），截断到 `rerank_query_max_chars` 字符；若仅空白则回退为 `user_message`
-2. **双路检索**：向量检索与 BM25 **仍以单条** `user_message` **为检索 query**，各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）
+2. **双路检索**：向量检索与 BM25 **仍以单条** `user_message` **为检索 query**，各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）。召回前按 `context_max_daily_summaries` 计算 `cutoff_date = 今天 - N 天`，Chroma `where` 追加 `date < cutoff_date`；BM25 结果在双路合并后用同一条件过滤，避免长期记忆与已注入的近期 daily summaries 时间段重叠。
 3. **Rerank 精排**：调用激活的 `api_configs.config_type='rerank'` 配置；未配置时回退 `SILICONFLOW_API_KEY` + 默认 SiliconFlow Qwen3-Reranker-4B。每条候选得到 0-1 的 relevance_score；超时或异常时降级到旧的 `fuse_rerank_with_time_decay` 路径
 4. **阈值拦截**（用 rerank 纯语义分，不混入加权）：
    - `is_starred=true`：score >= `rerank_starred_floor`（0.15）通过

@@ -469,6 +469,48 @@ async def _context_max_daily_summaries_limit() -> int:
     return max(1, min(100, config.CONTEXT_MAX_DAILY_SUMMARIES))
 
 
+async def _longterm_date_cutoff_iso() -> Optional[str]:
+    """长期记忆召回日期上限：排除已由 daily summaries 覆盖的最近 N 天。"""
+    try:
+        n_days = await _context_max_daily_summaries_limit()
+        return (now_shanghai().date() - timedelta(days=n_days)).isoformat()
+    except Exception as e:
+        logger.debug("计算长期记忆日期 cutoff 失败，跳过日期过滤: %s", e)
+        return None
+
+
+def _append_chroma_date_cutoff(
+    where: Optional[Dict[str, Any]],
+    cutoff_date: Optional[str],
+) -> Optional[Dict[str, Any]]:
+    """给 Chroma where 追加 date < cutoff_date；已有 $and 时直接追加。"""
+    if not cutoff_date:
+        return where
+    cutoff_cond: Dict[str, Any] = {"date": {"$lt": cutoff_date}}
+    if not where:
+        return cutoff_cond
+    if "$and" in where and isinstance(where.get("$and"), list):
+        merged = dict(where)
+        merged["$and"] = list(where.get("$and") or []) + [cutoff_cond]
+        return merged
+    return {"$and": [where, cutoff_cond]}
+
+
+def _longterm_result_before_cutoff(
+    result: Dict[str, Any],
+    cutoff_date: Optional[str],
+) -> bool:
+    """BM25 无日期 where，merge 后用 metadata.date 做同口径过滤。"""
+    if not cutoff_date:
+        return True
+    md = result.get("metadata") or {}
+    raw = md.get("date")
+    if not raw:
+        return False
+    day = format_shanghai_date_iso(raw) or str(raw)[:10]
+    return bool(day and day < cutoff_date)
+
+
 async def _context_max_chunk_summaries_limit() -> int:
     try:
         raw = await get_database().get_config("context_max_chunk_summaries")
@@ -2588,7 +2630,11 @@ class ContextBuilder:
                 return ""
 
             tk = await _retrieval_top_k()
-            lt_where = chroma_where_longterm_summary_types(user_message)
+            cutoff_date = await _longterm_date_cutoff_iso()
+            lt_where = _append_chroma_date_cutoff(
+                chroma_where_longterm_summary_types(user_message),
+                cutoff_date,
+            )
             lt_types = longterm_allowed_summary_types(user_message)
             vector_results = search_memory(
                 multi_turn_query, top_k=tk, where=lt_where
@@ -2601,6 +2647,10 @@ class ContextBuilder:
             all_results = _merge_vector_bm25_dedupe(
                 vector_results, bm25_results, max(1, 2 * tk)
             )
+            if cutoff_date:
+                all_results = [
+                    r for r in all_results if _longterm_result_before_cutoff(r, cutoff_date)
+                ]
             n_long = await _context_max_longterm_count()
             fused = fuse_rerank_with_time_decay(
                 all_results,
@@ -2676,7 +2726,11 @@ class ContextBuilder:
             # 2) 并行双路检索
             import asyncio
             loop = asyncio.get_event_loop()
-            lt_where = chroma_where_longterm_summary_types(user_message)
+            cutoff_date = await _longterm_date_cutoff_iso()
+            lt_where = _append_chroma_date_cutoff(
+                chroma_where_longterm_summary_types(user_message),
+                cutoff_date,
+            )
             lt_types = longterm_allowed_summary_types(user_message)
             vector_future = loop.run_in_executor(
                 None, partial(search_memory, user_message, tk, lt_where)
@@ -2694,6 +2748,10 @@ class ContextBuilder:
             all_results = _merge_vector_bm25_dedupe(
                 vector_results, bm25_results, candidate_cap
             )
+            if cutoff_date:
+                all_results = [
+                    r for r in all_results if _longterm_result_before_cutoff(r, cutoff_date)
+                ]
             if not all_results:
                 logger.debug("双路检索未找到相关记忆")
                 return ""
