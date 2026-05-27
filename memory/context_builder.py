@@ -861,7 +861,11 @@ MEMORY_CITATION_DIRECTIVE = (
 MEMORY_BLOCK_PRIORITY_DIRECTIVE = (
     "近期消息 > chunk碎片摘要 > 时效状态 > 记忆卡片 = 关系时间线 > 每日小传 > 长期记忆\n"
     "同类型块内以日期更近的条目为准\n"
-    "时效状态的 action_rule 与其他块通常不直接冲突，上述优先级主要作用于状态描述层面；若近期消息明确提及某时效状态描述已发生变化，以近期消息为准"
+    "时效状态的 action_rule 与其他块通常不直接冲突，上述优先级主要作用于状态描述层面；若近期消息明确提及某时效状态描述已发生变化，以近期消息为准\n"
+    "严格区分今日发生的事与历史发生的事，不要混淆时间。\n"
+    "这些信息是你了解用户的唯一依据，不是仅供你内部参考的内容，你可以在对话中自由提及。\n"
+    "自然融入已知信息会让交流更有延续性、更贴心。不要凭空猜测用户的任何情况。\n"
+    "对于用户之前提到过的计划、待办或感兴趣的话题，可以在合适的时机主动跟进，无需每次回复都提及。"
 )
 
 THINKING_LANGUAGE_DIRECTIVE = (
@@ -2213,7 +2217,7 @@ class ContextBuilder:
             
             if sections:
                 daily_section = "\n\n".join(sections)
-                return f"# 每日摘要\n\n{daily_section}"
+                return f"# 每日摘要（以下是过去已发生的事实）\n\n{daily_section}"
             else:
                 return ""
                 
@@ -2295,7 +2299,7 @@ class ContextBuilder:
                 return ""
 
             return (
-                "# 较早日期概况补充\n\n"
+                "# 较早日期概况补充（以下是更早的历史背景）\n\n"
                 "以下是长期记忆中涉及到的较早日期的概况补充，仅作为背景，不代表近期发生\n\n"
                 + "\n\n".join(sections)
             )
@@ -2481,7 +2485,7 @@ class ContextBuilder:
                 )
                 chunk_section = "\n\n".join([hdr, peer_plain])
                 today = now_shanghai().strftime("%Y年%m月%d日")
-                title = f"# 今日对话摘要（{today}，东八区日历）"
+                title = f"# 今日对话摘要（{today}，东八区日历）【只有以下是今日已发生的最新事实】"
                 body = f"{TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE}\n\n{chunk_section}"
                 return f"{title}\n\n{body}"
 
@@ -2595,7 +2599,7 @@ class ContextBuilder:
             if sections:
                 chunk_section = "\n\n".join(sections)
                 today = now_shanghai().strftime("%Y年%m月%d日")
-                title = f"# 今日对话摘要（{today}，东八区日历）"
+                title = f"# 今日对话摘要（{today}，东八区日历）【只有以下是今日已发生的最新事实】"
                 if peer_plain:
                     body = f"{TELEGRAM_CROSS_CHANNEL_PEER_DIRECTIVE}\n\n{chunk_section}"
                 else:
@@ -2733,7 +2737,7 @@ class ContextBuilder:
 
             vector_section = "\n\n".join(sections)
             vector_section += "\n\n<!-- 以上是双路检索结果（融合时间衰减并经 MMR 多样性筛选）；异步路径下由 Reranker 提供语义分 -->"
-            return f"# 相关长期记忆（双路检索结果）\n\n{vector_section}"
+            return f"# 相关长期记忆（双路检索结果）（以下是历史事件）\n\n{vector_section}"
 
         except Exception as e:
             logger.warning(f"构建向量检索部分失败: {e}")  # 可恢复/已兜底，降为 warning
@@ -2921,7 +2925,7 @@ class ContextBuilder:
         vector_section += (
             f"\n\n<!-- {label}：自 {total_candidates} 条候选取 {len(results)} 条 -->"
         )
-        return f"# 相关长期记忆（{label}结果）\n\n{vector_section}"
+        return f"# 相关长期记忆（{label}结果）（以下是历史事件）\n\n{vector_section}"
     
     async def _build_recent_messages_section(
         self,
@@ -3206,7 +3210,7 @@ class ContextBuilder:
         if recent_tool_section:
             dynamic_sections.append(recent_tool_section)
 
-        dynamic_sections.append("---\n以上是历史信息和用户记忆，请基于这些信息进行对话。")
+        dynamic_sections.append("---\n严格区分今日发生的事与历史发生的事，不要混淆时间。\n以上是历史信息和用户记忆，请基于这些信息进行对话。")
 
         blocks.append(_cache_text_block("\n\n".join(dynamic_sections), cache=False))
         return blocks
