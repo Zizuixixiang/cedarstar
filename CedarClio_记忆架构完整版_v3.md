@@ -152,6 +152,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `game_turns` | 游戏模式逐轮记录（session_id / turn_idx / turn_data） |
 | `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle / idle_activity_prompt） |
 | `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / input_schema / enabled / require_approval；`input_schema` 为 MCP `inputSchema` JSON；`require_approval` 本轮仅存储） |
+| `prompt_overrides` | Mini App「人设 → 全局 Prompt」保存的运行时 prompt 覆盖（`key` / `override_text` / `updated_at`）；默认文本不入库，来自 `memory/prompt_registry.py` |
 
 ### 2.5 token_usage / tool_executions 观测口径
 
@@ -385,7 +386,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 5.1 微批摘要
 
-当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），日常互动须保留因果与情感语境（含正反示例，避免仅用形容词概括情绪）；`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块由 `memory/prompt_background.py` 统一维护。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致），并使用后台摘要超时下限 `SUMMARY_BACKGROUND_TIMEOUT`。
+当未摘要消息达到阈值后，系统会生成 chunk 摘要并写入 `summaries` 表。摘要前注入关系锚点与激活记忆卡（`memory/micro_batch.py` 的 `_resolve_micro_batch_memory_prefix`）：`telegram_group_*` 会话注入南杉-Sirius/Clio 三人关系锚点，私聊会话注入当前 `user_name`/`char_name` 的一对一恋人关系锚点。**chunk 摘要用户 prompt 按群聊/私聊拆分**（`telegram_group_*` 与非群分支，`_build_chunk_summary_user_prompt`），日常互动须保留因果与情感语境（含正反示例，避免仅用形容词概括情绪）；静态任务说明注册为 `chunk_summary_private` / `chunk_summary_group`，可通过 `prompt_overrides` 覆盖；角色名、群/私聊 framing、上一轮摘要、对话正文、工具记录、字数要求与 `[系统通知]` 规则仍由代码固定拼接。`[系统通知]` 规则两套共用；同会话上一条未归档 chunk 摘要会追加为“仅供衔接，不再重复归纳”块；工具执行结果按 `assistant_message_id` 内联到对应对话轮次中，与对话一起作为摘要输入，避免工具信息与对话脱节。摘要链路共享背景块注册为 `summary_background`（默认值来自 `memory/prompt_background.py`），可由 Mini App 全局 Prompt 覆盖；读取失败或未覆盖时回退代码默认值。摘要 LLM 使用 **`await SummaryLLMInterface.create()`**（与 **§2.2 `summary`** 一致），并使用后台摘要超时下限 `SUMMARY_BACKGROUND_TIMEOUT`。
 
 chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，chunk 不删除，只通过 `archived_by=<daily_id>` 标记为已归档。归档日期口径与读取当天 chunk 一致，使用 `COALESCE(source_date::date, created_at::date)` 匹配业务日；这是为了兼容 `source_date` 字段加入前的旧 chunk，避免旧 chunk 进入 daily 后仍因 `source_date` 为空显示为未归档。
 
@@ -394,7 +395,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 日终跑批由进程内 `schedule_daily_batch()` 按数据库 `daily_batch_hour` 配置定时触发（东八区），按业务日执行六步。`run_daily_batch.py` 保留为独立命令行入口（手动补跑 / 重试子进程调用）。
 
 1. Step 1：到期 temporal_states 结算
-2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；日常互动要求保留能体现情感的因果逻辑与关键互动细节；prompt 另要求材料要点不得漏写、须按各事件实际发生的时间先后顺序记载；摘要 LLM 经 `_call_summary_llm_custom`，输出 `max_tokens` 下限 3000（`min(8192, max(base, 3000))`），HTTP 超时取 `SummaryLLMInterface.timeout`，即 `max(SUMMARY_TIMEOUT, SUMMARY_BACKGROUND_TIMEOUT)`；摘要链路统一注入 CedarStar/CedarClio 角色背景块）。注入当日 chunk 时，时间范围 preamble 与每条 chunk 标题使用**内容日** `COALESCE(source_date, created_at)`（上海时区格式），与 Context / 记忆日记本列表口径一致，而非仅用 `summaries.created_at` 写入时间。
+2. Step 2：生成今日小传（按 `session_id` 分组；per-session prompt 前注入 `_daily_step2_session_framing`，与 chunk 微批群/私说明对齐；静态任务说明注册为 `daily_summary`，可通过 `prompt_overrides` 覆盖；业务日期、篇幅差异、时间换算规则、群/私聊事件边界 bullet 与 `today_content` 材料仍由代码动态拼接；摘要 LLM 经 `_call_summary_llm_custom`，输出 `max_tokens` 下限 3000（`min(8192, max(base, 3000))`），HTTP 超时取 `SummaryLLMInterface.timeout`，即 `max(SUMMARY_TIMEOUT, SUMMARY_BACKGROUND_TIMEOUT)`；摘要链路统一注入 `summary_background`）。注入当日 chunk 时，时间范围 preamble 与每条 chunk 标题使用**内容日** `COALESCE(source_date, created_at)`（上海时区格式），与 Context / 记忆日记本列表口径一致，而非仅用 `summaries.created_at` 写入时间。
 3. Step 3：记忆卡片 Upsert + relationship_timeline
 4. Step 3.5：从今日小传提取时效状态操作
 5. Step 4：事件聚类 + 描述打分 + 长期事件入库
@@ -402,7 +403,7 @@ chunk 生命周期：生成后长期保留；日终 Step 2 生成 daily 后，ch
 
 ### 5.3 Step 4 重写
 
-Step 4 使用当天按时间顺序排列的 chunk 列表作为输入。聚类前先过滤掉 `external_events_generated=TRUE` 的外部 chunk（其事件已在 `add_external_chunk` 时预生成），仅对内部 chunk 执行聚类。聚类完成后，调用 `archive_external_chunks_by_daily()` 回填外部 chunk 的 `archived_by`。若当天仅有外部 chunk，则跳过聚类，直接回填。Step 4a 聚类 prompt 的输入区会强制分段为 `【私聊】` 与 `【群聊】` 两块（若该类存在），再在块内按时间顺序列出 chunk，降低跨场景串话题聚类概率。
+Step 4 使用当天按时间顺序排列的 chunk 列表作为输入。聚类前先过滤掉 `external_events_generated=TRUE` 的外部 chunk（其事件已在 `add_external_chunk` 时预生成），仅对内部 chunk 执行聚类。聚类完成后，调用 `archive_external_chunks_by_daily()` 回填外部 chunk 的 `archived_by`。若当天仅有外部 chunk，则跳过聚类，直接回填。Step 4a 聚类 prompt 的输入区会强制分段为 `【私聊】` 与 `【群聊】` 两块（若该类存在），再在块内按时间顺序列出 chunk，降低跨场景串话题聚类概率。Step 4 静态 prompt 拆成 `event_extraction_cluster`（4a 聚类）、`event_extraction_describe`（4b 描述评分）和 `event_extraction_fallback`（旧式回退路径）三个 registry key；输入 chunk、`event_split_max`、JSON schema、枚举值、合法 chunk_id 校验、score/arousal clamp 与 fallback 策略仍固定在代码中。
 
 默认开启 `STEP4_SPLIT_MODE=True`，将旧的单次 LLM 调用拆成两段：
 
@@ -499,7 +500,11 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 「游戏模式」（`/game`）：管理 `game_sessions` 与 `game_turns`，页头沿用 MCP 管理页的紧凑返回/刷新/新增布局；列表按进行中 / 已结束分组，可新建、编辑、激活/停止、结束、删除 session；当前游戏 Tab 展示活跃 session 的规则、参与者、`state_json` 与 turns。助手配置页「自主活动」下方另有「游戏模式」状态入口：读取 `GET /api/game/active` 与 `GET /api/game/sessions/{id}`，可停止当前活跃游戏并跳转 `/game` 管理，但不在配置页创建/激活游戏。JSON 字段用 textarea + `JSON.parse` 校验；确认弹窗为自定义组件，不用 `window.confirm`。REST 前缀 `/api/game`，见 `api/game.py`。
 
-### 7.4 待审批
+### 7.4 全局 Prompt
+
+人设页顶部提供「角色人设 / 全局 Prompt」Tab。全局 Prompt 通过 `api/prompts.py` 管理 `prompt_overrides`，路由为 `GET /api/prompts`、`GET /api/prompts/{key}`、`PUT /api/prompts/{key}`、`POST /api/prompts/{key}/reset`。当前 registry key：`summary_background`、`chunk_summary_private`、`chunk_summary_group`、`daily_summary`、`event_extraction_cluster`、`event_extraction_describe`、`event_extraction_fallback`。默认文本留在 `memory/prompt_registry.py`，数据库只存 override；运行时读取失败必须回退默认值，不能阻断摘要/跑批。
+
+### 7.5 待审批
 
 待审批页（`/approvals`）展示来自内部记忆工具写入操作与 MCP `api_admin` 管理写入工具的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。
 

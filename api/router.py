@@ -5,7 +5,7 @@ API 路由汇总模块。
 """
 from fastapi import APIRouter
 
-from api import autonomous, custom_mcp, game, observability, peer, pocket_money, sensor, stream, weather
+from api import autonomous, custom_mcp, game, observability, peer, pocket_money, prompts, sensor, stream, weather
 from api import stardew
 from api.messages import router as messages_router
 from api.dashboard import router as dashboard_router
@@ -22,6 +22,7 @@ api_router = APIRouter()
 # 包含所有子路由
 api_router.include_router(dashboard_router, prefix="/dashboard", tags=["控制台"])
 api_router.include_router(persona_router, prefix="/persona", tags=["人设配置"])
+api_router.include_router(prompts.router, prefix="/prompts", tags=["Prompt 管理"])
 api_router.include_router(memory_router, prefix="/memory", tags=["记忆管理"])
 api_router.include_router(history_router, prefix="/history", tags=["对话历史"])
 api_router.include_router(messages_router, prefix="/messages", tags=["消息记录"])

@@ -50,6 +50,7 @@ cedarstar/
 - 向量写入用 1024 维（SiliconFlow Qwen3-Embedding-8B / 智谱 embedding-3 均保持 1024 维）
 - `meme_pack` Chroma 集合与主记忆集合完全隔离，不得混用
 - Chroma doc_id 命名约定：`daily_{batch_date}`、`daily_{batch_date}_event_N`、`manual_{uuid}`
+- 摘要/跑批 prompt 默认文本集中在 `memory/prompt_registry.py`；Mini App「人设 → 全局 Prompt」只写 `prompt_overrides` 覆盖值。运行时读取覆盖失败必须回退默认值，不能阻断微批摘要、日终小传或 Step 4。
 
 **Telegram Bot**
 - 入站走 webhook（`POST /webhook/telegram`），不使用 `start_polling`
@@ -66,6 +67,7 @@ cedarstar/
 - Mini App 禁用 `window.confirm`（Telegram WebView 不支持）
 - 禁用 `localStorage`（使用 React state）
 - API 请求必须带 `X-Cedarstar-Token`，通过 `apiFetch()` 封装调用
+- 人设页包含「角色人设 / 全局 Prompt」Tab；全局 Prompt 使用 `/api/prompts` 管理 `summary_background`、chunk/daily/event extraction 等运行时 prompt 覆盖。
 
 **CedarClio 第二套实例**（`clio.cedarstar.org`，supervisord 端口 8001）
 - 与 CedarStar **同一 PostgreSQL 服务进程**（常见 `localhost:5432`），但 **主库 database 不同**：Sirius 的 `DATABASE_URL` → `cedarstar_db`，Clio 的 `DATABASE_URL` → `cedarclio_db`（`messages`、`mcp_tools`、`persona_configs` 等各自一份，**不是同一个库**）。

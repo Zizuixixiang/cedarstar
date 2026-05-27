@@ -50,6 +50,7 @@ from memory.shanghai_dt import (
 from tools.lutopia import strip_lutopia_internal_memory_blocks
 from api.stream import EventType, publish_event
 from memory.prompt_background import CEDAR_PROJECT_BACKGROUND
+from memory.prompt_registry import get_effective_prompt_text
 
 _CHUNK_CONTENT_DT_NOTE = "内容日 COALESCE(source_date, created_at)"
 
@@ -594,6 +595,16 @@ class DailyBatchProcessor:
         """跑批 Prompt 统一前缀：标明角色称呼，减轻上下文断裂与名字丢失。"""
         return f"这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录，两人是情侣关系。\n"
 
+    async def _summary_background_prompt(self) -> str:
+        """摘要/跑批共享背景，读取失败时由 registry 回退代码默认值。"""
+        return await get_effective_prompt_text("summary_background")
+
+    async def _daily_summary_static_prompt(self) -> str:
+        return await get_effective_prompt_text("daily_summary")
+
+    async def _event_extraction_static_prompt(self, key: str) -> str:
+        return await get_effective_prompt_text(key)
+
     def _daily_step2_session_framing(self, session_id: str) -> str:
         """Step2 今日小传：与 micro_batch chunk 摘要一致的群聊/私聊材料说明（写入摘要模型 prompt）。"""
         sid = str(session_id or "")
@@ -955,7 +966,7 @@ class DailyBatchProcessor:
             logger.info(f"已停用 {len(ids)} 条 temporal_states，日期: {batch_date}")
             
             contents = [str(r.get("state_content") or "").strip() or "（空）" for r in rows]
-            prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+            prompt = f"""{await self._summary_background_prompt()}
 
 以下为已到期的进行中状态，到期日期：{batch_date}
 将每条改写为简洁客观的过去时事实陈述，不新增信息，不编造内容。
@@ -1096,25 +1107,18 @@ class DailyBatchProcessor:
                         if str(session_id).startswith("telegram_group_")
                         else "- 区分发生的事件和对话中提及的其他时间发生的事件，仅将本次私聊中实际发生的内容作为核心记录；提及的过往事件仅作上下文简要说明，例如「南杉提及X月X日……」，不得单独作为主要事件列出不可直接写成历史事实。"
                     )
+                    daily_summary_static_prompt = await self._daily_summary_static_prompt()
                     prompt = (
                         self._persona_dialogue_prefix()
                         + memory_prefix
                         + session_framing
-                        + f"""{CEDAR_PROJECT_BACKGROUND}
+                        + f"""{await self._summary_background_prompt()}
 
 本次小传业务日期：{batch_date}
 
-请基于以下材料生成今日小传，按主题与时间脉络完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在 500-1500 字，重要内容较多时可适当超出。
-- 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
-- 请以第一人称「我」的视角撰写今日小传，「我」就是与南杉对话的AI；提到南杉时必须直呼其名「南杉」，绝对不要使用第二人称「你」「您」。
-- 按主题归纳当日内容，并在主题内保持时间脉络；同一话题的多轮互动合并为一个事件段落，不逐条复述；只在话题切换或有明确时间跨度时标注时间点。不得遗漏核心讨论内容、重要决策、承诺和关键进展以及南杉需后续跟进的身体/情绪状态；材料中已出现的上述要点均须写入，不得以归纳精简为由漏写。日常互动在总结事件的基础上，保留能体现情感的因果逻辑和关键互动细节，不必逐句还原对话。
-- 须按各事件实际发生的时间先后顺序依次记载，不得在叙事顺序上前后颠倒。
-- 关键事实（含重要数字、决策、名称、IP、ID、域名、文件名、报错信息、决策内容等）必须准确无误原文记录；非核心的次要数据可适当简化，但不得改变原意。
-- 避免重复记录同一事件的多次提及，只保留最完整、最准确的一次描述。
-- 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
-- 若材料中残留以「[系统通知]」开头的字样（审批结果回执之类的元事件），不要当对话引语处理；与正文话题相关时用客观第三方表述（如"南杉确认/驳回了某条记忆更新申请"），无关时整体省略。
+{daily_summary_static_prompt}
 - 涉及时间时必须使用具体日期表述（如「5月20日」或「2026-05-20」），结合本次小传业务日期 {batch_date} 换算；禁止使用「今天」「昨天」「前天」「明天」「近日」等相对时间词。
 {step2_event_scope_bullet}
 {today_content}
@@ -1197,21 +1201,14 @@ class DailyBatchProcessor:
                 return True, None
 
             memory_prefix = await self._memory_context_prefix()
-            prompt = self._persona_dialogue_prefix() + memory_prefix + f"""{CEDAR_PROJECT_BACKGROUND}
+            daily_summary_static_prompt = await self._daily_summary_static_prompt()
+            prompt = self._persona_dialogue_prefix() + memory_prefix + f"""{await self._summary_background_prompt()}
 
 本次小传业务日期：{batch_date}
 
-请基于以下材料生成今日小传，按主题与时间脉络完整概括当日核心话题、重要事件与情感状态。
 要求：
 - 篇幅控制在 200-1000 字，重要内容较多时可适当超出。
-- 行文自然连贯，纯段落文本，无分点、无标题、无额外格式。
-- 请以第一人称「我」的视角撰写今日小传，「我」就是与南杉对话的AI；提到南杉时必须直呼其名「南杉」，绝对不要使用第二人称「你」「您」。
-- 按主题归纳当日内容，并在主题内保持时间脉络；同一话题的多轮互动合并为一个事件段落，不逐条复述；只在话题切换或有明确时间跨度时标注时间点。不得遗漏核心讨论内容、重要决策、承诺和关键进展以及南杉需后续跟进的身体/情绪状态；材料中已出现的上述要点均须写入，不得以归纳精简为由漏写。日常互动在总结事件的基础上，保留能体现情感的因果逻辑和关键互动细节，不必逐句还原对话。
-- 须按各事件实际发生的时间先后顺序依次记载，不得在叙事顺序上前后颠倒。
-- 关键事实（含重要数字、决策、名称、IP、ID、域名、文件名、报错信息、决策内容等）必须准确无误原文记录；非核心的次要数据可适当简化，但不得改变原意。
-- 避免重复记录同一事件的多次提及，只保留最完整、最准确的一次描述。
-- 若包含时效状态结算内容，自然融合至正文，不单独拆分标注。
-- 若材料中残留以「[系统通知]」开头的字样（审批结果回执之类的元事件），不要当对话引语处理；与正文话题相关时用客观第三方表述（如"南杉确认/驳回了某条记忆更新申请"），无关时整体省略。
+{daily_summary_static_prompt}
 - 涉及时间时必须使用具体日期表述（如「5月20日」或「2026-05-20」），结合本次小传业务日期 {batch_date} 换算；禁止使用「今天」「昨天」「前天」「明天」「近日」等相对时间词。
 - 区分发生的事件和对话中提及的其他时间发生的事件，仅将材料所载各会话 chunk 摘要对应的当日对话中实际发生的内容作为核心记录；提及的过往事件仅作上下文简要说明，例如「南杉或我提及X月X日……」，不得单独作为主要事件列出不可直接写成历史事实。
 {today_content}
@@ -1590,7 +1587,7 @@ class DailyBatchProcessor:
             existing_lines.append(f"- id: {rid} | state_content: {sc or '（空）'}")
         existing_states_text = "\n".join(existing_lines) if existing_lines else "（无）"
 
-        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+        prompt = self._persona_dialogue_prefix() + f"""{await self._summary_background_prompt()}
 
 以下是今日小传：
 {text}
@@ -1783,7 +1780,7 @@ class DailyBatchProcessor:
         fallback = f"{old_content.strip()}\n[{batch_date}更新] {new_content.strip()}"
 
         if dimension in ("current_status", "preferences"):
-            prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+            prompt = self._persona_dialogue_prefix() + f"""{await self._summary_background_prompt()}
 
 你是专业的记忆整理助手，将「既有记忆卡片」与「今日新增摘要」合并为可长期存储的记忆内容。
 该维度（{dimension_label}）记录用户当前生活状态或个人偏好。
@@ -1833,7 +1830,7 @@ class DailyBatchProcessor:
             "- 如新旧信息存在矛盾，保留两者并严格使用 [YYYY-MM-DD] 格式在新增内容前标注日期，不要静默覆盖；\n"
         )
 
-        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+        prompt = self._persona_dialogue_prefix() + f"""{await self._summary_background_prompt()}
 
 你是专业的记忆整理助手，负责将「既有记忆卡片」与「今日新增摘要」进行高质量合并，输出稳定、精炼、可长期存储的记忆内容。
 合并规则：
@@ -2077,7 +2074,7 @@ class DailyBatchProcessor:
                     + "\n\n"
                 )
 
-            prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+            prompt = f"""{await self._summary_background_prompt()}
 
 请仔细阅读今日小传，从中仅提取客观、明确的新事实信息，严格按照指定 JSON Schema 输出，禁止推理、禁止编造、禁止扩写。
 {old_cards_block}今日小传（{batch_date}）：
@@ -2244,7 +2241,7 @@ few-shot 示例：
                 if self._settled_temporal_snippets
                 else "（无）"
             )
-            tl_prompt = f"""{CEDAR_PROJECT_BACKGROUND}
+            tl_prompt = f"""{await self._summary_background_prompt()}
 
 这是 {self._batch_char_name} 与 {self._batch_user_name} 的对话记录整理。
 今日小传（{batch_date}）：
@@ -2353,10 +2350,13 @@ content 强制要求：
             heading="【本批 chunk 摘要时间范围】",
             semantics_note="summaries.created_at 为 chunk 摘要写入库时间",
         ) + chunk_input
-        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+        cluster_static_prompt = await self._event_extraction_static_prompt(
+            "event_extraction_cluster"
+        )
+        prompt = self._persona_dialogue_prefix() + f"""{await self._summary_background_prompt()}
 
 【任务】
-以下是今天按时间顺序的对话片段摘要。请只根据语义主题把 chunk_id 聚类：同一事件/话题放在同一组，不同事件/话题分开。
+{cluster_static_prompt}
 
 【输入】
 {chunk_input}
@@ -2365,8 +2365,7 @@ content 强制要求：
 - 只返回 JSON 数组，不要解释、不要 Markdown、不要其他文字
 - 输出格式必须是：[[1,2,3],[4,5],[6]]
 - 只能使用输入中出现过的 chunk_id
-- 尽量覆盖所有输入 chunk_id
-- 平淡的天可以聚成 1-2 组，话题明显分散时可以更多组"""
+- 尽量覆盖所有输入 chunk_id"""
 
         if llm_config is None:
             logger.warning("Step 4a 无可用 analysis LLM，回退为每个 chunk 单独成组")
@@ -2446,11 +2445,14 @@ content 强制要求：
         _themes_str = " / ".join(EVENT_THEMES)
         _emotions_str = " / ".join(EVENT_EMOTIONS)
         _types_str = " / ".join(EVENT_TYPES)
+        describe_static_prompt = await self._event_extraction_static_prompt(
+            "event_extraction_describe"
+        )
 
-        prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+        prompt = self._persona_dialogue_prefix() + f"""{await self._summary_background_prompt()}
 
 【任务】
-请把下面同一事件/话题下的对话片段摘要合并成一条长期记忆事件，并评估长期保留价值、情绪强度，以及主题标签。
+{describe_static_prompt}
 
 【输入】
 {chunk_group_content}
@@ -2460,24 +2462,12 @@ content 强制要求：
 
 【要求】
 - 只返回单条 JSON 对象，不要解释、不要 Markdown、不要其他文字
-- content 必须是完整、可独立理解的事件描述
 - score 是 1-10 的整数，表示长期保留价值
 - arousal 是 0.0-1.0 的浮点数，表示情绪强度（不分正负）
 - theme: 事件主题，从以下取值选择：{_themes_str}
 - entities: 事件涉及的实体（人名、组织名、产品名等），最多 5 个。必须是有意义的专有名词，禁止填入「今天」「南杉」「东西」等泛指词。无明确实体时返回空数组 []
 - emotion: 主导情绪，从以下取值选择：{_emotions_str}
-- event_type: 事件类型，从以下取值选择：{_types_str}
-
-【评分参考】
-score:
-- 8-10: 重大事件、强烈情感、关键决定
-- 4-7: 有意义的互动、值得回忆的日常
-- 1-3: 平淡的日常对话、重复性内容（让时间衰减处理）
-
-arousal:
-- 0.7+: 强情绪事件（吵架、惊喜、感动、暴怒）
-- 0.3-0.6: 有情绪起伏的对话
-- 0.0-0.2: 平静日常"""
+- event_type: 事件类型，从以下取值选择：{_types_str}"""
 
         if llm_config is None:
             logger.warning("Step 4b 无可用 analysis LLM，返回 None")
@@ -2816,22 +2806,21 @@ arousal:
                 _themes_str = " / ".join(EVENT_THEMES)
                 _emotions_str = " / ".join(EVENT_EMOTIONS)
                 _types_str = " / ".join(EVENT_TYPES)
-                split_prompt = self._persona_dialogue_prefix() + f"""{CEDAR_PROJECT_BACKGROUND}
+                fallback_static_prompt = await self._event_extraction_static_prompt(
+                    "event_extraction_fallback"
+                )
+                split_prompt = self._persona_dialogue_prefix() + f"""{await self._summary_background_prompt()}
 
 【任务】
-以下是今天按时间顺序的对话片段摘要。请找出属于同一事件/话题的片段，将它们合并成独立完整的事件描述。每个事件必须标注由哪几条 chunk 合并而来（返回 chunk_ids 列表）。
+{fallback_static_prompt}
 
 【输入】
 当天 chunk 列表：
 {chunk_input}
 
-【关键引导】
-- 这是 AI 陪伴项目，日常闲聊、互动片段、心情碎片和"重大事件"同等有价值
-- 一个事件 = 一个语义独立的话题段落，不是按时间切片
+【数量约束】
 - 通常 3-{event_split_max} 个事件，平淡的天 1-2 个即可
 - 不得超过 {event_split_max} 个
-- 至少产出 1 个事件（哪怕是"全天平淡，主要在 X 度过"这样的概括）
-- chunk_ids 只能使用输入中出现过的 chunk_id；不要编造 ID
 
 【输出 schema】
 [
@@ -2850,18 +2839,7 @@ arousal:
 theme 取值：{_themes_str}
 emotion 取值：{_emotions_str}
 event_type 取值：{_types_str}
-entities: 事件涉及的实体（人名、组织名、产品名等），最多 5 个，必须是有意义的专有名词。无明确实体时返回空数组 []
-
-【评分参考】
-score:
-- 8-10: 重大事件、强烈情感、关键决定
-- 4-7: 有意义的互动、值得回忆的日常
-- 1-3: 平淡的日常对话、重复性内容（让时间衰减处理）
-
-arousal:
-- 0.7+: 强情绪事件（吵架、惊喜、感动、暴怒）
-- 0.3-0.6: 有情绪起伏的对话
-- 0.0-0.2: 平静日常"""
+entities: 事件涉及的实体（人名、组织名、产品名等），最多 5 个，必须是有意义的专有名词。无明确实体时返回空数组 []"""
 
                 def _normalize_chunk_events(raw_events: Any) -> List[Dict[str, Any]]:
                     events: List[Dict[str, Any]] = []

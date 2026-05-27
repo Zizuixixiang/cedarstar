@@ -48,4 +48,4 @@ npm run dev
 
 **其他脚本：** `npm run build` 为生产构建；`npm run preview` 为预览构建产物。
 
-Mini App 现包含人设、记忆、历史、工具中心、游戏模式（`/game`）、API 配置与调用观测等管理页。如需了解各模块职责、数据库表结构与接口约定，请以 **`ARCHITECTURE.md`** 为准。
+Mini App 现包含人设（含「全局 Prompt」运行时文案覆盖）、记忆、历史、工具中心、游戏模式（`/game`）、API 配置与调用观测等管理页。如需了解各模块职责、数据库表结构与接口约定，请以 **`ARCHITECTURE.md`** 为准。

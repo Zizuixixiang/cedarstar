@@ -113,6 +113,39 @@
 /* ========================================
    顶部标签栏
    ======================================== */
+.persona-mode-tabs {
+  display: flex;
+  gap: 8px;
+  padding: 16px var(--card-padding) 8px;
+  border-bottom: 1px solid rgba(61, 68, 61, 0.2);
+  background: var(--surface);
+}
+
+.persona-mode-tab {
+  border: 1px solid rgba(61, 68, 61, 0.42);
+  background: rgba(245, 242, 236, 0.95);
+  color: var(--persona-ink-mid);
+  padding: 8px 14px;
+  font-family: monospace;
+  font-size: 0.82rem;
+  font-weight: 800;
+  line-height: 1;
+  cursor: pointer;
+  text-transform: uppercase;
+}
+
+.persona-mode-tab:hover {
+  color: var(--persona-ink);
+  background: rgba(232, 228, 218, 0.85);
+}
+
+.persona-mode-tab.active {
+  color: #5a5268;
+  border-color: #5a5268;
+  background: rgba(232, 228, 218, 0.95);
+  box-shadow: 2px 2px 0 rgba(90, 94, 88, 0.18);
+}
+
 .persona-tabs {
   display: flex;
   align-items: center;
@@ -716,6 +749,126 @@
 }
 
 /* ========================================
+   全局 Prompt
+   ======================================== */
+.global-prompt-shell {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: var(--card-padding);
+  padding: var(--card-padding);
+  min-height: 620px;
+}
+
+.global-prompt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border-right: 1px solid rgba(61, 68, 61, 0.24);
+  padding-right: var(--card-padding);
+}
+
+.global-prompt-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  padding: 12px;
+  border: 1px solid rgba(61, 68, 61, 0.34);
+  background: rgba(255, 255, 255, 0.64);
+  color: var(--persona-ink);
+  text-align: left;
+  cursor: pointer;
+}
+
+.global-prompt-item:hover {
+  background: rgba(232, 228, 218, 0.7);
+}
+
+.global-prompt-item.active {
+  border-color: #5a5268;
+  background: rgba(232, 228, 218, 0.9);
+  box-shadow: 2px 2px 0 rgba(90, 94, 88, 0.18);
+}
+
+.global-prompt-item__title {
+  font-size: 0.9rem;
+  font-weight: 800;
+  line-height: 1.25;
+}
+
+.global-prompt-item__key {
+  font-family: monospace;
+  font-size: 0.72rem;
+  color: var(--persona-ink-mid);
+  word-break: break-all;
+}
+
+.global-prompt-item__badge {
+  font-size: 0.7rem;
+  font-weight: 800;
+  color: #5a5268;
+  border: 1px solid rgba(90, 82, 104, 0.38);
+  padding: 2px 5px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.global-prompt-editor {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.global-prompt-editor__head {
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
+  align-items: flex-start;
+}
+
+.global-prompt-editor__meta {
+  flex: 0 0 auto;
+  font-family: monospace;
+  font-size: 0.76rem;
+  color: var(--persona-ink-mid);
+  padding-top: 8px;
+}
+
+.global-prompt-textarea {
+  min-height: 300px;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 0.84rem;
+  line-height: 1.7;
+  resize: vertical;
+}
+
+.global-prompt-default {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.global-prompt-default__title {
+  font-size: 0.78rem;
+  font-weight: 800;
+  color: var(--persona-ink-mid);
+  text-transform: uppercase;
+  font-family: monospace;
+}
+
+.global-prompt-default .preview-chunk-body {
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.global-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding-top: 4px;
+}
+
+/* ========================================
    底部操作栏
    ======================================== */
 .persona-footer {
@@ -873,6 +1026,42 @@
    移动端响应式布局
    ======================================== */
 @media screen and (max-width: 767px) {
+  .persona-mode-tabs {
+    padding: 14px 16px 8px;
+    overflow-x: auto;
+  }
+
+  .global-prompt-shell {
+    grid-template-columns: 1fr;
+    padding: 16px;
+    min-height: 0;
+  }
+
+  .global-prompt-list {
+    border-right: none;
+    border-bottom: 1px solid rgba(61, 68, 61, 0.24);
+    padding-right: 0;
+    padding-bottom: 14px;
+  }
+
+  .global-prompt-editor__head {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .global-prompt-editor__meta {
+    padding-top: 0;
+  }
+
+  .global-prompt-actions {
+    flex-direction: column;
+  }
+
+  .global-prompt-actions .btn-rename,
+  .global-prompt-actions .btn-save {
+    width: 100%;
+  }
+
   /* 主内容区改为上下堆叠 */
   .persona-body {
     flex-direction: column;

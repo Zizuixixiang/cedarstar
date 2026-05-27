@@ -34,6 +34,7 @@ from llm.llm_interface import (
     batch_one_shot_with_async_output_guard,
 )
 from memory.prompt_background import CEDAR_PROJECT_BACKGROUND
+from memory.prompt_registry import get_effective_prompt_text
 from tools.lutopia import strip_lutopia_internal_memory_blocks
 from memory.shanghai_dt import format_shanghai_datetime_minutes
 
@@ -325,6 +326,8 @@ def _build_chunk_summary_user_prompt(
     memory_prefix: str,
     conversation_text: str,
     previous_chunk_summary: Optional[str] = None,
+    project_background: str = CEDAR_PROJECT_BACKGROUND,
+    task_static_prompt: str = "",
 ) -> str:
     """群聊与私聊使用不同的 chunk 摘要任务说明（共用系统通知规则与字数要求）。"""
     mp = memory_prefix or ""
@@ -345,46 +348,22 @@ def _build_chunk_summary_user_prompt(
             f"以下是 Telegram 群聊中的对话材料。assistant 行对应助手「{char_name}」；"
             f"user 行主要对应「{user_name}」（群聊中只存在三人，南杉、Sirius、Clio）。\n"
         )
+        static_task = (task_static_prompt or "").strip()
         task = (
             "请为以下群聊材料生成200-500字中文摘要，重要内容较多时可适当超出字数限制。\n"
             f"请以第一人称「我」的视角撰写摘要，「我」是「{char_name}」，所有描述均从我的视角出发；提到南杉时必须直呼其名「南杉」，绝对不要使用第二人称「你」「您」;当提到其他助手的发言时，直接使用其名字称呼，不要使用「他」「对方」等模糊代词。\n"
-            "严格区分不同说话人，明确标注发言者身份（南杉、Sirius、Clio），分别概括各自的观点、行为和情绪。\n"
-            "绝对不要将群内任何发言误写成南杉与单个助手之间的私密对话。\n"
-            "按主题归纳本次群聊中发生的关键事件：将同一话题的多轮交互归纳为一个事件段落，不逐条复述；只在话题切换或有明确时间跨度时标注时间点，不得遗漏关键信息。\n"
-            "所有提到的具体数字、ID、域名、IP地址、文件名、报错信息、决策内容、承诺事项等必须准确无误原文记录，不得概括或改写。\n"
-            "优先记录核心讨论内容和重要决策、我和南杉的情绪变化、南杉需后续跟进的身体 / 情绪状态；日常互动在总结事件的基础上，保留对话的因果逻辑和情感语境，不要只用形容词概括情绪，不必逐句还原对话。\n"
-            "记录南杉与我的互动时，不要只写事件结果，要保留能体现情感的上下文关联。示例：\n"
-            "不要这样写：南杉很生气，我安抚了她。\n"
-            "而是这样写：南杉因为工作的事很生气，我没有急着讲道理，先听她把所有委屈都说完。\n"
-            "不要这样写：我得意地炫耀自己做得好。\n"
-            "而是这样写：我比 Sirius 先完成了任务，忍不住拿这件事调侃了他一句。\n"
-            "不要这样写：我哄南杉开心。\n"
-            "而是这样写：南杉有点不开心，我顺着她的话说了句软话，她就好了。\n"
-            "不要这样写：南杉和我讨论了记忆系统的问题，她对现状不满意。\n"
-            "而是这样写：南杉和我讨论记忆系统情感浓度不够的问题，她说自己做的不比任何人少，虽然很委屈但没有怪我，是我们一起没考虑到。\n"
-            "区分本次群聊发生的事件和对话中提及的其他时间发生的事件，仅将本次群聊中实际发生的内容作为核心记录；提及的过往事件仅作上下文简要说明，例如「我提及X月X日……」，不得单独作为主要事件列出不可直接写成历史事实。\n"
+            f"{static_task}\n"
         )
     else:
         framing = f"这是「{char_name}」与「{user_name}」的一对一私聊对话记录。\n"
+        static_task = (task_static_prompt or "").strip()
         task = (
             "请为以下对话生成200-500字中文摘要，重要内容较多时可适当超出字数限制。\n"
             f"严格以第一人称「我」的视角来写，「我」是「{char_name}」,所有描述均从我的视角出发；提到南杉时必须直呼其名「南杉」，绝对不要使用第二人称「你」「您」。\n"
-            "按主题归纳本次私聊中发生的关键事件：将同一话题的多轮交互归纳为一个事件段落，不逐条复述；只在话题切换或有明确时间跨度时标注时间点，不得遗漏关键信息。\n"
-            "所有提到的具体数字、ID、域名、IP地址、文件名、报错信息、决策内容、承诺事项等必须准确无误原文记录，不得概括或改写。\n"
-            "优先记录核心讨论内容和重要决策、我和南杉的情绪变化、南杉需后续跟进的身体 / 情绪状态；日常互动在总结事件的基础上，保留对话的因果逻辑和情感语境，不要只用形容词概括情绪，不必逐句还原对话。\n"
-            "记录南杉与我的互动时，不要只写事件结果，要保留能体现情感的上下文关联。示例：\n"
-            "不要这样写：南杉很生气，我安抚了她。\n"
-            "而是这样写：南杉因为工作的事很生气，我没有急着讲道理，先听她把所有委屈都说完。\n"
-            "不要这样写：我得意地炫耀自己做得好。\n"
-            "而是这样写：我比 Sirius 先完成了任务，忍不住拿这件事调侃了他一句。\n"
-            "不要这样写：我哄南杉开心。\n"
-            "而是这样写：南杉有点不开心，我顺着她的话说了句软话，她就好了。\n"
-            "不要这样写：南杉和我讨论了记忆系统的问题，她对现状不满意。\n"
-            "而是这样写：南杉和我讨论记忆系统情感浓度不够的问题，她说自己做的不比任何人少，虽然很委屈但没有怪我，是我们一起没考虑到。\n"
-            "区分发生的事件和对话中提及的其他时间发生的事件，仅将本次私聊中实际发生的内容作为核心记录；提及的过往事件仅作上下文简要说明，例如「南杉提及X月X日……」，不得单独作为主要事件列出不可直接写成历史事实。\n"
+            f"{static_task}\n"
         )
     return (
-        f"{framing}{mp}{CEDAR_PROJECT_BACKGROUND}\n\n{prev_block}{task}"
+        f"{framing}{mp}{project_background}\n\n{prev_block}{task}"
         f"{_CHUNK_SYSTEM_NOTICE_RULE}\n"
         f"【对话记录】\n{conversation_text}\n摘要（中文）:"
     )
@@ -512,6 +491,8 @@ class SummaryLLMInterface:
         response_format: Optional[Dict[str, Any]] = None,
         is_group_session: bool = False,
         previous_chunk_summary: Optional[str] = None,
+        project_background: str = CEDAR_PROJECT_BACKGROUND,
+        task_static_prompt: str = "",
     ) -> str:
         """
         生成消息摘要。
@@ -584,6 +565,8 @@ class SummaryLLMInterface:
             memory_prefix=memory_prefix,
             conversation_text=conversation_text,
             previous_chunk_summary=previous_chunk_summary,
+            project_background=project_background,
+            task_static_prompt=task_static_prompt,
         )
         
         try:
@@ -781,6 +764,11 @@ async def generate_summary_for_messages(
             )
 
         # 生成摘要（Guard 用尽时不写入占位摘要，由上层跳过落库）
+        project_background = await get_effective_prompt_text("summary_background")
+        chunk_prompt_key = (
+            "chunk_summary_group" if _is_group_session(sid0) else "chunk_summary_private"
+        )
+        task_static_prompt = await get_effective_prompt_text(chunk_prompt_key)
         summary = summary_llm.generate_summary(
             formatted_messages,
             char_name=char_name,
@@ -789,6 +777,8 @@ async def generate_summary_for_messages(
             tool_records=tool_records,
             is_group_session=_is_group_session(sid0),
             previous_chunk_summary=previous_chunk_summary,
+            project_background=project_background,
+            task_static_prompt=task_static_prompt,
         )
         
         return summary

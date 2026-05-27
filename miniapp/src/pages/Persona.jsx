@@ -327,6 +327,191 @@ function PersonaPreviewStack({ charSections, userChunks, rulesSection }) {
   );
 }
 
+function formatPromptUpdatedAt(value) {
+  if (!value) return '未覆盖';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return String(value);
+  return d.toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+}
+
+function GlobalPromptPanel() {
+  const [prompts, setPrompts] = useState([]);
+  const [activeKey, setActiveKey] = useState('');
+  const [draft, setDraft] = useState('');
+  const [savedDraft, setSavedDraft] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [isSaving, setIsSaving] = useState(false);
+  const activePrompt = useMemo(
+    () => prompts.find(item => item.key === activeKey) || null,
+    [prompts, activeKey]
+  );
+  const hasPromptChanges = draft !== savedDraft;
+
+  const loadPrompts = async () => {
+    setIsLoading(true);
+    try {
+      const res = await apiFetch('/api/prompts');
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || '加载失败');
+      const list = data.data || [];
+      setPrompts(list);
+      const key = activeKey || list[0]?.key || '';
+      setActiveKey(key);
+      const current = list.find(item => item.key === key) || list[0];
+      const text = current?.override_text?.trim()
+        ? current.override_text
+        : current?.default_text || '';
+      setDraft(text);
+      setSavedDraft(text);
+    } catch (e) {
+      toast.error(`加载 Prompt 失败: ${e.message}`);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPrompts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const switchPrompt = (key) => {
+    if (key === activeKey) return;
+    if (hasPromptChanges && !window.confirm('当前 Prompt 有未保存的修改，是否放弃？')) return;
+    const next = prompts.find(item => item.key === key);
+    setActiveKey(key);
+    const text = next?.override_text?.trim() ? next.override_text : next?.default_text || '';
+    setDraft(text);
+    setSavedDraft(text);
+  };
+
+  const savePrompt = async () => {
+    if (!activePrompt || isSaving) return;
+    const text = draft.trim();
+    if (!text) {
+      toast.error('Prompt 不能为空；如需恢复默认请点恢复默认');
+      return;
+    }
+    setIsSaving(true);
+    try {
+      const res = await apiFetch(`/api/prompts/${activePrompt.key}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ override_text: text }),
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || '保存失败');
+      const updated = data.data;
+      setPrompts(prev => prev.map(item => (item.key === updated.key ? updated : item)));
+      setDraft(updated.override_text || updated.effective_text || '');
+      setSavedDraft(updated.override_text || updated.effective_text || '');
+      toast.success('✓ Prompt 已保存', { autoClose: 1800 });
+    } catch (e) {
+      toast.error(`保存失败: ${e.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const resetPrompt = async () => {
+    if (!activePrompt || isSaving) return;
+    if (!window.confirm(`恢复「${activePrompt.title}」为代码默认值？`)) return;
+    setIsSaving(true);
+    try {
+      const res = await apiFetch(`/api/prompts/${activePrompt.key}/reset`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.message || '恢复失败');
+      const updated = data.data;
+      setPrompts(prev => prev.map(item => (item.key === updated.key ? updated : item)));
+      setDraft(updated.default_text || '');
+      setSavedDraft(updated.default_text || '');
+      toast.success('✓ 已恢复默认', { autoClose: 1800 });
+    } catch (e) {
+      toast.error(`恢复失败: ${e.message}`);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  if (isLoading) {
+    return (
+      <div className="global-prompt-shell">
+        <div className="sk-block sk-title" style={{ width: 160 }} />
+        <div className="sk-block sk-textarea" style={{ height: 360 }} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="global-prompt-shell">
+      <aside className="global-prompt-list" aria-label="Prompt 列表">
+        {prompts.map(item => (
+          <button
+            key={item.key}
+            type="button"
+            className={`global-prompt-item ${item.key === activeKey ? 'active' : ''}`}
+            onClick={() => switchPrompt(item.key)}
+          >
+            <span className="global-prompt-item__title">{item.title}</span>
+            <span className="global-prompt-item__key">{item.key}</span>
+            {item.has_override ? <span className="global-prompt-item__badge">已覆盖</span> : null}
+          </button>
+        ))}
+      </aside>
+
+      <section className="global-prompt-editor">
+        {activePrompt ? (
+          <>
+            <div className="global-prompt-editor__head">
+              <div>
+                <SectionHead slug="[ GLOBAL_PROMPT ]" title={activePrompt.title} icon={FileCode} />
+                <p className="persona-field-hint">{activePrompt.description}</p>
+              </div>
+              <div className="global-prompt-editor__meta">
+                上次更新时间：{formatPromptUpdatedAt(activePrompt.updated_at)}
+              </div>
+            </div>
+            <textarea
+              className="field-textarea global-prompt-textarea"
+              value={draft}
+              onChange={e => setDraft(e.target.value)}
+              spellCheck={false}
+            />
+            <div className="global-prompt-default">
+              <div className="global-prompt-default__title">默认文本</div>
+              <pre className="preview-chunk-body">{activePrompt.default_text}</pre>
+            </div>
+            <div className="global-prompt-actions">
+              <button className="btn-rename" type="button" onClick={resetPrompt} disabled={isSaving}>
+                恢复默认
+              </button>
+              <button
+                className={`btn-save ${hasPromptChanges ? 'pulse' : ''}`}
+                type="button"
+                onClick={savePrompt}
+                disabled={!hasPromptChanges || isSaving}
+              >
+                {isSaving ? '保存中...' : '保存 Prompt'}
+              </button>
+            </div>
+          </>
+        ) : (
+          <p className="preview-empty">暂无 Prompt 配置。</p>
+        )}
+      </section>
+    </div>
+  );
+}
+
 // 骨架屏组件
 function SkeletonScreen() {
   return (
@@ -362,6 +547,7 @@ function SkeletonScreen() {
 function Persona() {
   const [searchParams] = useSearchParams();
   const personaTabsRef = useHorizontalDragScroll();
+  const [pageTab, setPageTab] = useState('persona');
   const [personas, setPersonas] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [activeName, setActiveName] = useState('');
@@ -676,6 +862,27 @@ function Persona() {
 
   return (
     <div className="persona-page">
+      <div className="persona-mode-tabs" role="tablist" aria-label="人设页面模式">
+        <button
+          type="button"
+          className={`persona-mode-tab ${pageTab === 'persona' ? 'active' : ''}`}
+          onClick={() => setPageTab('persona')}
+        >
+          角色人设
+        </button>
+        <button
+          type="button"
+          className={`persona-mode-tab ${pageTab === 'global' ? 'active' : ''}`}
+          onClick={() => {
+            if (hasUnsavedChanges && !window.confirm('当前人设有未保存的修改，是否放弃？')) return;
+            setPageTab('global');
+          }}
+        >
+          全局 Prompt
+        </button>
+      </div>
+      {pageTab === 'global' ? <GlobalPromptPanel /> : (
+      <>
       {/* ① 顶部人设切换标签栏 */}
       <div className="persona-tabs">
         <div className="persona-tabs-scroll" ref={personaTabsRef}>
@@ -1183,6 +1390,8 @@ function Persona() {
           </button>
         </div>
       </div>
+      </>
+      )}
     </div>
   );
 }

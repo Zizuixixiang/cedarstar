@@ -1268,6 +1268,14 @@ class MessageDatabase:
                     )
                 """)
 
+                await conn.execute("""
+                    CREATE TABLE IF NOT EXISTS prompt_overrides (
+                        key TEXT PRIMARY KEY,
+                        override_text TEXT NOT NULL,
+                        updated_at TIMESTAMP DEFAULT NOW()
+                    )
+                """)
+
                 # custom MCP management
                 await conn.execute("""
                     CREATE TABLE IF NOT EXISTS mcp_servers (
@@ -6015,6 +6023,63 @@ class MessageDatabase:
         configs = {r["key"]: r["value"] for r in rows}
         logger.debug("获取所有配置成功: %s 条", len(configs))
         return configs
+
+    async def _ensure_prompt_overrides_table(self, conn) -> None:
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS prompt_overrides (
+                key TEXT PRIMARY KEY,
+                override_text TEXT NOT NULL,
+                updated_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+
+    async def get_prompt_override(self, key: str) -> Optional[str]:
+        """读取 prompt override，不存在时返回 None。"""
+        async with self.pool.acquire() as conn:
+            await self._ensure_prompt_overrides_table(conn)
+            return await conn.fetchval(
+                "SELECT override_text FROM prompt_overrides WHERE key = $1",
+                key,
+            )
+
+    async def get_prompt_overrides(self) -> Dict[str, Dict[str, Any]]:
+        """读取全部 prompt overrides，按 key 返回。"""
+        async with self.pool.acquire() as conn:
+            await self._ensure_prompt_overrides_table(conn)
+            rows = await conn.fetch(
+                "SELECT key, override_text, updated_at FROM prompt_overrides"
+            )
+        return {
+            str(r["key"]): {
+                "override_text": r["override_text"],
+                "updated_at": r["updated_at"],
+            }
+            for r in rows
+        }
+
+    async def set_prompt_override(self, key: str, override_text: str) -> bool:
+        """保存 prompt override。"""
+        async with self.pool.acquire() as conn:
+            await self._ensure_prompt_overrides_table(conn)
+            await conn.execute(
+                """
+                INSERT INTO prompt_overrides (key, override_text, updated_at)
+                VALUES ($1, $2, NOW())
+                ON CONFLICT (key) DO UPDATE
+                SET override_text = EXCLUDED.override_text,
+                    updated_at = NOW()
+                """,
+                key,
+                override_text,
+            )
+        return True
+
+    async def delete_prompt_override(self, key: str) -> bool:
+        """删除 prompt override，使其恢复代码默认值。"""
+        async with self.pool.acquire() as conn:
+            await self._ensure_prompt_overrides_table(conn)
+            await conn.execute("DELETE FROM prompt_overrides WHERE key = $1", key)
+        return True
 
     async def get_tts_config(self) -> dict:
         """批量读取 TTS 运行参数，返回带默认值的 dict。
