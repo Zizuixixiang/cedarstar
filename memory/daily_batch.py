@@ -1253,8 +1253,8 @@ class DailyBatchProcessor:
         """使用摘要模型配置执行自定义 prompt（不经 micro_batch 的对话摘要模板包装）。"""
         sl = self.summary_llm
         base = int(getattr(sl, "max_tokens", 500) or 500)
-        # 日摘要 prompt 目标 500–1500 字，输出 token 下限 3000，避免句中硬截断
-        mt = min(8192, max(base, 3000))
+        # 日摘要 prompt 目标 500–1500 字，输出 token 下限 5000，避免句中硬截断
+        mt = min(8192, max(base, 5000))
         return batch_one_shot_with_async_output_guard(
             messages=[{"role": "user", "content": prompt}],
             model_name=sl.model_name,

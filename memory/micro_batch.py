@@ -436,7 +436,7 @@ class SummaryLLMInterface:
             self.api_key = main_llm.api_key
             self.api_base = main_llm.api_base
             self.timeout = self._background_timeout(main_llm.timeout)
-            self.max_tokens = min(main_llm.max_tokens, 500)  # 摘要使用较小的 token 数
+            self.max_tokens = min(main_llm.max_tokens, 2000)  # 摘要使用较小的 token 数
         
         # 验证配置
         if not self.api_key:
