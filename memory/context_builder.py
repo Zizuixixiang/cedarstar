@@ -732,6 +732,50 @@ async def _build_rerank_query(session_id: str, current_message: str) -> str:
     """
     max_chars = await _rerank_query_max_chars()
     turns = await _rerank_query_turns()
+    current_clean = str(current_message or "").replace(
+        f"\n\n{TELEGRAM_GROUP_USER_TURN_HINT}", ""
+    ).strip()
+
+    if str(session_id).startswith("telegram_group_") and len(current_clean) < 60:
+        chat_id = str(session_id)[len("telegram_group_") :]
+        rows = await get_database().get_recent_shared_group_messages(
+            chat_id, limit=max(1, turns * 2)
+        )
+        user_bracket = await _group_transcript_user_bracket_label()
+        history_parts: List[str] = []
+        history_len = 0
+        skipped_current = False
+        for row in rows:  # shared_group_messages 已按 created_at DESC 返回，优先保留最新上下文
+            sender = str(row.get("sender") or "").strip().lower()
+            content = str(row.get("content") or "").strip()
+            if not content:
+                continue
+            if (
+                not skipped_current
+                and sender == "user"
+                and current_clean
+                and content == current_clean
+            ):
+                skipped_current = True
+                continue
+            label = _group_transcript_speaker_bracket(
+                sender, user_bracket_label=user_bracket
+            )
+            part = f"[{label}] {content}"
+            remaining = 200 - history_len
+            if remaining <= 0:
+                break
+            if len(part) > remaining:
+                part = part[:remaining]
+            history_parts.append(part)
+            history_len += len(part)
+
+        if current_clean:
+            history_parts.append(f"[{user_bracket}] {current_clean}")
+        query = "\n".join(p for p in history_parts if p)
+        if len(query) > max_chars:
+            query = query[-max_chars:]
+        return query
 
     # 取最近消息（不包含当前轮）
     recent = await get_unsummarized_messages_desc(session_id, limit=turns * 2)
@@ -749,8 +793,8 @@ async def _build_rerank_query(session_id: str, current_message: str) -> str:
             parts.append(f"小克: {content}")
 
     # 加当前消息
-    if current_message and current_message.strip():
-        parts.append(f"南杉: {current_message.strip()}")
+    if current_clean:
+        parts.append(f"南杉: {current_clean}")
 
     query = "\n".join(parts)
     if len(query) > max_chars:
@@ -3054,18 +3098,23 @@ class ContextBuilder:
         Returns:
             Dict[str, Any]: 当前用户消息
         """
+        current_message_text = (
+            f"【本轮最新消息】\n{user_message}"
+            if (user_message or "").strip()
+            else "【本轮最新消息】"
+        )
         if images:
             from llm.llm_interface import LLMInterface, build_user_multimodal_content
 
             llm = LLMInterface()
             content = build_user_multimodal_content(
-                llm.api_base, llm.model_name, user_message, images
+                llm.api_base, llm.model_name, current_message_text, images
             )
             content = inject_user_sent_at_into_llm_content(content, None)
             return {"role": "user", "content": content}
         return {
             "role": "user",
-            "content": inject_user_sent_at_into_llm_content(user_message, None),
+            "content": inject_user_sent_at_into_llm_content(current_message_text, None),
         }
     
     def _assemble_full_system_prompt(
