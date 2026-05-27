@@ -191,7 +191,7 @@ def _prepend_group_reply_to_author(content: str, row: Dict[str, Any]) -> str:
     body = str(content or "").strip()
     if not reply_to_author:
         return body
-    prefix = f"[回复了 {reply_to_author}]"
+    prefix = f"【对话结构：本条消息是用户回复给 {reply_to_author} 的】"
     return f"{prefix}\n{body}" if body else prefix
 
 
@@ -206,7 +206,9 @@ async def _telegram_group_chunk_viewpoint_line() -> str:
     return (
         f"（我在本节群聊摘录中会看到方括号开头的说话人："
         f"**[{ub}]** 指用户；**[{me_relay}]**、**[{peer_relay}]** 固定指两名助手。我在对话中使用的助手标签是 **{me_relay}**；"
-        f"我在人设中的名字是 **{cn}**。若摘要正文里出现第一人称「我」，在无特别声明时即指 **{cn}**（我的人设视角），不要误读成另一名助手或用户。）"
+        f"我在人设中的名字是 **{cn}**。若摘要正文里出现第一人称「我」，在无特别声明时即指 **{cn}**（我的人设视角），不要误读成另一名助手或用户。）\n"
+        f"所有以【对话结构：】开头的内容，是对本条消息对话关系的说明，请你据此判断用户在和谁说话，不要在回复中复述该标记本身。"
+        f"若本条消息的回复对象是群内另一位成员，你不是主要对话对象，不要将针对对方的情绪误读为也包含你自己，但仍可以正常参与群聊。"
     )
 
 TTS_PROMPT_BLOCK = """【TTS语音输出说明】

@@ -3976,8 +3976,7 @@ class TelegramBot:
 
         author = cls._extract_reply_author(message) or "未知用户"
         return (
-            f"[系统上下文：用户正在回复 {author} 的消息「{text}」。"
-            "此信息只用于理解上下文，禁止在回答中复述这段括号内容。]\n\n"
+            f"【对话结构：本条消息是用户回复给 {author} 的，引用内容为「{text}」】\n\n"
         )
 
     async def _add_to_buffer(
