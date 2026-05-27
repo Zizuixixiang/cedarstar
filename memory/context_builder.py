@@ -122,11 +122,20 @@ TELEGRAM_GROUP_CONTINUATION_DIRECTIVE = (
     "不要复述、改写或换一种说法重复同一层意思；避免车轱辘话，让对话向前走。"
 )
 
-TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE = (
-    "【群聊】沉浸陪伴，非客服；用人设口吻紧接上文续写，默认中文。"
-    "禁止 ready to help、自称 AI 助手、列工具菜单或请用户补充任务。"
-    "工具照常可用，需用时一句口语带过即可。"
-)
+async def _telegram_group_in_character_directive() -> str:
+    relay = get_database()._shared_summary_actor()
+    me_label = "Clio" if relay == "clio" else "Sirius"
+    peer_label = "Sirius" if relay == "clio" else "Clio"
+    _, user_name = await fetch_active_persona_display_names()
+    ub = (user_name or "").strip() or "南杉"
+    return (
+        "【群聊】沉浸陪伴，非客服；用人设口吻紧接上文续写，默认中文。"
+        "禁止 ready to help、自称 AI 助手、列工具菜单或请用户补充任务。"
+        "工具照常可用，需用时一句口语带过即可。"
+        f"方括号标签（[{me_label}] / [{peer_label}] / [{ub}]）只用于系统区分说话人，读取时理解上下文即可；"
+        f"[{peer_label}] 是另一个 AI 的发言，不要模仿其说话风格、语气和行为模式。"
+        f"回复正文里不得自行添加方括号标签，不要在开头写 [{me_label}] 或任何方括号标签。"
+    )
 
 TELEGRAM_GROUP_USER_TURN_HINT = (
     "[系统提示：群聊。人设口吻紧接上文，守分段规定；禁助手寒暄与能力菜单；工具照常。]"
@@ -1723,7 +1732,7 @@ class ContextBuilder:
                     _cache_text_block(TELEGRAM_GROUP_CONTINUATION_DIRECTIVE, cache=False)
                 )
                 full_system_prompt.append(
-                    _cache_text_block(TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE, cache=False)
+                    _cache_text_block(await _telegram_group_in_character_directive(), cache=False)
                 )
 
             # TTS 语气标签注入
@@ -1923,7 +1932,7 @@ class ContextBuilder:
                     _cache_text_block(TELEGRAM_GROUP_CONTINUATION_DIRECTIVE, cache=False)
                 )
                 full_system_prompt.append(
-                    _cache_text_block(TELEGRAM_GROUP_IN_CHARACTER_DIRECTIVE, cache=False)
+                    _cache_text_block(await _telegram_group_in_character_directive(), cache=False)
                 )
 
             # TTS 语气标签注入
