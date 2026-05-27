@@ -637,7 +637,7 @@ async def _rerank_enabled() -> bool:
 
 
 async def _rerank_candidate_size() -> int:
-    """rerank 候选集大小上限，默认 50。"""
+    """rerank 候选集大小上限，默认 60（与同步链路 max(1, 2*retrieval_top_k) 对齐）。"""
     try:
         raw = await get_database().get_config("rerank_candidate_size")
         if raw is not None and str(raw).strip() != "":
@@ -645,8 +645,8 @@ async def _rerank_candidate_size() -> int:
     except (ValueError, TypeError):
         pass
     except Exception as e:
-        logger.debug("读取 rerank_candidate_size 失败，使用默认 50: %s", e)
-    return 50
+        logger.debug("读取 rerank_candidate_size 失败，使用默认 60: %s", e)
+    return 60
 
 
 async def _rerank_score_floor() -> float:

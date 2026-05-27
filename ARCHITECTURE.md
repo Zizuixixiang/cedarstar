@@ -56,7 +56,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `api_failover_all_failed_alert_latch_{config_type}` | 该类型 API 激活池「全失败」Telegram 是否已提醒（`1`=已发；恢复后清零，告警正文不入 `messages`） |
 | `external_chunk_max_chars` | MCP 外部写入单条 content 最大字数，默认 2000 |
 | `rerank_enabled` | 是否启用 SiliconFlow Rerank 精排，默认 true |
-| `rerank_candidate_size` | rerank 候选集大小上限，默认 50 |
+| `rerank_candidate_size` | rerank 候选集大小上限，默认 60 |
 | `rerank_score_floor` | 非收藏事件的 rerank 分数阈值，默认 0.3；Mini App Config 可调范围 0.05-0.8，步长 0.05 |
 | `rerank_starred_floor` | 收藏事件的 rerank 分数阈值，默认 0.15；Mini App Config 可调范围 0.05-0.5，步长 0.05 |
 | `rerank_query_max_chars` | 构建 rerank query 的最大字符数，默认 300 |
@@ -253,7 +253,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 **`_build_vector_search_section_async`（主路径在 `rerank_enabled=true` 时调用；`build_context_async` 也复用）**：长期记忆采用双路检索 + Rerank 精排 + 阈值过滤 + 记录自身衰减分融合 + MMR 多样性筛选：
 
 1. **构建 rerank query**：取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），截断到 `rerank_query_max_chars` 字符；若仅空白则回退为 `user_message`
-2. **双路检索**：向量检索与 BM25 复用上一步构建的多轮 `rerank_query` 作为检索 query（包含最近对话与当前消息），各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）。召回前按 `context_max_daily_summaries` 计算 `cutoff_date = 今天 - N 天`；Chroma `where` 仅按 `summary_type` 白名单过滤，不追加日期比较。向量结果与 BM25 结果在双路合并后统一按 metadata 中的 `date < cutoff_date` 字符串比较过滤，避免长期记忆与已注入的近期 daily summaries 时间段重叠。
+2. **双路检索**：向量检索与 BM25 复用上一步构建的多轮 `rerank_query` 作为检索 query（包含最近对话与当前消息），各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 60）。召回前按 `context_max_daily_summaries` 计算 `cutoff_date = 今天 - N 天`；Chroma `where` 仅按 `summary_type` 白名单过滤，不追加日期比较。向量结果与 BM25 结果在双路合并后统一按 metadata 中的 `date < cutoff_date` 字符串比较过滤，避免长期记忆与已注入的近期 daily summaries 时间段重叠。
 3. **Rerank 精排**：调用激活的 `api_configs.config_type='rerank'` 配置；未配置时回退 `SILICONFLOW_API_KEY` + 默认 SiliconFlow Qwen3-Reranker-4B。每条候选得到 0-1 的 relevance_score；超时或异常时降级到旧的 `fuse_rerank_with_time_decay` 路径
 4. **阈值拦截**（用 rerank 纯语义分，不混入加权）：
    - `is_starred=true`：score >= `rerank_starred_floor`（0.15）通过
