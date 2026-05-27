@@ -735,8 +735,16 @@ async def _build_rerank_query(session_id: str, current_message: str) -> str:
     current_clean = str(current_message or "").replace(
         f"\n\n{TELEGRAM_GROUP_USER_TURN_HINT}", ""
     ).strip()
+    is_group_user_message = not (
+        current_clean.startswith("[群聊接话信号]")
+        or current_clean.startswith("[另一名助手 ")
+    )
 
-    if str(session_id).startswith("telegram_group_") and len(current_clean) < 60:
+    if (
+        str(session_id).startswith("telegram_group_")
+        and is_group_user_message
+        and len(current_clean) < 60
+    ):
         chat_id = str(session_id)[len("telegram_group_") :]
         rows = await get_database().get_recent_shared_group_messages(
             chat_id, limit=max(1, turns * 2)

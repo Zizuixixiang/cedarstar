@@ -228,7 +228,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 
 **`_build_vector_search_section_async`（主路径在 `rerank_enabled=true` 时调用；`build_context_async` 也复用）**：采用双路检索 + Rerank 精排 + 阈值过滤 + 记录自身衰减分融合 + MMR 多样性筛选：
 
-1. **构建 rerank query**：私聊路径取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），再追加本轮消息并截断到 `rerank_query_max_chars` 字符；若仅空白则回退为 `user_message`。群聊 `telegram_group_*` 且本轮消息少于 60 字时，改从 `shared_group_messages` 读取最近记录，按 `created_at DESC` 贪心装填最近群聊上下文，标签使用 `[南杉]` / `[Clio]` / `[Sirius]`，历史片段总长上限 200 字，跳过与本轮正文相同的当前用户行后再追加本轮消息；最终仍统一走 `rerank_query_max_chars` 截断。群聊本轮消息达到 60 字及以上时沿用原多轮 session query。
+1. **构建 rerank query**：私聊路径取当前 session 最近 `rerank_query_turns` 轮对话，加角色前缀（南杉: / 小克:），再追加本轮消息并截断到 `rerank_query_max_chars` 字符；若仅空白则回退为 `user_message`。群聊 `telegram_group_*` 且本轮真人 user 消息少于 60 字时，改从 `shared_group_messages` 读取最近记录，按 `created_at DESC` 贪心装填最近群聊上下文，标签使用 `[南杉]` / `[Clio]` / `[Sirius]`，历史片段总长上限 200 字，跳过与本轮正文相同的当前用户行后再追加本轮消息；最终仍统一走 `rerank_query_max_chars` 截断。`[群聊接话信号]` 与 `[另一名助手 ... 的发言]` 等 peer/内部触发不走短 user 分支；群聊真人 user 消息达到 60 字及以上时沿用原多轮 session query。
 2. **双路检索**：向量检索与 BM25 复用上一步构建的多轮 `rerank_query` 作为检索 query（包含最近对话与当前消息），各自召回 `retrieval_top_k`（默认 30），候选去重合并，上限 `rerank_candidate_size`（默认 50）。召回前按 `context_max_daily_summaries` 计算 `cutoff_date = 今天 - N 天`；Chroma `where` 仅按 `summary_type` 白名单过滤，不追加日期比较。向量结果与 BM25 结果在双路合并后统一按 metadata 中的 `date < cutoff_date` 字符串比较过滤，避免长期记忆与已注入的近期 daily summaries 时间段重叠。
 3. **Rerank 精排**：调用激活的 `api_configs.config_type='rerank'` 配置；未配置时回退 `SILICONFLOW_API_KEY` + 默认 SiliconFlow Qwen3-Reranker-4B。每条候选得到 0-1 的 relevance_score；超时或异常时降级到旧的 `fuse_rerank_with_time_decay` 路径
 4. **阈值拦截**（用 rerank 纯语义分，不混入加权）：
