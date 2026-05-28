@@ -298,6 +298,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - Discord 通过 bot gateway 接入
 - 两者都先进入消息缓冲，再统一构建 Context 与调用 LLM
 - LLM POST 在当前渠道内会先对 401/403/429/500/502/503/504、超时与连接异常最多重试 5 次，再交给激活池故障转移；Embedding 客户端同样对 429 / 5xx 做重试。
+- Telegram 同步回复的 Guard 由 `llm/llm_interface.py` 的 `truncate_accumulator_at_first_refusal` / `output_guard_blocks_model_text` 判定，并在 `TELEGRAM_SSE_SYNC_MAX_ATTEMPTS` 内触发静默重试；除常见 “I cannot / I refuse / 作为 AI” 类模型拒答外，也拦截上游网关返回的 `request was rejected` / `considered high risk` 安全拒绝文案，避免其作为普通正文发送和入库。
 
 ### 4.2 工具开关
 

@@ -223,6 +223,8 @@ _REFUSAL_PATTERNS_STRONG: Tuple[re.Pattern, ...] = (
     re.compile(r"I\s+cannot\s+(assist|help|comply|fulfill|answer)", re.I),
     re.compile(r"I\s+can\s*['′′']?t\s+(assist|help|comply|answer)", re.I),
     re.compile(r"I\s+(?:decline|refuse|reject)\s+(?:to\s+)?(?:assist|help|comply|fulfill|answer|respond|this|that|the\s+request)", re.I),
+    re.compile(r"(?:the\s+)?request\s+was\s+rejected\b", re.I),
+    re.compile(r"considered\s+high\s+risk", re.I),
     re.compile(r"违反(了)?[^\n。]{0,20}(政策|规定|准则|法律法规)"),
     re.compile(r"不符合[^\n。]{0,12}(政策|规定|安全)"),
 )
