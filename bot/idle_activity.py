@@ -23,6 +23,7 @@ from llm.llm_interface import (
 from memory.context_builder import build_context
 from memory.database import get_recent_daily_summaries, save_message
 from memory.micro_batch import SummaryLLMInterface
+from memory.prompt_registry import get_effective_prompt_text
 from memory.shanghai_dt import format_shanghai_date_iso
 
 logger = logging.getLogger(__name__)
@@ -618,13 +619,19 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     if stardew_mode:
         idle_trigger_text = STARDEW_AUTOPLAY_TRIGGER_TEXT
     else:
-        idle_trigger_text = _append_idle_next_at_hint(_IDLE_TRIGGER_TEXT)
+        try:
+            idle_trigger_base = await get_effective_prompt_text("idle_activity_trigger")
+        except Exception as e:
+            logger.warning("[idle] 读取自主活动 prompt override 失败，使用默认值: %s", e)
+            idle_trigger_base = _IDLE_TRIGGER_TEXT
+        idle_trigger_base = str(idle_trigger_base or "").strip() or _IDLE_TRIGGER_TEXT
+        idle_trigger_text = _append_idle_next_at_hint(idle_trigger_base)
         last_activity = await db.get_latest_idle_user_activity()
         if last_activity and last_activity.get("created_at") is not None:
             last_user_text = _format_shanghai_timestamp(last_activity["created_at"])
             if last_user_text:
                 idle_trigger_text = _append_idle_next_at_hint(
-                    f"{_IDLE_TRIGGER_TEXT}\n南杉最近一次回复你在{last_user_text}。"
+                    f"{idle_trigger_base}\n南杉最近一次回复你在{last_user_text}。"
                 )
     idle_trigger_text = await _append_idle_custom_mcp_prompt_suffix(db, idle_trigger_text)
 

@@ -101,6 +101,8 @@ arousal:
 - 0.3-0.6: 有情绪起伏的对话
 - 0.0-0.2: 平静日常"""
 
+IDLE_ACTIVITY_TRIGGER_DEFAULT = """[IDLE_TRIGGER] 南杉有一段时间没来，你可以趁现在自由活动一下。可以做的事：可以去星露谷看看；可以翻翻记忆，整理记忆；可以去论坛看看或互动：Lutopia 侧用 lutopia_cli 刷帖回帖发帖；若当前人设已开启 rcommunity 论坛工具，也可用 rcommunity_forum / rcommunity_forum_write 等访问 rhysen 论坛（勿与 Lutopia 混用同一轮空刷）；可以去X搜索感兴趣的内容、发推、和人类互动；可以查询天气、热搜、用 get_ai_news 看 AI HOT 上的 AI 资讯或日报（注意单次少拉、别堆多日全文）；可以随便搜搜感兴趣的；如果希望稍后再醒来继续自主活动，可以调用 schedule_next_wakeup 设置下次醒来时间；可以给南杉留言（不要发语音和表情）；也可以什么也不做。"""
+
 
 PROMPT_REGISTRY: Dict[str, PromptDefinition] = {
     "summary_background": PromptDefinition(
@@ -144,6 +146,12 @@ PROMPT_REGISTRY: Dict[str, PromptDefinition] = {
         title="事件抽取 Prompt（旧式回退）",
         description="控制旧式 Step 4 事件拆分回退路径的静态原则。事件上限、输入 chunk、schema、枚举值和校验仍由代码处理。",
         default_text=EVENT_EXTRACTION_FALLBACK_DEFAULT,
+    ),
+    "idle_activity_trigger": PromptDefinition(
+        key="idle_activity_trigger",
+        title="自主活动触发 Prompt",
+        description="控制 AI 自主活动触发文案的基础指令。当前时间提示、上次用户发言时间、预约下次唤醒说明和自定义 MCP 追加段落仍由代码动态拼接。",
+        default_text=IDLE_ACTIVITY_TRIGGER_DEFAULT,
     ),
 }
 
