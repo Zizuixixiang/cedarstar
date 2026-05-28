@@ -1,5 +1,8 @@
 """
 日摘要按天压缩（进程内缓存），供自主活动 Context 与 MCP 外部读取共用。
+
+完整原文规则：库内按内容日倒序的第一条 daily 所在日期（最新一日）合并全文；
+其余日期仅返回压缩摘要。不按东八区「今天」固定。
 """
 
 from __future__ import annotations
@@ -12,7 +15,7 @@ from config import Platform
 from llm.llm_interface import batch_one_shot_with_async_output_guard
 from memory.database import get_recent_daily_summaries
 from memory.micro_batch import SummaryLLMInterface
-from memory.shanghai_dt import format_shanghai_date_iso, now_shanghai
+from memory.shanghai_dt import format_shanghai_date_iso
 
 logger = logging.getLogger(__name__)
 
@@ -32,12 +35,31 @@ def daily_summary_date(summary: dict[str, Any]) -> str:
     return raw[:10] if raw else "未知日期"
 
 
+def _is_valid_date_key(date_key: str) -> bool:
+    return bool(date_key and date_key != "未知日期" and re.match(r"^\d{4}-\d{2}-\d{2}$", date_key))
+
+
 def _join_daily_summary_text(rows: list[dict[str, Any]]) -> str:
     return "\n\n".join(
         str(row.get("summary_text") or "").strip()
         for row in rows
         if str(row.get("summary_text") or "").strip()
     )
+
+
+def _group_summaries_by_date(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in rows:
+        date_key = daily_summary_date(row)
+        grouped.setdefault(date_key, []).append(row)
+    return grouped
+
+
+def latest_daily_date_key(rows: list[dict[str, Any]]) -> Optional[str]:
+    """与 get_recent_daily_summaries 倒序一致：第一条记录的内容日即为「最新一日」。"""
+    if not rows:
+        return None
+    return daily_summary_date(rows[0])
 
 
 def parse_compressed_daily_summaries(text: str) -> dict[str, str]:
@@ -122,8 +144,36 @@ async def _compress_daily_dates(
         return False
 
 
+def _older_dates_for_compress(
+    grouped: dict[str, list[dict[str, Any]]],
+    latest_date: str,
+    *,
+    max_older_days: int,
+) -> list[str]:
+    older = sorted(
+        (
+            dk
+            for dk in grouped
+            if dk != latest_date and _is_valid_date_key(dk)
+        ),
+        reverse=True,
+    )
+    return older[:max(0, max_older_days)]
+
+
+def _make_summary_row_for_date(
+    grouped: dict[str, list[dict[str, Any]]],
+    date_key: str,
+    summary_text: str,
+) -> dict[str, Any]:
+    row = dict(grouped[date_key][0])
+    row["summary_text"] = summary_text
+    row["source_date"] = date_key
+    return row
+
+
 async def build_idle_daily_summaries_override() -> Optional[list[dict[str, Any]]]:
-    """自主活动：压缩最近 15 个日历日，保留最新一条 daily 原文。"""
+    """自主活动：16 日历日窗口内，最新一日 daily 合并原文，更早最多 15 日压缩。"""
     try:
         rows = await get_recent_daily_summaries(limit=16)
     except Exception as e:
@@ -133,42 +183,44 @@ async def build_idle_daily_summaries_override() -> Optional[list[dict[str, Any]]
     if not rows:
         return None
 
-    latest_full = dict(rows[0])
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    date_order: list[str] = []
-    for row in rows[1:]:
-        date_key = daily_summary_date(row)
-        if date_key not in grouped and len(date_order) >= 15:
-            break
-        if date_key not in grouped:
-            grouped[date_key] = []
-            date_order.append(date_key)
-        grouped[date_key].append(row)
+    grouped = _group_summaries_by_date(rows)
+    latest_date = latest_daily_date_key(rows)
+    if not latest_date:
+        return None
 
-    if not grouped:
-        return [latest_full]
+    latest_row = _make_summary_row_for_date(
+        grouped,
+        latest_date,
+        _join_daily_summary_text(grouped[latest_date]),
+    )
 
-    if not await _compress_daily_dates(grouped, date_order, log_prefix="[idle]"):
-        return [latest_full] + [row for date_key in date_order for row in grouped[date_key]]
+    older_dates = _older_dates_for_compress(grouped, latest_date, max_older_days=15)
+    if not older_dates:
+        return [latest_row]
 
-    compressed_rows: list[dict[str, Any]] = []
-    for date_key in date_order:
-        first = dict(grouped[date_key][0])
-        first["summary_text"] = _DAILY_SUMMARY_COMPRESS_CACHE.get(date_key) or _join_daily_summary_text(
-            grouped[date_key]
+    if not await _compress_daily_dates(grouped, older_dates, log_prefix="[idle]"):
+        return [latest_row] + [
+            row for date_key in older_dates for row in grouped[date_key]
+        ]
+
+    compressed_rows = [
+        _make_summary_row_for_date(
+            grouped,
+            date_key,
+            _DAILY_SUMMARY_COMPRESS_CACHE.get(date_key)
+            or _join_daily_summary_text(grouped[date_key]),
         )
-        first["source_date"] = date_key
-        compressed_rows.append(first)
-    return [latest_full] + compressed_rows
+        for date_key in older_dates
+    ]
+    return [latest_row] + compressed_rows
 
 
 async def get_recent_daily_digest(days: int = 7) -> dict[str, Any]:
     """
-    东八区「今天」返回日摘要原文，窗口内其余日期仅返回压缩摘要（与自主活动共用缓存）。
+    最近 N 个日历日窗口：库内最新一日 daily 合并原文，其余日期仅压缩摘要。
     items 按日期升序。
     """
     window_days = max(1, min(int(days or 7), 30))
-    today_key = now_shanghai().date().isoformat()
 
     try:
         rows = await get_recent_daily_summaries(limit=window_days)
@@ -176,37 +228,36 @@ async def get_recent_daily_digest(days: int = 7) -> dict[str, Any]:
         logger.error("[mcp] 拉取 daily digest 失败: %s", e)
         return {"success": False, "error": str(e)}
 
-    if not rows:
-        return {"success": True, "items": [], "days": window_days, "today": today_key}
+    latest_date = latest_daily_date_key(rows) if rows else None
+    if not rows or not latest_date:
+        return {
+            "success": True,
+            "items": [],
+            "days": window_days,
+            "latest_date": latest_date,
+        }
 
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    for row in rows:
-        date_key = daily_summary_date(row)
-        if date_key not in grouped:
-            grouped[date_key] = []
-        grouped[date_key].append(row)
-
-    date_order = sorted(grouped.keys())
-    compress_targets = [
-        dk
-        for dk in date_order
-        if dk != today_key and dk != "未知日期" and re.match(r"^\d{4}-\d{2}-\d{2}$", dk)
-    ]
+    grouped = _group_summaries_by_date(rows)
+    older_dates = _older_dates_for_compress(
+        grouped,
+        latest_date,
+        max_older_days=max(0, window_days - 1),
+    )
 
     compress_ok = True
-    if compress_targets:
+    if older_dates:
         compress_ok = await _compress_daily_dates(
-            grouped, compress_targets, log_prefix="[mcp]"
+            grouped, older_dates, log_prefix="[mcp]"
         )
 
+    date_order = sorted(grouped.keys())
     items: list[dict[str, Any]] = []
     for date_key in date_order:
-        full_text = _join_daily_summary_text(grouped[date_key])
-        if date_key == today_key:
+        if date_key == latest_date:
             items.append(
                 {
                     "date": date_key,
-                    "text": full_text,
+                    "text": _join_daily_summary_text(grouped[date_key]),
                     "compressed": False,
                 }
             )
@@ -228,5 +279,5 @@ async def get_recent_daily_digest(days: int = 7) -> dict[str, Any]:
         "success": True,
         "items": items,
         "days": window_days,
-        "today": today_key,
+        "latest_date": latest_date,
     }

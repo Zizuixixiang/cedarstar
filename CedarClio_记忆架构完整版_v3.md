@@ -225,7 +225,7 @@ Context 组装时，系统按以下顺序注入信息（前缀缓存边界标注
 
 **`build_context`（Telegram / Discord 主对话默认使用）**：调用方传 `skip_vector_search=True` 时跳过向量长期记忆块。跳过时本轮长期召回 trace 清空，远古 daily 概况补充也不会注入。未跳过时主路径读取 `rerank_enabled`：为 true 时优先调用 `_build_vector_search_section_async`，走 Mini App `rerank` API / SiliconFlow 精排链路；该调用异常时记录 warning 并回退 `_build_vector_search_section` 旧链路。为 false 时直接走旧链路。当前 idle 自主活动路径传 `skip_vector_search=True`，主对话默认受 `rerank_enabled` 控制。
 
-**Idle daily 预压缩**：`memory/daily_summary_compress.py`（`build_idle_daily_summaries_override`，由 `bot/idle_activity.py` 调用）在 `build_context` 前读取最近 **16** 个日历日 daily，保留最新一条完整 daily；其余按日期聚合，最多再压 **15** 天。每个日期以进程内缓存（key=`YYYY-MM-DD`）复用压缩结果，未缓存日期合并为一次 `SummaryLLMInterface.create()` + `batch_one_shot_with_async_output_guard` 调用；压缩结果按“保留日期标题、关键事件、情绪节点、主题，每天不超过 300 字”写回缓存，再通过 `daily_summaries_override` 传入 ContextBuilder。压缩失败时仅回退未压缩 daily override，不中断自主活动。同一缓存供 MCP `get_recent_daily_digest` 复用。
+**Idle daily 预压缩**：`memory/daily_summary_compress.py`（`build_idle_daily_summaries_override`，由 `bot/idle_activity.py` 调用）在 `build_context` 前读取最近 **16** 个日历日 daily，将库内**最新一日**（倒序第一条的内容日，同日多条合并）保留完整 daily；其余按日期聚合，最多再压 **15** 天。不按东八区「今天」固定。每个日期以进程内缓存（key=`YYYY-MM-DD`）复用压缩结果，未缓存日期合并为一次 `SummaryLLMInterface.create()` + `batch_one_shot_with_async_output_guard` 调用；压缩结果按“保留日期标题、关键事件、情绪节点、主题，每天不超过 300 字”写回缓存，再通过 `daily_summaries_override` 传入 ContextBuilder。压缩失败时仅回退未压缩 daily override，不中断自主活动。同一缓存供 MCP `get_recent_daily_digest` 复用。
 
 **`_build_vector_search_section_async`（主路径在 `rerank_enabled=true` 时调用；`build_context_async` 也复用）**：采用双路检索 + Rerank 精排 + 阈值过滤 + 记录自身衰减分融合 + MMR 多样性筛选：
 
@@ -543,7 +543,7 @@ Claude.ai Custom Connector 不支持 `Authorization: Bearer` header 认证（Git
 |---|---|---|
 | `search_memories` | query, top_k=10, type_filter, source_filter | 向量 + BM25 双路召回搜索长期记忆。type_filter 可选 daily_event / manual / app_event，默认 ['daily_event', 'manual', 'app_event']。source_filter 按 Chroma metadata.source 过滤 |
 | `get_recent_summaries` | date, days, summary_type, only_unarchived, source_filter, keyword, page=1, page_size=20 | 分页列出 summaries。date 为具体日期 YYYY-MM-DD，days 为最近 N 天，summary_type 为 chunk/daily/省略=全部，keyword 按 summary_text 正文过滤 |
-| `get_recent_daily_digest` | days=7 | 最近 N 个日历日（最大 30）日摘要 digest：东八区今天返回原文，其余日期仅返回压缩摘要（≤300 字/天），与 idle 共用 `memory/daily_summary_compress.py` 进程内缓存；需完整日摘要原文时用 `get_recent_summaries(summary_type=daily)` |
+| `get_recent_daily_digest` | days=7 | 最近 N 个日历日（最大 30）日摘要 digest：库内**最新一日**合并返回原文，其余日期仅返回压缩摘要（≤300 字/天），与 idle 共用 `memory/daily_summary_compress.py` 进程内缓存；需完整日摘要原文时用 `get_recent_summaries(summary_type=daily)` |
 | `get_memory_cards` | user_id, character_id, dimension, keyword, limit=50 | 获取记忆卡片列表，不传 user_id/character_id 时返回全部激活卡片；keyword 按卡片正文过滤 |
 | `get_temporal_states` | days, keyword | 列出 temporal_states（含已停用），按 created_at 倒序；days 限定最近 N 天，keyword 按状态内容/行为规则过滤 |
 | `get_relationship_timeline` | days, keyword | 关系时间线，按 created_at 倒序；days 限定最近 N 天，keyword 按正文过滤 |

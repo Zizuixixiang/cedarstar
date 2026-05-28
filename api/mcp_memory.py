@@ -370,7 +370,7 @@ async def get_recent_summaries(
 
 @mcp.tool()
 async def get_recent_daily_digest(days: int = 7) -> str:
-    """获取最近若干天的日摘要 digest：东八区今天返回原文，其余日期仅返回压缩摘要（≤300 字/天）。
+    """获取最近若干天的日摘要 digest：库内最新一日（按内容日倒序第一条）合并返回原文，其余日期仅返回压缩摘要（≤300 字/天）。
     与自主活动共用进程内压缩缓存；首次调用未缓存日期可能触发摘要 LLM，略慢。
     days：最近 N 个日历日窗口，默认 7，最大 30。需要完整日摘要原文时请用 get_recent_summaries(summary_type=daily)。
     """
