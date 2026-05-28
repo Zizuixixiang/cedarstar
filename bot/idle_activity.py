@@ -14,155 +14,18 @@ from typing import Any, Optional
 import pytz
 import requests
 
-from config import Platform, config as app_config
-from llm.llm_interface import (
-    LLMInterface,
-    batch_one_shot_with_async_output_guard,
-    complete_with_lutopia_tool_loop,
-)
+from config import config as app_config
+from llm.llm_interface import LLMInterface, complete_with_lutopia_tool_loop
 from memory.context_builder import build_context
-from memory.database import get_recent_daily_summaries, save_message
-from memory.micro_batch import SummaryLLMInterface
+from memory.daily_summary_compress import build_idle_daily_summaries_override
+from memory.database import save_message
 from memory.prompt_registry import get_effective_prompt_text
-from memory.shanghai_dt import format_shanghai_date_iso
 
 logger = logging.getLogger(__name__)
 
 # 自主活动 LLM 外层重试：每次延迟秒数（共 1 + len 次请求）
 _IDLE_LLM_RETRY_DELAYS = (10, 15, 30)
 _RETRIABLE_HTTP_STATUS = frozenset({401, 403, 429, 500, 502, 503, 504})
-_IDLE_DAILY_SUMMARY_COMPRESS_CACHE: dict[str, str] = {}
-_IDLE_DAILY_SUMMARY_COMPRESS_PROMPT = """以下是多天的对话日摘要，请按天独立压缩，保留每天的日期标题、关键事件、情绪节点和对话主题，去掉细节和重复内容。每天压缩后不超过300字，格式保持"YYYY-MM-DD：……"。
-
-{daily_summaries_text}
-"""
-
-
-def _idle_daily_summary_date(summary: dict[str, Any]) -> str:
-    raw_date = summary.get("source_date") or summary.get("created_at")
-    formatted = format_shanghai_date_iso(raw_date)
-    if formatted:
-        return formatted
-    raw = str(raw_date or "").strip()
-    return raw[:10] if raw else "未知日期"
-
-
-def _parse_idle_compressed_daily_summaries(text: str) -> dict[str, str]:
-    parsed: dict[str, list[str]] = {}
-    current_date: Optional[str] = None
-    for raw_line in (text or "").splitlines():
-        line = raw_line.strip()
-        if not line:
-            continue
-        m = re.match(r"^(?:#{1,6}\s*)?(\d{4}-\d{2}-\d{2})[：:]\s*(.*)$", line)
-        if m:
-            current_date = m.group(1)
-            parsed[current_date] = [m.group(2).strip()]
-            continue
-        if current_date:
-            parsed[current_date].append(line)
-    return {
-        date_key: "\n".join(part for part in parts if part).strip()
-        for date_key, parts in parsed.items()
-        if any(part.strip() for part in parts)
-    }
-
-
-async def _build_idle_daily_summaries_override() -> Optional[list[dict[str, Any]]]:
-    """Idle 专用：压缩最近 15 天 daily，保留最新一条完整 daily。"""
-    try:
-        rows = await get_recent_daily_summaries(limit=16)
-    except Exception as e:
-        logger.warning("[idle] 拉取 daily summary 失败，使用 ContextBuilder 默认逻辑: %s", e)
-        return None
-
-    if not rows:
-        return None
-
-    latest_full = dict(rows[0])
-    grouped: dict[str, list[dict[str, Any]]] = {}
-    date_order: list[str] = []
-    for row in rows[1:]:
-        date_key = _idle_daily_summary_date(row)
-        if date_key not in grouped and len(date_order) >= 15:
-            break
-        if date_key not in grouped:
-            grouped[date_key] = []
-            date_order.append(date_key)
-        grouped[date_key].append(row)
-
-    if not grouped:
-        return [latest_full]
-
-    uncached_dates = [
-        date_key for date_key in date_order if date_key not in _IDLE_DAILY_SUMMARY_COMPRESS_CACHE
-    ]
-    if uncached_dates:
-        daily_summaries_text = "\n\n".join(
-            f"{date_key}：\n"
-            + "\n\n".join(
-                str(row.get("summary_text") or "").strip()
-                for row in grouped[date_key]
-                if str(row.get("summary_text") or "").strip()
-            )
-            for date_key in uncached_dates
-        )
-        if daily_summaries_text.strip():
-            try:
-                summary_llm = await SummaryLLMInterface.create()
-                base_tokens = int(getattr(summary_llm, "max_tokens", 500) or 500)
-                compressed_text = batch_one_shot_with_async_output_guard(
-                    messages=[
-                        {
-                            "role": "user",
-                            "content": _IDLE_DAILY_SUMMARY_COMPRESS_PROMPT.format(
-                                daily_summaries_text=daily_summaries_text
-                            ),
-                        }
-                    ],
-                    model_name=summary_llm.model_name,
-                    api_key=summary_llm.api_key or "",
-                    api_base=summary_llm.api_base or "",
-                    timeout=summary_llm.timeout,
-                    max_tokens=min(4096, max(base_tokens, 1800)),
-                    platform=Platform.BATCH,
-                    max_retries=5,
-                )
-                parsed = _parse_idle_compressed_daily_summaries(compressed_text)
-                for date_key in uncached_dates:
-                    compressed = (parsed.get(date_key) or "").strip()
-                    if compressed:
-                        _IDLE_DAILY_SUMMARY_COMPRESS_CACHE[date_key] = compressed
-                    else:
-                        fallback = "\n\n".join(
-                            str(row.get("summary_text") or "").strip()
-                            for row in grouped[date_key]
-                            if str(row.get("summary_text") or "").strip()
-                        )
-                        _IDLE_DAILY_SUMMARY_COMPRESS_CACHE[date_key] = fallback
-                logger.info(
-                    "[idle] daily summary 预压缩完成: requested=%s parsed=%s cache_size=%s",
-                    len(uncached_dates),
-                    len(parsed),
-                    len(_IDLE_DAILY_SUMMARY_COMPRESS_CACHE),
-                )
-            except Exception as e:
-                logger.warning("[idle] daily summary 预压缩失败，改用未压缩 daily: %s", e)
-                return [latest_full] + [
-                    row for date_key in date_order for row in grouped[date_key]
-                ]
-
-    compressed_rows: list[dict[str, Any]] = []
-    for date_key in date_order:
-        first = dict(grouped[date_key][0])
-        first["summary_text"] = _IDLE_DAILY_SUMMARY_COMPRESS_CACHE.get(date_key) or "\n\n".join(
-            str(row.get("summary_text") or "").strip()
-            for row in grouped[date_key]
-            if str(row.get("summary_text") or "").strip()
-        )
-        first["source_date"] = date_key
-        compressed_rows.append(first)
-    return [latest_full] + compressed_rows
 
 
 def _walk_exc_chain(exc: BaseException, _seen: Optional[set] = None):
@@ -636,7 +499,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
     idle_trigger_text = await _append_idle_custom_mcp_prompt_suffix(db, idle_trigger_text)
 
     # 只把 idle trigger 注入本次推理，不写入 messages 表
-    daily_summaries_override = await _build_idle_daily_summaries_override()
+    daily_summaries_override = await build_idle_daily_summaries_override()
     context = await build_context(
         session_id,
         idle_trigger_text,

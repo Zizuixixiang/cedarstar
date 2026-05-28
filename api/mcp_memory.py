@@ -1,8 +1,8 @@
 """
 MCP Memory Server — SSE transport at /mcp/memory/{token}/sse。
 
-工具清单（7 读 + 1 写）：
-  search_memories / get_recent_summaries / get_memory_cards
+工具清单（8 读 + 1 写）：
+  search_memories / get_recent_summaries / get_recent_daily_digest / get_memory_cards
   / get_temporal_states / get_relationship_timeline / get_persona / get_context_trace
   / add_external_chunk
 
@@ -365,6 +365,22 @@ async def get_recent_summaries(
         }, ensure_ascii=False, default=str)
     except Exception as e:
         logger.error("get_recent_summaries 失败: %s", e)
+        return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
+
+
+@mcp.tool()
+async def get_recent_daily_digest(days: int = 7) -> str:
+    """获取最近若干天的日摘要 digest：东八区今天返回原文，其余日期仅返回压缩摘要（≤300 字/天）。
+    与自主活动共用进程内压缩缓存；首次调用未缓存日期可能触发摘要 LLM，略慢。
+    days：最近 N 个日历日窗口，默认 7，最大 30。需要完整日摘要原文时请用 get_recent_summaries(summary_type=daily)。
+    """
+    try:
+        from memory.daily_summary_compress import get_recent_daily_digest as _fetch_digest
+
+        payload = await _fetch_digest(days=days)
+        return json.dumps(payload, ensure_ascii=False, default=str)
+    except Exception as e:
+        logger.error("get_recent_daily_digest 失败: %s", e)
         return json.dumps({"success": False, "error": str(e)}, ensure_ascii=False)
 
 
@@ -801,6 +817,7 @@ def _assign_tool_scopes() -> None:
     for fn in (
         search_memories,
         get_recent_summaries,
+        get_recent_daily_digest,
         get_memory_cards,
         get_temporal_states,
         get_relationship_timeline,
