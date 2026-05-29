@@ -28,6 +28,31 @@
   padding-top: 4px;
 }
 
+.approval-tabs {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin: 14px 0 12px;
+}
+
+.approval-tab {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border: 2px solid var(--industrial-border-color);
+  background: #ffffff;
+  color: var(--text-main);
+  box-shadow: 3px 3px 0 var(--shadow-color-deep);
+  padding: 8px 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.approval-tab.is-active {
+  background: #f1d27a;
+}
+
 .approval-list {
   display: grid;
   grid-template-columns: 1fr;
@@ -204,6 +229,35 @@
 .approval-diff-row.is-changed pre:last-child {
   background: #e7f1eb;
   box-shadow: inset 4px 0 0 #2d6a4f;
+}
+
+.mail-card::before {
+  content: 'MAIL';
+}
+
+.mail-body-preview {
+  margin: 0;
+  border: 2px solid var(--text-main);
+  background: #fffdf8;
+  color: var(--text-main);
+  padding: 12px;
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  font: inherit;
+  line-height: 1.55;
+}
+
+.mail-summary {
+  border: 2px solid var(--industrial-border-color);
+  background: #e7f1eb;
+  color: var(--text-main);
+  padding: 10px;
+  margin-bottom: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
 }
 
 .approval-actions,

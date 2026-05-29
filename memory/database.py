@@ -212,6 +212,47 @@ async def _ensure_pending_approvals_table(conn) -> None:
     logger.debug("pending_approvals table checked")
 
 
+async def _ensure_mail_tables(conn) -> None:
+    """Ensure inbound/outbound mail tables exist."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS mail_inbox (
+            id BIGSERIAL PRIMARY KEY,
+            from_addr TEXT NOT NULL,
+            from_name TEXT,
+            subject TEXT,
+            body TEXT,
+            summary TEXT,
+            received_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS mail_outbox (
+            id BIGSERIAL PRIMARY KEY,
+            to_addr TEXT NOT NULL,
+            to_name TEXT,
+            subject TEXT,
+            body TEXT,
+            summary TEXT,
+            status VARCHAR(16) NOT NULL DEFAULT 'pending',
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            sent_at TIMESTAMP
+        )
+    """)
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mail_inbox_from_received "
+        "ON mail_inbox (from_addr, received_at DESC)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mail_outbox_to_created "
+        "ON mail_outbox (to_addr, created_at DESC)"
+    )
+    await conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_mail_outbox_status_created "
+        "ON mail_outbox (status, created_at DESC)"
+    )
+    logger.debug("mail_inbox/mail_outbox tables checked")
+
+
 async def _ensure_custom_mcp_tables(conn) -> None:
     """Ensure CedarStar custom MCP management tables exist."""
     await conn.execute("""
@@ -750,6 +791,7 @@ async def migrate_database_schema(conn) -> None:
     await _ensure_model_favorites_table(conn)
     await _ensure_mcp_audit_log_table(conn)
     await _ensure_pending_approvals_table(conn)
+    await _ensure_mail_tables(conn)
     await _ensure_custom_mcp_tables(conn)
     await _migrate_audit_and_approval_timestamps_to_naive_shanghai(conn)
     await conn.execute(
@@ -2038,6 +2080,202 @@ class MessageDatabase:
         if n:
             logger.info("expire_stale_approvals: marked %s approvals expired", n)
         return n
+
+    # ------------------------------------------------------------------
+    # mail
+    # ------------------------------------------------------------------
+
+    async def insert_mail_inbox(
+        self,
+        *,
+        from_addr: str,
+        from_name: Optional[str] = None,
+        subject: Optional[str] = None,
+        body: Optional[str] = None,
+    ) -> int:
+        async with self.pool.acquire() as conn:
+            row_id = await conn.fetchval(
+                """
+                INSERT INTO mail_inbox (from_addr, from_name, subject, body)
+                VALUES ($1, $2, $3, $4)
+                RETURNING id
+                """,
+                str(from_addr),
+                from_name,
+                subject,
+                body,
+            )
+        return int(row_id)
+
+    async def insert_mail_outbox(
+        self,
+        *,
+        to_addr: str,
+        to_name: Optional[str] = None,
+        subject: Optional[str] = None,
+        body: Optional[str] = None,
+        status: str = "pending",
+    ) -> int:
+        async with self.pool.acquire() as conn:
+            row_id = await conn.fetchval(
+                """
+                INSERT INTO mail_outbox (to_addr, to_name, subject, body, status)
+                VALUES ($1, $2, $3, $4, $5)
+                RETURNING id
+                """,
+                str(to_addr),
+                to_name,
+                subject,
+                body,
+                str(status or "pending"),
+            )
+        return int(row_id)
+
+    async def get_mail_outbox(self, outbox_id: int, conn=None) -> Optional[Dict[str, Any]]:
+        async def _get(conn_obj):
+            row = await conn_obj.fetchrow(
+                """
+                SELECT id, to_addr, to_name, subject, body, summary, status, created_at, sent_at
+                FROM mail_outbox
+                WHERE id = $1
+                """,
+                int(outbox_id),
+            )
+            return _r(row) if row else None
+
+        if conn is not None:
+            return await _get(conn)
+        async with self.pool.acquire() as acquired:
+            return await _get(acquired)
+
+    async def update_mail_inbox_summary(self, inbox_id: int, summary: str) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE mail_inbox SET summary = $1 WHERE id = $2",
+                str(summary or ""),
+                int(inbox_id),
+            )
+        return _rowcount(result) > 0
+
+    async def update_mail_outbox_summary(self, outbox_id: int, summary: str) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "UPDATE mail_outbox SET summary = $1 WHERE id = $2",
+                str(summary or ""),
+                int(outbox_id),
+            )
+        return _rowcount(result) > 0
+
+    async def mark_mail_outbox_sent(self, outbox_id: int, conn=None) -> bool:
+        async def _mark(conn_obj) -> bool:
+            result = await conn_obj.execute(
+                """
+                UPDATE mail_outbox
+                SET status = 'sent', sent_at = NOW()
+                WHERE id = $1 AND status = 'pending'
+                """,
+                int(outbox_id),
+            )
+            return _rowcount(result) > 0
+
+        if conn is not None:
+            return await _mark(conn)
+        async with self.pool.acquire() as acquired:
+            return await _mark(acquired)
+
+    async def mark_mail_outbox_rejected(self, outbox_id: int, conn=None) -> bool:
+        async def _mark(conn_obj) -> bool:
+            result = await conn_obj.execute(
+                """
+                UPDATE mail_outbox
+                SET status = 'rejected'
+                WHERE id = $1 AND status = 'pending'
+                """,
+                int(outbox_id),
+            )
+            return _rowcount(result) > 0
+
+        if conn is not None:
+            return await _mark(conn)
+        async with self.pool.acquire() as acquired:
+            return await _mark(acquired)
+
+    async def list_mail_inbox(self, limit: int = 100) -> List[Dict[str, Any]]:
+        lim = max(1, min(int(limit or 100), 500))
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, from_addr, from_name, subject, body, summary, received_at
+                FROM mail_inbox
+                ORDER BY received_at DESC, id DESC
+                LIMIT $1
+                """,
+                lim,
+            )
+        return _rows(rows)
+
+    async def list_mail_thread(
+        self,
+        *,
+        contact_email: Optional[str] = None,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        lim = max(1, min(int(limit or 100), 500))
+        contact = (contact_email or "").strip().lower()
+        async with self.pool.acquire() as conn:
+            if contact:
+                inbox_rows = await conn.fetch(
+                    """
+                    SELECT id, 'inbox' AS direction, from_addr AS contact_addr,
+                           from_name AS contact_name, subject, body, summary,
+                           received_at AS happened_at
+                    FROM mail_inbox
+                    WHERE lower(from_addr) = $1
+                    ORDER BY received_at DESC, id DESC
+                    LIMIT $2
+                    """,
+                    contact,
+                    lim,
+                )
+                outbox_rows = await conn.fetch(
+                    """
+                    SELECT id, 'outbox' AS direction, to_addr AS contact_addr,
+                           to_name AS contact_name, subject, body, summary,
+                           COALESCE(sent_at, created_at) AS happened_at
+                    FROM mail_outbox
+                    WHERE lower(to_addr) = $1
+                    ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                    LIMIT $2
+                    """,
+                    contact,
+                    lim,
+                )
+            else:
+                inbox_rows = await conn.fetch(
+                    """
+                    SELECT id, 'inbox' AS direction, from_addr AS contact_addr,
+                           from_name AS contact_name, subject, body, summary,
+                           received_at AS happened_at
+                    FROM mail_inbox
+                    ORDER BY received_at DESC, id DESC
+                    LIMIT $1
+                    """,
+                    lim,
+                )
+                outbox_rows = await conn.fetch(
+                    """
+                    SELECT id, 'outbox' AS direction, to_addr AS contact_addr,
+                           to_name AS contact_name, subject, body, summary,
+                           COALESCE(sent_at, created_at) AS happened_at
+                    FROM mail_outbox
+                    ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                    LIMIT $1
+                    """,
+                    lim,
+                )
+        rows = _rows(list(inbox_rows) + list(outbox_rows))
+        rows.sort(key=lambda x: (str(x.get("happened_at") or ""), int(x.get("id") or 0)))
+        return rows[-lim:]
 
     # ------------------------------------------------------------------
     # tool_executions
@@ -7778,6 +8016,47 @@ async def find_duplicate_pending(
 
 async def expire_stale_approvals() -> int:
     return await get_database().expire_stale_approvals()
+
+
+async def insert_mail_inbox(**kwargs) -> int:
+    return await get_database().insert_mail_inbox(**kwargs)
+
+
+async def insert_mail_outbox(**kwargs) -> int:
+    return await get_database().insert_mail_outbox(**kwargs)
+
+
+async def get_mail_outbox(outbox_id: int, conn=None) -> Optional[Dict[str, Any]]:
+    return await get_database().get_mail_outbox(outbox_id, conn=conn)
+
+
+async def update_mail_inbox_summary(inbox_id: int, summary: str) -> bool:
+    return await get_database().update_mail_inbox_summary(inbox_id, summary)
+
+
+async def update_mail_outbox_summary(outbox_id: int, summary: str) -> bool:
+    return await get_database().update_mail_outbox_summary(outbox_id, summary)
+
+
+async def mark_mail_outbox_sent(outbox_id: int, conn=None) -> bool:
+    return await get_database().mark_mail_outbox_sent(outbox_id, conn=conn)
+
+
+async def mark_mail_outbox_rejected(outbox_id: int, conn=None) -> bool:
+    return await get_database().mark_mail_outbox_rejected(outbox_id, conn=conn)
+
+
+async def list_mail_inbox(limit: int = 100) -> List[Dict[str, Any]]:
+    return await get_database().list_mail_inbox(limit)
+
+
+async def list_mail_thread(
+    *, contact_email: Optional[str] = None, limit: int = 100
+) -> List[Dict[str, Any]]:
+    return await get_database().list_mail_thread(
+        contact_email=contact_email,
+        limit=limit,
+    )
 
 
 async def insert_mcp_audit_log(

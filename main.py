@@ -31,6 +31,7 @@ if current_dir not in sys.path:
 
 from config import config, validate_config
 from api.router import api_router
+from api.mail import public_router as public_mail_router
 from api.webhook import router as telegram_webhook_router
 from api.mcp_memory import mcp_sse_app
 
@@ -85,6 +86,9 @@ async def verify_token(
     if token_norm != miniapp_token:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
+
+# Cloudflare Email Worker 收信接口：只校验 x-mail-secret，不走 Mini App token。
+app.include_router(public_mail_router, prefix="/api")
 
 # 包含 API 路由（Mini App 控制台：须带 X-Cedarstar-Token）
 app.include_router(api_router, prefix="/api", dependencies=[Depends(verify_token)])

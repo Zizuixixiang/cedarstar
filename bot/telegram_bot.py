@@ -2783,6 +2783,9 @@ class TelegramBot:
         from tools.memory_tools import OPENAI_MEMORY_TOOLS
         tools_list.extend(OPENAI_MEMORY_TOOLS)
         suffix_keys.append("memory")
+        from tools.mail_tools import OPENAI_MAIL_TOOLS
+        tools_list.extend(OPENAI_MAIL_TOOLS)
+        suffix_keys.append("mail")
         from tools.game_tools import OPENAI_GAME_ACTIVE_TOOLS, OPENAI_GAME_START_TOOLS
 
         tools_list.extend(OPENAI_GAME_START_TOOLS)

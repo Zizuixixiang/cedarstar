@@ -3152,6 +3152,7 @@ async def complete_with_lutopia_tool_loop(
         execute_memory_get_approval_status,
         execute_memory_update_request,
     )
+    from tools.mail_tools import OPENAI_MAIL_TOOLS, execute_read_mail, execute_send_mail
     from tools.game_tools import (
         OPENAI_GAME_ACTIVE_TOOLS,
         OPENAI_GAME_START_TOOLS,
@@ -3205,6 +3206,8 @@ async def complete_with_lutopia_tool_loop(
     suffix_keys: List[str] = []
     tools_list.extend(OPENAI_MEMORY_TOOLS)
     suffix_keys.append("memory")
+    tools_list.extend(OPENAI_MAIL_TOOLS)
+    suffix_keys.append("mail")
     tools_list.extend(OPENAI_GAME_START_TOOLS)
     suffix_keys.append("game_start")
     tools_list.extend(OPENAI_WAKEUP_TOOLS)
@@ -3479,6 +3482,18 @@ async def complete_with_lutopia_tool_loop(
                         except json.JSONDecodeError:
                             args_mem_update = {}
                         result_str = await execute_memory_update_request(args_mem_update)
+                    elif nm == "read_mail":
+                        try:
+                            args_mail_read: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mail_read = {}
+                        result_str = await execute_read_mail(args_mail_read)
+                    elif nm == "send_mail":
+                        try:
+                            args_mail_send: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_mail_send = {}
+                        result_str = await execute_send_mail(args_mail_send)
                     elif nm.startswith("game_"):
                         try:
                             args_game: Dict[str, Any] = json.loads(raw_args or "{}")

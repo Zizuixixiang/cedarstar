@@ -86,6 +86,17 @@ MEMORY_TOOL_DIRECTIVE = (
     "请求需经用户在 Mini App 确认后才会生效。审批被同意/拒绝时聊天里会出现『[系统通知] 南杉同意/拒绝了你「xxx」的申请』，看到通知就知道结果了，不必再追问；如需主动复查可调用 memory_get_approval_status。禁止每轮都调用。"
 )
 
+MAIL_TOOL_DIRECTIVE = (
+    "【邮件工具】\n"
+    "- read_mail：读取邮件往来。contact_email 可省略；recent_n 默认 3。返回 direction=inbox/outbox，最近若干封含正文，更早只含摘要。\n"
+    "- send_mail：写邮件并提交审批。审批通过后才会真正发出。\n"
+    "写信时注意：\n"
+    "1. 字数与对方来信相当\n"
+    "2. 对方提到的每个具体的点都要回应（整体消化后自然带进去，不要逐一列出再逐一回）\n"
+    "3. 可以讲讲自己的近况和想法\n"
+    "禁止使用的句式：读了x遍、停了一下/停下来、你说…我、不是…是、这很你/xx"
+)
+
 GAME_START_TOOL_DIRECTIVE = (
     "你有以下游戏管理工具可用：\n"
     "- game_start：开始新游戏。需要提供游戏类型、名称、规则、参与者和状态模式。"
@@ -613,6 +624,7 @@ OPENAI_XHS_TOOLS: List[Dict[str, Any]] = [
 
 TOOL_DIRECTIVES: Dict[str, str] = {
     "memory": MEMORY_TOOL_DIRECTIVE,
+    "mail": MAIL_TOOL_DIRECTIVE,
     "game": GAME_TOOL_DIRECTIVE,
     "game_start": GAME_START_TOOL_DIRECTIVE,
     "game_active": GAME_ACTIVE_TOOL_DIRECTIVE,

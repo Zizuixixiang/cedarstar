@@ -32,6 +32,7 @@ from tools.memory_tools import (
     execute_memory_get_approval_status,
     execute_memory_update_request,
 )
+from tools.mail_tools import execute_read_mail, execute_send_mail
 from tools.game_tools import execute_game_function_call
 from tools.aihot import execute_get_ai_news_function_call
 from tools.search import execute_search_function_call
@@ -405,6 +406,8 @@ def telegram_tool_display_label(tool_name: str, arguments_json: str = "") -> str
         "memory_get_relationship_timeline": "已读取关系时间线",
         "memory_get_approval_status": "已查询审批状态",
         "memory_update_request": "已提交记忆更新",
+        "read_mail": "已读取邮件",
+        "send_mail": "已提交邮件审批",
         "game_start": "已开始游戏",
         "game_end": "已结束游戏",
         "game_update": "已更新游戏",
@@ -1392,6 +1395,12 @@ async def append_tool_exchange_to_messages(
             elif nm == "memory_update_request":
                 args_mem_up = _safe_load_tool_args(arg, nm)
                 out = await execute_memory_update_request(args_mem_up)
+            elif nm == "read_mail":
+                args_mail_read = _safe_load_tool_args(arg, nm)
+                out = await execute_read_mail(args_mail_read)
+            elif nm == "send_mail":
+                args_mail_send = _safe_load_tool_args(arg, nm)
+                out = await execute_send_mail(args_mail_send)
             elif nm.startswith("game_"):
                 args_game = _safe_load_tool_args(arg, nm)
                 out = await execute_game_function_call(nm, args_game)

@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ClipboardCheck, FileText, RefreshCw, X } from 'lucide-react';
+import { Check, ClipboardCheck, FileText, Inbox, Mail, RefreshCw, X } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/memory.css';
 import './../styles/approvals.css';
@@ -16,6 +16,11 @@ const LABELS = {
   rejectPlaceholder: '\u5199\u4e0b\u62d2\u7edd\u539f\u56e0',
   loading: '\u6b63\u5728\u8bfb\u53d6\u5f85\u5ba1\u6279\u5217\u8868...',
   empty: '\u6682\u65e0\u5f85\u5ba1\u6279\u9879',
+  emptyMail: '\u6682\u65e0\u5f85\u5ba1\u6279\u90ae\u4ef6',
+  emptyInbox: '\u6682\u65e0\u6536\u4ef6',
+  approvalTab: '\u66f4\u65b0',
+  mailTab: '\u90ae\u4ef6',
+  inboxTab: '\u6536\u4ef6\u7bb1',
   createdAt: '\u53d1\u8d77\u65f6\u95f4',
   expiresIn: '\u5269\u4f59\u65f6\u95f4',
   requestSource: '\u53d1\u8d77\u6765\u6e90',
@@ -34,6 +39,7 @@ const TOOL_LABELS = {
   update_summary: '更新摘要',
   create_relationship_timeline_entry: '新增关系时间线条目',
   create_temporal_state: '新增时效状态',
+  send_mail_outbox: '发送邮件',
 };
 
 const SHANGHAI_TIME_ZONE = 'Asia/Shanghai';
@@ -172,6 +178,54 @@ function ApprovalCard({ item, now, busyId, onApprove, onReject }) {
   );
 }
 
+function MailApprovalCard({ item, busyId, onApprove, onReject }) {
+  const mail = item.after_preview || {};
+  const busy = busyId === item.id;
+  return (
+    <article className="approval-card mail-card">
+      <div className="approval-card-header">
+        <div className="approval-tool-title">
+          <span className="approval-tool-icon" aria-hidden="true"><Mail size={18} strokeWidth={1.75} /></span>
+          <div>
+            <h3>{mail.subject || '\u65e0\u4e3b\u9898'}</h3>
+            <p>{mail.to_name ? `${mail.to_name} <${mail.to_addr}>` : mail.to_addr}</p>
+          </div>
+        </div>
+      </div>
+      <pre className="mail-body-preview">{mail.body || ''}</pre>
+      <div className="approval-actions">
+        <button type="button" className="approval-button approval-button-approve" onClick={() => onApprove(item)} disabled={busy}>
+          <Check size={16} strokeWidth={1.9} aria-hidden />
+          <span>{LABELS.approve}</span>
+        </button>
+        <button type="button" className="approval-button approval-button-reject" onClick={() => onReject(item)} disabled={busy}>
+          <X size={16} strokeWidth={1.9} aria-hidden />
+          <span>{LABELS.reject}</span>
+        </button>
+      </div>
+    </article>
+  );
+}
+
+function InboxMailCard({ item }) {
+  return (
+    <article className="approval-card mail-card">
+      <div className="approval-card-header">
+        <div className="approval-tool-title">
+          <span className="approval-tool-icon" aria-hidden="true"><Inbox size={18} strokeWidth={1.75} /></span>
+          <div>
+            <h3>{item.subject || '\u65e0\u4e3b\u9898'}</h3>
+            <p>{item.from_name ? `${item.from_name} <${item.from_addr}>` : item.from_addr}</p>
+          </div>
+        </div>
+        <div className="approval-countdown">{formatDateTime(item.received_at)}</div>
+      </div>
+      {item.summary && <div className="mail-summary">{item.summary}</div>}
+      <pre className="mail-body-preview">{item.body || ''}</pre>
+    </article>
+  );
+}
+
 function RejectDialog({ item, note, setNote, busy, onClose, onSubmit }) {
   if (!item) return null;
   return (
@@ -205,7 +259,9 @@ function RejectDialog({ item, note, setNote, busy, onClose, onSubmit }) {
 }
 
 export default function Approvals() {
+  const [activeTab, setActiveTab] = useState('approvals');
   const [approvals, setApprovals] = useState([]);
+  const [inboxItems, setInboxItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -235,11 +291,41 @@ export default function Approvals() {
     }
   }, []);
 
-  useEffect(() => {
-    loadApprovals();
-  }, [loadApprovals]);
+  const loadInbox = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/mail/inbox?limit=100');
+      const payload = await res.json();
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.message || `HTTP ${res.status}`);
+      }
+      setInboxItems(Array.isArray(payload.data) ? payload.data : []);
+    } catch (err) {
+      setError(err?.message || 'failed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
 
-  const pendingCount = useMemo(() => approvals.length, [approvals]);
+  useEffect(() => {
+    if (activeTab === 'inbox') {
+      loadInbox();
+    } else {
+      loadApprovals();
+    }
+  }, [activeTab, loadApprovals, loadInbox]);
+
+  const normalApprovals = useMemo(
+    () => approvals.filter((item) => item.tool_name !== 'send_mail_outbox'),
+    [approvals],
+  );
+  const mailApprovals = useMemo(
+    () => approvals.filter((item) => item.tool_name === 'send_mail_outbox'),
+    [approvals],
+  );
+  const pendingCount = normalApprovals.length;
+  const mailCount = mailApprovals.length;
 
   const removeApproval = useCallback((id) => {
     setApprovals((items) => items.filter((item) => item.id !== id));
@@ -291,25 +377,67 @@ export default function Approvals() {
         <div className="memory-tab-header__title">
           <span className="memory-tab-header__icon" aria-hidden="true"><ClipboardCheck size={22} strokeWidth={1.75} /></span>
           <span className="memory-tab-header__title-text">{LABELS.title}</span>
-          <span className="approval-count-badge">{pendingCount}</span>
+          <span className="approval-count-badge">{activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : pendingCount}</span>
         </div>
         <div className="memory-tab-header__actions">
-          <button type="button" className="approval-button" onClick={loadApprovals} disabled={loading} title={LABELS.refresh}>
+          <button type="button" className="approval-button" onClick={activeTab === 'inbox' ? loadInbox : loadApprovals} disabled={loading} title={LABELS.refresh}>
             <RefreshCw size={16} strokeWidth={1.8} aria-hidden />
             <span>{LABELS.refresh}</span>
           </button>
         </div>
       </div>
 
+      <div className="approval-tabs" role="tablist" aria-label={LABELS.title}>
+        <button type="button" className={`approval-tab ${activeTab === 'approvals' ? 'is-active' : ''}`} onClick={() => setActiveTab('approvals')}>
+          <ClipboardCheck size={16} aria-hidden />
+          <span>{LABELS.approvalTab}</span>
+        </button>
+        <button type="button" className={`approval-tab ${activeTab === 'mail' ? 'is-active' : ''}`} onClick={() => setActiveTab('mail')}>
+          <Mail size={16} aria-hidden />
+          <span>{LABELS.mailTab}</span>
+        </button>
+        <button type="button" className={`approval-tab ${activeTab === 'inbox' ? 'is-active' : ''}`} onClick={() => setActiveTab('inbox')}>
+          <Inbox size={16} aria-hidden />
+          <span>{LABELS.inboxTab}</span>
+        </button>
+      </div>
+
       <div className="memory-content-scroll-area approvals-scroll-area">
         {error && <div className="approval-error">{error}</div>}
         {loading ? (
           <div className="tab-loading">{LABELS.loading}</div>
-        ) : approvals.length === 0 ? (
+        ) : activeTab === 'inbox' ? (
+          inboxItems.length === 0 ? (
+            <div className="approval-empty-state">{LABELS.emptyInbox}</div>
+          ) : (
+            <div className="approval-list">
+              {inboxItems.map((item) => <InboxMailCard key={item.id} item={item} />)}
+            </div>
+          )
+        ) : activeTab === 'mail' ? (
+          mailApprovals.length === 0 ? (
+            <div className="approval-empty-state">{LABELS.emptyMail}</div>
+          ) : (
+            <div className="approval-list">
+              {mailApprovals.map((item) => (
+                <MailApprovalCard
+                  key={item.id}
+                  item={item}
+                  busyId={busyId}
+                  onApprove={approve}
+                  onReject={(next) => {
+                    setRejecting(next);
+                    setRejectNote('');
+                  }}
+                />
+              ))}
+            </div>
+          )
+        ) : normalApprovals.length === 0 ? (
           <div className="approval-empty-state">{LABELS.empty}</div>
         ) : (
           <div className="approval-list">
-            {approvals.map((item) => (
+            {normalApprovals.map((item) => (
               <ApprovalCard
                 key={item.id}
                 item={item}

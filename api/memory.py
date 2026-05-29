@@ -7,6 +7,7 @@ GET /longterm 从 ChromaDB 分页全量列出；SQLite 镜像仅对手动条目�
 from fastapi import APIRouter
 from pydantic import BaseModel
 from typing import Dict, Any, List, Optional
+import asyncio
 import datetime
 import hashlib
 import json
@@ -94,6 +95,7 @@ APPROVAL_ALLOWED_TOOL_NAMES = {
     "update_summary",
     "create_relationship_timeline_entry",
     "create_temporal_state",
+    "send_mail_outbox",
 }
 
 
@@ -139,6 +141,11 @@ def _short_text(value: Any, limit: int = 160) -> str:
 def _approval_change_summary(approval: Dict[str, Any]) -> str:
     args = _ensure_dict(approval.get("arguments"))
     tool_name = str(approval.get("tool_name") or "")
+    if tool_name == "send_mail_outbox":
+        after = _ensure_dict(approval.get("after_preview"))
+        to_addr = after.get("to_addr") or args.get("to_addr") or args.get("outbox_id")
+        subject = after.get("subject") or ""
+        return f"{to_addr}: {_short_text(subject, 120)}"
     content = _short_text(args.get("content", ""))
     if tool_name == "update_persona_field":
         return f"{args.get('field_name')}: {content}"
@@ -170,12 +177,17 @@ _TOOL_ACTION_LABELS = {
     "update_summary": "更新摘要",
     "create_relationship_timeline_entry": "新增关系时间线条目",
     "create_temporal_state": "新增时效状态",
+    "send_mail_outbox": "发送邮件",
 }
 
 
 def _natural_target_part(approval: Dict[str, Any]) -> str:
     args = _ensure_dict(approval.get("arguments"))
     tool_name = str(approval.get("tool_name") or "")
+    if tool_name == "send_mail_outbox":
+        after = _ensure_dict(approval.get("after_preview"))
+        subject = str(after.get("subject") or "").strip()
+        return f"(《{_short_text(subject, 80)}》)" if subject else ""
     if tool_name == "update_memory_card":
         dim = str(args.get("dimension") or "").strip()
         return f"({dim})" if dim else ""
@@ -198,6 +210,16 @@ def _compose_approval_resolution_phrase(
     action = _TOOL_ACTION_LABELS.get(tool_name, tool_name or "记忆更新")
     label = f"{action}{_natural_target_part(approval)}"
     args = _ensure_dict(approval.get("arguments"))
+    if tool_name == "send_mail_outbox":
+        after = _ensure_dict(approval.get("after_preview"))
+        to_addr = after.get("to_addr") or args.get("outbox_id") or ""
+        if decision == "approved":
+            return f"南杉同意了你「{label}」的申请，邮件已发出。\n收件人：{to_addr}"
+        if decision == "rejected":
+            note_text = (note or "").strip()
+            if note_text:
+                return f"南杉拒绝了你「{label}」的申请。\n理由：{_short_text(note_text, 200)}"
+            return f"南杉拒绝了你「{label}」的申请。"
     content = _short_text(args.get("content"), 120)
     if decision == "approved":
         if content:
@@ -414,6 +436,23 @@ async def _build_pending_approval_preview(conn, tool_name: str, arguments: Dict[
         after = {"state_content": content, "action_rule": args.get("action_rule"), "expire_at": args.get("expire_at")}
         return before, after
 
+    if tool_name == "send_mail_outbox":
+        outbox_id = args.get("outbox_id")
+        if outbox_id is None:
+            raise ValueError("outbox_id is required")
+        row = await conn.fetchrow(
+            """
+            SELECT id, to_addr, to_name, subject, body, summary, status, created_at, sent_at
+            FROM mail_outbox
+            WHERE id = $1
+            """,
+            int(outbox_id),
+        )
+        if not row:
+            raise ValueError("mail_outbox not found")
+        before = _record_to_plain_dict(row)
+        return before, {**before, "status": "sent"}
+
     raise ValueError(f"unsupported approval tool: {tool_name}")
 
 
@@ -484,6 +523,19 @@ async def _apply_approved_update(conn, approval: Dict[str, Any]) -> Dict[str, An
     tool_name = str(approval.get("tool_name") or "")
     args = _ensure_dict(approval.get("arguments"))
     before = _ensure_dict(approval.get("before_snapshot"))
+    if tool_name == "send_mail_outbox":
+        outbox_id = args.get("outbox_id") or before.get("id")
+        if outbox_id is None:
+            raise ValueError("mail outbox id is missing")
+        from api.mail import send_mail_outbox_via_resend
+        from memory.database import mark_mail_outbox_sent
+
+        await send_mail_outbox_via_resend(int(outbox_id))
+        ok = await mark_mail_outbox_sent(int(outbox_id), conn=conn)
+        if not ok:
+            raise ValueError("mail outbox not found or not pending")
+        return {"rows": 1, "target": "mail_outbox", "id": int(outbox_id)}
+
     content = _approval_arg_content(approval)
 
     if tool_name == "update_memory_card":
@@ -1516,6 +1568,23 @@ async def approve_approval(approval_id: str):
         logger.error("approve approval failed approval_id=%s: %s", approval_id, e)
         return create_response(False, None, f"approve failed: {str(e)}")
 
+    if str((approval or {}).get("tool_name") or "") == "send_mail_outbox":
+        after = _ensure_dict((approval or {}).get("after_preview"))
+        outbox_id = _ensure_dict((approval or {}).get("arguments")).get("outbox_id") or after.get("id")
+        if outbox_id is not None:
+            try:
+                from api.mail import summarize_outbox_mail
+
+                asyncio.create_task(
+                    summarize_outbox_mail(
+                        int(outbox_id),
+                        str(after.get("subject") or ""),
+                        str(after.get("body") or ""),
+                    )
+                )
+            except Exception as e:
+                logger.warning("schedule outbox summary failed: %s", e)
+
     phrase = _compose_approval_resolution_phrase(approval or {}, "approved")
     target = await _resolve_approval_target()
     if target:
@@ -1551,6 +1620,13 @@ async def reject_approval(approval_id: str, body: ApprovalRejectRequest):
                     return create_response(False, None, "approval not found")
                 if approval.get("status") != "pending":
                     return create_response(False, approval, "approval is not pending")
+                if str(approval.get("tool_name") or "") == "send_mail_outbox":
+                    args = _ensure_dict(approval.get("arguments"))
+                    outbox_id = args.get("outbox_id") or _ensure_dict(approval.get("before_snapshot")).get("id")
+                    if outbox_id is not None:
+                        from memory.database import mark_mail_outbox_rejected
+
+                        await mark_mail_outbox_rejected(int(outbox_id), conn=conn)
                 await resolve_approval(approval_id, "rejected", note=note, conn=conn)
                 await insert_mcp_audit_log(
                     token_scope="approval_api",

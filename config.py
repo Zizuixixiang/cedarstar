@@ -342,6 +342,26 @@ class Config:
             return max(1, min(30, int(os.getenv("TELEGRAM_GROUP_PEER_RELAY_TIMEOUT", "8"))))
         except ValueError:
             return 8
+
+    @property
+    def MAIL_SECRET(self) -> str:
+        """Cloudflare Email Worker 调用 /api/mail/inbox 时使用的共享密钥。"""
+        return (os.getenv("MAIL_SECRET") or "").strip()
+
+    @property
+    def MAIL_FROM_ADDR(self) -> str:
+        """Resend 发信 From 地址；未配置时按 APP_NAME 选择 cedarstar.org 邮箱。"""
+        raw = (os.getenv("MAIL_FROM_ADDR") or "").strip()
+        if raw:
+            return raw
+        app = self.APP_NAME.lower()
+        local = "clio" if "clio" in app else "sirius"
+        return f"{local}@cedarstar.org"
+
+    @property
+    def RESEND_API_KEY(self) -> str:
+        """Resend API Key；为空时审批通过发信会失败并保持 pending。"""
+        return (os.getenv("RESEND_API_KEY") or "").strip()
     
     @property
     def HEFENG_API_KEY(self) -> str:

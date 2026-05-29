@@ -153,6 +153,8 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle / idle_activity_prompt） |
 | `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / input_schema / enabled / require_approval；`input_schema` 为 MCP `inputSchema` JSON；`require_approval` 本轮仅存储） |
 | `prompt_overrides` | Mini App「人设 → 全局 Prompt」保存的运行时 prompt 覆盖（`key` / `override_text` / `updated_at`）；默认文本不入库，来自 `memory/prompt_registry.py` |
+| `mail_inbox` | 收件箱邮件（Cloudflare Worker 投递后解析 MIME 写入，含 summary） |
+| `mail_outbox` | 发件箱草稿与状态（pending/sent/rejected；pending 发信走审批） |
 
 ### 2.5 token_usage / tool_executions 观测口径
 
@@ -315,6 +317,8 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 **`web_fetch`（网页正文抓取）** 无人设列：仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（`config.py`，默认 true）为真时注册；与记忆内部工具同属「可出现在 OpenAI tools 列表」的旁路能力，但不经由 `persona_configs` 开关。
 
+**邮件工具** 无人设列：`tools/mail_tools.py` 的 `read_mail` / `send_mail` 始终注册。`read_mail(contact_email?, recent_n=3)` 读取 `mail_inbox` 与 `mail_outbox` 并按时间升序合并，最近若干封返回原文，更早只返回摘要；`send_mail` 写入 `mail_outbox(status='pending')` 并创建 `pending_approvals.tool_name='send_mail_outbox'`，审批通过后才通过 Resend 发出。system 后缀在 `tools/prompts.py` 的 `MAIL_TOOL_DIRECTIVE`，包含写信规则和禁用句式。
+
 **通用自定义 MCP** 无人设列：仅环境变量 **`ENABLE_CUSTOM_MCP`**（`config.py`，默认 true）为真时参与工具构建，具体 server 与工具开关来自 `mcp_servers` / `mcp_tools`，见 **§4.2.6**。
 
 另：环境变量 **`ENABLE_AI_NEWS_TOOL`**（`config.py`，默认 true）为部署总开关；与人设列同时为真才注册 `get_ai_news`。实现见 `tools/aihot.py`、`tools/prompts.py`、`llm/llm_interface.py`。
@@ -332,6 +336,12 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 ### 4.2.2 网页正文抓取（`web_fetch`，`tools/web_fetch.py`）
 
 对用户给出的 http(s) URL：`aiohttp` GET（总超时 10 秒、响应体上限 1MB），`trafilatura.extract` 抽正文；工具返回 JSON（`text` / `error`；正文最多 4000 字符）。**依赖**：`trafilatura`、`lxml_html_clean`（lxml 6+ 必需）、`aiohttp`（见根目录 `requirements.txt`）。**调度**：`complete_with_lutopia_tool_loop`、`append_tool_exchange_to_messages`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`。写入 **`tool_executions`**，且不进入 Lutopia 流式 `execution_log` 旁白附录（与 `web_search`、`get_ai_news` 同组排除）。Telegram 缓冲 / Discord / idle 是否走「带 tools 的 OpenAI 兼容流式」与 **`ENABLE_WEB_FETCH_TOOL`** 做逻辑或，避免仅该工具开启时仍走无 tools 路径。
+
+### 4.2.2.1 邮件收发
+
+邮件表由 `memory/database.py` 启动迁移幂等创建，显式 SQL 为 `migrations/20260529_add_mail_tables.sql`，CedarClio 与 CedarStar 两个主库各自确认。Cloudflare Worker 代码在 `cloudflare/mail-worker.js`：`MAIL_ALLOWLIST`（逗号分隔）限制 `message.from`，`message.to` 为 `clio@cedarstar.org` 投到 `CEDARCLIO_INBOX_URL`，为 `sirius@cedarstar.org` 投到 `CEDARSTAR_INBOX_URL`，POST 原始 MIME 并带 `x-mail-secret: MAIL_SECRET`；`MAIL_SECRET` / `MAIL_ALLOWLIST` 用 `wrangler secret put` 设置。
+
+后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body`，写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，并向 `TELEGRAM_MAIN_USER_CHAT_ID` 发送“收到来自 … 的新信件”提醒。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /thread`、`POST /outbox`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
 
 ### 4.2.3 AI HOT 资讯（`tools/aihot.py`）
 
@@ -507,7 +517,7 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 ### 7.5 待审批
 
-待审批页（`/approvals`）展示来自内部记忆工具写入操作与 MCP `api_admin` 管理写入工具的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。
+待审批页（`/approvals`）展示来自内部记忆工具写入操作、MCP `api_admin` 管理写入工具与邮件 outbox 发信的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。页面包含「邮件」Tab 预览待发邮件正文并批准/拒绝；「收件箱」Tab 调 `GET /api/mail/inbox` 展示 `mail_inbox` 列表和原文。
 
 ## 八、MCP Memory Server
 
@@ -584,7 +594,7 @@ uvicorn access log 中的完整 URL 路径（含 token）由 `_RedactMcpTokenFil
 
 ### 8.5 审批系统
 
-MCP `api_admin` scope 的写入工具与内部记忆工具的写入操作均通过 `pending_approvals` 表排队，需用户在 Mini App “待审批”页确认后才生效。
+MCP `api_admin` scope 的写入工具、内部记忆工具的写入操作与邮件 outbox 发信均通过 `pending_approvals` 表排队，需用户在 Mini App “待审批”页确认后才生效。
 
 `pending_approvals` 表：
 
@@ -628,7 +638,7 @@ MCP `api_admin` scope 额外提供 4 个管理写入工具（均走审批）：
 
 `approve_approval` / `reject_approval` 处理完事务后会调用 `_resolve_approval_target()` 解析推送目标：优先读取 `.env` 中的 `TELEGRAM_MAIN_USER_CHAT_ID`，未配置时回退到 `messages` 表中最近一条 telegram 用户消息的 `session_id`（CedarClio 单用户场景下足够稳定）。解析到 target 后做两件事：
 
-1. **Telegram 聊天框推送**：通过 `bot.telegram_notify.send_telegram_text_to_chat(chat_id, text)` 发送一条自然语言系统通知，文本由 `_compose_approval_resolution_phrase` 组装，例如「南杉同意了你「更新记忆卡片(preferences)」的申请，已生效。\n内容：xxx」或「南杉拒绝了你「新增关系时间线条目(milestone)」的申请。\n理由：xxx」。
+1. **Telegram 聊天框推送**：通过 `bot.telegram_notify.send_telegram_text_to_chat(chat_id, text)` 发送一条自然语言系统通知，文本由 `_compose_approval_resolution_phrase` 组装，例如「南杉同意了你「更新记忆卡片(preferences)」的申请，已生效。\n内容：xxx」或「南杉拒绝了你「新增关系时间线条目(milestone)」的申请。\n理由：xxx」；邮件审批通过时提示邮件已发出并列出收件人。
 2. **写入 messages 表**：以 `role='user'`、`user_id='system'`、`platform='telegram'` 持久化一条 `[系统通知] {phrase}` 的消息，让 AI 在下一轮 `context_builder` 取最近未摘要消息时直接看到审批结果。
 
 工具名 → 中文动作标签由 `_TOOL_ACTION_LABELS` 维护（与 Mini App 待审批页 `TOOL_LABELS` 对齐），目标维度/字段在短语中以 `(dimension)` / `(field_name)` / `(event_type)` 形式呈现。
@@ -716,7 +726,11 @@ Anthropic `/messages` 路径会把 OpenAI tools schema 转换为 Anthropic `tool
 
 与上表记忆工具并列出现在同一套 OpenAI Function Calling 工具循环中，但**不**调用 `/api` 记忆 REST，也不走 MCP。实现 `tools/web_fetch.py`；schema 与 system 后缀 `tools/prompts.py`（`OPENAI_WEB_FETCH_TOOLS`、`WEB_FETCH_TOOL_DIRECTIVE`）。部署开关 **`ENABLE_WEB_FETCH_TOOL`**（默认 true），**无人设 Mini App 开关**。`tool_executions` 照常记录；`execution_log` 排除名单见 `tools/lutopia.py`（与 `web_search` 等一致）。
 
-### 8.8.3 小红书工具（非 MCP、非记忆审批链）
+### 8.8.3 邮件工具（非 MCP、发信走审批）
+
+`tools/mail_tools.py` 与记忆工具并列注册到 Function Calling 工具循环，不受人设开关控制。`read_mail` 调 `GET /api/mail/thread`，返回 `direction=inbox/outbox` 的升序往来；`send_mail` 调 `POST /api/mail/outbox`，写入 outbox 并创建 `send_mail_outbox` 审批。审批通过由 `api/memory.py` 的 `_apply_approved_update` 调 `api/mail.py::send_mail_outbox_via_resend`，再更新 `mail_outbox.status/sent_at`。
+
+### 8.8.4 小红书工具（非 MCP、非记忆审批链）
 
 与 `web_fetch` 同属 OpenAI Function Calling 旁路：`tools/xhs_tool.py`；当前 schema 仅 **`read_xhs_note`**（`OPENAI_XHS_TOOLS`、`XHS_TOOL_DIRECTIVE`）。须 **`persona_configs.enable_xhs_tool`** 与 **`ENABLE_XHS_TOOL`** 同时为真；`tool_executions` 照常记录。用量查询 **`GET /api/config/xhs-usage`**（读配额；写配额键仍保留供日后恢复点赞/收藏类工具）。
 
