@@ -1,17 +1,5 @@
 export default {
   async email(message, env, ctx) {
-    const allowlist = new Set(
-      String(env.MAIL_ALLOWLIST || "")
-        .split(",")
-        .map((item) => item.trim().toLowerCase())
-        .filter(Boolean),
-    );
-    const from = String(message.from || "").trim().toLowerCase();
-    if (allowlist.size > 0 && !allowlist.has(from)) {
-      message.setReject("sender is not allowed");
-      return;
-    }
-
     const to = String(message.to || "").trim().toLowerCase();
     const target =
       to === "clio@cedarstar.org"

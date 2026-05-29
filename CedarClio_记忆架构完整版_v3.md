@@ -153,6 +153,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle / idle_activity_prompt） |
 | `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / input_schema / enabled / require_approval；`input_schema` 为 MCP `inputSchema` JSON；`require_approval` 本轮仅存储） |
 | `prompt_overrides` | Mini App「人设 → 全局 Prompt」保存的运行时 prompt 覆盖（`key` / `override_text` / `updated_at`）；默认文本不入库，来自 `memory/prompt_registry.py` |
+| `mail_contacts` | 邮件笔友白名单（name / email / note / created_at）；收信接口只保存该表中存在的发件人 |
 | `mail_inbox` | 收件箱邮件（Cloudflare Worker 投递后解析 MIME 写入，含 summary） |
 | `mail_outbox` | 发件箱草稿与状态（pending/sent/rejected；pending 发信走审批） |
 
@@ -339,9 +340,9 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 4.2.2.1 邮件收发
 
-邮件表由 `memory/database.py` 启动迁移幂等创建，显式 SQL 为 `migrations/20260529_add_mail_tables.sql`，CedarClio 与 CedarStar 两个主库各自确认。Cloudflare Worker 代码在 `cloudflare/mail-worker.js`：`MAIL_ALLOWLIST`（逗号分隔）限制 `message.from`，`message.to` 为 `clio@cedarstar.org` 投到 `CEDARCLIO_INBOX_URL`，为 `sirius@cedarstar.org` 投到 `CEDARSTAR_INBOX_URL`，POST 原始 MIME 并带 `x-mail-secret: MAIL_SECRET`；`MAIL_SECRET` / `MAIL_ALLOWLIST` 用 `wrangler secret put` 设置。
+邮件表由 `memory/database.py` 启动迁移幂等创建，显式 SQL 为 `migrations/20260529_add_mail_tables.sql` 与 `migrations/20260529_add_mail_contacts.sql`，CedarClio 与 CedarStar 两个主库各自确认。Cloudflare Worker 代码在 `cloudflare/mail-worker.js`：`message.to` 为 `clio@cedarstar.org` 投到 `CEDARCLIO_INBOX_URL`，为 `sirius@cedarstar.org` 投到 `CEDARSTAR_INBOX_URL`，POST 原始 MIME 并带 `x-mail-secret: MAIL_SECRET`；`MAIL_SECRET` 用 `wrangler secret put` 设置。
 
-后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body`，写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，并向 `TELEGRAM_MAIN_USER_CHAT_ID` 发送“收到来自 … 的新信件”提醒。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /thread`、`POST /outbox`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
+后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body` 后先查 `mail_contacts`；发件人邮箱不存在时返回 200 并丢弃，存在时才写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，并向 `TELEGRAM_MAIN_USER_CHAT_ID` 发送“收到来自 … 的新信件”提醒。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /thread`、`POST /outbox`、`GET/POST/DELETE /contacts`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
 
 ### 4.2.3 AI HOT 资讯（`tools/aihot.py`）
 
@@ -517,7 +518,7 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 ### 7.5 待审批
 
-待审批页（`/approvals`）展示来自内部记忆工具写入操作、MCP `api_admin` 管理写入工具与邮件 outbox 发信的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。页面包含「邮件」Tab 预览待发邮件正文并批准/拒绝；「收件箱」Tab 调 `GET /api/mail/inbox` 展示 `mail_inbox` 列表和原文。
+待审批页（`/approvals`）展示来自内部记忆工具写入操作、MCP `api_admin` 管理写入工具与邮件 outbox 发信的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。页面包含「邮件」Tab 预览待发邮件正文并批准/拒绝；「收件箱」Tab 调 `GET /api/mail/inbox` 展示 `mail_inbox` 列表和原文；「笔友」Tab 调 `GET/POST/DELETE /api/mail/contacts` 管理 `mail_contacts`。
 
 ## 八、MCP Memory Server
 

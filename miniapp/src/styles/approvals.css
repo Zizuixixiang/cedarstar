@@ -260,6 +260,82 @@
   overflow-wrap: anywhere;
 }
 
+.mail-contact-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 0.92fr) minmax(0, 1.08fr);
+  gap: 18px;
+  align-items: start;
+}
+
+.mail-contact-form {
+  border: 2px solid var(--text-main);
+  background: var(--surface);
+  box-shadow: var(--shadow-solid);
+  padding: 16px;
+}
+
+.mail-contact-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.mail-contact-form label {
+  display: grid;
+  gap: 6px;
+  color: var(--text-main);
+  font-weight: 700;
+}
+
+.mail-contact-form label span {
+  font-size: 0.82rem;
+  color: var(--text-sub);
+}
+
+.mail-contact-form input,
+.mail-contact-form textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 2px solid var(--industrial-border-color);
+  background: #fffdf8;
+  color: var(--text-main);
+  padding: 10px;
+  font: inherit;
+  line-height: 1.45;
+}
+
+.mail-contact-form textarea {
+  resize: vertical;
+}
+
+.mail-contact-note {
+  margin-top: 12px;
+}
+
+.mail-contact-list {
+  display: grid;
+  gap: 12px;
+}
+
+.mail-contact-item {
+  border: 2px solid var(--text-main);
+  background: #fffdf8;
+  box-shadow: 4px 4px 0 var(--shadow-color-deep);
+  padding: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.mail-contact-item-note {
+  border: 2px solid var(--industrial-border-color);
+  background: #f7f3e8;
+  color: var(--text-main);
+  padding: 10px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
 .approval-actions,
 .approval-modal-actions {
   display: flex;
@@ -419,5 +495,10 @@
   .approval-actions .approval-button,
   .approval-modal-actions .approval-button {
     flex: 1 1 140px;
+  }
+
+  .mail-contact-layout,
+  .mail-contact-grid {
+    grid-template-columns: 1fr;
   }
 }

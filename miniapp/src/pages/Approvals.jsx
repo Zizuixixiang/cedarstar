@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ClipboardCheck, FileText, Inbox, Mail, RefreshCw, X } from 'lucide-react';
+import { Check, ClipboardCheck, FileText, Inbox, Mail, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/memory.css';
 import './../styles/approvals.css';
@@ -21,6 +21,13 @@ const LABELS = {
   approvalTab: '\u66f4\u65b0',
   mailTab: '\u90ae\u4ef6',
   inboxTab: '\u6536\u4ef6\u7bb1',
+  contactsTab: '\u7b14\u53cb',
+  contactName: '\u540d\u5b57',
+  contactEmail: '\u90ae\u7bb1',
+  contactNote: '\u5907\u6ce8',
+  addContact: '\u65b0\u589e\u7b14\u53cb',
+  deleteContact: '\u5220\u9664',
+  emptyContacts: '\u6682\u65e0\u7b14\u53cb',
   createdAt: '\u53d1\u8d77\u65f6\u95f4',
   expiresIn: '\u5269\u4f59\u65f6\u95f4',
   requestSource: '\u53d1\u8d77\u6765\u6e90',
@@ -226,6 +233,76 @@ function InboxMailCard({ item }) {
   );
 }
 
+function ContactManager({ contacts, form, setForm, busyId, onSubmit, onDelete }) {
+  return (
+    <div className="mail-contact-layout">
+      <form className="mail-contact-form" onSubmit={onSubmit}>
+        <div className="mail-contact-grid">
+          <label>
+            <span>{LABELS.contactName}</span>
+            <input
+              value={form.name}
+              onChange={(event) => setForm((prev) => ({ ...prev, name: event.target.value }))}
+            />
+          </label>
+          <label>
+            <span>{LABELS.contactEmail}</span>
+            <input
+              value={form.email}
+              onChange={(event) => setForm((prev) => ({ ...prev, email: event.target.value }))}
+              type="email"
+              inputMode="email"
+              required
+            />
+          </label>
+        </div>
+        <label className="mail-contact-note">
+          <span>{LABELS.contactNote}</span>
+          <textarea
+            value={form.note}
+            onChange={(event) => setForm((prev) => ({ ...prev, note: event.target.value }))}
+            rows={3}
+          />
+        </label>
+        <div className="approval-actions">
+          <button type="submit" className="approval-button approval-button-approve" disabled={busyId === 'contact:create'}>
+            <Plus size={16} strokeWidth={1.9} aria-hidden />
+            <span>{LABELS.addContact}</span>
+          </button>
+        </div>
+      </form>
+
+      {contacts.length === 0 ? (
+        <div className="approval-empty-state">{LABELS.emptyContacts}</div>
+      ) : (
+        <div className="mail-contact-list">
+          {contacts.map((item) => (
+            <article className="mail-contact-item" key={item.id}>
+              <div className="approval-tool-title">
+                <span className="approval-tool-icon" aria-hidden="true"><UserRound size={18} strokeWidth={1.75} /></span>
+                <div>
+                  <h3>{item.name || item.email}</h3>
+                  <p>{item.email}</p>
+                </div>
+              </div>
+              {item.note && <div className="mail-contact-item-note">{item.note}</div>}
+              <button
+                type="button"
+                className="approval-button approval-button-reject"
+                onClick={() => onDelete(item)}
+                disabled={busyId === `contact:${item.id}`}
+              >
+                <Trash2 size={16} strokeWidth={1.9} aria-hidden />
+                <span>{LABELS.deleteContact}</span>
+              </button>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RejectDialog({ item, note, setNote, busy, onClose, onSubmit }) {
   if (!item) return null;
   return (
@@ -262,6 +339,8 @@ export default function Approvals() {
   const [activeTab, setActiveTab] = useState('approvals');
   const [approvals, setApprovals] = useState([]);
   const [inboxItems, setInboxItems] = useState([]);
+  const [contacts, setContacts] = useState([]);
+  const [contactForm, setContactForm] = useState({ name: '', email: '', note: '' });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [busyId, setBusyId] = useState('');
@@ -308,13 +387,32 @@ export default function Approvals() {
     }
   }, []);
 
+  const loadContacts = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/mail/contacts');
+      const payload = await res.json();
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.message || `HTTP ${res.status}`);
+      }
+      setContacts(Array.isArray(payload.data) ? payload.data : []);
+    } catch (err) {
+      setError(err?.message || 'failed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (activeTab === 'inbox') {
       loadInbox();
+    } else if (activeTab === 'contacts') {
+      loadContacts();
     } else {
       loadApprovals();
     }
-  }, [activeTab, loadApprovals, loadInbox]);
+  }, [activeTab, loadApprovals, loadContacts, loadInbox]);
 
   const normalApprovals = useMemo(
     () => approvals.filter((item) => item.tool_name !== 'send_mail_outbox'),
@@ -326,6 +424,7 @@ export default function Approvals() {
   );
   const pendingCount = normalApprovals.length;
   const mailCount = mailApprovals.length;
+  const contactCount = contacts.length;
 
   const removeApproval = useCallback((id) => {
     setApprovals((items) => items.filter((item) => item.id !== id));
@@ -371,16 +470,55 @@ export default function Approvals() {
     }
   }, [rejectNote, rejecting, removeApproval]);
 
+  const submitContact = useCallback(async (event) => {
+    event.preventDefault();
+    setBusyId('contact:create');
+    setError('');
+    try {
+      const res = await apiFetch('/api/mail/contacts', {
+        method: 'POST',
+        body: JSON.stringify(contactForm),
+      });
+      const payload = await res.json();
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.message || `HTTP ${res.status}`);
+      }
+      setContactForm({ name: '', email: '', note: '' });
+      await loadContacts();
+    } catch (err) {
+      setError(err?.message || 'contact save failed');
+    } finally {
+      setBusyId('');
+    }
+  }, [contactForm, loadContacts]);
+
+  const deleteContact = useCallback(async (item) => {
+    setBusyId(`contact:${item.id}`);
+    setError('');
+    try {
+      const res = await apiFetch(`/api/mail/contacts/${item.id}`, { method: 'DELETE' });
+      const payload = await res.json();
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.message || `HTTP ${res.status}`);
+      }
+      setContacts((items) => items.filter((next) => next.id !== item.id));
+    } catch (err) {
+      setError(err?.message || 'contact delete failed');
+    } finally {
+      setBusyId('');
+    }
+  }, []);
+
   return (
     <div className="memory-container approvals-container">
       <div className="memory-tab-header approvals-header">
         <div className="memory-tab-header__title">
           <span className="memory-tab-header__icon" aria-hidden="true"><ClipboardCheck size={22} strokeWidth={1.75} /></span>
           <span className="memory-tab-header__title-text">{LABELS.title}</span>
-          <span className="approval-count-badge">{activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : pendingCount}</span>
+          <span className="approval-count-badge">{activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : activeTab === 'contacts' ? contactCount : pendingCount}</span>
         </div>
         <div className="memory-tab-header__actions">
-          <button type="button" className="approval-button" onClick={activeTab === 'inbox' ? loadInbox : loadApprovals} disabled={loading} title={LABELS.refresh}>
+          <button type="button" className="approval-button" onClick={activeTab === 'inbox' ? loadInbox : activeTab === 'contacts' ? loadContacts : loadApprovals} disabled={loading} title={LABELS.refresh}>
             <RefreshCw size={16} strokeWidth={1.8} aria-hidden />
             <span>{LABELS.refresh}</span>
           </button>
@@ -400,6 +538,10 @@ export default function Approvals() {
           <Inbox size={16} aria-hidden />
           <span>{LABELS.inboxTab}</span>
         </button>
+        <button type="button" className={`approval-tab ${activeTab === 'contacts' ? 'is-active' : ''}`} onClick={() => setActiveTab('contacts')}>
+          <UserRound size={16} aria-hidden />
+          <span>{LABELS.contactsTab}</span>
+        </button>
       </div>
 
       <div className="memory-content-scroll-area approvals-scroll-area">
@@ -414,6 +556,15 @@ export default function Approvals() {
               {inboxItems.map((item) => <InboxMailCard key={item.id} item={item} />)}
             </div>
           )
+        ) : activeTab === 'contacts' ? (
+          <ContactManager
+            contacts={contacts}
+            form={contactForm}
+            setForm={setContactForm}
+            busyId={busyId}
+            onSubmit={submitContact}
+            onDelete={deleteContact}
+          />
         ) : activeTab === 'mail' ? (
           mailApprovals.length === 0 ? (
             <div className="approval-empty-state">{LABELS.emptyMail}</div>

@@ -29,6 +29,12 @@ class MailOutboxRequest(BaseModel):
     body: str
 
 
+class MailContactRequest(BaseModel):
+    name: Optional[str] = None
+    email: str
+    note: Optional[str] = None
+
+
 def _response(success: bool, data: Any = None, message: str = "") -> Dict[str, Any]:
     return {"success": success, "data": data, "message": message}
 
@@ -191,9 +197,15 @@ async def receive_mail_inbox(
         logger.warning("parse inbound mail failed: %s", e, exc_info=True)
         raise HTTPException(status_code=400, detail="invalid MIME message") from e
     if not parsed["from_addr"]:
-        raise HTTPException(status_code=400, detail="missing from address")
+        logger.info("mail inbox ignored: missing from address")
+        return _response(True, {"ignored": True}, "missing from address")
 
-    from memory.database import insert_mail_inbox
+    from memory.database import get_mail_contact_by_email, insert_mail_inbox
+
+    contact = await get_mail_contact_by_email(parsed["from_addr"])
+    if not contact:
+        logger.info("mail inbox ignored: sender not in mail_contacts from=%s", parsed["from_addr"])
+        return _response(True, {"ignored": True}, "sender not in contacts")
 
     inbox_id = await insert_mail_inbox(**parsed)
     background_tasks.add_task(
@@ -251,6 +263,39 @@ async def create_mail_outbox(body: MailOutboxRequest):
         {"id": outbox_id, "status": "pending", "approval_id": approval_id},
         "mail queued",
     )
+
+
+@router.get("/contacts")
+async def list_mail_contacts():
+    from memory.database import list_mail_contacts as db_list_mail_contacts
+
+    rows = await db_list_mail_contacts()
+    return _response(True, rows, "mail contacts loaded")
+
+
+@router.post("/contacts")
+async def create_mail_contact(body: MailContactRequest):
+    from memory.database import create_mail_contact as db_create_mail_contact
+
+    _, parsed_email = parseaddr(str(body.email or ""))
+    if not parsed_email or "@" not in parsed_email:
+        return _response(False, None, "email is invalid")
+    row = await db_create_mail_contact(
+        name=str(body.name or "").strip() or None,
+        email=parsed_email.strip().lower(),
+        note=str(body.note or "").strip() or None,
+    )
+    return _response(True, row, "mail contact saved")
+
+
+@router.delete("/contacts/{contact_id}")
+async def delete_mail_contact(contact_id: int):
+    from memory.database import delete_mail_contact as db_delete_mail_contact
+
+    ok = await db_delete_mail_contact(contact_id)
+    if not ok:
+        return _response(False, None, "mail contact not found")
+    return _response(True, {"id": contact_id}, "mail contact deleted")
 
 
 @router.get("/inbox")

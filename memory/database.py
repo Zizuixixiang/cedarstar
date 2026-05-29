@@ -213,7 +213,16 @@ async def _ensure_pending_approvals_table(conn) -> None:
 
 
 async def _ensure_mail_tables(conn) -> None:
-    """Ensure inbound/outbound mail tables exist."""
+    """Ensure inbound/outbound mail and contact tables exist."""
+    await conn.execute("""
+        CREATE TABLE IF NOT EXISTS mail_contacts (
+            id BIGSERIAL PRIMARY KEY,
+            name TEXT,
+            email TEXT NOT NULL,
+            note TEXT,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+    """)
     await conn.execute("""
         CREATE TABLE IF NOT EXISTS mail_inbox (
             id BIGSERIAL PRIMARY KEY,
@@ -250,7 +259,11 @@ async def _ensure_mail_tables(conn) -> None:
         "CREATE INDEX IF NOT EXISTS idx_mail_outbox_status_created "
         "ON mail_outbox (status, created_at DESC)"
     )
-    logger.debug("mail_inbox/mail_outbox tables checked")
+    await conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_mail_contacts_email_lower "
+        "ON mail_contacts (lower(email))"
+    )
+    logger.debug("mail_contacts/mail_inbox/mail_outbox tables checked")
 
 
 async def _ensure_custom_mcp_tables(conn) -> None:
@@ -2106,6 +2119,61 @@ class MessageDatabase:
                 body,
             )
         return int(row_id)
+
+    async def create_mail_contact(
+        self,
+        *,
+        name: Optional[str] = None,
+        email: str,
+        note: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                INSERT INTO mail_contacts (name, email, note)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (lower(email)) DO UPDATE
+                SET name = EXCLUDED.name,
+                    note = EXCLUDED.note
+                RETURNING id, name, email, note, created_at
+                """,
+                name,
+                str(email),
+                note,
+            )
+        return _r(row)
+
+    async def list_mail_contacts(self) -> List[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, name, email, note, created_at
+                FROM mail_contacts
+                ORDER BY created_at DESC, id DESC
+                """
+            )
+        return _rows(rows)
+
+    async def get_mail_contact_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """
+                SELECT id, name, email, note, created_at
+                FROM mail_contacts
+                WHERE lower(email) = lower($1)
+                LIMIT 1
+                """,
+                str(email),
+            )
+        return _r(row) if row else None
+
+    async def delete_mail_contact(self, contact_id: int) -> bool:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute(
+                "DELETE FROM mail_contacts WHERE id = $1",
+                int(contact_id),
+            )
+        return _rowcount(result) > 0
 
     async def insert_mail_outbox(
         self,
@@ -8020,6 +8088,22 @@ async def expire_stale_approvals() -> int:
 
 async def insert_mail_inbox(**kwargs) -> int:
     return await get_database().insert_mail_inbox(**kwargs)
+
+
+async def create_mail_contact(**kwargs) -> Dict[str, Any]:
+    return await get_database().create_mail_contact(**kwargs)
+
+
+async def list_mail_contacts() -> List[Dict[str, Any]]:
+    return await get_database().list_mail_contacts()
+
+
+async def get_mail_contact_by_email(email: str) -> Optional[Dict[str, Any]]:
+    return await get_database().get_mail_contact_by_email(email)
+
+
+async def delete_mail_contact(contact_id: int) -> bool:
+    return await get_database().delete_mail_contact(contact_id)
 
 
 async def insert_mail_outbox(**kwargs) -> int:
