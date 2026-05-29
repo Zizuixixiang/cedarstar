@@ -662,7 +662,7 @@ X_TOOLS: List[Dict[str, Any]] = [
             "name": "retweet_tweet",
             "description": (
                 "转推或引用转推：仅 tweet_id 为纯转推；若需带评语/转发语须传非空 comment（引用转推 Quote，最长 280 字）。"
-                "勿用 reply_tweet 代替带话的转发。"
+                "引用转推须原帖 @当前 API 登录账号自己，或 tweet_id 来自 read_mentions。勿用 reply_tweet 代替带话的转发。"
             ),
             "parameters": {
                 "type": "object",
@@ -695,7 +695,7 @@ X_TOOLS: List[Dict[str, Any]] = [
         "type": "function",
         "function": {
             "name": "reply_tweet",
-            "description": "回复一条推文",
+            "description": "回复一条推文。仅当原帖正文 @当前 API 登录账号自己，或 tweet_id 来自 read_mentions。",
             "parameters": {
                 "type": "object",
                 "properties": {

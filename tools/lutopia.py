@@ -417,7 +417,7 @@ def telegram_tool_display_label(tool_name: str, arguments_json: str = "") -> str
     if t in static:
         return static[t]
 
-    if t.startswith("rcommunity_"):
+    if t.startswith("rcommunity_") or t.startswith("rhysen_"):
         try:
             args = _rcommunity_memory_args(arguments_json)
         except Exception:
@@ -432,8 +432,13 @@ def telegram_tool_display_label(tool_name: str, arguments_json: str = "") -> str
             "rcommunity_forum_interact": "论坛互动",
             "rcommunity_chat": "聊天室",
             "rcommunity_profile": "个人页",
-        }.get(t, t[11:] if t.startswith("rcommunity_") else t)
-        return f"已操作社区论坛·{short}"
+            "rhysen_forum": "论坛",
+            "rhysen_forum_write": "论坛发帖",
+            "rhysen_forum_interact": "论坛互动",
+            "rhysen_chat": "聊天室",
+            "rhysen_profile": "个人页",
+        }.get(t, t.removeprefix("rcommunity_").removeprefix("rhysen_"))
+        return f"已操作 Rhysen 论坛·{short}"
 
     x_desc = _x_action_description(t, _internal_memory_json_dict(arguments_json))
     if x_desc:
@@ -743,7 +748,15 @@ def _internal_memory_key_suffix(
 def _rcommunity_action_description(
     tool_name: str, action: str, args: Dict[str, Any]
 ) -> str:
-    """rcommunity 五类 MCP 工具 → 中文简述（以「已」开头）。"""
+    """Rhysen 五类 MCP 工具 → 中文简述（以「已」开头）。"""
+    legacy_to_rhysen = {
+        "rcommunity_forum": "rhysen_forum",
+        "rcommunity_forum_write": "rhysen_forum_write",
+        "rcommunity_forum_interact": "rhysen_forum_interact",
+        "rcommunity_chat": "rhysen_chat",
+        "rcommunity_profile": "rhysen_profile",
+    }
+    tool_name = legacy_to_rhysen.get(tool_name, tool_name)
     tid = str(args.get("thread_id") or args.get("post_id") or "?").strip() or "?"
     rid = str(args.get("reply_id") or args.get("comment_id") or "?").strip() or "?"
     category = str(args.get("category") or "").strip()
@@ -751,70 +764,70 @@ def _rcommunity_action_description(
     channel = str(args.get("channel") or "大厅").strip() or "大厅"
     username = str(args.get("username") or "").strip()
 
-    if tool_name == "rcommunity_forum":
+    if tool_name == "rhysen_forum":
         if action == "browse":
             return (
-                f"已浏览社区论坛「{category}」版块"
+                f"已浏览 Rhysen 论坛「{category}」版块"
                 if category
-                else "已浏览社区论坛版块列表"
+                else "已浏览 Rhysen 论坛版块列表"
             )
         if action == "read":
-            return f"已阅读社区论坛帖子 #{tid}"
+            return f"已阅读 Rhysen 论坛帖子 #{tid}"
         if action == "search":
             return (
-                f"已搜索社区论坛「{query}」"
+                f"已搜索 Rhysen 论坛「{query}」"
                 if query
-                else "已搜索社区论坛"
+                else "已搜索 Rhysen 论坛"
             )
         if action == "honor":
-            return "已查看社区论坛星章墙"
-    if tool_name == "rcommunity_forum_write":
+            return "已查看 Rhysen 论坛星章墙"
+    if tool_name == "rhysen_forum_write":
         if action == "create":
-            return "已在社区论坛发布新帖"
+            return "已在 Rhysen 论坛发布新帖"
         if action == "reply":
-            return f"已回复社区论坛帖子 #{tid}"
+            return f"已回复 Rhysen 论坛帖子 #{tid}"
         if action == "edit":
             if rid != "?":
-                return f"已编辑社区论坛回复 #{rid}"
-            return f"已编辑社区论坛帖子 #{tid}"
+                return f"已编辑 Rhysen 论坛回复 #{rid}"
+            return f"已编辑 Rhysen 论坛帖子 #{tid}"
         if action in {"delete", "delete_thread"}:
-            return f"已删除社区论坛帖子 #{tid}"
+            return f"已删除 Rhysen 论坛帖子 #{tid}"
         if action == "delete_reply":
-            return f"已删除社区论坛回复 #{rid}"
-    if tool_name == "rcommunity_forum_interact":
+            return f"已删除 Rhysen 论坛回复 #{rid}"
+    if tool_name == "rhysen_forum_interact":
         if action == "pin":
-            return f"已置顶社区论坛帖子 #{tid}"
+            return f"已置顶 Rhysen 论坛帖子 #{tid}"
         if action == "bookmark":
-            return f"已收藏社区论坛帖子 #{tid}"
+            return f"已收藏 Rhysen 论坛帖子 #{tid}"
         if action == "like":
-            return f"已点赞社区论坛帖子 #{tid}"
+            return f"已点赞 Rhysen 论坛帖子 #{tid}"
         if action == "vote":
-            return f"已在社区论坛帖子 #{tid} 投票"
-    if tool_name == "rcommunity_chat":
+            return f"已在 Rhysen 论坛帖子 #{tid} 投票"
+    if tool_name == "rhysen_chat":
         if action == "send":
-            return f"已在社区论坛「{channel}」聊天室发消息"
+            return f"已在 Rhysen「{channel}」聊天室发消息"
         if action == "read":
-            return f"已读取社区论坛「{channel}」聊天记录"
+            return f"已读取 Rhysen「{channel}」聊天记录"
         if action == "delete":
-            return f"已删除社区论坛「{channel}」聊天消息"
-    if tool_name == "rcommunity_profile":
+            return f"已删除 Rhysen「{channel}」聊天消息"
+    if tool_name == "rhysen_profile":
         if action == "get":
-            return "已查看社区论坛个人资料"
+            return "已查看 Rhysen 个人资料"
         if action == "update":
-            return "已更新社区论坛个人资料"
+            return "已更新 Rhysen 个人资料"
         if action == "my_threads":
-            return "已查看我在社区论坛的帖子"
+            return "已查看我在 Rhysen 论坛的帖子"
         if action == "my_replies":
-            return "已查看我在社区论坛的回复"
+            return "已查看我在 Rhysen 论坛的回复"
         if action == "my_bookmarks":
-            return "已查看社区论坛收藏夹"
+            return "已查看 Rhysen 论坛收藏夹"
         if action == "notifications":
-            return "已查看社区论坛通知"
+            return "已查看 Rhysen 通知"
         if action == "view_user":
             return (
-                f"已查看社区论坛用户 {username}"
+                f"已查看 Rhysen 用户 {username}"
                 if username
-                else "已查看社区论坛用户主页"
+                else "已查看 Rhysen 用户主页"
             )
     return ""
 
@@ -829,13 +842,18 @@ def rcommunity_internal_memory_line(
     tool_name: str, arguments_json: str, result_text: str
 ) -> str:
     nm = (tool_name or "").strip()
-    if nm not in {"rcommunity_forum_write", "rcommunity_forum_interact"}:
+    legacy_to_rhysen = {
+        "rcommunity_forum_write": "rhysen_forum_write",
+        "rcommunity_forum_interact": "rhysen_forum_interact",
+    }
+    nm = legacy_to_rhysen.get(nm, nm)
+    if nm not in {"rhysen_forum_write", "rhysen_forum_interact"}:
         return ""
 
     args = _rcommunity_memory_args(arguments_json)
     action = str(args.get("action") or "").strip()
     write_actions = {
-        "rcommunity_forum_write": {
+        "rhysen_forum_write": {
             "create",
             "reply",
             "edit",
@@ -843,7 +861,7 @@ def rcommunity_internal_memory_line(
             "delete_thread",
             "delete_reply",
         },
-        "rcommunity_forum_interact": {"pin", "bookmark", "like"},
+        "rhysen_forum_interact": {"pin", "bookmark", "like"},
     }
     if action not in write_actions.get(nm, set()):
         return ""
@@ -1181,7 +1199,7 @@ async def _invoke_lutopia_mcp_tool(
                 {
                     "error": (
                         f"Lutopia MCP 在 {int(LUTOPIA_CALL_TOOL_TIMEOUT_SEC)} 秒内未返回。"
-                        "请检查 ``cli`` 命令是否合法或稍后再试；若用户指 rcommunity 论坛请改用 rcommunity_* 工具。"
+                        "请检查 ``cli`` 命令是否合法或稍后再试；若用户指 Rhysen 论坛请改用 rhysen_* 工具。"
                     )
                 },
                 ensure_ascii=False,
@@ -1330,7 +1348,7 @@ async def append_tool_exchange_to_messages(
     可选，分别在单次工具执行前后回调（如 Telegram 状态提示）。
 
     ``mcp_session``：由 ``create_lutopia_mcp_session()`` 提供时复用 MCP 连接；未传则每次工具调用单独建连。
-    ``rcommunity_mcp_session``：rcommunity 论坛 MCP 会话（``create_rcommunity_mcp_session()``，Streamable HTTP）。
+    ``rcommunity_mcp_session``：Rhysen 论坛 MCP 会话（``create_rcommunity_mcp_session()``，Streamable HTTP）。
 
     返回：按执行顺序各工具原始 JSON 结果字符串列表（供 Telegram 等做「连续错误轮」防卡死）。
     """

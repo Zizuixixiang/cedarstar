@@ -123,7 +123,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 - `user_other`
 - `system_rules`
 - `enable_lutopia`
-- `enable_rcommunity`（rcommunity 论坛 MCP；还须 **`RCOMMUNITY_MCP_TOKEN`**）
+- `enable_rcommunity`（Rhysen 论坛工具；还须 **`RCOMMUNITY_MCP_TOKEN`**）
 - `enable_weather_tool`
 - `enable_weibo_tool`
 - `enable_search_tool`
@@ -308,11 +308,11 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 人设可单独控制：
 
 - Lutopia
-- **rcommunity 论坛 MCP**（`persona_configs.enable_rcommunity`；须环境变量 **`RCOMMUNITY_MCP_TOKEN`**；实现 `tools/rcommunity.py`，OpenAI 函数 `rcommunity_forum` / `rcommunity_forum_write` / `rcommunity_forum_interact` / `rcommunity_chat` / `rcommunity_profile` 与 MCP 工具 `forum` / `forum_write` / `forum_interact` / `chat` / `profile` 一一对应；system 后缀见 `tools/prompts.py` 的 `RCOMMUNITY_TOOL_DIRECTIVE`）
+- **Rhysen 论坛工具**（`persona_configs.enable_rcommunity`；须环境变量 **`RCOMMUNITY_MCP_TOKEN`**；实现 `tools/rcommunity.py`，OpenAI 函数 `rhysen_forum` / `rhysen_forum_write` / `rhysen_forum_interact` / `rhysen_chat` / `rhysen_profile` 与 MCP 工具 `forum` / `forum_write` / `forum_interact` / `chat` / `profile` 一一对应；执行层兼容旧 `rcommunity_*` 调用名；system 后缀见 `tools/prompts.py` 的 `RCOMMUNITY_TOOL_DIRECTIVE`）
 - 天气
 - 微博热搜
 - 网页搜索
-- X (Twitter)（13 工具，`tools/x_tool.py`；配额 `x_usage_*`。CedarClio 用 `@Clio_Cedar`；reply/引用转推仅原帖 @Clio 或 `read_mentions`；账号见 `X_TOOL_DIRECTIVE`；发布/回复/转推/点赞/关注等写操作会生成 `[系统内部记忆：...]` 内部旁白块，发给用户前剥除、落库保留）
+- X (Twitter)（13 工具，`tools/x_tool.py`；配额 `x_usage_*`。当前实例 OAuth 账号由 `.env` 中 X 凭证决定，工具说明不得写死具体 handle；reply/引用转推仅原帖 @当前 API 登录账号自己或 `read_mentions`；账号见 `X_TOOL_DIRECTIVE`；发布/回复/转推/点赞/关注等写操作会生成 `[系统内部记忆：...]` 内部旁白块，发给用户前剥除、落库保留）
 - AI HOT 资讯（`get_ai_news`，`persona_configs.enable_ai_news_tool`）
 - 小红书（当前对外仅 **`read_xhs_note`**；`persona_configs.enable_xhs_tool` ∧ **`ENABLE_XHS_TOOL`**；实现 `tools/xhs_tool.py`，schema 与口播后缀见 `tools/prompts.py` 的 `OPENAI_XHS_TOOLS` / `XHS_TOOL_DIRECTIVE`，其余 5 个 function 在 prompts 中已注释）
 
@@ -356,9 +356,9 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - **工具调用配图摘要**：`read_xhs_note` 下载最多 6 张配图后，会用 `vision` 配置生成 `image_summary` 文本。OpenAI function 工具结果默认不把 base64 图像数据回填给模型，只回传标题、正文、图片数量与视觉摘要；Telegram 链接预处理仍注入真实多模态图片。
 - **工具循环**：与 Lutopia / 天气等并列注册于 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`、Discord / idle 路径（`llm/llm_interface.py`、`bot/discord_bot.py`、`bot/idle_activity.py`）。`tool_executions` 照常记录。
 
-### 4.2.5 rcommunity 论坛 MCP（`tools/rcommunity.py`）
+### 4.2.5 Rhysen 论坛工具（`tools/rcommunity.py`）
 
-与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；MCP 端点为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`（**`rcommunity_mcp_url()`**），传输为 **Streamable HTTP**（`mcp.client.streamable_http.streamablehttp_client`；超时常量 `RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC` 等见 `tools/rcommunity.py`）。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity 会话；建连失败则 `yield None`。`append_tool_exchange_to_messages` 返回各工具原始 JSON 列表、单工具 try/except；连续 3 轮仅含 `error` 时暂时禁用 tools（`tool_loop_json_payload_indicates_error_round`）。`RCOMMUNITY_TOOL_DIRECTIVE` / `OPENAI_RCOMMUNITY_TOOLS` 写明站方 `action` 枚举。`tool_executions` 照常记录；`rcommunity_forum_write` 的发帖/回复/编辑/删除与 `rcommunity_forum_interact` 的置顶/收藏/点赞会生成 `[系统内部记忆：...]` 内部旁白块，保留 thread/reply/comment/post ID、URL、失败原因等关键字段；发给用户前剥除，落库正文保留。`web_search` / `web_fetch` / `get_ai_news` 等只读旁路工具不进入 Lutopia 行为附录。探测：`scripts/list_rcommunity_tools.py`、`scripts/test_rcommunity_connection.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`（本次无新迁移文件）。
+与人设 `enable_rcommunity` 及 `.env` 中 **`RCOMMUNITY_MCP_TOKEN`** 对齐；MCP 端点为 `{RCOMMUNITY_MCP_BASE_URL 或默认}/mcp?token=...`（**`rcommunity_mcp_url()`**），传输为 **Streamable HTTP**（`mcp.client.streamable_http.streamablehttp_client`；超时常量 `RCOMMUNITY_MCP_HTTP_TIMEOUT_SEC` 等见 `tools/rcommunity.py`）。与 Lutopia 并列进入 `complete_with_lutopia_tool_loop`、Telegram `_telegram_stream_thinking_and_reply_with_lutopia`；**仅人设开启时**经 `maybe_rcommunity_mcp_session(True)` 建 rcommunity 会话；建连失败则 `yield None`。`append_tool_exchange_to_messages` 返回各工具原始 JSON 列表、单工具 try/except；连续 3 轮仅含 `error` 时暂时禁用 tools（`tool_loop_json_payload_indicates_error_round`）。`RCOMMUNITY_TOOL_DIRECTIVE` / `OPENAI_RCOMMUNITY_TOOLS` 写明站方 `action` 枚举，并向模型暴露 `rhysen_*` 工具名，旧 `rcommunity_*` 仅执行层兼容。`tool_executions` 照常记录；`rhysen_forum_write` 的发帖/回复/编辑/删除与 `rhysen_forum_interact` 的置顶/收藏/点赞会生成 `[系统内部记忆：...]` 内部旁白块，保留 thread/reply/comment/post ID、URL、失败原因等关键字段；发给用户前剥除，落库正文保留。`web_search` / `web_fetch` / `get_ai_news` 等只读旁路工具不进入 Lutopia 行为附录。探测：`scripts/list_rcommunity_tools.py`、`scripts/test_rcommunity_connection.py`。库迁移见主库 `memory/database.py` 的 `migrate_database_schema` 与 `migrations/20260514_add_enable_rcommunity_persona.sql`（本次无新迁移文件）。
 
 ### 4.2.6 通用自定义 MCP（`tools/custom_mcp.py`）
 
@@ -378,7 +378,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 进程内 `schedule_idle_activity_check()` 定时检查（当前 10 分钟一次）。启用且处于允许时段后：`idle_activity_next_trigger_at` **已到期**则走预约触发（直接 `trigger_idle_activity`，不看空闲阈值、冷却与概率）；**无预约**时则须满足空闲阈值、自主活动冷却与概率档位后，再注入 `[IDLE_TRIGGER]` 并调用 `complete_with_lutopia_tool_loop` 生成一条自主活动消息。触发提示不写入 `messages`。空闲阈值由 `memory/database.get_latest_idle_user_activity()` 统一判断：主库 `messages` 的真人用户消息（`role='user'` 且 `user_id!='system'`）和共享群表 `shared_group_messages.sender='user'` 取最新时间，私聊/普通通道与群聊都超过阈值才触发；触发提示会注明最后一条活动来自群聊或私聊/普通通道。助手消息写入 `messages` 的正文为 `【自主活动】`+模型输出，且 Telegram 发送与落库同一段；拼接前若模型自行带头衔则循环剥重（`_strip_leading_idle_assistant_mark`），再统一加前缀。并更新 `idle_activity_last_triggered_at`。若本轮触发了工具调用，会在助手消息落库后按 `session_id + turn_id` 回填 `tool_executions.assistant_message_id`，确保微批摘要可内联该轮工具结果。发送目标**仅 Telegram 私聊**：优先 `.env` 的 `TELEGRAM_MAIN_USER_CHAT_ID`；未配置时从 `messages` 推断最近一条 `platform` 为 `telegram` 或空、`session_id` 为 `telegram_<正整数>` 且非 `telegram_group_*`、`channel_id` 为正整数字符串的记录（排除群负 id）。实现见 `bot/idle_activity.py` 的 `_resolve_idle_activity_telegram_dm_chat_id`。
 
-`[IDLE_TRIGGER]` 触发基础文案默认值来自 `memory/prompt_registry.py` 的 `idle_activity_trigger`（可被 Mini App 全局 Prompt 实时覆盖；读取失败回退 `bot/idle_activity.py` 内置 `_IDLE_TRIGGER_TEXT`）。该基础文案会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）rcommunity 论坛工具；也会直接提示可调用 `schedule_next_wakeup` 设置下次醒来时间。自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。内置 `schedule_next_wakeup` 工具始终随工具循环注入，不受人设开关控制，用于模型直接预约下次自主唤醒。
+`[IDLE_TRIGGER]` 触发基础文案默认值来自 `memory/prompt_registry.py` 的 `idle_activity_trigger`（可被 Mini App 全局 Prompt 实时覆盖；读取失败回退 `bot/idle_activity.py` 内置 `_IDLE_TRIGGER_TEXT`）。该基础文案会提示可选用 `get_ai_news` 浏览 AI HOT（与人设 + `ENABLE_AI_NEWS_TOOL` 一致），并提示 Lutopia 与（人设开启时）Rhysen 论坛工具；也会直接提示可调用 `schedule_next_wakeup` 设置下次醒来时间。自主活动**不**注册、不提示小红书工具（`bot/idle_activity.py` 在工具循环前将 `llm.enable_xhs_tool = False`）。内置 `schedule_next_wakeup` 工具始终随工具循环注入，不受人设开关控制，用于模型直接预约下次自主唤醒。
 
 通用自定义 MCP 在自主活动中只受 `ENABLE_CUSTOM_MCP` 与 `mcp_servers.allow_idle=1` 控制；未显式允许的 server 不会注入 idle 工具列表。
 

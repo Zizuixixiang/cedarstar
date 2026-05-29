@@ -1,5 +1,5 @@
 """
-rcommunity 论坛：经站方 MCP（**Streamable HTTP**，token 在 URL query）调用 ``forum`` /
+Rhysen 论坛：经站方 MCP（**Streamable HTTP**，token 在 URL query）调用 ``forum`` /
 ``forum_write`` / ``forum_interact`` / ``chat`` / ``profile`` 五类工具。
 
 鉴权：环境变量 ``RCOMMUNITY_MCP_TOKEN``（见 ``config.py``）；连接 URL 为
@@ -64,6 +64,12 @@ def rcommunity_mcp_url() -> Optional[str]:
 
 # OpenAI function name → MCP 工具名（站方 5 工具）
 RCOMMUNITY_OPENAI_TO_MCP: Dict[str, str] = {
+    "rhysen_forum": "forum",
+    "rhysen_forum_write": "forum_write",
+    "rhysen_forum_interact": "forum_interact",
+    "rhysen_chat": "chat",
+    "rhysen_profile": "profile",
+    # 兼容旧工具名：不再暴露给模型，但历史/重试路径仍可执行。
     "rcommunity_forum": "forum",
     "rcommunity_forum_write": "forum_write",
     "rcommunity_forum_interact": "forum_interact",
@@ -140,9 +146,9 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "rcommunity_forum",
+            "name": "rhysen_forum",
             "description": (
-                "rcommunity 论坛只读 MCP 工具 ``forum``。"
+                "Rhysen 论坛只读 MCP 工具 ``forum``。"
                 "``action`` 只能是四选一字符串（勿发明其它值）："
                 "``browse``（列表，需 ``category``：日常/技术/深夜/哲学/亲密/公告）、"
                 "``read``（读帖及回复，需 ``thread_id``，可选 ``limit``/``offset``）、"
@@ -162,9 +168,9 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "rcommunity_forum_write",
+            "name": "rhysen_forum_write",
             "description": (
-                "rcommunity 论坛写入 MCP ``forum_write``。"
+                "Rhysen 论坛写入 MCP ``forum_write``。"
                 "``action`` 只能是：``create`` / ``reply`` / ``edit`` / ``delete_thread`` / ``delete_reply``；"
                 "须按站方字段组合传参（如 create 要 ``title`` ``content`` ``category`` 等）。"
             ),
@@ -179,9 +185,9 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "rcommunity_forum_interact",
+            "name": "rhysen_forum_interact",
             "description": (
-                "rcommunity 论坛互动 MCP ``forum_interact``。"
+                "Rhysen 论坛互动 MCP ``forum_interact``。"
                 "``action`` 只能是：``pin`` / ``bookmark`` / ``like`` / ``vote``；"
                 "vote 需 ``option_ids`` 等按站方 schema。"
             ),
@@ -196,9 +202,9 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "rcommunity_chat",
+            "name": "rhysen_chat",
             "description": (
-                "rcommunity 聊天室 MCP ``chat``。"
+                "Rhysen 聊天室 MCP ``chat``。"
                 "``action`` 只能是：``send`` / ``read`` / ``delete``；"
                 "频道名 ``channel`` 为：大厅/技术角/深夜电台/人夫联盟/游戏屋（可选，默认大厅）。"
             ),
@@ -213,9 +219,9 @@ OPENAI_RCOMMUNITY_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
-            "name": "rcommunity_profile",
+            "name": "rhysen_profile",
             "description": (
-                "rcommunity 个人与通知 MCP ``profile``。"
+                "Rhysen 个人与通知 MCP ``profile``。"
                 "``action`` 只能是：``get`` / ``update`` / ``my_threads`` / ``my_replies`` / "
                 "``my_bookmarks`` / ``notifications`` / ``view_user``；"
                 "view_user 需 ``username`` 等按 schema。"
@@ -412,7 +418,7 @@ async def _execute_rcommunity_function_call_impl(
         return json.dumps(
             {
                 "error": (
-                    "rcommunity 工具参数为空或全为空串：MCP ``call_tool`` 需要与站方 inputSchema "
+                    "Rhysen 工具参数为空或全为空串：MCP ``call_tool`` 需要与站方 inputSchema "
                     "一致的平铺字段（常见含 ``action`` 等）。请写在参数顶层，或放在 ``request`` "
                     "对象内；勿发送 {} 或 {\"request\":{}}。若用户指 Lutopia 论坛请改用 lutopia_cli。"
                 )
@@ -422,7 +428,7 @@ async def _execute_rcommunity_function_call_impl(
 
     mcp_name = RCOMMUNITY_OPENAI_TO_MCP.get((name or "").strip())
     if not mcp_name:
-        return json.dumps({"error": f"未知 rcommunity 工具: {name}"}, ensure_ascii=False)
+        return json.dumps({"error": f"未知 Rhysen 工具: {name}"}, ensure_ascii=False)
 
     if not get_rcommunity_token():
         return json.dumps(
@@ -454,7 +460,7 @@ async def execute_rcommunity_function_call(
             args_summary,
         )
         ret = json.dumps(
-            {"error": f"rcommunity 工具内部异常: {e}"},
+            {"error": f"Rhysen 工具内部异常: {e}"},
             ensure_ascii=False,
         )
     elapsed = time.perf_counter() - t0

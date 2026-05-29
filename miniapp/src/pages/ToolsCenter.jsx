@@ -6,7 +6,7 @@ import '../styles/tools-center.css';
 
 const TOOL_SWITCH_KEYS = [
   { key: 'enable_lutopia', label: 'Lutopia 论坛工具' },
-  { key: 'enable_rcommunity', label: 'rcommunity 论坛 MCP' },
+  { key: 'enable_rcommunity', label: 'Rhysen 论坛工具' },
   { key: 'enable_weather_tool', label: '天气工具' },
   { key: 'enable_weibo_tool', label: '微博热搜工具' },
   { key: 'enable_search_tool', label: '网页搜索工具' },

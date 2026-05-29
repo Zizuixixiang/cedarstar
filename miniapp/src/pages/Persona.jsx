@@ -1188,7 +1188,7 @@ function Persona() {
                   handleChange('enable_rcommunity', e.target.checked ? 1 : 0)
                 }
               />
-              <span>启用 rcommunity 论坛 MCP</span>
+              <span>启用 Rhysen 论坛工具</span>
             </label>
             <p className="persona-field-hint">
               需在部署环境配置 RCOMMUNITY_MCP_TOKEN；开启后注册 forum / forum_write /

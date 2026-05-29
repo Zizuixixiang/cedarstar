@@ -28,22 +28,22 @@ LUTOPIA_TOOL_DIRECTIVE = (
 )
 
 RCOMMUNITY_TOOL_DIRECTIVE = (
-    "【rcommunity 论坛 MCP】须通过下列工具取真实数据，勿编造；遵守社区规范，勿泄露部署/隧道/令牌等。\n"
+    "【Rhysen 论坛】须通过下列工具取真实数据，勿编造；遵守社区规范，勿泄露部署/隧道/令牌等。\n"
     "鉴权由部署环境 ``RCOMMUNITY_MCP_TOKEN`` 完成，调用时**不要**在参数里传 token。\n"
     "参数须放在 ``request`` 对象内，且**禁止**无实质字段的空 ``request``（例如 ``{}``）："
     "每次调用必须包含站方要求的键；空参易导致上游长时间无响应。\n"
     "``action`` 等枚举须与站方一致，**禁止**自造英文动词（如 list_boards、get_posts）；"
     "错误 action 会返回 ``error``，Telegram 会显示「调用失败」。\n"
-    "若系统同时启用 Lutopia 与 rcommunity，用户只说「论坛」时须先明确要查哪一侧，并选用对应工具，勿两边各空刷一轮。\n"
+    "若系统同时启用 Lutopia 与 Rhysen，用户只说「论坛」时须先明确要查哪一侧，并选用对应工具，勿两边各空刷一轮。\n"
     "五类 MCP 工具与 OpenAI 函数一一对应（``request`` 内字段原样传给站方）：\n"
-    "- **rcommunity_forum**（``forum``）：``action`` 只能是 ``browse`` / ``read`` / ``search`` / ``honor``；"
+    "- **rhysen_forum**（``forum``）：``action`` 只能是 ``browse`` / ``read`` / ``search`` / ``honor``；"
     "browse 须 ``category``（日常/技术/深夜/哲学/亲密/公告）；read 须 ``thread_id``；search 须 ``query``。\n"
-    "- **rcommunity_forum_write**（``forum_write``）：``action`` 为 ``create`` / ``reply`` / ``edit`` / ``delete_thread`` / ``delete_reply``。\n"
-    "- **rcommunity_forum_interact**（``forum_interact``）：``action`` 为 ``pin`` / ``bookmark`` / ``like`` / ``vote``。\n"
-    "- **rcommunity_chat**（``chat``）：``action`` 为 ``send`` / ``read`` / ``delete``；频道 ``channel`` 为 大厅/技术角/深夜电台/人夫联盟/游戏屋（可选）。\n"
-    "- **rcommunity_profile**（``profile``）：``action`` 为 ``get`` / ``update`` / ``my_threads`` / ``my_replies`` / "
+    "- **rhysen_forum_write**（``forum_write``）：``action`` 为 ``create`` / ``reply`` / ``edit`` / ``delete_thread`` / ``delete_reply``。\n"
+    "- **rhysen_forum_interact**（``forum_interact``）：``action`` 为 ``pin`` / ``bookmark`` / ``like`` / ``vote``。\n"
+    "- **rhysen_chat**（``chat``）：``action`` 为 ``send`` / ``read`` / ``delete``；频道 ``channel`` 为 大厅/技术角/深夜电台/人夫联盟/游戏屋（可选）。\n"
+    "- **rhysen_profile**（``profile``）：``action`` 为 ``get`` / ``update`` / ``my_threads`` / ``my_replies`` / "
     "``my_bookmarks`` / ``notifications`` / ``view_user``（view_user 须 ``username``）。\n"
-    "发起任一 rcommunity 工具调用前，须遵守 system 中与「工具调用前口播」一致的要求：先用一句自然口语交代要去论坛/聊天室/个人页做什么，"
+    "发起任一 Rhysen 工具调用前，须遵守 system 中与「工具调用前口播」一致的要求：先用一句自然口语交代要去论坛/聊天室/个人页做什么，"
     "不要罗列函数名或 MCP 名；拿到工具结果后再用正常语气继续。"
 )
 
@@ -132,13 +132,13 @@ WAKEUP_TOOL_DIRECTIVE = (
 X_TOOL_DIRECTIVE = (
     "【X (Twitter)】工具：post_tweet、read_mentions、like_tweet/unlike_tweet、retweet_tweet、unretweet_tweet、"
     "reply_tweet、search_tweets、get_timeline、get_user、follow_user/unfollow_user、get_followers。\n"
-    "关联账号（正文 @ 时用）：南杉 @Shan_Cedar，Sirius @Sirius_Cedar，本实例 API 登录 @Clio_Cedar。\n"
+    "关联账号（正文 @ 时用）：南杉 @Shan_Cedar，Sirius @Sirius_Cedar；本实例 API 登录账号以当前 OAuth 凭证为准，不要写死具体 handle。\n"
     "参数：tweet_id、user_id 必须是数字 ID，不要传 x.com 链接；follow_user 须先 get_user(用户名) 取 user_id；"
     "post_tweet、reply_tweet、retweet_tweet 的 comment 均不超过 280 字；search_tweets 每次至少 10 条计入日配额；"
     "get_user 不计配额。\n"
     "API 比网页更严（互关也不能绕过）：reply_tweet，以及 retweet_tweet 传入非空 comment 的引用转推，"
-    "仅当该条推文正文 @ 了 Clio_Cedar，或 tweet_id 来自 read_mentions 返回；否则 403，勿对同一 tweet_id 重试。"
-    "原帖未 @ Clio_Cedar 时：like_tweet；retweet_tweet 且不传 comment（纯转推）；或 post_tweet 新推并在正文 @ 对方。"
+    "仅当该条推文正文 @ 了当前 API 登录账号自己，或 tweet_id 来自 read_mentions 返回；否则 403，勿对同一 tweet_id 重试。"
+    "原帖未 @ 当前 API 登录账号自己时：like_tweet；retweet_tweet 且不传 comment（纯转推）；或 post_tweet 新推并在正文 @ 对方。"
     "带评语转发用 retweet_tweet 的 comment，不要用 reply_tweet。\n"
     "发推/转发/回复前确认用户意图；除 get_user 外共用日配额。"
 )
@@ -360,7 +360,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
             "name": "retweet_tweet",
             "description": (
                 "转推：只传 tweet_id 为纯转推；另传非空 comment 为引用转推（正文≤280）。"
-                "引用转推须原帖 @Clio_Cedar 或 tweet_id 来自 read_mentions。tweet_id 为数字 ID。"
+                "引用转推须原帖 @当前 API 登录账号自己，或 tweet_id 来自 read_mentions。tweet_id 为数字 ID。"
                 "不要用 reply_tweet 代替带评语转发。"
             ),
             "parameters": {
@@ -372,7 +372,7 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
                     },
                     "comment": {
                         "type": "string",
-                        "description": "可选。非空=引用转推正文（须原帖 @Clio_Cedar）；省略或空=纯转推",
+                        "description": "可选。非空=引用转推正文（须原帖 @当前 API 登录账号自己）；省略或空=纯转推",
                     },
                 },
                 "required": ["tweet_id"],
@@ -401,8 +401,8 @@ OPENAI_X_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "reply_tweet",
             "description": (
-                "楼中楼回复。仅当原帖正文 @Clio_Cedar，或 tweet_id 来自 read_mentions；"
-                "tweet_id 为数字 ID，text≤280。未 @ Clio_Cedar 时用 like_tweet、纯 retweet_tweet 或 post_tweet。"
+                "楼中楼回复。仅当原帖正文 @当前 API 登录账号自己，或 tweet_id 来自 read_mentions；"
+                "tweet_id 为数字 ID，text≤280。未 @当前 API 登录账号自己时用 like_tweet、纯 retweet_tweet 或 post_tweet。"
             ),
             "parameters": {
                 "type": "object",

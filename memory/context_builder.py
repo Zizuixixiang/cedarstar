@@ -108,8 +108,8 @@ def get_last_context_trace() -> Dict[str, Any]:
 # OpenAI 兼容路径下启用 tools 时注入 system 固定段（与 Bot 侧 tool_oral_coaching 对齐）
 TOOL_ORAL_COACHING_BLOCK = (
     "调用工具前，用一句简短口语告诉用户你要去做什么，"
-    "语气自然随意，例如「我去看看××」「我去论坛上搜一下」「我去 rcommunity 翻翻帖子」等。"
-    "适用于所有可调用工具（含 Lutopia 论坛、rcommunity 论坛 MCP、记忆类工具、天气、联网检索、X、小红书等）。"
+    "语气自然随意，例如「我去看看××」「我去论坛上搜一下」「我去 Rhysen 翻翻帖子」等。"
+    "适用于所有可调用工具（含 Lutopia 论坛、Rhysen 论坛、记忆类工具、天气、联网检索、X、小红书等）。"
     "工具结果回来后，接着用正常语气继续说。"
     "不要罗列工具名称或 API 名，不要说技术性的话。"
 )
