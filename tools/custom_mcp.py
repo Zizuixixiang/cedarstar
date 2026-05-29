@@ -15,7 +15,7 @@ from memory.database import (
     get_mcp_server,
     list_mcp_servers,
     list_mcp_tools,
-    upsert_mcp_tool_from_sync,
+    replace_mcp_tools_from_sync,
 )
 from tools.mcp_utils import mcp_call_tool_result_to_json_str
 
@@ -378,7 +378,7 @@ def _openai_parameters_from_input_schema(raw: Any) -> Dict[str, Any]:
 
 
 async def sync_tools_from_server(server_id: str) -> List[Dict[str, Any]]:
-    """List tools from a custom MCP server and upsert them into CedarStar DB."""
+    """List tools from a custom MCP server and replace CedarStar DB rows."""
     server = await get_mcp_server(server_id)
     if not server:
         raise ValueError(f"未找到 MCP server: {server_id}")
@@ -395,13 +395,13 @@ async def sync_tools_from_server(server_id: str) -> List[Dict[str, Any]]:
         if not name:
             continue
         schema = _tool_input_schema(item)
-        row = await upsert_mcp_tool_from_sync(
-            server_id=server_id,
-            name=name,
-            description=_tool_description(item).strip() or None,
-            input_schema=(
-                json.dumps(schema, ensure_ascii=False) if schema else None
-            ),
+        synced.append(
+            {
+                "name": name,
+                "description": _tool_description(item).strip() or None,
+                "input_schema": (
+                    json.dumps(schema, ensure_ascii=False) if schema else None
+                ),
+            }
         )
-        synced.append(row)
-    return synced
+    return await replace_mcp_tools_from_sync(server_id=server_id, tools=synced)

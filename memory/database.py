@@ -2649,6 +2649,42 @@ class MessageDatabase:
             )
             return _r(rec)
 
+    async def replace_mcp_tools_from_sync(
+        self,
+        *,
+        server_id: str,
+        tools: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        async with self.pool.acquire() as conn:
+            async with conn.transaction():
+                await conn.execute(
+                    "DELETE FROM mcp_tools WHERE server_id = $1",
+                    str(server_id),
+                )
+                rows: List[Dict[str, Any]] = []
+                for tool in tools:
+                    name = str(tool.get("name") or "").strip()
+                    if not name:
+                        continue
+                    rec = await conn.fetchrow(
+                        """
+                        INSERT INTO mcp_tools (
+                            id, server_id, name, description, input_schema,
+                            enabled, require_approval
+                        )
+                        VALUES ($1, $2, $3, $4, $5, 1, 0)
+                        RETURNING id, server_id, name, description, input_schema,
+                                  enabled, require_approval
+                        """,
+                        str(uuid.uuid4()),
+                        str(server_id),
+                        name,
+                        tool.get("description"),
+                        tool.get("input_schema"),
+                    )
+                    rows.append(_r(rec))
+        return rows
+
     async def toggle_mcp_tool_enabled(self, tool_id: str) -> Optional[Dict[str, Any]]:
         async with self.pool.acquire() as conn:
             rec = await conn.fetchrow(
@@ -8024,6 +8060,10 @@ async def get_mcp_tool(tool_id: str) -> Optional[Dict[str, Any]]:
 
 async def upsert_mcp_tool_from_sync(**kwargs) -> Dict[str, Any]:
     return await get_database().upsert_mcp_tool_from_sync(**kwargs)
+
+
+async def replace_mcp_tools_from_sync(**kwargs) -> List[Dict[str, Any]]:
+    return await get_database().replace_mcp_tools_from_sync(**kwargs)
 
 
 async def toggle_mcp_tool_enabled(tool_id: str) -> Optional[Dict[str, Any]]:

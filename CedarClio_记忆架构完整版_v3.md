@@ -151,7 +151,7 @@ CedarStar 是一个具备长期记忆能力的 AI 聊天系统，支持 Telegram
 | `game_sessions` | 游戏模式 session（规则 prompt、状态快照、开局配置、参与者、state_mode、结束总结） |
 | `game_turns` | 游戏模式逐轮记录（session_id / turn_idx / turn_data） |
 | `mcp_servers` | 通用自定义 MCP Server（name / transport / url / headers / enabled / trigger_keywords / allow_idle / idle_activity_prompt） |
-| `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / input_schema / enabled / require_approval；`input_schema` 为 MCP `inputSchema` JSON；`require_approval` 本轮仅存储） |
+| `mcp_tools` | 自定义 MCP 工具清单（server_id / name / description / input_schema / enabled / require_approval；`input_schema` 为 MCP `inputSchema` JSON；每次 server 工具同步成功后按本次 `list_tools()` 全量替换该 server 的工具行；`require_approval` 本轮仅存储） |
 | `prompt_overrides` | Mini App「人设 → 全局 Prompt」保存的运行时 prompt 覆盖（`key` / `override_text` / `updated_at`）；默认文本不入库，来自 `memory/prompt_registry.py` |
 | `mail_contacts` | 邮件笔友白名单（name / email / note / created_at）；收信接口只保存该表中存在的发件人 |
 | `mail_inbox` | 收件箱邮件（Cloudflare Worker 投递后解析 MIME 写入，含 summary） |
@@ -367,7 +367,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 - `mcp_servers` 存 server 配置：`id`、`name`、`transport`（`sse` 或 `streamable_http`）、`url`、`headers`（JSON 字符串，API 不回显明文）、`enabled`、`trigger_keywords`（JSON 数组字符串；NULL 或空表示普通对话每轮注入）、`allow_idle`（1 表示自主活动可注入）、`idle_activity_prompt`（自主活动 trigger 可选拼接说明，见 `ARCHITECTURE.md` §4.2.7）。
 - `mcp_tools` 存同步到的工具：`server_id`、`name`、`description`、`input_schema`（MCP `inputSchema` JSON）、`enabled`、`require_approval`；`require_approval` 当前只存储，不参与执行审批。`input_schema` 列由主库 `memory/database.py` 启动迁移 `ADD COLUMN IF NOT EXISTS`。
 - REST 路由挂在 `/api/mcp`，Mini App「工具中心 → MCP 管理」（`/mcp`）提供 server 增删改、headers、触发关键词、自主活动授权、同步工具和单工具启用状态管理；工具列表展示参数摘要。
-- `sync_tools_from_server(server_id)` 连接指定 server 执行 `list_tools()` 并 upsert（含 `input_schema`）；新工具默认启用，已存在工具保留原开关。
+- `sync_tools_from_server(server_id)` 连接指定 server 执行 `list_tools()`，再由 `replace_mcp_tools_from_sync()` 在同一事务内全量替换该 server 的工具行（含 `input_schema`）。同步成功后，远端已不存在的工具会从库内删除；本次返回的工具重新插入并默认启用、`require_approval=0`，不保留旧工具行或旧单工具开关。
 - `build_openai_tools()` 优先用 DB `input_schema` 生成 OpenAI `parameters`，缺失时回退通用 `request` 包装。
 - OpenAI 函数名格式为 `mcp_{server_id}_{tool_name}`；执行时按前缀解析 server，使用 `sse_client` 或 `streamablehttp_client` 连接后 `call_tool()`，headers 从 DB JSON 直接注入。
 - `list_tools()` / `call_tool()` 超时统一 **75s**，结果序列化为字符串并写入常规工具记录。Telegram 工具状态尽量显示 `已调用{server_name}MCP（简短概况）`。
