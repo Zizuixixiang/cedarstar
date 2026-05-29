@@ -14,7 +14,7 @@ from typing import Any, Optional
 import pytz
 import requests
 
-from config import config as app_config
+from config import Platform, config as app_config
 from llm.llm_interface import LLMInterface, complete_with_lutopia_tool_loop
 from memory.context_builder import build_context
 from memory.daily_summary_compress import build_idle_daily_summaries_override
