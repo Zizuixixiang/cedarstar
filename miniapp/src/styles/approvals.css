@@ -31,8 +31,15 @@
 .approval-tabs {
   display: flex;
   gap: 10px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   margin: 14px 0 12px;
+}
+
+.approval-tabs::-webkit-scrollbar {
+  display: none;
 }
 
 .approval-tab {
@@ -258,6 +265,74 @@
   margin-bottom: 12px;
   line-height: 1.5;
   overflow-wrap: anywhere;
+}
+
+.inbox-groups {
+  display: grid;
+  gap: 16px;
+  padding-bottom: 8px;
+}
+
+.inbox-group {
+  border: 2px solid var(--text-main);
+  background: var(--surface);
+  box-shadow: var(--shadow-solid);
+}
+
+.inbox-group-header {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 16px;
+  border: none;
+  background: #f7f3e8;
+  color: var(--text-main);
+  font-weight: 700;
+  font-size: 0.95rem;
+  cursor: pointer;
+  text-align: left;
+}
+
+.inbox-group-header:hover {
+  background: #efe9d8;
+}
+
+.inbox-group-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-group-count {
+  display: inline-flex;
+  min-width: 24px;
+  height: 22px;
+  padding: 0 6px;
+  align-items: center;
+  justify-content: center;
+  border: 2px solid var(--industrial-border-color);
+  background: #f1d27a;
+  font-size: 0.78rem;
+  line-height: 1;
+}
+
+.inbox-group-mails {
+  display: grid;
+  gap: 0;
+}
+
+.inbox-mail-card {
+  border: none;
+  border-top: 1px solid rgba(26, 26, 26, 0.15);
+  box-shadow: none;
+  border-radius: 0;
+}
+
+.inbox-mail-card::before {
+  display: none;
 }
 
 .mail-contact-layout {

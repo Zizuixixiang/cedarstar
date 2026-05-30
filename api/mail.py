@@ -94,6 +94,10 @@ def parse_mime_message(raw: bytes) -> Dict[str, str]:
 
 
 async def _generate_mail_summary(body: str, *, subject: str = "", direction: str = "inbox") -> str:
+    # 短邮件直接存原文，不走 LLM 摘要
+    if len(body.strip()) < 200:
+        return body.strip()
+
     from memory.micro_batch import SummaryLLMInterface
     from memory.prompt_registry import get_effective_prompt_text
 
@@ -214,18 +218,45 @@ async def receive_mail_inbox(
         parsed.get("subject") or "",
         parsed.get("body") or "",
     )
-    try:
-        from bot.telegram_notify import send_telegram_text_to_chat
 
-        chat_id = config.TELEGRAM_MAIN_USER_CHAT_ID
-        if chat_id:
-            name = parsed.get("from_name") or parsed.get("from_addr") or "未知发件人"
-            await send_telegram_text_to_chat(
-                chat_id,
-                f"收到来自 {name} 的新信件：《{parsed.get('subject') or '无主题'}》",
+    # 写系统消息到 messages 表
+    from_name = parsed.get("from_name") or parsed.get("from_addr") or "未知发件人"
+    subject = parsed.get("subject") or "无主题"
+    system_content = f"[系统通知] 收到来自 {from_name} 的新信件：《{subject}》"
+    try:
+        from memory.database import save_message
+
+        await save_message(
+            role="system",
+            content=system_content,
+            session_id="mail_inbox",
+            platform="mail",
+        )
+    except Exception as e:
+        logger.warning("mail system message save failed: %s", e)
+
+    # 触发 idle activity，使用邮件专用 trigger 文案
+    try:
+        from bot.idle_activity import trigger_idle_activity
+        from bot.telegram_bot import _webhook_telegram_bot
+        from memory.database import get_database
+
+        db = get_database()
+        tg_bot = _webhook_telegram_bot
+        if tg_bot:
+            mail_trigger = (
+                f"[MAIL_TRIGGER] 你收到了来自 {from_name} 的新信件《{subject}》，"
+                f"可以用 read_mail 工具读一下。"
+            )
+            background_tasks.add_task(
+                trigger_idle_activity,
+                tg_bot,
+                db,
+                trigger_text_override=mail_trigger,
             )
     except Exception as e:
-        logger.warning("mail telegram notification failed: %s", e)
+        logger.warning("mail idle activity trigger failed: %s", e)
+
     return _response(True, {"id": inbox_id}, "mail received")
 
 

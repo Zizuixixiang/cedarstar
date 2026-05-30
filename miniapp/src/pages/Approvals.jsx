@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ClipboardCheck, FileText, Inbox, Mail, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ClipboardCheck, FileText, Inbox, Mail, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/memory.css';
 import './../styles/approvals.css';
@@ -220,20 +220,34 @@ function MailApprovalCard({ item, busyId, onApprove, onReject }) {
 
 function InboxMailCard({ item }) {
   return (
-    <article className="approval-card mail-card">
+    <article className="approval-card mail-card inbox-mail-card">
       <div className="approval-card-header">
         <div className="approval-tool-title">
-          <span className="approval-tool-icon" aria-hidden="true"><Inbox size={18} strokeWidth={1.75} /></span>
           <div>
             <h3>{item.subject || '\u65e0\u4e3b\u9898'}</h3>
-            <p>{item.from_name ? `${item.from_name} <${item.from_addr}>` : item.from_addr}</p>
           </div>
         </div>
         <div className="approval-countdown">{formatDateTime(item.received_at)}</div>
       </div>
-      {item.summary && <div className="mail-summary">{item.summary}</div>}
       <pre className="mail-body-preview">{item.body || ''}</pre>
     </article>
+  );
+}
+
+function InboxGroup({ contactAddr, contactName, items, expanded, onToggle }) {
+  return (
+    <div className="inbox-group">
+      <button type="button" className="inbox-group-header" onClick={onToggle}>
+        {expanded ? <ChevronDown size={16} /> : <ChevronRight size={16} />}
+        <span className="inbox-group-name">{contactName || contactAddr}</span>
+        <span className="inbox-group-count">{items.length}</span>
+      </button>
+      {expanded && (
+        <div className="inbox-group-mails">
+          {items.map((item) => <InboxMailCard key={item.id} item={item} />)}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -351,6 +365,7 @@ export default function Approvals() {
   const [rejecting, setRejecting] = useState(null);
   const [rejectNote, setRejectNote] = useState('');
   const [now, setNow] = useState(Date.now());
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
 
   useEffect(() => {
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -429,6 +444,30 @@ export default function Approvals() {
   const pendingCount = normalApprovals.length;
   const mailCount = mailApprovals.length;
   const contactCount = contacts.length;
+
+  const inboxByContact = useMemo(() => {
+    const groups = {};
+    for (const item of inboxItems) {
+      const key = item.from_addr || 'unknown';
+      if (!groups[key]) {
+        groups[key] = { addr: key, name: item.from_name || '', items: [] };
+      }
+      groups[key].items.push(item);
+    }
+    return Object.values(groups);
+  }, [inboxItems]);
+
+  const toggleGroup = useCallback((addr) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(addr)) {
+        next.delete(addr);
+      } else {
+        next.add(addr);
+      }
+      return next;
+    });
+  }, []);
 
   const removeApproval = useCallback((id) => {
     setApprovals((items) => items.filter((item) => item.id !== id));
@@ -559,8 +598,17 @@ export default function Approvals() {
           inboxItems.length === 0 ? (
             <div className="approval-empty-state">{LABELS.emptyInbox}</div>
           ) : (
-            <div className="approval-list">
-              {inboxItems.map((item) => <InboxMailCard key={item.id} item={item} />)}
+            <div className="inbox-groups">
+              {inboxByContact.map((group) => (
+                <InboxGroup
+                  key={group.addr}
+                  contactAddr={group.addr}
+                  contactName={group.name}
+                  items={group.items}
+                  expanded={expandedGroups.has(group.addr)}
+                  onToggle={() => toggleGroup(group.addr)}
+                />
+              ))}
             </div>
           )
         ) : activeTab === 'contacts' ? (

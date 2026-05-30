@@ -68,10 +68,12 @@ def _safe_int(value: Any, default: int) -> int:
         return default
 
 
+_MAIL_RESULT_MAX_CHARS = 10000
+
 async def execute_read_mail(arguments: Dict[str, Any]) -> str:
     args = arguments if isinstance(arguments, dict) else {}
     recent_n = max(0, min(_safe_int(args.get("recent_n"), 3), 20))
-    params: Dict[str, Any] = {"limit": 100}
+    params: Dict[str, Any] = {"limit": 500}
     contact = str(args.get("contact_email") or "").strip()
     if contact:
         params["contact_email"] = contact
@@ -81,12 +83,18 @@ async def execute_read_mail(arguments: Dict[str, Any]) -> str:
         rows = payload.get("data") if isinstance(payload, dict) else None
         if not isinstance(rows, list):
             return raw
-        split_at = max(0, len(rows) - recent_n)
+        # 按时间升序（旧→新），从最新的往前遍历
+        rows_sorted = sorted(
+            [r for r in rows if isinstance(r, dict)],
+            key=lambda r: str(r.get("happened_at") or ""),
+        )
+        total = len(rows_sorted)
         items = []
-        for idx, row in enumerate(rows):
-            if not isinstance(row, dict):
-                continue
-            item = {
+        char_count = 0
+        for i in range(total - 1, -1, -1):
+            row = rows_sorted[i]
+            idx_from_end = total - 1 - i  # 0 = 最新
+            item: Dict[str, Any] = {
                 "id": row.get("id"),
                 "direction": row.get("direction"),
                 "contact_addr": row.get("contact_addr"),
@@ -94,12 +102,18 @@ async def execute_read_mail(arguments: Dict[str, Any]) -> str:
                 "subject": row.get("subject"),
                 "time": row.get("happened_at"),
             }
-            if idx >= split_at:
+            if idx_from_end < recent_n:
                 item["body"] = row.get("body") or ""
                 item["summary"] = row.get("summary") or ""
             else:
                 item["summary"] = row.get("summary") or ""
+            item_chars = len(str(item.get("body") or "")) + len(str(item.get("summary") or ""))
+            if char_count + item_chars > _MAIL_RESULT_MAX_CHARS and items:
+                break
+            char_count += item_chars
             items.append(item)
+        # 反转为时间升序（旧→新）
+        items.reverse()
         return _json_text({"success": True, "data": items})
     except Exception as e:
         logger.warning("read_mail result shaping failed: %s", e)

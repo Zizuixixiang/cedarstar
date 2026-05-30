@@ -291,7 +291,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 ### 3.3 工具执行摘要
 
-`tool_executions` 用于记录每次工具调用的短摘要与原始结果。摘要生成统一走 `tools/lutopia.py` 的字数分支：原始结果 `<300` 字原样；`300–10000` 字调用 `search_summary`（不可用回退 `summary`，再失败回退旧截断）压到 200–300 字；`>10000` 字先压到 5000 字以内供本轮使用，再二次压到 200–300 字供跨轮上下文与落库摘要使用。DB 仍兜底截断摘要 1200、原始结果 50K；日终跑批自动清理 7 天前的记录。
+`tool_executions` 用于记录每次工具调用的短摘要与原始结果。摘要生成统一走 `tools/lutopia.py` 的字数分支：原始结果 `<300` 字原样；`300–10000` 字调用 `search_summary`（不可用回退 `summary`，再失败回退旧截断）压到 200–300 字；`>10000` 字先压到 5000 字以内供本轮使用，再二次压到 200–300 字供跨轮上下文与落库摘要使用。`read_mail` 在 `MAIL_NO_COMPRESS_TOOLS` 白名单中，跳过压缩，本轮和跨轮均返回原文。DB 仍兜底截断摘要 1200、原始结果 50K；日终跑批自动清理 7 天前的记录。
 
 ## 四、对话与工具
 
@@ -318,7 +318,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 **`web_fetch`（网页正文抓取）** 无人设列：仅环境变量 **`ENABLE_WEB_FETCH_TOOL`**（`config.py`，默认 true）为真时注册；与记忆内部工具同属「可出现在 OpenAI tools 列表」的旁路能力，但不经由 `persona_configs` 开关。
 
-**邮件工具** 无人设列：`tools/mail_tools.py` 的 `read_mail` / `send_mail` 始终注册。`read_mail(contact_email?, recent_n=3)` 读取 `mail_inbox` 与 `mail_outbox` 并按时间升序合并，最近若干封返回原文，更早只返回摘要；`send_mail` 写入 `mail_outbox(status='pending')` 并创建 `pending_approvals.tool_name='send_mail_outbox'`，审批通过后才通过 Resend 发出。system 后缀在 `tools/prompts.py` 的 `MAIL_TOOL_DIRECTIVE`，包含写信规则和禁用句式。
+**邮件工具** 无人设列：`tools/mail_tools.py` 的 `read_mail` / `send_mail` 始终注册。`read_mail(contact_email?, recent_n=3)` 读取 `mail_inbox` 与 `mail_outbox` 并按时间升序合并，从最新往前累加字数，超过 10,000 字停止；最近 `recent_n` 封返回原文，更早只返回摘要；结果不走工具压缩（`MAIL_NO_COMPRESS_TOOLS` 白名单）。`send_mail` 写入 `mail_outbox(status='pending')` 并创建 `pending_approvals.tool_name='send_mail_outbox'`，审批通过后才通过 Resend 发出。system 后缀在 `tools/prompts.py` 的 `MAIL_TOOL_DIRECTIVE`，包含写信规则和禁用句式。
 
 **通用自定义 MCP** 无人设列：仅环境变量 **`ENABLE_CUSTOM_MCP`**（`config.py`，默认 true）为真时参与工具构建，具体 server 与工具开关来自 `mcp_servers` / `mcp_tools`，见 **§4.2.6**。
 
@@ -342,7 +342,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 邮件表由 `memory/database.py` 启动迁移幂等创建，显式 SQL 为 `migrations/20260529_add_mail_tables.sql` 与 `migrations/20260529_add_mail_contacts.sql`，CedarClio 与 CedarStar 两个主库各自确认。Cloudflare Worker 代码在 `cloudflare/mail-worker.js`：`message.to` 为 `clio@cedarstar.org` 投到 `CEDARCLIO_INBOX_URL`，为 `sirius@cedarstar.org` 投到 `CEDARSTAR_INBOX_URL`，POST 原始 MIME 并带 `x-mail-secret: MAIL_SECRET`；`MAIL_SECRET` 用 `wrangler secret put` 设置。
 
-后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body` 后先查 `mail_contacts`；发件人邮箱不存在时返回 200 并丢弃，存在时才写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，并向 `TELEGRAM_MAIN_USER_CHAT_ID` 发送“收到来自 … 的新信件”提醒。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /thread`、`POST /outbox`、`GET/POST/DELETE /contacts`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
+后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body` 后先查 `mail_contacts`；发件人邮箱不存在时返回 200 并丢弃，存在时才写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，同时写系统消息 `[系统通知] 收到来自 {from_name} 的新信件：《{subject}》` 到 `messages` 表，并调 `trigger_idle_activity` 注入专用 trigger `[MAIL_TRIGGER] 你收到了来自 {from_name} 的新信件《{subject}》，可以用 read_mail 工具读一下。`。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /thread`、`POST /outbox`、`GET/POST/DELETE /contacts`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
 
 ### 4.2.3 AI HOT 资讯（`tools/aihot.py`）
 

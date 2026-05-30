@@ -442,7 +442,7 @@ async def _resolve_idle_activity_telegram_dm_chat_id(db) -> Optional[str]:
     return resolved
 
 
-async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool = False) -> None:
+async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool = False, trigger_text_override: Optional[str] = None) -> None:
     """执行一次自主活动：构建临时 trigger 上下文，生成并发送 assistant 文本。"""
     chat_id_str = await _resolve_idle_activity_telegram_dm_chat_id(db)
     if not chat_id_str:
@@ -478,10 +478,13 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
         or has_idle_builtin_tools
     )
 
-    # 把南杉最近回复时间注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
-    if stardew_mode:
+    # 支持外部传入专用 trigger 文案（如邮件通知），跳过默认 trigger 构建
+    if trigger_text_override:
+        idle_trigger_text = await _append_idle_custom_mcp_prompt_suffix(db, trigger_text_override)
+    elif stardew_mode:
         idle_trigger_text = STARDEW_AUTOPLAY_TRIGGER_TEXT
     else:
+        # 把南杉最近回复时间注入本次 idle trigger，增强模型对时间感知。（星露谷模式仅用固定口令）
         try:
             idle_trigger_base = await get_effective_prompt_text("idle_activity_trigger")
         except Exception as e:
@@ -496,7 +499,7 @@ async def trigger_idle_activity(telegram_bot_instance, db, *, stardew_mode: bool
                 idle_trigger_text = _append_idle_next_at_hint(
                     f"{idle_trigger_base}\n南杉最近一次回复你在{last_user_text}。"
                 )
-    idle_trigger_text = await _append_idle_custom_mcp_prompt_suffix(db, idle_trigger_text)
+        idle_trigger_text = await _append_idle_custom_mcp_prompt_suffix(db, idle_trigger_text)
 
     # 只把 idle trigger 注入本次推理，不写入 messages 表
     daily_summaries_override = await build_idle_daily_summaries_override()

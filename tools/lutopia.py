@@ -53,6 +53,7 @@ TOOL_RESULT_SHORT_WORDS = 300
 TOOL_RESULT_LONG_WORDS = 10000
 TOOL_RESULT_LONG_COMPRESS_MAX_TOKENS = 7000
 TOOL_RESULT_CONTEXT_MAX_TOKENS = 700
+MAIL_NO_COMPRESS_TOOLS = {"read_mail"}
 
 _TOOL_RESULT_LONG_COMPRESS_PROMPT = """你是一个工具结果整理助手，负责对工具返回的原始数据做结构化精简。
 任务：将以下工具返回内容压缩到5000字以内。
@@ -240,6 +241,8 @@ async def _compress_tool_result_by_length(
     """统一按原始结果字数产出 (本轮内容, 跨轮摘要)。"""
     raw = result_text or ""
     raw_stripped = raw.strip()
+    if tool_name in MAIL_NO_COMPRESS_TOOLS:
+        return raw, raw
     if len(raw_stripped) < TOOL_RESULT_SHORT_WORDS:
         short = raw_stripped or "已执行，但没有返回可读结果。"
         return raw, short
@@ -305,6 +308,8 @@ async def summarize_tool_result_for_context(
 async def tool_result_for_model(tool_name: str, arguments_json: str, result_text: str) -> str:
     """本轮回传给聊天模型的工具结果；所有工具统一按原始字数分支。"""
     raw = result_text or ""
+    if tool_name in MAIL_NO_COMPRESS_TOOLS:
+        return raw
     if len(raw.strip()) <= TOOL_RESULT_LONG_WORDS:
         return raw
     model_result, _ = await _compress_tool_result_by_length(
