@@ -7,6 +7,10 @@ import './../styles/approvals.css';
 
 const LABELS = {
   title: '\u5f85\u5ba1\u6279\u66f4\u65b0',
+  titleApprovals: '\u5f85\u5ba1\u6279\u66f4\u65b0',
+  titleMail: '\u5f85\u5ba1\u6279\u90ae\u4ef6',
+  titleInbox: '\u6536\u4ef6\u7bb1',
+  titleContacts: '\u7b14\u53cb\u7ba1\u7406',
   refresh: '\u5237\u65b0',
   approve: '\u540c\u610f',
   reject: '\u62d2\u7edd',
@@ -509,13 +513,16 @@ export default function Approvals() {
     }
   }, []);
 
+  const tabTitle = activeTab === 'mail' ? LABELS.titleMail : activeTab === 'inbox' ? LABELS.titleInbox : activeTab === 'contacts' ? LABELS.titleContacts : LABELS.titleApprovals;
+  const tabCount = activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : activeTab === 'contacts' ? contactCount : pendingCount;
+
   return (
     <div className="memory-container approvals-container">
       <div className="memory-tab-header approvals-header">
         <div className="memory-tab-header__title">
           <span className="memory-tab-header__icon" aria-hidden="true"><ClipboardCheck size={22} strokeWidth={1.75} /></span>
-          <span className="memory-tab-header__title-text">{LABELS.title}</span>
-          <span className="approval-count-badge">{activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : activeTab === 'contacts' ? contactCount : pendingCount}</span>
+          <span className="memory-tab-header__title-text">{tabTitle}</span>
+          <span className="approval-count-badge">{tabCount}</span>
         </div>
         <div className="memory-tab-header__actions">
           <button type="button" className="approval-button" onClick={activeTab === 'inbox' ? loadInbox : activeTab === 'contacts' ? loadContacts : loadApprovals} disabled={loading} title={LABELS.refresh}>
