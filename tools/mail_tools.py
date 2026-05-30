@@ -17,6 +17,18 @@ OPENAI_MAIL_TOOLS: List[Dict[str, Any]] = [
     {
         "type": "function",
         "function": {
+            "name": "list_mail_contacts",
+            "description": "查看笔友列表，返回每位笔友的名字、邮箱和备注。",
+            "parameters": {
+                "type": "object",
+                "properties": {},
+                "required": [],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "read_mail",
             "description": (
                 "读取邮件往来。可传 contact_email 查看某个笔友；不传则返回所有往来。"
@@ -59,6 +71,15 @@ OPENAI_MAIL_TOOLS: List[Dict[str, Any]] = [
         },
     },
 ]
+
+
+async def execute_list_mail_contacts(arguments: Dict[str, Any]) -> str:
+    try:
+        raw = await _api_get("/mail/contacts")
+        return raw
+    except Exception as e:
+        logger.warning("list_mail_contacts failed: %s", e)
+        return _json_text({"error": str(e)})
 
 
 def _safe_int(value: Any, default: int) -> int:
