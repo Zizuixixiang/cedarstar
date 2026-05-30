@@ -338,8 +338,8 @@ async def list_mail_inbox(limit: int = 100):
 
 
 @router.get("/thread")
-async def list_mail_thread(contact_email: Optional[str] = None, limit: int = 100):
+async def list_mail_thread(contact: Optional[str] = None, contact_email: Optional[str] = None, limit: int = 100):
     from memory.database import list_mail_thread as db_list_mail_thread
 
-    rows = await db_list_mail_thread(contact_email=contact_email, limit=limit)
+    rows = await db_list_mail_thread(contact=contact, contact_email=contact_email, limit=limit)
     return _response(True, rows, "mail thread loaded")

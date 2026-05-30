@@ -89,7 +89,8 @@ MEMORY_TOOL_DIRECTIVE = (
 MAIL_TOOL_DIRECTIVE = (
     "【邮件工具】\n"
     "- list_mail_contacts：查看笔友列表，返回每位笔友的名字、邮箱和备注。\n"
-    "- read_mail：读取邮件往来。contact_email 可省略；recent_n 默认 3。返回 direction=inbox/outbox，最近若干封含正文，更早只含摘要。\n"
+    "- add_mail_contact：新增笔友（上限 12 人）。传邮箱，名字和备注可选。\n"
+    "- read_mail：读取某个笔友的邮件往来，必须传 contact（名字或邮箱）。recent_n 默认 3。返回 direction=inbox/outbox，最近若干封含正文，更早只含摘要。\n"
     "- send_mail：写邮件并提交审批。审批通过后才会真正发出。\n"
     "写信时注意：\n"
     "1. 字数与对方来信相当\n"

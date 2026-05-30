@@ -2286,23 +2286,25 @@ class MessageDatabase:
         self,
         *,
         contact_email: Optional[str] = None,
+        contact: Optional[str] = None,
         limit: int = 100,
     ) -> List[Dict[str, Any]]:
         lim = max(1, min(int(limit or 100), 500))
-        contact = (contact_email or "").strip().lower()
+        # contact 参数支持名字或邮箱；向后兼容 contact_email
+        q = (contact or contact_email or "").strip().lower()
         async with self.pool.acquire() as conn:
-            if contact:
+            if q:
                 inbox_rows = await conn.fetch(
                     """
                     SELECT id, 'inbox' AS direction, from_addr AS contact_addr,
                            from_name AS contact_name, subject, body, summary,
                            received_at AS happened_at
                     FROM mail_inbox
-                    WHERE lower(from_addr) = $1
+                    WHERE lower(from_addr) = $1 OR lower(from_name) = $1
                     ORDER BY received_at DESC, id DESC
                     LIMIT $2
                     """,
-                    contact,
+                    q,
                     lim,
                 )
                 outbox_rows = await conn.fetch(
@@ -2311,11 +2313,11 @@ class MessageDatabase:
                            to_name AS contact_name, subject, body, summary,
                            COALESCE(sent_at, created_at) AS happened_at
                     FROM mail_outbox
-                    WHERE lower(to_addr) = $1
+                    WHERE lower(to_addr) = $1 OR lower(to_name) = $1
                     ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
                     LIMIT $2
                     """,
-                    contact,
+                    q,
                     lim,
                 )
             else:
@@ -8175,9 +8177,10 @@ async def list_mail_inbox(limit: int = 100) -> List[Dict[str, Any]]:
 
 
 async def list_mail_thread(
-    *, contact_email: Optional[str] = None, limit: int = 100
+    *, contact: Optional[str] = None, contact_email: Optional[str] = None, limit: int = 100
 ) -> List[Dict[str, Any]]:
     return await get_database().list_mail_thread(
+        contact=contact,
         contact_email=contact_email,
         limit=limit,
     )

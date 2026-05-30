@@ -31,15 +31,15 @@ OPENAI_MAIL_TOOLS: List[Dict[str, Any]] = [
         "function": {
             "name": "read_mail",
             "description": (
-                "读取邮件往来。可传 contact_email 查看某个笔友；不传则返回所有往来。"
+                "读取某个笔友的邮件往来。必须传 contact 指定笔友（名字或邮箱均可）。"
                 "返回按时间升序合并的收件箱/发件箱记录，最近 recent_n 封含原文，更早只含摘要。"
             ),
             "parameters": {
                 "type": "object",
                 "properties": {
-                    "contact_email": {
+                    "contact": {
                         "type": "string",
-                        "description": "笔友邮箱，可省略",
+                        "description": "笔友名字或邮箱，必传",
                     },
                     "recent_n": {
                         "type": "integer",
@@ -47,7 +47,23 @@ OPENAI_MAIL_TOOLS: List[Dict[str, Any]] = [
                         "default": 3,
                     },
                 },
-                "required": [],
+                "required": ["contact"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "add_mail_contact",
+            "description": "新增一个笔友。上限 12 人，超出会报错。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "email": {"type": "string", "description": "笔友邮箱"},
+                    "name": {"type": "string", "description": "笔友名字，可省略"},
+                    "note": {"type": "string", "description": "备注，可省略"},
+                },
+                "required": ["email"],
             },
         },
     },
@@ -73,12 +89,49 @@ OPENAI_MAIL_TOOLS: List[Dict[str, Any]] = [
 ]
 
 
+_MAIL_CONTACT_LIMIT = 12
+
+
 async def execute_list_mail_contacts(arguments: Dict[str, Any]) -> str:
     try:
         raw = await _api_get("/mail/contacts")
         return raw
     except Exception as e:
         logger.warning("list_mail_contacts failed: %s", e)
+        return _json_text({"error": str(e)})
+
+
+async def execute_add_mail_contact(arguments: Dict[str, Any]) -> str:
+    args = arguments if isinstance(arguments, dict) else {}
+    email = str(args.get("email") or "").strip()
+    if not email or "@" not in email:
+        return _json_text({"error": "邮箱格式不对"})
+    # 检查上限
+    try:
+        raw = await _api_get("/mail/contacts")
+        payload = json.loads(raw)
+        existing = payload.get("data") if isinstance(payload, dict) else None
+        if isinstance(existing, list) and len(existing) >= _MAIL_CONTACT_LIMIT:
+            return _json_text({"error": f"笔友已达上限 {_MAIL_CONTACT_LIMIT} 人"})
+    except Exception:
+        pass
+    payload = {
+        "email": email,
+        "name": str(args.get("name") or "").strip() or None,
+        "note": str(args.get("note") or "").strip() or None,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=MEMORY_TOOL_TIMEOUT) as client:
+            resp = await client.post(
+                f"{MEMORY_API_BASE_URL}/mail/contacts",
+                headers={**_headers(), "Content-Type": "application/json"},
+                json=payload,
+            )
+        if not resp.is_success:
+            return _json_text({"error": f"HTTP {resp.status_code}: {resp.text[:300]}"})
+        return _json_text(resp.json())
+    except (httpx.HTTPError, json.JSONDecodeError) as e:
+        logger.warning("add_mail_contact failed: %s", e)
         return _json_text({"error": str(e)})
 
 
@@ -95,9 +148,9 @@ async def execute_read_mail(arguments: Dict[str, Any]) -> str:
     args = arguments if isinstance(arguments, dict) else {}
     recent_n = max(0, min(_safe_int(args.get("recent_n"), 3), 20))
     params: Dict[str, Any] = {"limit": 500}
-    contact = str(args.get("contact_email") or "").strip()
+    contact = str(args.get("contact") or args.get("contact_email") or "").strip()
     if contact:
-        params["contact_email"] = contact
+        params["contact"] = contact
     raw = await _api_get("/mail/thread", params)
     try:
         payload = json.loads(raw)

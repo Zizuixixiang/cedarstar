@@ -3152,7 +3152,7 @@ async def complete_with_lutopia_tool_loop(
         execute_memory_get_approval_status,
         execute_memory_update_request,
     )
-    from tools.mail_tools import OPENAI_MAIL_TOOLS, execute_list_mail_contacts, execute_read_mail, execute_send_mail
+    from tools.mail_tools import OPENAI_MAIL_TOOLS, execute_add_mail_contact, execute_list_mail_contacts, execute_read_mail, execute_send_mail
     from tools.game_tools import (
         OPENAI_GAME_ACTIVE_TOOLS,
         OPENAI_GAME_START_TOOLS,
@@ -3484,6 +3484,12 @@ async def complete_with_lutopia_tool_loop(
                         result_str = await execute_memory_update_request(args_mem_update)
                     elif nm == "list_mail_contacts":
                         result_str = await execute_list_mail_contacts({})
+                    elif nm == "add_mail_contact":
+                        try:
+                            args_add_contact: Dict[str, Any] = json.loads(raw_args or "{}")
+                        except json.JSONDecodeError:
+                            args_add_contact = {}
+                        result_str = await execute_add_mail_contact(args_add_contact)
                     elif nm == "read_mail":
                         try:
                             args_mail_read: Dict[str, Any] = json.loads(raw_args or "{}")
