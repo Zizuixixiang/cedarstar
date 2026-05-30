@@ -342,7 +342,7 @@ Context 中的 chunk 摘要默认只注入 `archived_by IS NULL` 的记录，且
 
 邮件表由 `memory/database.py` 启动迁移幂等创建，显式 SQL 为 `migrations/20260529_add_mail_tables.sql` 与 `migrations/20260529_add_mail_contacts.sql`，CedarClio 与 CedarStar 两个主库各自确认。Cloudflare Worker 代码在 `cloudflare/mail-worker.js`：`message.to` 为 `clio@cedarstar.org` 投到 `CEDARCLIO_INBOX_URL`，为 `sirius@cedarstar.org` 投到 `CEDARSTAR_INBOX_URL`，POST 原始 MIME 并带 `x-mail-secret: MAIL_SECRET`；`MAIL_SECRET` 用 `wrangler secret put` 设置。
 
-后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body` 后先查 `mail_contacts`；发件人邮箱不存在时返回 200 并丢弃，存在时才写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，同时写系统消息 `[系统通知] 收到来自 {from_name} 的新信件：《{subject}》` 到 `messages` 表，并调 `trigger_idle_activity` 注入专用 trigger `[MAIL_TRIGGER] 你收到了来自 {from_name} 的新信件《{subject}》，可以用 read_mail 工具读一下。`。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /thread`、`POST /outbox`、`GET/POST/DELETE /contacts`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
+后端 `POST /api/mail/inbox` 在 `main.py` 单独挂载，只校验 `x-mail-secret`，不走 Mini App token。它解析 MIME 的 `from_addr / from_name / subject / body` 后先查 `mail_contacts`；发件人邮箱不存在时返回 200 并丢弃，存在时才写 `mail_inbox`，后台用 `SummaryLLMInterface` 生成 100–200 字摘要，同时通过 `send_telegram_text_to_chat` 向 Telegram 发送提醒："收到来自 {from_name} 的新信件：《{subject}》"。受保护路由挂在 `/api/mail`：`GET /inbox`、`GET /outbox`、`GET /thread`、`POST /outbox`、`GET/POST/DELETE /contacts`。`POST /outbox` 写 `mail_outbox` 后创建 `send_mail_outbox` 审批；批准后调用 Resend API（`RESEND_API_KEY`，发件地址 `MAIL_FROM_ADDR`，未配时按 `APP_NAME` 默认 clio/sirius@cedarstar.org），成功写 `status='sent'` 与 `sent_at`，再后台生成 outbox summary。
 
 ### 4.2.3 AI HOT 资讯（`tools/aihot.py`）
 
@@ -518,7 +518,7 @@ Memory 页的 summaries 与长期记忆列表支持“只看本轮”排查：
 
 ### 7.5 待审批
 
-待审批页（`/approvals`）展示来自内部记忆工具写入操作、MCP `api_admin` 管理写入工具与邮件 outbox 发信的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。页面包含「邮件」Tab 预览待发邮件正文并批准/拒绝；「收件箱」Tab 调 `GET /api/mail/inbox` 展示 `mail_inbox` 列表和原文；「笔友」Tab 调 `GET/POST/DELETE /api/mail/contacts` 管理 `mail_contacts`。
+待审批页（`/approvals`）展示来自内部记忆工具写入操作、MCP `api_admin` 管理写入工具与邮件 outbox 发信的 pending approval 请求。用户可在此批准或拒绝请求，批准后由 `_apply_approved_update` 执行实际写入。页面包含「邮件」Tab 预览待发邮件正文并批准/拒绝；「收件箱」Tab 调 `GET /api/mail/inbox` 展示 `mail_inbox` 列表和原文；「已发送」Tab 调 `GET /api/mail/outbox` 展示 `mail_outbox` 中已发送与待发送的邮件列表；「笔友」Tab 调 `GET/POST/DELETE /api/mail/contacts` 管理 `mail_contacts`。
 
 ## 八、MCP Memory Server
 

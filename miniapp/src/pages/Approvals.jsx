@@ -1,6 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, ClipboardCheck, FileText, Inbox, Mail, Plus, RefreshCw, Trash2, UserRound, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronRight, ClipboardCheck, FileText, Inbox, Mail, Plus, RefreshCw, Send, Trash2, UserRound, X } from 'lucide-react';
 import { apiFetch } from '../apiBase';
 import './../styles/memory.css';
 import './../styles/approvals.css';
@@ -22,10 +22,13 @@ const LABELS = {
   empty: '\u6682\u65e0\u5f85\u5ba1\u6279\u9879',
   emptyMail: '\u6682\u65e0\u5f85\u5ba1\u6279\u90ae\u4ef6',
   emptyInbox: '\u6682\u65e0\u6536\u4ef6',
-  approvalTab: '\u66f4\u65b0',
+  approvalTab: '\u8bb0\u5fc6',
   mailTab: '\u90ae\u4ef6',
   inboxTab: '\u6536\u4ef6\u7bb1',
   contactsTab: '\u7b14\u53cb',
+  outboxTab: '\u5df2\u53d1\u9001',
+  titleOutbox: '\u5df2\u53d1\u9001\u90ae\u4ef6',
+  emptyOutbox: '\u6682\u65e0\u5df2\u53d1\u9001\u90ae\u4ef6',
   contactName: '\u540d\u5b57',
   contactEmail: '\u90ae\u7bb1',
   contactNote: '\u5907\u6ce8',
@@ -234,6 +237,24 @@ function InboxMailCard({ item }) {
   );
 }
 
+function OutboxMailCard({ item }) {
+  const toDisplay = item.to_name ? `${item.to_name} <${item.to_addr}>` : item.to_addr;
+  return (
+    <article className="approval-card mail-card outbox-mail-card">
+      <div className="approval-card-header">
+        <div className="approval-tool-title">
+          <div>
+            <h3>{item.subject || '\u65e0\u4e3b\u9898'}</h3>
+            <p>{toDisplay}</p>
+          </div>
+        </div>
+        <div className="approval-countdown">{formatDateTime(item.sent_at || item.created_at)}</div>
+      </div>
+      <pre className="mail-body-preview">{item.body || ''}</pre>
+    </article>
+  );
+}
+
 function InboxGroup({ contactAddr, contactName, items, expanded, onToggle }) {
   return (
     <div className="inbox-group">
@@ -357,6 +378,7 @@ export default function Approvals() {
   const [activeTab, setActiveTab] = useState('approvals');
   const [approvals, setApprovals] = useState([]);
   const [inboxItems, setInboxItems] = useState([]);
+  const [outboxItems, setOutboxItems] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [contactForm, setContactForm] = useState({ name: '', email: '', note: '' });
   const [loading, setLoading] = useState(true);
@@ -406,6 +428,23 @@ export default function Approvals() {
     }
   }, []);
 
+  const loadOutbox = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const res = await apiFetch('/api/mail/outbox?limit=100');
+      const payload = await res.json();
+      if (!res.ok || !payload.success) {
+        throw new Error(payload.message || `HTTP ${res.status}`);
+      }
+      setOutboxItems(Array.isArray(payload.data) ? payload.data : []);
+    } catch (err) {
+      setError(err?.message || 'failed');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const loadContacts = useCallback(async () => {
     setLoading(true);
     setError('');
@@ -426,12 +465,14 @@ export default function Approvals() {
   useEffect(() => {
     if (activeTab === 'inbox') {
       loadInbox();
+    } else if (activeTab === 'outbox') {
+      loadOutbox();
     } else if (activeTab === 'contacts') {
       loadContacts();
     } else {
       loadApprovals();
     }
-  }, [activeTab, loadApprovals, loadContacts, loadInbox]);
+  }, [activeTab, loadApprovals, loadContacts, loadInbox, loadOutbox]);
 
   const normalApprovals = useMemo(
     () => approvals.filter((item) => item.tool_name !== 'send_mail_outbox'),
@@ -444,6 +485,7 @@ export default function Approvals() {
   const pendingCount = normalApprovals.length;
   const mailCount = mailApprovals.length;
   const contactCount = contacts.length;
+  const outboxCount = outboxItems.length;
 
   const inboxByContact = useMemo(() => {
     const groups = {};
@@ -552,8 +594,8 @@ export default function Approvals() {
     }
   }, []);
 
-  const tabTitle = activeTab === 'mail' ? LABELS.titleMail : activeTab === 'inbox' ? LABELS.titleInbox : activeTab === 'contacts' ? LABELS.titleContacts : LABELS.titleApprovals;
-  const tabCount = activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : activeTab === 'contacts' ? contactCount : pendingCount;
+  const tabTitle = activeTab === 'mail' ? LABELS.titleMail : activeTab === 'inbox' ? LABELS.titleInbox : activeTab === 'outbox' ? LABELS.titleOutbox : activeTab === 'contacts' ? LABELS.titleContacts : LABELS.titleApprovals;
+  const tabCount = activeTab === 'mail' ? mailCount : activeTab === 'inbox' ? inboxItems.length : activeTab === 'outbox' ? outboxCount : activeTab === 'contacts' ? contactCount : pendingCount;
 
   return (
     <div className="memory-container approvals-container">
@@ -564,7 +606,7 @@ export default function Approvals() {
           <span className="approval-count-badge">{tabCount}</span>
         </div>
         <div className="memory-tab-header__actions">
-          <button type="button" className="approval-button" onClick={activeTab === 'inbox' ? loadInbox : activeTab === 'contacts' ? loadContacts : loadApprovals} disabled={loading} title={LABELS.refresh}>
+          <button type="button" className="approval-button" onClick={activeTab === 'inbox' ? loadInbox : activeTab === 'outbox' ? loadOutbox : activeTab === 'contacts' ? loadContacts : loadApprovals} disabled={loading} title={LABELS.refresh}>
             <RefreshCw size={16} strokeWidth={1.8} aria-hidden />
             <span>{LABELS.refresh}</span>
           </button>
@@ -583,6 +625,10 @@ export default function Approvals() {
         <button type="button" className={`approval-tab ${activeTab === 'inbox' ? 'is-active' : ''}`} onClick={() => setActiveTab('inbox')}>
           <Inbox size={16} aria-hidden />
           <span>{LABELS.inboxTab}</span>
+        </button>
+        <button type="button" className={`approval-tab ${activeTab === 'outbox' ? 'is-active' : ''}`} onClick={() => setActiveTab('outbox')}>
+          <Send size={16} aria-hidden />
+          <span>{LABELS.outboxTab}</span>
         </button>
         <button type="button" className={`approval-tab ${activeTab === 'contacts' ? 'is-active' : ''}`} onClick={() => setActiveTab('contacts')}>
           <UserRound size={16} aria-hidden />
@@ -608,6 +654,16 @@ export default function Approvals() {
                   expanded={expandedGroups.has(group.addr)}
                   onToggle={() => toggleGroup(group.addr)}
                 />
+              ))}
+            </div>
+          )
+        ) : activeTab === 'outbox' ? (
+          outboxItems.length === 0 ? (
+            <div className="approval-empty-state">{LABELS.emptyOutbox}</div>
+          ) : (
+            <div className="approval-list">
+              {outboxItems.map((item) => (
+                <OutboxMailCard key={item.id} item={item} />
               ))}
             </div>
           )

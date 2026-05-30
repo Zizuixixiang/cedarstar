@@ -35,7 +35,7 @@
   overflow-x: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  margin: 14px 0 12px;
+  margin: 6px 0 8px;
 }
 
 .approval-tabs::-webkit-scrollbar {
@@ -95,7 +95,7 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 16px;
-  margin-bottom: 16px;
+  margin-bottom: 10px;
 }
 
 .approval-tool-title {
@@ -242,6 +242,10 @@
   content: 'MAIL';
 }
 
+.outbox-mail-card::before {
+  content: 'SENT';
+}
+
 .mail-body-preview {
   margin: 0;
   border: 2px solid var(--text-main);
@@ -284,7 +288,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 14px 16px;
+  padding: 10px 14px;
   border: none;
   background: #f7f3e8;
   color: var(--text-main);
@@ -329,6 +333,11 @@
   border-top: 1px solid rgba(26, 26, 26, 0.15);
   box-shadow: none;
   border-radius: 0;
+  padding: 10px 14px;
+}
+
+.inbox-mail-card .mail-body-preview {
+  max-height: 120px;
 }
 
 .inbox-mail-card::before {

@@ -219,45 +219,29 @@ async def receive_mail_inbox(
         parsed.get("body") or "",
     )
 
-    # 写系统消息到 messages 表
+    # Telegram 通知：提醒用户有新信件
     from_name = parsed.get("from_name") or parsed.get("from_addr") or "未知发件人"
     subject = parsed.get("subject") or "无主题"
-    system_content = f"[系统通知] 收到来自 {from_name} 的新信件：《{subject}》"
     try:
-        from memory.database import save_message
+        from bot.telegram_notify import send_telegram_text_to_chat
 
-        await save_message(
-            role="system",
-            content=system_content,
-            session_id="mail_inbox",
-            platform="mail",
-        )
-    except Exception as e:
-        logger.warning("mail system message save failed: %s", e)
-
-    # 触发 idle activity，使用邮件专用 trigger 文案
-    try:
-        from bot.idle_activity import trigger_idle_activity
-        from bot.telegram_bot import _webhook_telegram_bot
-        from memory.database import get_database
-
-        db = get_database()
-        tg_bot = _webhook_telegram_bot
-        if tg_bot:
-            mail_trigger = (
-                f"[MAIL_TRIGGER] 你收到了来自 {from_name} 的新信件《{subject}》，"
-                f"可以用 read_mail 工具读一下。"
-            )
-            background_tasks.add_task(
-                trigger_idle_activity,
-                tg_bot,
-                db,
-                trigger_text_override=mail_trigger,
+        chat_id = config.TELEGRAM_MAIN_USER_CHAT_ID
+        if chat_id:
+            await send_telegram_text_to_chat(
+                chat_id, f"收到来自 {from_name} 的新信件：《{subject}》"
             )
     except Exception as e:
-        logger.warning("mail idle activity trigger failed: %s", e)
+        logger.warning("mail telegram notify failed: %s", e)
 
     return _response(True, {"id": inbox_id}, "mail received")
+
+
+@router.get("/outbox")
+async def list_mail_outbox(limit: int = 100):
+    from memory.database import list_mail_outbox as db_list_mail_outbox
+
+    rows = await db_list_mail_outbox(limit=limit)
+    return _response(True, rows, "mail outbox loaded")
 
 
 @router.post("/outbox")
@@ -335,6 +319,7 @@ async def list_mail_inbox(limit: int = 100):
 
     rows = await db_list_mail_inbox(limit=limit)
     return _response(True, rows, "mail inbox loaded")
+
 
 
 @router.get("/thread")

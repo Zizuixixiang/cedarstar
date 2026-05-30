@@ -2282,6 +2282,20 @@ class MessageDatabase:
             )
         return _rows(rows)
 
+    async def list_mail_outbox(self, limit: int = 100) -> List[Dict[str, Any]]:
+        lim = max(1, min(int(limit or 100), 500))
+        async with self.pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT id, to_addr, to_name, subject, body, summary, status, created_at, sent_at
+                FROM mail_outbox
+                ORDER BY COALESCE(sent_at, created_at) DESC, id DESC
+                LIMIT $1
+                """,
+                lim,
+            )
+        return _rows(rows)
+
     async def list_mail_thread(
         self,
         *,
@@ -8174,6 +8188,10 @@ async def mark_mail_outbox_rejected(outbox_id: int, conn=None) -> bool:
 
 async def list_mail_inbox(limit: int = 100) -> List[Dict[str, Any]]:
     return await get_database().list_mail_inbox(limit)
+
+
+async def list_mail_outbox(limit: int = 100) -> List[Dict[str, Any]]:
+    return await get_database().list_mail_outbox(limit)
 
 
 async def list_mail_thread(
